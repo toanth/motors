@@ -16,41 +16,40 @@
  *  along with Gears. If not, see <https://www.gnu.org/licenses/>.
  */
 mod attacks;
-mod moves;
+pub mod moves;
 mod perft_tests;
-mod pieces;
+pub mod pieces;
 mod rules;
 
-use crate::games::chess::pieces::NUM_COLORS;
+use crate::PlayerResult;
 use crate::games::fairy::moves::FairyMove;
 use crate::games::fairy::pieces::{ColoredPieceId, PieceId};
 use crate::games::fairy::rules::{Draw, GameLoss, NumRoyals, Rules, RulesRef};
 use crate::games::{
     AbstractPieceType, BoardHistory, CharType, Color, ColoredPiece, ColoredPieceType, Coordinates, DimT, GenericPiece,
-    NoHistory, PosHash, Size,
+    NUM_COLORS, NoHistory, PosHash, Size,
 };
 use crate::general::bitboards::{Bitboard, DynamicallySizedBitboard, ExtendedRawBitboard, RawBitboard};
 use crate::general::board::SelfChecks::CheckFen;
 use crate::general::board::Strictness::Strict;
 use crate::general::board::{
-    position_fen_part, read_common_fen_part, read_single_move_number, read_two_move_numbers, BitboardBoard, Board,
-    BoardHelpers, BoardSize, ColPieceTypeOf, NameToPos, PieceTypeOf, SelfChecks, Strictness, UnverifiedBoard,
+    BitboardBoard, Board, BoardHelpers, BoardSize, ColPieceTypeOf, NameToPos, PieceTypeOf, SelfChecks, Strictness,
+    Symmetry, UnverifiedBoard, position_fen_part, read_common_fen_part, read_single_move_number, read_two_move_numbers,
 };
 use crate::general::common::Description::NoDescription;
 use crate::general::common::{
-    select_name_static, tokens, EntityList, GenericSelect, Res, StaticallyNamedEntity, Tokens,
+    EntityList, GenericSelect, Res, StaticallyNamedEntity, Tokens, select_name_static, tokens,
 };
 use crate::general::move_list::{EagerNonAllocMoveList, MoveList};
 use crate::general::squares::{GridCoordinates, GridSize, RectangularCoordinates, SquareColor};
-use crate::output::text_output::{board_to_string, display_board_pretty, BoardFormatter, DefaultBoardFormatter};
 use crate::output::OutputOpts;
+use crate::output::text_output::{BoardFormatter, DefaultBoardFormatter, board_to_string, display_board_pretty};
 use crate::search::Depth;
-use crate::PlayerResult;
 use anyhow::{bail, ensure};
 use arbitrary::Arbitrary;
 use itertools::Itertools;
-use rand::prelude::IndexedRandom;
 use rand::Rng;
+use rand::prelude::IndexedRandom;
 use std::fmt;
 use std::fmt::{Debug, Display, Formatter};
 use std::hash::{DefaultHasher, Hash, Hasher};
@@ -86,6 +85,12 @@ impl FairyColor {
     }
     pub fn from_idx(idx: usize) -> Self {
         Self(idx != 0)
+    }
+}
+
+impl Into<usize> for FairyColor {
+    fn into(self) -> usize {
+        self.idx()
     }
 }
 
@@ -332,13 +337,11 @@ impl UnverifiedBoard<FairyBoard> for UnverifiedFairyBoard {
         }
         for color in FairyColor::iter() {
             for loss in &self.rules.0.game_loss {
-                if loss == &GameLoss::Checkmate {
-                    if self.royal_bb_for(color).is_zero() {
-                        bail!(
-                            "The {} player has no royal pieces, but the variant counts checkmate as a loss",
-                            self.color_name(color)
-                        );
-                    }
+                if loss == &GameLoss::Checkmate && self.royal_bb_for(color).is_zero() {
+                    bail!(
+                        "The {} player has no royal pieces, but the variant counts checkmate as a loss",
+                        self.color_name(color)
+                    );
                 }
             }
         }
@@ -529,6 +532,13 @@ impl Board for FairyBoard {
         vec![Self::startpos()]
     }
 
+    // TODO: We could at least pass settings and do `startpos_for_setting()`, but ideally we'd also randomize the settings.
+    // We could generate random positions but couln't control the probability of them being legal
+    // unless we fell back to the starting position
+    fn random_pos(_rng: &mut impl Rng, _strictness: Strictness, _symmetry: Option<Symmetry>) -> Res<Self> {
+        bail!("Not currently implemented for Fairy")
+    }
+
     fn settings(&self) -> Self::Settings {
         self.rules.clone()
     }
@@ -561,7 +571,7 @@ impl Board for FairyBoard {
         self.0.ply_since_start
     }
 
-    fn halfmove_repetition_clock(&self) -> usize {
+    fn ply_draw_clock(&self) -> usize {
         self.0.draw_counter
     }
 
@@ -576,7 +586,7 @@ impl Board for FairyBoard {
     fn is_piece_on(&self, coords: Self::Coordinates, piece: ColPieceTypeOf<Self>) -> bool {
         let idx = self.0.idx(coords);
         if let Some(color) = piece.color() {
-            self.colored_piece_bb(color, piece.uncolor()).is_bit_set_at(idx)
+            self.col_piece_bb(color, piece.uncolor()).is_bit_set_at(idx)
         } else {
             self.piece_bb(piece.uncolor()).is_bit_set_at(idx)
         }
@@ -728,12 +738,12 @@ impl Board for FairyBoard {
         if let Some(rules) = board.rules.0.read_rules_fen_part(input)? {
             board = Self::empty_for_settings(rules);
         }
-        board = read_common_fen_part::<Self>(input, board)?;
-        board = board.read_castling_and_ep_fen_parts(input, strictness)?;
+        read_common_fen_part::<Self>(input, &mut board)?;
+        board.read_castling_and_ep_fen_parts(input, strictness)?;
         if board.rules().has_halfmove_repetition_clock() {
-            board = read_two_move_numbers::<Self>(input, board, strictness)?;
+            read_two_move_numbers::<Self>(input, &mut board, strictness)?;
         } else {
-            board = read_single_move_number::<Self>(input, board, strictness)?;
+            read_single_move_number::<Self>(input, &mut board, strictness)?;
         }
         board.verify_with_level(CheckFen, strictness)
     }
@@ -836,7 +846,7 @@ impl Display for NoRulesFenFormatter<'_> {
             }
         }
         if pos.rules().has_halfmove_repetition_clock() {
-            write!(f, "{} ", pos.halfmove_repetition_clock())?;
+            write!(f, "{} ", pos.ply_draw_clock())?;
         }
         write!(f, "{}", pos.fullmove_ctr_1_based())
     }
@@ -845,18 +855,18 @@ impl Display for NoRulesFenFormatter<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::PlayerResult::Draw;
     use crate::games::chess::Chessboard;
     use crate::games::fairy::attacks::MoveKind;
     use crate::games::fairy::moves::FairyMove;
     use crate::games::mnk::MNKBoard;
-    use crate::games::{chess, Height, Width, ZobristHistory};
+    use crate::games::{Height, Width, ZobristHistory, chess};
     use crate::general::board::Strictness::{Relaxed, Strict};
     use crate::general::moves::Move;
     use crate::general::perft::perft;
-    use crate::PlayerResult::Draw;
     use crate::{GameOverReason, GameResult, MatchResult};
-    use rand::rngs::StdRng;
     use rand::SeedableRng;
+    use rand::rngs::StdRng;
     use std::str::FromStr;
 
     #[test]
@@ -1057,9 +1067,9 @@ mod tests {
                 let fairy_perft = perft(depth, fairy_pos.clone(), false);
                 assert_eq!(mnk_perft.depth, fairy_perft.depth);
                 assert_eq!(mnk_perft.nodes, fairy_perft.nodes, "Depth {i}, pos: {mnk_pos}");
-                let chess_time = mnk_perft.time.as_millis();
+                let mnk_time = mnk_perft.time.as_millis();
                 let fairy_time = fairy_perft.time.as_millis();
-                assert!(chess_time * 100 + 1000 > fairy_time, "{chess_time} {fairy_time} {i} {fairy_pos}");
+                assert!(mnk_time * 100 + 2000 > fairy_time, "{mnk_time} {fairy_time} {i} {fairy_pos}");
             }
         }
     }

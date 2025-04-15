@@ -1,16 +1,11 @@
 use crate::games::CharType::{Ascii, Unicode};
-use crate::games::PlayerResult::Lose;
 use crate::general::board::Board;
-use crate::general::common::{parse_int, EntityList, Res, StaticallyNamedEntity, Tokens};
-use crate::general::move_list::MoveList;
-use crate::general::squares::{RectangularCoordinates, SquareColor};
+use crate::general::common::{EntityList, Res, Tokens};
 use crate::output::OutputBuilder;
-use crate::PlayerResult;
 use anyhow::bail;
 use arbitrary::Arbitrary;
 use colored::Colorize;
 use derive_more::{BitXor, BitXorAssign};
-use rand::Rng;
 use std::cmp::min;
 use std::fmt;
 use std::fmt::{Debug, Display, Formatter};
@@ -39,16 +34,14 @@ pub enum CharType {
     Unicode,
 }
 
+pub const NUM_COLORS: usize = 2;
+
 pub trait Color: Debug + Default + Copy + Clone + PartialEq + Eq + Send + Hash + Not {
     type Board: Board<Color = Self>;
 
     #[must_use]
     fn other(self) -> Self {
-        if self.is_first() {
-            Self::second()
-        } else {
-            Self::first()
-        }
+        if self.is_first() { Self::second() } else { Self::first() }
     }
 
     fn first() -> Self {
@@ -127,17 +120,17 @@ pub trait AbstractPieceType<B: Board>: Eq + Copy + Debug + Default {
     fn name(&self, _settings: &B::Settings) -> impl AsRef<str>;
 
     fn from_name(name: &str, settings: &B::Settings) -> Option<Self> {
-        for piece in Self::non_empty(&settings) {
-            if piece.name(&settings).as_ref().eq_ignore_ascii_case(name) {
+        for piece in Self::non_empty(settings) {
+            if piece.name(settings).as_ref().eq_ignore_ascii_case(name) {
                 return Some(piece);
             }
         }
         let mut chars = name.chars();
         if let Some(c) = chars.next() {
             if chars.next().is_none() {
-                for piece in Self::non_empty(&settings) {
+                for piece in Self::non_empty(settings) {
                     // don't ignore case because that's often used to distinguish between colors
-                    if piece.to_char(Ascii, &settings) == c || piece.to_char(Unicode, &settings) == c {
+                    if piece.to_char(Ascii, settings) == c || piece.to_char(Unicode, settings) == c {
                         return Some(piece);
                     }
                 }
@@ -163,14 +156,14 @@ pub trait ColoredPieceType<B: Board>: AbstractPieceType<B> {
     fn from_words(words: &mut Tokens, settings: &B::Settings) -> Res<Self> {
         let Some(piece) = words.next() else { bail!("Missing piece") };
 
-        if let Some(piece) = Self::from_name(piece, &settings) {
+        if let Some(piece) = Self::from_name(piece, settings) {
             return Ok(piece);
         }
         let copied = words.clone();
         let second_word = words.next().unwrap_or_default();
 
-        if let Some(color) = B::Color::from_name(piece, &settings) {
-            if let Some(piece) = Self::Uncolored::from_name(second_word, &settings) {
+        if let Some(color) = B::Color::from_name(piece, settings) {
+            if let Some(piece) = Self::Uncolored::from_name(second_word, settings) {
                 return Ok(Self::new(color, piece));
             }
         }
@@ -182,7 +175,7 @@ pub trait ColoredPieceType<B: Board>: AbstractPieceType<B> {
 
         *words = copied;
         let pieces = itertools::intersperse(
-            Self::non_empty(&settings).map(|piece| piece.name(&settings).as_ref().to_string()),
+            Self::non_empty(settings).map(|piece| piece.name(settings).as_ref().to_string()),
             ", ".to_string(),
         )
         .fold(String::new(), |a, b| a + &b);
@@ -294,6 +287,9 @@ pub trait Coordinates:
 
     /// mirrors the coordinates horizontally
     fn flip_left_right(self, size: Self::Size) -> Self;
+
+    /// Even non-recrangular boards are printed in a way that all coordinates have unique x, y values.
+    fn from_x_y(rank: usize, file: usize) -> Self;
 }
 
 pub type DimT = u8;
@@ -397,9 +393,15 @@ pub trait KnownSize<C: Coordinates>: Size<C> + Default {
 
 pub type OutputList<B> = EntityList<Box<dyn OutputBuilder<B>>>;
 
-#[derive(Copy, Clone, Eq, PartialEq, Default, Debug, derive_more::Display, BitXor, BitXorAssign, Arbitrary)]
+#[derive(Copy, Clone, Eq, PartialEq, Default, Debug, BitXor, BitXorAssign, Arbitrary)]
 #[must_use]
 pub struct PosHash(pub u64);
+
+impl Display for PosHash {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        write!(f, "{:#x}", self.0)
+    }
+}
 
 pub trait Settings: Eq + Debug + Default {
     fn text(&self) -> Option<String> {

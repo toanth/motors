@@ -3,10 +3,10 @@ use std::fmt::{Debug, Display, Formatter};
 use std::time::Duration;
 
 use gears::general::board::Board;
-use gears::rand::{rng, Rng, RngCore, SeedableRng};
+use gears::rand::{Rng, RngCore, SeedableRng, rng};
 
-use crate::eval::rand_eval::RandEval;
 use crate::eval::Eval;
+use crate::eval::rand_eval::RandEval;
 use crate::search::{AbstractSearchState, EmptySearchStackEntry, Engine, EngineInfo, NoCustomInfo, SearchState};
 use gears::general::common::StaticallyNamedEntity;
 use gears::score::Score;
@@ -109,7 +109,7 @@ impl<B: Board, R: SeedRng + Clone + Send + 'static> Engine<B> for RandomMover<B,
         SearchResult::move_only(best_move, pos.clone())
     }
 
-    fn static_eval(&mut self, _pos: B, _ply: usize) -> Score {
+    fn static_eval(&mut self, _pos: &B, _ply: usize) -> Score {
         Score(0)
     }
 
@@ -127,6 +127,7 @@ impl<B: Board, R: SeedRng + Clone + Send + 'static> Engine<B> for RandomMover<B,
             hashfull: 0,
             pos: self.state.params.pos.clone(),
             bound: Some(Exact),
+            num_threads: 1,
             additional: None,
         }
     }

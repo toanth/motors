@@ -36,13 +36,15 @@ use crate::output::OutputOpts;
 use crate::output::text_output::BoardFormatter;
 use crate::search::Depth;
 use crate::{GameOver, GameOverReason, MatchResult, PlayerResult, player_res_to_match_res};
-use anyhow::{anyhow, bail};
+use anyhow::{anyhow, bail, ensure};
 use arbitrary::Arbitrary;
 use colored::Colorize;
 use rand::Rng;
 use std::fmt;
 use std::fmt::{Debug, Display, Formatter};
 use std::num::NonZeroUsize;
+use std::str::Split;
+use strum_macros::EnumIter;
 
 #[derive(Debug, Copy, Clone)]
 pub struct NameToPos {
@@ -93,6 +95,35 @@ pub enum SelfChecks {
 pub enum Strictness {
     Relaxed,
     Strict,
+}
+
+// In the future, this could also include diagonal and antidiagonal
+#[derive(Debug, Copy, Clone, Eq, PartialEq, EnumIter)]
+#[must_use]
+pub enum Symmetry {
+    Material,
+    Horizontal,
+    Vertical,
+    Rotation180,
+}
+
+impl NamedEntity for Symmetry {
+    fn short_name(&self) -> String {
+        match self {
+            Symmetry::Material => "Material".to_string(),
+            Symmetry::Horizontal => "Horizontal".to_string(),
+            Symmetry::Vertical => "Vertical".to_string(),
+            Symmetry::Rotation180 => "Rotation".to_string(),
+        }
+    }
+
+    fn long_name(&self) -> String {
+        self.short_name()
+    }
+
+    fn description(&self) -> Option<String> {
+        Some(format!("Set the symmetry to '{}'", self.short_name()))
+    }
 }
 
 /// An [`UnverifiedBoard`] is a [`Board`] where invariants can be violated.
@@ -182,6 +213,13 @@ where
 
     /// Like [`Self::try_remove_piece`], but does not check that the coordinates are valid.
     fn remove_piece(&mut self, coords: B::Coordinates);
+
+    /// Like [`Self::try_place_piece`], but replaces any piece that is already on the given coordinates.
+    fn try_replace_piece(&mut self, coords: B::Coordinates, piece: ColPieceTypeOf<B>) -> Res<()> {
+        self.try_remove_piece(coords)?;
+        self.place_piece(coords, piece);
+        Ok(())
+    }
 
     /// Returns the piece on the given coordinates, or `None` if the coordinates aren't valid.
     /// Some [`UnverifiedBoard`]s can represent multiple pieces at the same coordinates; it is implementation-defined
@@ -306,6 +344,11 @@ pub trait Board:
     #[must_use]
     fn bench_positions() -> Vec<Self>;
 
+    /// Return a random legal (but `Relaxed`) position. Not every position has to be able to be generated, and there
+    /// are no requirements for the distribution of positions. So always returning startpos would be a valid, if poor,
+    /// implementation. Not all implementation have to support this function or all symmetries, so it returns a `Res`.
+    fn random_pos(rng: &mut impl Rng, strictness: Strictness, symmetry: Option<Symmetry>) -> Res<Self>;
+
     fn settings(&self) -> Self::Settings;
 
     /// Returns a board in the startpos of the variant corresponding to the `name`.
@@ -326,7 +369,7 @@ pub trait Board:
 
     /// An upper bound on the number of past plies that need to be considered for repetitions.
     /// This can be the same as [`Self::halfmove_ctr_since_start`] or always zero if repetitions aren't possible.
-    fn halfmove_repetition_clock(&self) -> usize;
+    fn ply_draw_clock(&self) -> usize;
 
     /// The size of the board.
     fn size(&self) -> BoardSize<Self>;
@@ -427,9 +470,11 @@ pub trait Board:
         self.is_move_pseudolegal(mov)
     }
 
-    /// Returns true iff the move is pseudolegal, that is, it can be played with `make_move` without
+    /// Returns true iff the move is pseudolegal, that is, it can be played with [`Self::make_move`] without
     /// causing a panic. When it is not certain that a move is definitely (pseudo)legal for the current position,
     /// `Untrusted<Move>` should be used.
+    /// Note that it is possible for a move to be considered pseudolegal even though [`Self::pseudolegal_moves`]
+    /// would not generate it (but such a move would never be legal)
     fn is_move_pseudolegal(&self, mov: Self::Move) -> bool;
 
     /// Returns true iff the move is legal, that is, if it is pseudolegal and playing it with `make_move`
@@ -580,7 +625,9 @@ pub trait BoardHelpers: Board {
     }
 
     /// Returns a list of pseudo legal moves, that is, moves which can either be played using
-    /// `make_move` or which will cause `make_move` to return `None`.
+    /// [`Self::make_move`] or which will cause `make_move` to return `None`.
+    /// Note that an implementation is allowed to filter out illegal pseudolegal moves, so this function does not
+    /// guarantee that e.g. all pseudolegal chess moves are being returned.
     fn pseudolegal_moves(&self) -> Self::MoveList {
         let mut moves = Self::MoveList::default();
         self.gen_pseudolegal(&mut moves);
@@ -597,7 +644,7 @@ pub trait BoardHelpers: Board {
     /// Returns an iterator over all the positions after making a legal move.
     /// Not very useful for search because it doesn't allow changing the order of generated positions,
     /// but convenient for some use cases like [`perft`](crate::general::perft::perft).
-    fn children(&self) -> impl Iterator<Item = Self> {
+    fn children(&self) -> impl Iterator<Item = Self> + Send {
         self.pseudolegal_moves().into_iter().filter_map(move |m| self.clone().make_move(m))
     }
 
@@ -643,7 +690,9 @@ pub trait BoardHelpers: Board {
     /// fail for a bug-free program; failure most likely means the `Board` implementation is bugged.
     /// For checking invariants that might be violated, use a `Board::Unverified` and call `verify_with_level`.
     fn debug_verify_invariants(self, strictness: Strictness) -> Res<Self> {
-        Self::Unverified::new(self).verify_with_level(Assertion, strictness)
+        let verified = Self::Unverified::new(self.clone()).verify_with_level(Assertion, strictness)?;
+        ensure!(verified == self, "Recalculated data doesn't match: Should be '{verified}' but is '{self}'");
+        Ok(verified)
     }
 
     /// Parses a move using [`Move::from_text`], then applies it on this board and returns the result.
@@ -659,7 +708,7 @@ pub trait BoardHelpers: Board {
 
     /// Place a piece of the given type and color on the given square. Doesn't check that the resulting position is
     /// legal (hence the `Unverified` return type), but can still fail if the piece can't be placed because e.g. there
-    /// is already a piece on that square. See [`UnverifiedBoard::try_place_piece`].
+    /// is already a piece on that square. See [`UnverifiedBoard::try_place_piece`] and [`Self::replace_piece`].
     fn place_piece(self, piece: Self::Piece) -> Res<Self::Unverified> {
         let mut res = Self::Unverified::new(self);
         res.try_place_piece(piece)?;
@@ -670,6 +719,13 @@ pub trait BoardHelpers: Board {
     fn remove_piece(self, square: Self::Coordinates) -> Res<Self::Unverified> {
         let mut res = Self::Unverified::new(self);
         res.try_remove_piece(square)?;
+        Ok(res)
+    }
+
+    /// Like `[Self::place_piece`], but if the target isn't empty, it just replaces the piece.
+    fn replace_piece(self, piece: Self::Piece) -> Res<Self::Unverified> {
+        let mut res = Self::Unverified::new(self);
+        res.try_replace_piece(piece.coordinates(), piece.colored_piece_type())?;
         Ok(res)
     }
 
@@ -741,7 +797,7 @@ pub trait BitboardBoard: Board<Coordinates: RectangularCoordinates> {
     /// Bitboard of all pieces of the given type and color, e.g. all black rooks in chess.
     /// Note that it might not be valid to use the empty piece, if such a piece exists.
     // TODO: Remove empty from pieces, use options
-    fn colored_piece_bb(&self, color: Self::Color, piece: PieceTypeOf<Self>) -> Self::Bitboard {
+    fn col_piece_bb(&self, color: Self::Color, piece: PieceTypeOf<Self>) -> Self::Bitboard {
         self.piece_bb(piece) & self.player_bb(color)
     }
 
@@ -830,7 +886,7 @@ pub fn common_fen_part<B: RectangularBoard>(f: &mut Formatter<'_>, pos: &B) -> f
 pub fn simple_fen<T: RectangularBoard>(f: &mut Formatter<'_>, pos: &T, halfmove: bool, fullmove: bool) -> fmt::Result {
     common_fen_part(f, pos)?;
     if halfmove {
-        write!(f, " {}", pos.halfmove_repetition_clock())?;
+        write!(f, " {}", pos.ply_draw_clock())?;
     }
     if fullmove {
         write!(f, " {}", pos.fullmove_ctr_1_based())?;
@@ -838,29 +894,14 @@ pub fn simple_fen<T: RectangularBoard>(f: &mut Formatter<'_>, pos: &T, halfmove:
     Ok(())
 }
 
-pub(crate) fn read_position_fen<B: RectangularBoard>(position: &str, mut board: B::Unverified) -> Res<B::Unverified> {
-    let lines = position.split('/');
-    debug_assert!(lines.clone().count() > 0);
-    let num_lines = lines.clone().count();
-    let height = board.size().height().val();
-    if num_lines != height {
-        if num_lines == 1 {
-            bail!(
-                "Expected a FEN position description of {height} lines separated by '{0}', but found '{1}'",
-                "/".bold(),
-                position.red()
-            )
-        }
-        bail!(
-            "The {0} board has a height of {1}, but the FEN contains {2} rows",
-            B::game_name(),
-            board.size().height().val().to_string().bold(),
-            num_lines.to_string().bold()
-        )
-    }
-
+fn read_position_fen_impl<B: RectangularBoard>(
+    lines: Split<char>,
+    board: &mut B::Unverified,
+    lines_read: &mut usize,
+) -> Res<()> {
     let mut square = 0;
     for (line, line_num) in lines.zip(0_usize..) {
+        *lines_read += 1;
         let mut skipped_digits = 0;
         let square_before_line = square;
         debug_assert_eq!(square_before_line, line_num * board.size().width().val());
@@ -906,46 +947,72 @@ pub(crate) fn read_position_fen<B: RectangularBoard>(position: &str, mut board: 
             bail!("Line '{line}' has incorrect width: {line_len}, should be {0}", board.size().width().val());
         }
     }
-    Ok(board)
+    Ok(())
+}
+
+pub(crate) fn read_position_fen<B: RectangularBoard>(position: &str, board: &mut B::Unverified) -> Res<()> {
+    let lines = position.split('/');
+    let mut num_lines = 0;
+    let height = board.size().height().val();
+    let res = read_position_fen_impl::<B>(lines.clone(), board, &mut num_lines);
+
+    debug_assert!(num_lines > 0);
+    if num_lines != height {
+        if num_lines == 1 {
+            let msg = if let Err(e) = res { format!(": {e}") } else { String::default() };
+            bail!(
+                "Expected a FEN position description of {height} lines separated by '{0}', but found '{1}'{msg}",
+                "/".bold(),
+                position.red()
+            )
+        }
+        // If parsing the fen failed, the number of lines isn't accurate
+        if res.is_err() {
+            return res;
+        }
+        bail!(
+            "The {0} board has a height of {1}, but the FEN contains {2} rows",
+            B::game_name(),
+            height.to_string().bold(),
+            num_lines.to_string().bold()
+        )
+    }
+    res
 }
 
 /// Reads the position and active player part
-pub(crate) fn read_common_fen_part<B: RectangularBoard>(
-    words: &mut Tokens,
-    board: B::Unverified,
-) -> Res<B::Unverified> {
+pub(crate) fn read_common_fen_part<B: RectangularBoard>(words: &mut Tokens, board: &mut B::Unverified) -> Res<()> {
     let Some(position_part) = words.next() else { bail!("Empty {0} FEN string", B::game_name()) };
-    let mut board = read_position_fen::<B>(position_part, board)?;
+    read_position_fen::<B>(position_part, board)?;
 
     let Some(active) = words.next() else {
         bail!("{0} FEN ends after the position description and doesn't include the active player", B::game_name())
     };
-    let correct_chars = [B::Color::first().to_char(&board.settings()), B::Color::second().to_char(&board.settings())];
-    if active.chars().count() != 1 {
-        bail!(
-            "Expected a single char to describe the active player ('{0}' or '{1}'), got '{2}'",
-            correct_chars[0].to_string().bold(),
-            correct_chars[1].to_string().bold(),
-            active.red()
-        );
-    }
+    let [c1, c2] = [B::Color::first().to_char(&board.settings()), B::Color::second().to_char(&board.settings())];
+    ensure!(
+        active.chars().count() == 1,
+        "Expected a single char to describe the active player ('{0}' or '{1}'), got '{2}'",
+        c1.to_string().bold(),
+        c2.to_string().bold(),
+        active.red()
+    );
     let Some(active) = B::Color::from_char(active.chars().next().unwrap(), &board.settings()) else {
         bail!(
             "Expected '{0}' or '{1}' for the color, not '{2}'",
-            correct_chars[0].to_string().bold(),
-            correct_chars[1].to_string().bold(),
+            c1.to_string().bold(),
+            c2.to_string().bold(),
             active.red()
         )
     };
     board.set_active_player(active);
-    Ok(board)
+    Ok(())
 }
 
 pub(crate) fn read_two_move_numbers<B: RectangularBoard>(
     words: &mut Tokens,
-    mut board: B::Unverified,
+    board: &mut B::Unverified,
     strictness: Strictness,
-) -> Res<B::Unverified> {
+) -> Res<()> {
     let halfmove_clock = words.peek().copied().unwrap_or("");
     // Some FENs don't contain the halfmove clock and fullmove number, so assume that's the case if parsing
     // the halfmove clock fails -- but don't do this for the fullmove number.
@@ -966,30 +1033,22 @@ pub(crate) fn read_two_move_numbers<B: RectangularBoard>(
         board.set_halfmove_repetition_clock(0)?;
         board.set_ply_since_start(usize::from(!board.active_player().is_first()))?;
     }
-    Ok(board)
+    Ok(())
 }
 
+#[allow(unused)]
 pub(crate) fn read_single_move_number<B: RectangularBoard>(
     words: &mut Tokens,
-    mut board: B::Unverified,
+    board: &mut B::Unverified,
     strictness: Strictness,
-) -> Res<B::Unverified> {
+) -> Res<()> {
     let fullmove_nr = words.next().unwrap_or("");
     if let Ok(fullmove_nr) = fullmove_nr.parse::<NonZeroUsize>() {
         board.set_ply_since_start(ply_counter_from_fullmove_nr(fullmove_nr, board.active_player().is_first()))?;
-        Ok(board)
+        Ok(())
     } else if strictness != Strict {
-        Ok(board)
+        Ok(())
     } else {
         bail!("FEN doesn't contain a valid fullmove counter, but that is required in strict mode")
     }
-}
-
-pub(crate) fn read_simple_fen_part<B: RectangularBoard>(
-    words: &mut Tokens,
-    board: B::Unverified,
-    strictness: Strictness,
-) -> Res<B::Unverified> {
-    let board = read_common_fen_part::<B>(words, board)?;
-    read_two_move_numbers::<B>(words, board, strictness)
 }

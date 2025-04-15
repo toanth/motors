@@ -16,8 +16,10 @@
  *  along with Gears. If not, see <https://www.gnu.org/licenses/>.
  */
 use crate::games::Size;
+#[cfg(feature = "chess")]
 use crate::games::chess::squares::ChessSquare;
 use crate::general::bitboards::RayDirections::{AntiDiagonal, Diagonal, Horizontal, Vertical};
+#[cfg(feature = "chess")]
 use crate::general::bitboards::chessboard::ChessBitboard;
 use crate::general::bitboards::{
     ANTI_DIAGONALS_U64, ANTI_DIAGONALS_U128, Bitboard, DIAGONALS_U64, DIAGONALS_U128, ExtendedRawBitboard, MAX_WIDTH,
@@ -61,10 +63,12 @@ impl U128BitReverseHq {
     }
 }
 
+#[cfg(feature = "chess")]
 pub struct ChessSliderGenerator {
     blockers: U64AndRev,
 }
 
+#[cfg(feature = "chess")]
 impl ChessSliderGenerator {
     #[inline]
     pub fn new(blockers: ChessBitboard) -> Self {
@@ -124,11 +128,30 @@ impl ChessSliderGenerator {
 
     pub fn queen_attacks(&self, square: ChessSquare) -> ChessBitboard {
         let idx = square.bb_idx();
-        let non_horizontal = self.hq(Diagonal, &CHESS_HQ_DATA[idx])
-            | self.hq(AntiDiagonal, &CHESS_HQ_DATA[idx])
-            | self.hq(Vertical, &CHESS_HQ_DATA[idx]);
+        let non_horizontal = self.hq(Vertical, &CHESS_HQ_DATA[idx])
+            | self.hq(Diagonal, &CHESS_HQ_DATA[idx])
+            | self.hq(AntiDiagonal, &CHESS_HQ_DATA[idx]);
         let non_horizontal = Self::finish(non_horizontal);
         self.horizontal_attacks(square) | non_horizontal
+    }
+
+    // It might be worth investigating using Kogge-Stone, which should perform equally well no matter how many sliders there are.
+    // However, in normal chess positions there are rarely more than 3 rook/bishop sliders per side, so Kogge-Stone is probably
+    // still slower than this approach.
+    pub fn all_bishop_attacks(&self, bishop_sliders: ChessBitboard) -> ChessBitboard {
+        let mut res = ChessBitboard::default();
+        for square in bishop_sliders.ones() {
+            res |= self.bishop_attacks(square);
+        }
+        res
+    }
+
+    pub fn all_rook_attacks(&self, rook_sliders: ChessBitboard) -> ChessBitboard {
+        let mut res = ChessBitboard::default();
+        for square in rook_sliders.ones() {
+            res |= self.rook_attacks(square);
+        }
+        res
     }
 }
 
@@ -372,7 +395,8 @@ impl WithRev for U128AndRev {
 }
 
 /// Because boards smaller than 8x8 still use an internal width of 8, this can be used as-is for those boards
-/// `static` instead of `const` because it's large and used in multiple places
+/// `static` instead of `const` because it's relatively large and used in multiple places
+#[allow(unused)]
 static CHESS_HQ_DATA: [HqDataByteswap<u64>; 64] = {
     let zero = HqDataByteswap { square: U64AndRev::unreversed(0), rays: [U64AndRev::unreversed(0); 3] };
     let mut res = [zero; 64];
@@ -391,6 +415,7 @@ static CHESS_HQ_DATA: [HqDataByteswap<u64>; 64] = {
     res
 };
 
+#[allow(unused)]
 static RANK_LOOKUP: [u8; 8 * (1 << (8 - 2))] = {
     let mut res = [0; 64 * 8];
     let mut i = 0;
@@ -425,7 +450,7 @@ static BIT_REVERSE_HQ_DATA: [[U128BitReverseHq; 128]; MAX_WIDTH] = {
             let sq_bb = 1 << sq;
             entry.square = U128AndRev::bit_reversed(sq_bb);
             entry.rays[Horizontal as usize] =
-                U128AndRev::bit_reversed((((1 << width) - 1) << (sq / width) * width) ^ sq_bb);
+                U128AndRev::bit_reversed((((1 << width) - 1) << ((sq / width) * width)) ^ sq_bb);
             entry.rays[Vertical as usize] = U128AndRev::bit_reversed((STEPS_U128[width] << (sq % width)) ^ sq_bb);
             entry.rays[Diagonal as usize] = U128AndRev::bit_reversed(DIAGONALS_U128[width][sq] ^ sq_bb);
             entry.rays[AntiDiagonal as usize] = U128AndRev::bit_reversed(ANTI_DIAGONALS_U128[width][sq] ^ sq_bb);
@@ -461,17 +486,17 @@ mod tests {
     fn chess_test() {
         let blockers = white_squares();
         let generator = ChessSliderGenerator::new(blockers);
-        let attacks_bishop_a1 = generator.bishop_attacks(ChessSquare::from_bb_index(0));
-        assert_eq!(attacks_bishop_a1, ChessBitboard::diagonal(ChessSquare::from_bb_index(0)) & !ChessBitboard::new(1));
-        let attacks_bishop_b1 = generator.bishop_attacks(ChessSquare::from_bb_index(1));
+        let attacks_bishop_a1 = generator.bishop_attacks(ChessSquare::from_bb_idx(0));
+        assert_eq!(attacks_bishop_a1, ChessBitboard::diagonal(ChessSquare::from_bb_idx(0)) & !ChessBitboard::new(1));
+        let attacks_bishop_b1 = generator.bishop_attacks(ChessSquare::from_bb_idx(1));
         assert_eq!(attacks_bishop_b1.0, 0x500);
-        let attacks_rook_a1 = generator.rook_attacks(ChessSquare::from_bb_index(0));
+        let attacks_rook_a1 = generator.rook_attacks(ChessSquare::from_bb_idx(0));
         assert_eq!(attacks_rook_a1.0, 0x102);
-        let attacks_rook_b1 = generator.rook_attacks(ChessSquare::from_bb_index(1));
+        let attacks_rook_b1 = generator.rook_attacks(ChessSquare::from_bb_idx(1));
         assert_eq!(attacks_rook_b1.0, 0x2020d);
-        let attacks_queen_a1 = generator.queen_attacks(ChessSquare::from_bb_index(0));
+        let attacks_queen_a1 = generator.queen_attacks(ChessSquare::from_bb_idx(0));
         assert_eq!(attacks_queen_a1, attacks_rook_a1 | attacks_bishop_a1);
-        let attacks_queen_b1 = generator.queen_attacks(ChessSquare::from_bb_index(1));
+        let attacks_queen_b1 = generator.queen_attacks(ChessSquare::from_bb_idx(1));
         assert_eq!(attacks_queen_b1, attacks_rook_b1 | attacks_bishop_b1);
         let e4 = ChessSquare::from_str("e4").unwrap();
         assert!(blockers.is_bit_set_at(e4.bb_idx()));

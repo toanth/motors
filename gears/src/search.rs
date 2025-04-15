@@ -1,19 +1,19 @@
 use crate::general::board::Board;
-use crate::general::common::{parse_fp_from_str, Res};
+use crate::general::common::{Res, parse_fp_from_str};
 use crate::general::moves::Move;
 use crate::score::Score;
 use crate::search::MpvType::{MainOfMultiple, OnlyLine, SecondaryLine};
+use NodeType::*;
 use anyhow::{anyhow, bail};
 use colored::{ColoredString, Colorize};
 use derive_more::{Add, AddAssign, SubAssign};
 use itertools::Itertools;
 use std::fmt::{Display, Formatter};
 use std::num::NonZeroU64;
-use std::ops::Sub;
+use std::ops::{Add, AddAssign, Sub, SubAssign};
 use std::str::FromStr;
 use std::time::{Duration, Instant};
 use strum_macros::FromRepr;
-use NodeType::*;
 
 pub const MAX_DEPTH: Depth = Depth(10_000);
 
@@ -146,6 +146,7 @@ pub struct SearchInfo<'a, B: Board> {
     pub hashfull: usize,
     pub pos: B,
     pub bound: Option<NodeType>,
+    pub num_threads: usize,
     pub additional: Option<String>,
 }
 
@@ -164,6 +165,7 @@ impl<B: Board> Default for SearchInfo<'_, B> {
             hashfull: 0,
             pos: B::default(),
             bound: None,
+            num_threads: 1,
             additional: None,
         }
     }
@@ -172,11 +174,7 @@ impl<B: Board> Default for SearchInfo<'_, B> {
 impl<B: Board> SearchInfo<'_, B> {
     pub fn nps(&self) -> usize {
         let micros = self.time.as_micros() as f64;
-        if micros == 0.0 {
-            0
-        } else {
-            ((self.nodes.get() as f64 * 1_000_000.0) / micros) as usize
-        }
+        if micros == 0.0 { 0 } else { ((self.nodes.get() as f64 * 1_000_000.0) / micros) as usize }
     }
 
     pub fn mpv_type(&self) -> MpvType {
@@ -197,16 +195,17 @@ impl<B: Board> Display for SearchInfo<'_, B> {
             Exact => "",
             FailLow => " upperbound",
         };
-        write!(f,
-               "info depth {depth} seldepth {seldepth} multipv {multipv} score {score}{bound} time {time} nodes {nodes} nps {nps} hashfull {hashfull} pv",
-               depth = self.depth.get(),
-               score = self.score,
-               time = self.time.as_millis(),
-               nodes = self.nodes.get(),
-               seldepth = self.seldepth.0,
-               multipv = self.pv_num + 1,
-               nps = self.nps(),
-               hashfull = self.hashfull,
+        write!(
+            f,
+            "info depth {depth} seldepth {seldepth} multipv {multipv} score {score}{bound} time {time} nodes {nodes} nps {nps} hashfull {hashfull} pv",
+            depth = self.depth.get(),
+            score = self.score,
+            time = self.time.as_millis(),
+            nodes = self.nodes.get(),
+            seldepth = self.seldepth.0,
+            multipv = self.pv_num + 1,
+            nps = self.nps(),
+            hashfull = self.hashfull,
         )?;
         let mut pos = self.pos.clone();
         for &mov in self.pv {
@@ -283,9 +282,8 @@ impl TimeControl {
     pub fn update(&mut self, elapsed: Duration) {
         if !self.is_infinite() {
             self.remaining += self.increment;
-            self.remaining -= elapsed; // In this order to avoid computing negative intermediate values (which panics)
-                                       // TODO: This probably still panics when remaining + increment - elapsed is less than 0 but greater than -time_margin.
-                                       // TODO: Handle movestogo
+            self.remaining = self.remaining.saturating_sub(elapsed); // In this order to avoid computing negative intermediate values
+            // TODO: Handle movestogo
         }
     }
 
@@ -304,6 +302,14 @@ impl TimeControl {
         } else {
             let t = self.remaining(start).as_millis() / 100;
             format!("{min:02}:{s:02}.{ds:01}\n", min = t / 600, s = t % 600 / 10, ds = t % 10)
+        }
+    }
+
+    pub fn combine(self, other: Self) -> Self {
+        Self {
+            remaining: self.remaining.min(other.remaining),
+            increment: self.increment.max(other.increment),
+            moves_to_go: self.moves_to_go.or(other.moves_to_go),
         }
     }
 }
@@ -384,7 +390,9 @@ pub struct SearchLimit {
     pub fixed_time: Duration,
     pub depth: Depth,
     pub nodes: NodesLimit,
+    pub soft_nodes: NodesLimit,
     pub mate: Depth,
+    pub start_time: Instant,
 }
 
 impl Default for SearchLimit {
@@ -394,7 +402,9 @@ impl Default for SearchLimit {
             fixed_time: Duration::MAX,
             depth: MAX_DEPTH,
             nodes: NodesLimit::new(u64::MAX).unwrap(),
+            soft_nodes: NodesLimit::new(u64::MAX).unwrap(),
             mate: Depth::new(0), // only finding a mate in 0 would stop the search
+            start_time: Instant::now(),
         }
     }
 }
@@ -417,14 +427,13 @@ impl Display for SearchLimit {
         if self.nodes.get() != u64::MAX {
             limits.push(format!("{} nodes", self.nodes.get()));
         }
+        if self.soft_nodes.get() != u64::MAX {
+            limits.push(format!("{} soft nodes", self.soft_nodes.get()));
+        }
         if self.mate != Depth::new(0) {
             limits.push(format!("mate in {} plies", self.mate.get()));
         }
-        if limits.len() == 1 {
-            write!(f, "{}", limits[0])
-        } else {
-            write!(f, "[{}]", limits.iter().format(","))
-        }
+        if limits.len() == 1 { write!(f, "{}", limits[0]) } else { write!(f, "[{}]", limits.iter().format(",")) }
     }
 }
 
@@ -465,6 +474,26 @@ impl SearchLimit {
         Self::nodes(NodesLimit::new(nodes).unwrap())
     }
 
+    pub fn soft_nodes(soft_nodes: NodesLimit) -> Self {
+        Self { soft_nodes, ..Self::infinite() }
+    }
+
+    pub fn soft_nodes_(soft_nodes: u64) -> Self {
+        Self::soft_nodes(NodesLimit::new(soft_nodes).unwrap())
+    }
+
+    pub fn and(self, other: Self) -> Self {
+        Self {
+            tc: self.tc.combine(other.tc),
+            fixed_time: self.fixed_time.min(other.fixed_time),
+            depth: self.depth.min(other.depth),
+            nodes: self.nodes.min(other.nodes),
+            soft_nodes: self.soft_nodes.min(other.soft_nodes),
+            mate: self.mate.max(other.mate),
+            start_time: self.start_time.min(other.start_time),
+        }
+    }
+
     pub fn max_move_time(&self) -> Duration {
         self.fixed_time.min(self.tc.remaining)
     }
@@ -480,6 +509,7 @@ impl SearchLimit {
             && self.mate == inf.mate
             && self.depth == inf.depth
             && self.nodes == inf.nodes
+            && self.soft_nodes == inf.soft_nodes
     }
 
     pub fn is_only_time_based(&self) -> bool {
@@ -487,6 +517,7 @@ impl SearchLimit {
         self.mate == inf.mate
             && self.depth == inf.depth
             && self.nodes == inf.nodes
+            && self.soft_nodes == inf.soft_nodes
             && (!self.tc.is_infinite() || !self.is_infinite_fixed_time())
     }
 }

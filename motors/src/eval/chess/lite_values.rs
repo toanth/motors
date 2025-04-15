@@ -16,14 +16,15 @@
  *  along with Motors. If not, see <https://www.gnu.org/licenses/>.
  */
 
-use crate::eval::chess::{FileOpenness, NUM_PAWN_SHIELD_CONFIGURATIONS};
+use crate::eval::chess::{FileOpenness, NUM_PAWN_CENTER_CONFIGURATIONS, NUM_PAWN_SHIELD_CONFIGURATIONS};
 use crate::eval::{ScoreType, SingleFeatureScore};
-use gears::games::chess::pieces::{ChessPieceType, NUM_CHESS_PIECES};
-use gears::games::chess::squares::{ChessSquare, NUM_SQUARES};
+use gears::games::DimT;
 use gears::games::chess::ChessColor;
 use gears::games::chess::ChessColor::White;
+use gears::games::chess::pieces::{ChessPieceType, NUM_CHESS_PIECES};
+use gears::games::chess::squares::{ChessSquare, NUM_SQUARES};
 use gears::general::common::StaticallyNamedEntity;
-use gears::score::{p, PhasedScore};
+use gears::score::{PhasedScore, p};
 use std::fmt::{Debug, Display};
 
 #[rustfmt::skip]
@@ -31,219 +32,360 @@ const PSQTS: [[PhasedScore; NUM_SQUARES]; NUM_CHESS_PIECES] = [
     // pawn
     [
         p( 100,  100),    p( 100,  100),    p( 100,  100),    p( 100,  100),    p( 100,  100),    p( 100,  100),    p( 100,  100),    p( 100,  100),
-        p( 133,  186),    p( 130,  185),    p( 121,  188),    p( 133,  169),    p( 119,  173),    p( 119,  176),    p(  81,  194),    p(  89,  193),
-        p(  67,  123),    p(  66,  124),    p(  77,  120),    p(  86,  123),    p(  74,  123),    p( 122,  110),    p(  96,  130),    p(  93,  121),
-        p(  55,  112),    p(  66,  108),    p(  64,  104),    p(  67,   98),    p(  82,   98),    p(  87,   94),    p(  79,  103),    p(  74,   95),
-        p(  51,   99),    p(  58,  102),    p(  67,   94),    p(  76,   93),    p(  79,   93),    p(  79,   88),    p(  73,   92),    p(  62,   86),
-        p(  46,   97),    p(  55,   92),    p(  59,   93),    p(  61,   99),    p(  69,   96),    p(  63,   92),    p(  72,   82),    p(  55,   85),
-        p(  52,   99),    p(  55,   95),    p(  61,   97),    p(  60,  105),    p(  57,  107),    p(  73,   98),    p(  75,   83),    p(  58,   88),
+        p( 129,  162),    p( 125,  161),    p( 117,  165),    p( 125,  149),    p( 112,  154),    p( 111,  157),    p(  71,  174),    p(  74,  173),
+        p(  75,  119),    p(  72,  121),    p(  78,  113),    p(  85,  109),    p(  73,  104),    p( 127,  104),    p(  98,  123),    p( 100,  116),
+        p(  58,  107),    p(  64,  100),    p(  61,   94),    p(  83,   96),    p(  89,   95),    p(  83,   84),    p(  78,   95),    p(  75,   91),
+        p(  52,   94),    p(  53,   96),    p(  75,   91),    p(  94,   93),    p(  87,   95),    p(  83,   91),    p(  69,   86),    p(  63,   81),
+        p(  44,   92),    p(  50,   88),    p(  71,   91),    p(  80,   94),    p(  82,   92),    p(  77,   91),    p(  69,   78),    p(  54,   81),
+        p(  54,   96),    p(  59,   94),    p(  62,   93),    p(  57,   99),    p(  60,  101),    p(  77,   93),    p(  82,   83),    p(  60,   85),
         p( 100,  100),    p( 100,  100),    p( 100,  100),    p( 100,  100),    p( 100,  100),    p( 100,  100),    p( 100,  100),    p( 100,  100),
     ],
     // knight
     [
-        p( 176,  277),    p( 197,  309),    p( 214,  320),    p( 252,  310),    p( 282,  311),    p( 198,  307),    p( 212,  308),    p( 204,  260),
-        p( 269,  310),    p( 283,  315),    p( 298,  307),    p( 302,  311),    p( 301,  306),    p( 315,  295),    p( 276,  312),    p( 272,  302),
-        p( 286,  306),    p( 303,  302),    p( 305,  309),    p( 320,  312),    p( 336,  306),    p( 349,  295),    p( 291,  302),    p( 285,  307),
-        p( 301,  314),    p( 307,  308),    p( 322,  312),    p( 325,  319),    p( 323,  316),    p( 318,  315),    p( 309,  311),    p( 318,  310),
-        p( 298,  316),    p( 302,  306),    p( 311,  312),    p( 319,  315),    p( 317,  318),    p( 322,  302),    p( 320,  302),    p( 312,  311),
-        p( 274,  303),    p( 281,  301),    p( 293,  296),    p( 299,  309),    p( 304,  307),    p( 292,  289),    p( 300,  292),    p( 292,  306),
-        p( 269,  311),    p( 280,  312),    p( 283,  302),    p( 293,  306),    p( 297,  301),    p( 287,  299),    p( 294,  304),    p( 289,  320),
-        p( 239,  310),    p( 281,  303),    p( 266,  304),    p( 286,  309),    p( 295,  306),    p( 291,  296),    p( 288,  305),    p( 265,  307),
+        p( 178,  280),    p( 194,  316),    p( 214,  326),    p( 246,  314),    p( 275,  316),    p( 196,  309),    p( 221,  307),    p( 204,  263),
+        p( 271,  315),    p( 287,  320),    p( 296,  311),    p( 298,  314),    p( 298,  310),    p( 310,  301),    p( 275,  319),    p( 284,  304),
+        p( 290,  312),    p( 305,  307),    p( 306,  313),    p( 316,  315),    p( 330,  311),    p( 347,  300),    p( 292,  309),    p( 286,  310),
+        p( 307,  318),    p( 315,  315),    p( 329,  315),    p( 329,  323),    p( 324,  323),    p( 325,  322),    p( 317,  320),    p( 329,  312),
+        p( 302,  319),    p( 309,  310),    p( 316,  316),    p( 325,  318),    p( 321,  322),    p( 329,  308),    p( 328,  308),    p( 317,  316),
+        p( 279,  305),    p( 287,  305),    p( 299,  299),    p( 304,  312),    p( 309,  311),    p( 298,  293),    p( 306,  296),    p( 297,  310),
+        p( 274,  312),    p( 285,  317),    p( 288,  307),    p( 296,  312),    p( 300,  307),    p( 294,  306),    p( 299,  311),    p( 293,  321),
+        p( 246,  311),    p( 282,  307),    p( 271,  311),    p( 292,  314),    p( 300,  312),    p( 295,  302),    p( 288,  310),    p( 272,  310),
     ],
     // bishop
     [
-        p( 276,  310),    p( 254,  314),    p( 239,  306),    p( 223,  316),    p( 218,  312),    p( 223,  308),    p( 274,  303),    p( 251,  309),
-        p( 282,  303),    p( 278,  303),    p( 290,  305),    p( 278,  303),    p( 288,  300),    p( 292,  298),    p( 268,  308),    p( 271,  302),
-        p( 295,  309),    p( 306,  304),    p( 292,  304),    p( 306,  298),    p( 305,  299),    p( 336,  304),    p( 317,  300),    p( 316,  313),
-        p( 285,  312),    p( 292,  306),    p( 303,  302),    p( 307,  306),    p( 307,  303),    p( 299,  304),    p( 297,  308),    p( 279,  309),
-        p( 290,  307),    p( 283,  309),    p( 295,  303),    p( 309,  305),    p( 302,  301),    p( 298,  303),    p( 286,  304),    p( 308,  301),
-        p( 296,  310),    p( 300,  304),    p( 300,  307),    p( 300,  304),    p( 306,  307),    p( 300,  298),    p( 305,  295),    p( 307,  299),
-        p( 308,  309),    p( 303,  301),    p( 309,  300),    p( 298,  309),    p( 301,  305),    p( 304,  303),    p( 312,  295),    p( 308,  297),
-        p( 297,  305),    p( 311,  306),    p( 307,  307),    p( 291,  308),    p( 306,  307),    p( 294,  309),    p( 306,  296),    p( 302,  292),
+        p( 277,  314),    p( 251,  317),    p( 242,  309),    p( 223,  319),    p( 213,  318),    p( 230,  308),    p( 271,  307),    p( 257,  311),
+        p( 288,  305),    p( 282,  307),    p( 292,  308),    p( 277,  307),    p( 288,  303),    p( 292,  303),    p( 271,  311),    p( 275,  307),
+        p( 297,  312),    p( 306,  308),    p( 288,  307),    p( 305,  301),    p( 301,  304),    p( 337,  307),    p( 316,  306),    p( 319,  314),
+        p( 290,  312),    p( 298,  306),    p( 309,  302),    p( 309,  308),    p( 312,  304),    p( 310,  304),    p( 312,  305),    p( 289,  310),
+        p( 289,  307),    p( 289,  308),    p( 298,  305),    p( 313,  304),    p( 305,  301),    p( 306,  300),    p( 291,  304),    p( 314,  299),
+        p( 298,  309),    p( 300,  306),    p( 302,  306),    p( 300,  304),    p( 306,  307),    p( 300,  299),    p( 307,  295),    p( 309,  299),
+        p( 306,  309),    p( 304,  301),    p( 307,  303),    p( 298,  310),    p( 300,  308),    p( 302,  307),    p( 312,  297),    p( 308,  295),
+        p( 299,  306),    p( 309,  308),    p( 306,  309),    p( 290,  313),    p( 306,  311),    p( 293,  313),    p( 302,  301),    p( 303,  294),
     ],
     // rook
     [
-        p( 457,  547),    p( 447,  557),    p( 440,  563),    p( 438,  561),    p( 450,  557),    p( 469,  551),    p( 481,  549),    p( 491,  542),
-        p( 442,  553),    p( 440,  558),    p( 449,  559),    p( 464,  550),    p( 450,  553),    p( 467,  547),    p( 475,  544),    p( 490,  535),
-        p( 444,  548),    p( 461,  543),    p( 456,  545),    p( 456,  540),    p( 482,  529),    p( 492,  527),    p( 509,  526),    p( 484,  528),
-        p( 440,  548),    p( 446,  544),    p( 445,  546),    p( 451,  540),    p( 456,  532),    p( 466,  528),    p( 466,  532),    p( 466,  527),
-        p( 434,  546),    p( 433,  544),    p( 433,  544),    p( 438,  541),    p( 445,  537),    p( 439,  536),    p( 453,  530),    p( 447,  528),
-        p( 430,  543),    p( 429,  540),    p( 431,  539),    p( 434,  538),    p( 439,  533),    p( 450,  524),    p( 466,  513),    p( 453,  517),
-        p( 432,  538),    p( 435,  537),    p( 441,  538),    p( 443,  535),    p( 451,  528),    p( 463,  519),    p( 471,  514),    p( 442,  523),
-        p( 441,  542),    p( 437,  537),    p( 439,  541),    p( 443,  535),    p( 448,  528),    p( 455,  529),    p( 452,  527),    p( 447,  529),
+        p( 454,  554),    p( 440,  565),    p( 431,  572),    p( 431,  568),    p( 443,  564),    p( 467,  559),    p( 469,  560),    p( 483,  553),
+        p( 454,  559),    p( 452,  564),    p( 459,  565),    p( 474,  555),    p( 460,  558),    p( 481,  553),    p( 484,  552),    p( 502,  541),
+        p( 451,  555),    p( 469,  549),    p( 464,  550),    p( 464,  545),    p( 491,  537),    p( 504,  533),    p( 518,  534),    p( 493,  536),
+        p( 450,  555),    p( 460,  550),    p( 460,  552),    p( 462,  548),    p( 469,  541),    p( 484,  536),    p( 482,  543),    p( 477,  538),
+        p( 441,  552),    p( 445,  551),    p( 446,  550),    p( 453,  547),    p( 457,  544),    p( 454,  544),    p( 466,  539),    p( 457,  537),
+        p( 437,  549),    p( 440,  546),    p( 442,  545),    p( 444,  544),    p( 451,  539),    p( 461,  531),    p( 477,  522),    p( 460,  525),
+        p( 438,  546),    p( 443,  543),    p( 449,  544),    p( 453,  541),    p( 459,  535),    p( 473,  526),    p( 479,  522),    p( 448,  531),
+        p( 444,  549),    p( 443,  545),    p( 444,  548),    p( 448,  541),    p( 454,  534),    p( 459,  535),    p( 455,  535),    p( 448,  537),
     ],
     // queen
     [
-        p( 878,  961),    p( 881,  975),    p( 895,  988),    p( 916,  982),    p( 914,  985),    p( 934,  973),    p( 979,  926),    p( 924,  958),
-        p( 888,  951),    p( 863,  981),    p( 865, 1007),    p( 857, 1025),    p( 865, 1035),    p( 906,  996),    p( 906,  981),    p( 947,  960),
-        p( 893,  957),    p( 885,  973),    p( 885,  993),    p( 886, 1002),    p( 909, 1004),    p( 946,  988),    p( 954,  959),    p( 942,  966),
-        p( 879,  969),    p( 885,  976),    p( 879,  986),    p( 880,  998),    p( 883, 1010),    p( 896, 1000),    p( 905, 1002),    p( 912,  978),
-        p( 890,  960),    p( 877,  980),    p( 884,  980),    p( 884,  996),    p( 887,  992),    p( 888,  994),    p( 901,  982),    p( 908,  975),
-        p( 885,  950),    p( 892,  965),    p( 887,  980),    p( 884,  982),    p( 889,  989),    p( 896,  978),    p( 909,  962),    p( 907,  950),
-        p( 886,  951),    p( 886,  959),    p( 893,  962),    p( 892,  976),    p( 894,  975),    p( 894,  958),    p( 906,  936),    p( 914,  909),
-        p( 872,  952),    p( 884,  940),    p( 885,  953),    p( 893,  954),    p( 896,  943),    p( 882,  948),    p( 885,  939),    p( 889,  923),
+        p( 869,  966),    p( 871,  979),    p( 883,  992),    p( 904,  983),    p( 908,  986),    p( 929,  980),    p( 966,  935),    p( 911,  970),
+        p( 900,  958),    p( 878,  983),    p( 879, 1005),    p( 873, 1019),    p( 879, 1033),    p( 914, 1002),    p( 927,  978),    p( 956,  969),
+        p( 899,  967),    p( 895,  976),    p( 892,  997),    p( 895, 1003),    p( 898, 1016),    p( 956,  991),    p( 957,  970),    p( 947,  976),
+        p( 892,  973),    p( 897,  978),    p( 895,  986),    p( 889, 1001),    p( 895, 1010),    p( 914,  995),    p( 921, 1000),    p( 925,  981),
+        p( 895,  964),    p( 890,  979),    p( 891,  979),    p( 893,  994),    p( 898,  990),    p( 902,  990),    p( 911,  983),    p( 918,  976),
+        p( 893,  950),    p( 898,  963),    p( 895,  976),    p( 891,  978),    p( 897,  987),    p( 903,  975),    p( 916,  963),    p( 913,  952),
+        p( 891,  951),    p( 893,  957),    p( 899,  960),    p( 898,  975),    p( 900,  974),    p( 902,  958),    p( 913,  939),    p( 921,  914),
+        p( 878,  955),    p( 891,  943),    p( 890,  956),    p( 896,  957),    p( 901,  948),    p( 888,  952),    p( 889,  943),    p( 896,  928),
     ],
     // king
     [
-        p( 157,  -84),    p(  60,  -38),    p(  85,  -30),    p(   8,    2),    p(  38,  -11),    p(  23,   -1),    p(  76,  -10),    p( 236,  -88),
-        p( -30,    2),    p( -80,   19),    p( -81,   26),    p( -21,   16),    p( -51,   23),    p( -81,   38),    p( -50,   24),    p(   9,    0),
-        p( -46,    9),    p( -47,   13),    p( -85,   28),    p( -95,   36),    p( -63,   31),    p( -32,   23),    p( -78,   25),    p( -37,   11),
-        p( -26,    2),    p(-101,   12),    p(-114,   28),    p(-136,   37),    p(-136,   35),    p(-115,   27),    p(-134,   17),    p(-106,   17),
-        p( -42,   -2),    p(-114,    8),    p(-126,   24),    p(-150,   38),    p(-153,   36),    p(-128,   22),    p(-144,   12),    p(-118,   13),
-        p( -33,    2),    p( -91,    3),    p(-119,   18),    p(-126,   27),    p(-123,   26),    p(-133,   18),    p(-108,    4),    p( -73,   10),
-        p(  26,   -8),    p( -77,   -3),    p( -89,    7),    p(-109,   16),    p(-114,   17),    p( -99,    8),    p( -72,  -10),    p(   4,   -4),
-        p(  55,  -24),    p(  43,  -36),    p(  40,  -23),    p( -22,   -2),    p(  29,  -19),    p( -18,   -6),    p(  36,  -30),    p(  67,  -34),
+        p( 179,  -65),    p(  95,  -15),    p( 116,   -6),    p(  52,   13),    p(  65,    4),    p(  28,   17),    p(  83,    5),    p( 221,  -67),
+        p(  -3,   16),    p( -37,   31),    p( -41,   38),    p(  17,   24),    p( -14,   33),    p( -36,   45),    p( -23,   35),    p(   9,   19),
+        p( -35,   23),    p( -24,   23),    p( -59,   37),    p( -68,   41),    p( -31,   38),    p(   2,   30),    p( -51,   33),    p( -13,   22),
+        p( -17,    8),    p( -79,   17),    p( -95,   31),    p(-122,   37),    p(-115,   37),    p( -97,   30),    p(-104,   21),    p( -95,   24),
+        p( -38,    0),    p( -95,    6),    p(-111,   22),    p(-137,   32),    p(-134,   31),    p(-110,   18),    p(-126,   11),    p(-111,   15),
+        p( -35,    4),    p( -80,    0),    p(-106,   13),    p(-114,   19),    p(-111,   19),    p(-121,   13),    p( -98,    2),    p( -68,   10),
+        p(  24,   -5),    p( -71,   -5),    p( -80,    1),    p( -98,    7),    p(-105,   11),    p( -90,    2),    p( -66,  -12),    p(   1,   -3),
+        p(  50,  -15),    p(  41,  -29),    p(  37,  -17),    p( -21,   -2),    p(  25,  -15),    p( -17,   -3),    p(  32,  -24),    p(  61,  -29),
     ],
 ];
 
-const BISHOP_PAIR: PhasedScore = p(22, 53);
+const BISHOP_PAIR: PhasedScore = p(23, 51);
 const BAD_BISHOP: [PhasedScore; 9] =
-    [p(9, 19), p(10, 17), p(10, 6), p(7, -2), p(3, -10), p(-1, -20), p(-8, -29), p(-16, -42), p(-28, -53)];
-const ROOK_OPEN_FILE: PhasedScore = p(13, 5);
-const ROOK_CLOSED_FILE: PhasedScore = p(-12, -0);
-const ROOK_SEMIOPEN_FILE: PhasedScore = p(3, 4);
-const KING_OPEN_FILE: PhasedScore = p(-49, -1);
-const KING_CLOSED_FILE: PhasedScore = p(14, -15);
-const KING_SEMIOPEN_FILE: PhasedScore = p(-9, 8);
+    [p(12, 22), p(14, 19), p(13, 8), p(9, 1), p(4, -6), p(1, -15), p(-5, -23), p(-12, -35), p(-23, -41)];
+const ROOK_OPEN_FILE: PhasedScore = p(15, 1);
+const ROOK_CLOSED_FILE: PhasedScore = p(-11, -3);
+const ROOK_SEMIOPEN_FILE: PhasedScore = p(5, -2);
+const KING_OPEN_FILE: PhasedScore = p(-41, 5);
+const KING_CLOSED_FILE: PhasedScore = p(12, -7);
+const KING_SEMIOPEN_FILE: PhasedScore = p(-8, 10);
 #[rustfmt::skip]
 const BISHOP_OPENNESS: [[PhasedScore; 8]; 4] = [
     // Open
-    [p(-6, 3), p(-1, 5), p(-1, 4), p(2, 3), p(2, 5), p(2, 7), p(6, 4), p(18, 0)],
+    [p(-4, 6), p(2, 8), p(-1, 7), p(4, 5), p(5, 6), p(5, 8), p(8, 5), p(19, 2)],
     // Closed
-    [p(0, 0), p(0, 0), p(16, -24), p(-16, 9), p(-1, 11), p(2, 4), p(-0, 7), p(-1, 5)],
+    [p(0, 0), p(0, 0), p(17, -11), p(-13, 11), p(1, 12), p(1, 6), p(0, 8), p(1, 5)],
     // SemiOpen
-    [p(0, 0), p(-16, 22), p(4, 16), p(1, 9), p(-0, 9), p(3, 4), p(-0, 2), p(10, 4)],
+    [p(0, 0), p(-5, 27), p(7, 21), p(3, 12), p(2, 12), p(5, 7), p(3, 3), p(11, 6)],
     // SemiClosed
-    [p(0, 0), p(11, -13), p(7, 5), p(3, 0), p(7, 2), p(3, 4), p(5, 5), p(1, 4)],
+    [p(0, 0), p(12, -11), p(7, 7), p(4, 0), p(8, 2), p(2, 5), p(5, 5), p(3, 5)],
+];
+const PAWN_ADVANCED_CENTER: [PhasedScore; NUM_PAWN_CENTER_CONFIGURATIONS] = [
+    p(21, 11),
+    p(1, 5),
+    p(-5, 6),
+    p(-15, 8),
+    p(5, 3),
+    p(-9, -10),
+    p(-5, -2),
+    p(-7, -11),
+    p(2, 0),
+    p(-11, -1),
+    p(-12, -15),
+    p(-21, -6),
+    p(8, -7),
+    p(0, -11),
+    p(9, -9),
+    p(5, 8),
+    p(-6, -3),
+    p(-23, -4),
+    p(-19, 2),
+    p(-44, 23),
+    p(-18, 2),
+    p(-18, -19),
+    p(5, 22),
+    p(-48, 23),
+    p(-16, -18),
+    p(-20, -16),
+    p(-37, -30),
+    p(-43, 12),
+    p(-11, -4),
+    p(16, -5),
+    p(-92, 97),
+    p(0, 0),
+    p(-1, -3),
+    p(-16, -5),
+    p(-9, -5),
+    p(-29, -0),
+    p(-23, -2),
+    p(-47, -21),
+    p(-32, 37),
+    p(-44, 28),
+    p(-6, -4),
+    p(-20, -9),
+    p(3, -10),
+    p(-20, 35),
+    p(-44, 16),
+    p(4, -33),
+    p(0, 0),
+    p(0, 0),
+    p(-2, -14),
+    p(-17, 6),
+    p(-15, -52),
+    p(0, 0),
+    p(8, -11),
+    p(-40, -16),
+    p(0, 0),
+    p(0, 0),
+    p(-27, -5),
+    p(-22, -11),
+    p(-24, 17),
+    p(0, 0),
+    p(0, 0),
+    p(0, 0),
+    p(0, 0),
+    p(0, 0),
+];
+const PAWN_PASSIVE_CENTER: [PhasedScore; NUM_PAWN_CENTER_CONFIGURATIONS] = [
+    p(24, 4),
+    p(2, -1),
+    p(-5, 1),
+    p(-22, -4),
+    p(6, -4),
+    p(-29, -8),
+    p(-19, -4),
+    p(-38, -12),
+    p(7, -3),
+    p(-13, -8),
+    p(-31, -8),
+    p(-48, -1),
+    p(-10, -5),
+    p(-46, -5),
+    p(-40, -14),
+    p(-58, 60),
+    p(9, -3),
+    p(-2, -9),
+    p(-5, -13),
+    p(-24, -4),
+    p(-12, -2),
+    p(-20, -11),
+    p(-26, -2),
+    p(-75, 168),
+    p(-7, -12),
+    p(-29, -14),
+    p(-39, -29),
+    p(7, -84),
+    p(-18, -10),
+    p(-19, -17),
+    p(-85, 62),
+    p(0, 0),
+    p(15, -2),
+    p(1, -4),
+    p(-14, -10),
+    p(-23, -10),
+    p(-1, -0),
+    p(-28, -15),
+    p(-16, -3),
+    p(-29, 0),
+    p(-0, -9),
+    p(-22, -8),
+    p(-26, -17),
+    p(-38, -8),
+    p(-10, -4),
+    p(-48, -10),
+    p(-7, 14),
+    p(-62, 56),
+    p(3, -3),
+    p(-12, -4),
+    p(-29, 53),
+    p(0, 0),
+    p(-18, -4),
+    p(-27, 7),
+    p(0, 0),
+    p(0, 0),
+    p(-16, -1),
+    p(-42, 8),
+    p(-36, -48),
+    p(0, 0),
+    p(7, -62),
+    p(0, 0),
+    p(0, 0),
+    p(0, 0),
 ];
 const PAWN_SHIELDS: [PhasedScore; NUM_PAWN_SHIELD_CONFIGURATIONS] = [
-    p(-5, 5),    /*0b0000*/
-    p(-15, 8),   /*0b0001*/
-    p(-3, 8),    /*0b0010*/
-    p(-11, 13),  /*0b0011*/
-    p(-4, 3),    /*0b0100*/
-    p(-26, -1),  /*0b0101*/
-    p(-15, 5),   /*0b0110*/
-    p(-21, -15), /*0b0111*/
-    p(9, 10),    /*0b1000*/
-    p(-3, 10),   /*0b1001*/
+    p(-4, 8),    /*0b0000*/
+    p(-13, 8),   /*0b0001*/
+    p(-4, 11),   /*0b0010*/
+    p(-9, 12),   /*0b0011*/
+    p(-2, 3),    /*0b0100*/
+    p(-28, 3),   /*0b0101*/
+    p(-13, 5),   /*0b0110*/
+    p(-20, -11), /*0b0111*/
+    p(14, 5),    /*0b1000*/
+    p(-3, 11),   /*0b1001*/
     p(3, 11),    /*0b1010*/
-    p(-3, 10),   /*0b1011*/
-    p(-0, 4),    /*0b1100*/
-    p(-23, 9),   /*0b1101*/
-    p(-12, 4),   /*0b1110*/
+    p(-1, 14),   /*0b1011*/
+    p(2, 5),     /*0b1100*/
+    p(-23, 7),   /*0b1101*/
+    p(-9, 6),    /*0b1110*/
     p(0, 0),     /*0b1111*/
-    p(3, 15),    /*0b10000*/
-    p(2, 8),     /*0b10001*/
-    p(20, 10),   /*0b10010*/
-    p(-7, 6),    /*0b10011*/
-    p(-6, 6),    /*0b10100*/
-    p(12, 15),   /*0b10101*/
-    p(-25, 1),   /*0b10110*/
+    p(10, 10),   /*0b10000*/
+    p(6, 8),     /*0b10001*/
+    p(20, 11),   /*0b10010*/
+    p(-2, 7),    /*0b10011*/
+    p(-2, 3),    /*0b10100*/
+    p(13, 13),   /*0b10101*/
+    p(-20, 2),   /*0b10110*/
     p(0, 0),     /*0b10111*/
-    p(16, 29),   /*0b11000*/
-    p(29, 23),   /*0b11001*/
-    p(42, 38),   /*0b11010*/
+    p(19, 10),   /*0b11000*/
+    p(29, 13),   /*0b11001*/
+    p(39, 25),   /*0b11010*/
     p(0, 0),     /*0b11011*/
-    p(17, 10),   /*0b11100*/
+    p(15, -0),   /*0b11100*/
     p(0, 0),     /*0b11101*/
     p(0, 0),     /*0b11110*/
     p(0, 0),     /*0b11111*/
-    p(16, 10),   /*0b100000*/
-    p(3, 13),    /*0b100001*/
-    p(25, 3),    /*0b100010*/
-    p(6, -1),    /*0b100011*/
-    p(-7, 2),    /*0b100100*/
-    p(-21, -7),  /*0b100101*/
-    p(-22, 15),  /*0b100110*/
+    p(21, 3),    /*0b100000*/
+    p(5, 10),    /*0b100001*/
+    p(23, 4),    /*0b100010*/
+    p(8, 0),     /*0b100011*/
+    p(-6, 1),    /*0b100100*/
+    p(-21, -6),  /*0b100101*/
+    p(-23, 20),  /*0b100110*/
     p(0, 0),     /*0b100111*/
-    p(24, 4),    /*0b101000*/
-    p(-0, 17),   /*0b101001*/
-    p(22, -2),   /*0b101010*/
+    p(32, -1),   /*0b101000*/
+    p(5, 12),    /*0b101001*/
+    p(22, -4),   /*0b101010*/
     p(0, 0),     /*0b101011*/
-    p(-5, 7),    /*0b101100*/
+    p(1, 5),     /*0b101100*/
     p(0, 0),     /*0b101101*/
     p(0, 0),     /*0b101110*/
     p(0, 0),     /*0b101111*/
-    p(16, 18),   /*0b110000*/
-    p(25, 12),   /*0b110001*/
-    p(33, 9),    /*0b110010*/
+    p(19, 3),    /*0b110000*/
+    p(23, 5),    /*0b110001*/
+    p(33, -4),   /*0b110010*/
     p(0, 0),     /*0b110011*/
-    p(11, 29),   /*0b110100*/
+    p(3, 18),    /*0b110100*/
     p(0, 0),     /*0b110101*/
     p(0, 0),     /*0b110110*/
     p(0, 0),     /*0b110111*/
-    p(27, 15),   /*0b111000*/
+    p(34, -3),   /*0b111000*/
     p(0, 0),     /*0b111001*/
     p(0, 0),     /*0b111010*/
     p(0, 0),     /*0b111011*/
     p(0, 0),     /*0b111100*/
     p(0, 0),     /*0b111101*/
     p(0, 0),     /*0b111110*/
-    p(7, -1),    /*0b111111*/
-    p(-13, -4),  /*0b00*/
-    p(11, -18),  /*0b01*/
-    p(39, -9),   /*0b10*/
-    p(22, -41),  /*0b11*/
+    p(6, -2),    /*0b111111*/
+    p(-7, 4),    /*0b00*/
+    p(6, -12),   /*0b01*/
+    p(40, -8),   /*0b10*/
+    p(25, -44),  /*0b11*/
     p(47, -11),  /*0b100*/
-    p(6, -22),   /*0b101*/
-    p(70, -41),  /*0b110*/
+    p(-4, -13),  /*0b101*/
+    p(67, -41),  /*0b110*/
     p(0, 0),     /*0b111*/
-    p(65, -13),  /*0b1000*/
-    p(21, -34),  /*0b1001*/
-    p(81, -56),  /*0b1010*/
+    p(73, -14),  /*0b1000*/
+    p(18, -27),  /*0b1001*/
+    p(71, -50),  /*0b1010*/
     p(0, 0),     /*0b1011*/
-    p(61, -20),  /*0b1100*/
+    p(62, -34),  /*0b1100*/
     p(0, 0),     /*0b1101*/
     p(0, 0),     /*0b1110*/
-    p(22, -11),  /*0b1111*/
-    p(21, -3),   /*0b00*/
-    p(33, -13),  /*0b01*/
-    p(27, -18),  /*0b10*/
-    p(22, -42),  /*0b11*/
-    p(37, -10),  /*0b100*/
-    p(56, -21),  /*0b101*/
-    p(25, -24),  /*0b110*/
+    p(29, 3),    /*0b1111*/
+    p(24, 1),    /*0b00*/
+    p(33, -9),   /*0b01*/
+    p(27, -14),  /*0b10*/
+    p(22, -38),  /*0b11*/
+    p(41, -8),   /*0b100*/
+    p(56, -18),  /*0b101*/
+    p(25, -19),  /*0b110*/
     p(0, 0),     /*0b111*/
-    p(39, -4),   /*0b1000*/
-    p(53, -18),  /*0b1001*/
-    p(51, -43),  /*0b1010*/
+    p(42, -3),   /*0b1000*/
+    p(51, -15),  /*0b1001*/
+    p(54, -41),  /*0b1010*/
     p(0, 0),     /*0b1011*/
-    p(44, -23),  /*0b1100*/
+    p(46, -24),  /*0b1100*/
     p(0, 0),     /*0b1101*/
     p(0, 0),     /*0b1110*/
-    p(21, -44),  /*0b1111*/
+    p(21, -42),  /*0b1111*/
 ];
+const PAWNLESS_FLANK: PhasedScore = p(-25, -34);
+const STOPPABLE_PASSER: PhasedScore = p(36, -49);
+const CLOSE_KING_PASSER: PhasedScore = p(-8, 28);
+const IMMOBILE_PASSER: PhasedScore = p(-3, -37);
+const PROTECTED_PASSER: PhasedScore = p(8, -3);
 
 #[rustfmt::skip]
 const PASSED_PAWNS: [PhasedScore; NUM_SQUARES] = [
         p(   0,    0),    p(   0,    0),    p(   0,    0),    p(   0,    0),    p(   0,    0),    p(   0,    0),    p(   0,    0),    p(   0,    0),
-        p(  33,   86),    p(  30,   85),    p(  21,   88),    p(  33,   69),    p(  19,   73),    p(  19,   76),    p( -19,   94),    p( -11,   93),
-        p(  39,  123),    p(  47,  123),    p(  37,  100),    p(  20,   69),    p(  34,   69),    p(  15,   95),    p(  -1,  104),    p( -32,  125),
-        p(  23,   74),    p(  17,   71),    p(  22,   54),    p(  17,   43),    p(  -0,   46),    p(   7,   58),    p( -10,   76),    p( -10,   79),
-        p(   7,   46),    p(  -2,   44),    p( -15,   34),    p( -10,   24),    p( -17,   28),    p( -10,   39),    p( -18,   55),    p( -11,   51),
-        p(   1,   14),    p( -12,   23),    p( -15,   17),    p( -16,    8),    p( -15,   13),    p(  -7,   17),    p( -14,   37),    p(  10,   17),
-        p(  -5,   15),    p(  -2,   20),    p(  -9,   16),    p(  -8,    4),    p(   5,    1),    p(   7,    7),    p(  13,   18),    p(   7,   13),
+        p( -41,   40),    p( -49,   54),    p( -67,   57),    p( -68,   51),    p( -60,   40),    p( -47,   40),    p( -33,   45),    p( -48,   47),
+        p( -31,   36),    p( -54,   58),    p( -63,   55),    p( -61,   47),    p( -69,   49),    p( -58,   48),    p( -60,   63),    p( -43,   45),
+        p( -28,   55),    p( -33,   57),    p( -58,   62),    p( -55,   62),    p( -63,   59),    p( -53,   60),    p( -60,   70),    p( -60,   67),
+        p( -15,   73),    p( -16,   75),    p( -16,   67),    p( -39,   76),    p( -56,   77),    p( -45,   76),    p( -53,   85),    p( -59,   87),
+        p(   2,   69),    p(   7,   68),    p(   1,   53),    p( -19,   40),    p( -16,   51),    p( -40,   58),    p( -49,   59),    p( -84,   80),
+        p(  29,   62),    p(  25,   61),    p(  17,   65),    p(  25,   49),    p(  12,   54),    p(  11,   57),    p( -29,   74),    p( -26,   73),
         p(   0,    0),    p(   0,    0),    p(   0,    0),    p(   0,    0),    p(   0,    0),    p(   0,    0),    p(   0,    0),    p(   0,    0),
 ];
-const UNSUPPORTED_PAWN: PhasedScore = p(-10, -10);
-const DOUBLED_PAWN: PhasedScore = p(-7, -21);
+const CANDIDATE_PASSER: [PhasedScore; 6] = [p(1, 5), p(5, 8), p(8, 17), p(15, 22), p(17, 71), p(15, 62)];
+const UNSUPPORTED_PAWN: PhasedScore = p(-7, -7);
+const DOUBLED_PAWN: PhasedScore = p(-6, -22);
+const PHALANX: [PhasedScore; 6] = [p(-0, -0), p(5, 3), p(8, 6), p(21, 21), p(56, 76), p(-92, 221)];
 const PAWN_PROTECTION: [PhasedScore; NUM_CHESS_PIECES] =
-    [p(13, 11), p(8, 13), p(14, 19), p(9, 7), p(-3, 16), p(-46, 6)];
-const PAWN_ATTACKS: [PhasedScore; NUM_CHESS_PIECES] = [p(0, 0), p(38, 9), p(39, 35), p(51, -8), p(35, -34), p(0, 0)];
+    [p(17, 14), p(8, 18), p(15, 21), p(7, 10), p(-3, 14), p(-44, 11)];
+const PAWN_ATTACKS: [PhasedScore; NUM_CHESS_PIECES] = [p(0, 0), p(49, 21), p(52, 45), p(67, 4), p(52, -9), p(0, 0)];
+const PAWN_ADVANCE_THREAT: [PhasedScore; NUM_CHESS_PIECES] =
+    [p(0, -5), p(14, 21), p(19, -7), p(16, 10), p(16, -9), p(28, -11)];
 
 pub const MAX_MOBILITY: usize = 7 + 7 + 7 + 6;
 const MOBILITY: [[PhasedScore; MAX_MOBILITY + 1]; NUM_CHESS_PIECES - 1] = [
     [
-        p(-49, -71),
-        p(-28, -31),
-        p(-15, -8),
-        p(-5, 5),
-        p(3, 16),
-        p(10, 27),
-        p(19, 30),
-        p(26, 32),
-        p(33, 30),
+        p(-43, -68),
+        p(-22, -28),
+        p(-10, -5),
+        p(-1, 8),
+        p(7, 19),
+        p(14, 30),
+        p(22, 33),
+        p(28, 35),
+        p(32, 34),
         p(0, 0),
         p(0, 0),
         p(0, 0),
@@ -265,20 +407,20 @@ const MOBILITY: [[PhasedScore; MAX_MOBILITY + 1]; NUM_CHESS_PIECES - 1] = [
         p(0, 0),
     ],
     [
-        p(-31, -55),
-        p(-19, -38),
-        p(-8, -23),
-        p(-0, -10),
-        p(7, -0),
-        p(12, 8),
-        p(16, 13),
-        p(20, 18),
-        p(22, 23),
-        p(29, 25),
-        p(35, 24),
-        p(43, 27),
-        p(40, 33),
-        p(55, 28),
+        p(-30, -56),
+        p(-17, -37),
+        p(-6, -22),
+        p(1, -10),
+        p(8, 0),
+        p(14, 9),
+        p(19, 14),
+        p(24, 18),
+        p(25, 24),
+        p(32, 25),
+        p(38, 26),
+        p(44, 29),
+        p(38, 39),
+        p(51, 31),
         p(0, 0),
         p(0, 0),
         p(0, 0),
@@ -295,21 +437,21 @@ const MOBILITY: [[PhasedScore; MAX_MOBILITY + 1]; NUM_CHESS_PIECES - 1] = [
         p(0, 0),
     ],
     [
-        p(-75, 11),
-        p(-66, 25),
-        p(-62, 31),
-        p(-59, 35),
-        p(-59, 42),
-        p(-53, 46),
-        p(-50, 51),
-        p(-46, 53),
-        p(-42, 57),
-        p(-38, 61),
-        p(-35, 63),
-        p(-33, 68),
-        p(-26, 68),
-        p(-17, 66),
-        p(-15, 66),
+        p(-69, 15),
+        p(-60, 29),
+        p(-56, 36),
+        p(-54, 41),
+        p(-54, 48),
+        p(-49, 54),
+        p(-46, 59),
+        p(-43, 63),
+        p(-40, 68),
+        p(-37, 72),
+        p(-33, 75),
+        p(-32, 81),
+        p(-24, 82),
+        p(-16, 80),
+        p(-11, 76),
         p(0, 0),
         p(0, 0),
         p(0, 0),
@@ -325,45 +467,45 @@ const MOBILITY: [[PhasedScore; MAX_MOBILITY + 1]; NUM_CHESS_PIECES - 1] = [
         p(0, 0),
     ],
     [
-        p(-29, -47),
-        p(-29, 8),
-        p(-33, 57),
-        p(-28, 73),
-        p(-25, 91),
-        p(-20, 96),
-        p(-17, 106),
-        p(-13, 112),
-        p(-9, 116),
+        p(-19, -21),
+        p(-16, 7),
+        p(-21, 64),
+        p(-17, 81),
+        p(-15, 100),
+        p(-10, 106),
         p(-6, 117),
-        p(-3, 120),
-        p(1, 122),
-        p(3, 122),
-        p(5, 127),
-        p(7, 128),
-        p(11, 131),
-        p(11, 138),
-        p(14, 139),
-        p(23, 137),
-        p(36, 130),
-        p(40, 132),
-        p(84, 109),
-        p(83, 112),
-        p(106, 94),
-        p(201, 59),
-        p(245, 20),
-        p(276, 8),
-        p(329, -27),
+        p(-3, 124),
+        p(1, 130),
+        p(4, 131),
+        p(7, 135),
+        p(12, 139),
+        p(15, 140),
+        p(17, 145),
+        p(19, 148),
+        p(24, 151),
+        p(26, 157),
+        p(29, 159),
+        p(39, 156),
+        p(53, 149),
+        p(59, 150),
+        p(100, 127),
+        p(101, 130),
+        p(126, 109),
+        p(213, 79),
+        p(266, 34),
+        p(290, 27),
+        p(289, 15),
     ],
     [
-        p(-95, 7),
-        p(-59, -5),
-        p(-30, -6),
-        p(1, -4),
-        p(32, -2),
-        p(56, -3),
-        p(84, 3),
-        p(110, 2),
-        p(159, -15),
+        p(-87, 3),
+        p(-54, -10),
+        p(-27, -9),
+        p(1, -5),
+        p(30, -3),
+        p(52, -1),
+        p(80, 5),
+        p(105, 8),
+        p(150, -1),
         p(0, 0),
         p(0, 0),
         p(0, 0),
@@ -386,21 +528,26 @@ const MOBILITY: [[PhasedScore; MAX_MOBILITY + 1]; NUM_CHESS_PIECES - 1] = [
     ],
 ];
 const THREATS: [[PhasedScore; NUM_CHESS_PIECES]; NUM_CHESS_PIECES - 1] = [
-    [p(-9, 7), p(0, 0), p(23, 19), p(49, -12), p(20, -33), p(0, 0)],
-    [p(-3, 11), p(20, 23), p(0, 0), p(31, 5), p(31, 53), p(0, 0)],
-    [p(-3, 13), p(11, 15), p(18, 12), p(0, 0), p(45, -5), p(0, 0)],
-    [p(-2, 5), p(2, 5), p(-0, 21), p(1, 1), p(0, 0), p(0, 0)],
-    [p(71, 28), p(-35, 18), p(-9, 17), p(-22, 7), p(0, 0), p(0, 0)],
+    [p(-4, 14), p(0, 0), p(28, 27), p(60, 8), p(40, 0), p(0, 0)],
+    [p(-2, 12), p(21, 26), p(0, 0), p(42, 23), p(47, 92), p(0, 0)],
+    [p(-3, 18), p(11, 18), p(19, 14), p(0, 0), p(66, 44), p(0, 0)],
+    [p(-2, 9), p(2, 9), p(1, 25), p(0, 12), p(0, 0), p(0, 0)],
+    [p(59, 21), p(-22, 23), p(15, 15), p(-13, 23), p(0, 0), p(0, 0)],
 ];
 const DEFENDED: [[PhasedScore; NUM_CHESS_PIECES]; NUM_CHESS_PIECES - 1] = [
-    [p(2, 7), p(8, 7), p(6, 11), p(13, 7), p(7, 20), p(11, 6)],
-    [p(1, 6), p(11, 22), p(-127, -28), p(8, 15), p(9, 20), p(4, 7)],
-    [p(2, 2), p(13, 6), p(9, 11), p(11, 8), p(11, 21), p(21, -6)],
-    [p(2, -2), p(9, 1), p(7, -5), p(4, 15), p(-61, -252), p(5, -11)],
-    [p(64, -2), p(41, 6), p(46, 0), p(25, 5), p(37, -12), p(0, 0)],
+    [p(2, 8), p(8, 7), p(6, 10), p(13, 7), p(7, 15), p(11, 6)],
+    [p(2, 9), p(12, 21), p(-24, -41), p(8, 12), p(10, 20), p(3, 6)],
+    [p(2, 4), p(12, 8), p(8, 13), p(11, 10), p(9, 28), p(20, -4)],
+    [p(2, 3), p(8, 4), p(6, -2), p(4, 14), p(-59, -224), p(5, -10)],
+    [p(62, -2), p(40, 10), p(44, 5), p(22, 7), p(34, -4), p(0, 0)],
 ];
-const KING_ZONE_ATTACK: [PhasedScore; 6] = [p(-21, -18), p(19, -10), p(11, -4), p(14, -12), p(-1, 12), p(-13, 12)];
-const CAN_GIVE_CHECK: [PhasedScore; 5] = [p(0, 0), p(28, 11), p(13, 19), p(34, -1), p(5, 32)];
+const KING_ZONE_ATTACK: [PhasedScore; 6] = [p(-20, -13), p(20, -10), p(9, -3), p(15, -15), p(-0, 4), p(-1, 2)];
+const CAN_GIVE_CHECK: [PhasedScore; 5] = [p(0, 0), p(11, -0), p(-5, 8), p(15, -8), p(-13, 24)];
+const CHECK_STM: PhasedScore = p(36, 22);
+const DISCOVERED_CHECK_STM: PhasedScore = p(144, 38);
+const DISCOVERED_CHECK: [PhasedScore; NUM_CHESS_PIECES] =
+    [p(-7, -18), p(67, -1), p(104, -32), p(64, 81), p(0, 0), p(-23, -21)];
+const PIN: [PhasedScore; NUM_CHESS_PIECES - 1] = [p(6, -17), p(26, 30), p(16, 34), p(42, 9), p(64, 2)];
 
 /// This is a trait because there are two different instantiations:
 /// The normal eval values and the version used by the tuner, where these functions return traces.
@@ -411,9 +558,21 @@ pub trait LiteValues: Debug + Default + Copy + Clone + Send + 'static + Statical
 
     fn passed_pawn(square: ChessSquare) -> SingleFeatureScore<Self::Score>;
 
+    fn stoppable_passer() -> SingleFeatureScore<Self::Score>;
+
+    fn close_king_passer() -> SingleFeatureScore<Self::Score>;
+
+    fn immobile_passer() -> SingleFeatureScore<Self::Score>;
+
+    fn passer_protection() -> SingleFeatureScore<Self::Score>;
+
+    fn candidate_passer(rank: DimT) -> SingleFeatureScore<Self::Score>;
+
     fn unsupported_pawn() -> SingleFeatureScore<Self::Score>;
 
     fn doubled_pawn() -> SingleFeatureScore<Self::Score>;
+
+    fn phalanx(rank: DimT) -> SingleFeatureScore<Self::Score>;
 
     fn bishop_pair() -> SingleFeatureScore<Self::Score>;
 
@@ -425,11 +584,19 @@ pub trait LiteValues: Debug + Default + Copy + Clone + Send + 'static + Statical
 
     fn bishop_openness(openness: FileOpenness, len: usize) -> SingleFeatureScore<Self::Score>;
 
+    fn pawn_advanced_center(config: usize) -> SingleFeatureScore<Self::Score>;
+
+    fn pawn_passive_center(config: usize) -> SingleFeatureScore<Self::Score>;
+
     fn pawn_shield(&self, color: ChessColor, config: usize) -> SingleFeatureScore<Self::Score>;
+
+    fn pawnless_flank() -> SingleFeatureScore<Self::Score>;
 
     fn pawn_protection(piece: ChessPieceType) -> SingleFeatureScore<Self::Score>;
 
     fn pawn_attack(piece: ChessPieceType) -> SingleFeatureScore<Self::Score>;
+
+    fn pawn_advance_threat(piece: ChessPieceType) -> SingleFeatureScore<Self::Score>;
 
     fn mobility(piece: ChessPieceType, mobility: usize) -> SingleFeatureScore<Self::Score>;
 
@@ -440,9 +607,17 @@ pub trait LiteValues: Debug + Default + Copy + Clone + Send + 'static + Statical
     fn king_zone_attack(attacking: ChessPieceType) -> SingleFeatureScore<Self::Score>;
 
     fn can_give_check(piece: ChessPieceType) -> SingleFeatureScore<Self::Score>;
+
+    fn check_stm() -> SingleFeatureScore<Self::Score>;
+
+    fn discovered_check_stm() -> SingleFeatureScore<Self::Score>;
+
+    fn discovered_check(piece: ChessPieceType) -> SingleFeatureScore<Self::Score>;
+
+    fn pin(piece: ChessPieceType) -> SingleFeatureScore<Self::Score>;
 }
 
-/// Eval values tuned on a combination of the zurichess dataset and a dataset used by 4ku,
+/// Eval values tuned on a combination of the lichess-big-3-resolved dataset and a dataset used by 4ku,
 /// created by GCP using his engine Stoofvlees and filtered by cj5716 using Stockfish at depth 9,
 /// using my own tuner `pliers`.
 #[derive(Debug, Default, Copy, Clone)]
@@ -482,6 +657,26 @@ impl LiteValues for Lite {
         PASSED_PAWNS[square.bb_idx()]
     }
 
+    fn stoppable_passer() -> PhasedScore {
+        STOPPABLE_PASSER
+    }
+
+    fn close_king_passer() -> SingleFeatureScore<Self::Score> {
+        CLOSE_KING_PASSER
+    }
+
+    fn immobile_passer() -> SingleFeatureScore<Self::Score> {
+        IMMOBILE_PASSER
+    }
+
+    fn passer_protection() -> SingleFeatureScore<Self::Score> {
+        PROTECTED_PASSER
+    }
+
+    fn candidate_passer(rank: DimT) -> SingleFeatureScore<Self::Score> {
+        CANDIDATE_PASSER[rank as usize]
+    }
+
     fn unsupported_pawn() -> PhasedScore {
         UNSUPPORTED_PAWN
     }
@@ -490,11 +685,15 @@ impl LiteValues for Lite {
         DOUBLED_PAWN
     }
 
+    fn phalanx(rank: DimT) -> PhasedScore {
+        PHALANX[rank as usize]
+    }
+
     fn bishop_pair() -> PhasedScore {
         BISHOP_PAIR
     }
 
-    fn bad_bishop(num_pawns: usize) -> SingleFeatureScore<Self::Score> {
+    fn bad_bishop(num_pawns: usize) -> PhasedScore {
         BAD_BISHOP[num_pawns]
     }
 
@@ -516,12 +715,24 @@ impl LiteValues for Lite {
         }
     }
 
-    fn bishop_openness(openness: FileOpenness, len: usize) -> <PhasedScore as ScoreType>::SingleFeatureScore {
+    fn bishop_openness(openness: FileOpenness, len: usize) -> PhasedScore {
         BISHOP_OPENNESS[openness as usize][len - 1]
+    }
+
+    fn pawn_advanced_center(config: usize) -> PhasedScore {
+        PAWN_ADVANCED_CENTER[config]
+    }
+
+    fn pawn_passive_center(config: usize) -> PhasedScore {
+        PAWN_PASSIVE_CENTER[config]
     }
 
     fn pawn_shield(&self, _color: ChessColor, config: usize) -> PhasedScore {
         PAWN_SHIELDS[config]
+    }
+
+    fn pawnless_flank() -> PhasedScore {
+        PAWNLESS_FLANK
     }
 
     fn pawn_protection(piece: ChessPieceType) -> PhasedScore {
@@ -530,6 +741,10 @@ impl LiteValues for Lite {
 
     fn pawn_attack(piece: ChessPieceType) -> PhasedScore {
         PAWN_ATTACKS[piece as usize]
+    }
+
+    fn pawn_advance_threat(piece: ChessPieceType) -> PhasedScore {
+        PAWN_ADVANCE_THREAT[piece as usize]
     }
 
     fn mobility(piece: ChessPieceType, mobility: usize) -> PhasedScore {
@@ -549,5 +764,21 @@ impl LiteValues for Lite {
 
     fn can_give_check(piece: ChessPieceType) -> PhasedScore {
         CAN_GIVE_CHECK[piece as usize]
+    }
+
+    fn discovered_check_stm() -> PhasedScore {
+        DISCOVERED_CHECK_STM
+    }
+
+    fn pin(piece: ChessPieceType) -> PhasedScore {
+        PIN[piece as usize]
+    }
+
+    fn discovered_check(piece: ChessPieceType) -> PhasedScore {
+        DISCOVERED_CHECK[piece as usize]
+    }
+
+    fn check_stm() -> PhasedScore {
+        CHECK_STM
     }
 }

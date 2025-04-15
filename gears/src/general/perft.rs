@@ -4,7 +4,7 @@ use crate::search::Depth;
 use colored::Colorize;
 use itertools::Itertools;
 use rayon::iter::ParallelIterator;
-use rayon::prelude::{IndexedParallelIterator, IntoParallelRefIterator};
+use rayon::prelude::{IndexedParallelIterator, IntoParallelRefIterator, ParallelBridge};
 use std::collections::HashSet;
 use std::fmt;
 use std::fmt::{Display, Formatter};
@@ -65,9 +65,6 @@ fn do_perft<B: Board>(depth: usize, pos: B) -> u64 {
     if depth == 1 {
         return pos.num_legal_moves() as u64;
     }
-    // if pos.game_result_no_movegen().is_some() {
-    //     return 0; // the game is over (e.g. 50mr)
-    // }
     for new_pos in pos.children() {
         nodes += do_perft(depth - 1, new_pos);
     }
@@ -81,7 +78,7 @@ pub fn perft<B: Board>(depth: Depth, pos: B, parallelize: bool) -> PerftRes {
     let nodes = if depth.get() == 0 {
         1
     } else if depth.get() > 2 && parallelize {
-        pos.children().collect_vec().par_iter().map(|pos| do_perft(depth.get() - 1, pos.clone())).sum()
+        pos.children().par_bridge().map(|pos| do_perft(depth.get() - 1, pos)).sum()
     } else {
         do_perft(depth.get(), pos)
     };
@@ -99,7 +96,7 @@ pub fn split_perft<B: Board>(depth: Depth, pos: B, parallelize: bool) -> SplitPe
     if depth.get() > 2 && parallelize {
         pos.legal_moves_slow()
             .into_iter()
-            .collect::<Vec<_>>()
+            .collect_vec()
             .par_iter()
             .map(|&mov| {
                 let child_nodes = do_perft(depth.get() - 1, pos.clone().make_move(mov).unwrap());
@@ -123,11 +120,11 @@ pub fn split_perft<B: Board>(depth: Depth, pos: B, parallelize: bool) -> SplitPe
     SplitPerftRes { perft_res, children, pos }
 }
 
-pub fn parallel_perft_for<B: Board>(depth: Depth, positions: &[B]) -> PerftRes {
+pub fn perft_for<B: Board>(depth: Depth, positions: &[B], parallelize: bool) -> PerftRes {
     let mut res = PerftRes { time: Duration::default(), nodes: 0, depth };
     for pos in positions {
         let depth = if depth.get() == 0 || depth >= B::max_perft_depth() { pos.default_perft_depth() } else { depth };
-        let this_res = perft(depth, pos.clone(), true);
+        let this_res = perft(depth, pos.clone(), parallelize);
         res.time += this_res.time;
         res.nodes += this_res.nodes;
         res.depth = res.depth.max(this_res.depth);
@@ -181,11 +178,7 @@ impl<B: Board> Iterator for PosIter<B> {
             let new_state = PerftState { pos: new_pos.clone(), moves };
             self.states.push(new_state);
             self.depth -= 1;
-            if self.only_leaves {
-                self.next()
-            } else {
-                Some(new_pos)
-            }
+            if self.only_leaves { self.next() } else { Some(new_pos) }
         }
     }
 }
@@ -207,7 +200,16 @@ impl<B: Board> Hash for HashWrapper<B> {
 }
 
 pub fn num_unique_positions_at<B: Board>(depth: Depth, pos: B) -> usize {
-    let mut set = all_positions_at(depth, pos.clone()).map(|b| HashWrapper(b)).collect::<HashSet<_>>();
+    if depth.get() == 0 {
+        return 1;
+    }
+    let subtree_res =
+        pos.children().par_bridge().flat_map_iter(|c| all_positions_at(depth - 1, c).map(|b| HashWrapper(b)));
+    let mut set = subtree_res.collect::<HashSet<_>>();
+    // let mut set = all_positions_at(depth, pos.clone()).map(|b| HashWrapper(b)).collect::<HashSet<_>>();
+    for c in pos.children() {
+        _ = set.insert(HashWrapper(c));
+    }
     _ = set.insert(HashWrapper(pos));
     set.len()
 }

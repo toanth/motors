@@ -20,13 +20,15 @@ pub mod uttt_square;
 #[cfg(test)]
 mod uttt_tests;
 
-use crate::games::uttt::uttt_square::{UtttSize, UtttSquare};
+use crate::PlayerResult;
+use crate::PlayerResult::{Draw, Lose};
 use crate::games::uttt::ColoredUtttPieceType::{OStone, XStone};
 use crate::games::uttt::UtttColor::{O, X};
 use crate::games::uttt::UtttPieceType::{Empty, Occupied};
+use crate::games::uttt::uttt_square::{UtttSize, UtttSquare};
 use crate::games::{
     AbstractPieceType, BoardHistory, CharType, Color, ColoredPiece, ColoredPieceType, GenericPiece, PieceType, PosHash,
-    Settings,
+    Settings, Size,
 };
 use crate::general::bitboards::{
     Bitboard, DynamicallySizedBitboard, ExtendedRawBitboard, KnownSizeBitboard, RawBitboard, RawStandardBitboard,
@@ -34,21 +36,19 @@ use crate::general::bitboards::{
 use crate::general::board::SelfChecks::*;
 use crate::general::board::Strictness::Strict;
 use crate::general::board::{
-    ply_counter_from_fullmove_nr, read_common_fen_part, simple_fen, Board, BoardHelpers, NameToPos, SelfChecks,
-    Strictness, UnverifiedBoard,
+    Board, BoardHelpers, NameToPos, SelfChecks, Strictness, Symmetry, UnverifiedBoard, ply_counter_from_fullmove_nr,
+    read_common_fen_part, simple_fen,
 };
-use crate::general::common::{ith_one_u128, ith_one_u64, parse_int, EntityList, Res, StaticallyNamedEntity, Tokens};
+use crate::general::common::{EntityList, Res, StaticallyNamedEntity, Tokens, ith_one_u64, ith_one_u128, parse_int};
 use crate::general::move_list::{EagerNonAllocMoveList, MoveList};
 use crate::general::moves::Legality::Legal;
 use crate::general::moves::{Legality, Move, UntrustedMove};
 use crate::general::squares::{RectangularCoordinates, SmallGridSize, SmallGridSquare, SquareColor};
-use crate::output::text_output::{
-    board_to_string, display_board_pretty, p1_color, p2_color, AdaptFormatter, BoardFormatter, DefaultBoardFormatter,
-};
 use crate::output::OutputOpts;
+use crate::output::text_output::{
+    AdaptFormatter, BoardFormatter, DefaultBoardFormatter, board_to_string, display_board_pretty, p1_color, p2_color,
+};
 use crate::search::Depth;
-use crate::PlayerResult;
-use crate::PlayerResult::{Draw, Lose};
 use anyhow::bail;
 use arbitrary::Arbitrary;
 use colored::Colorize;
@@ -91,6 +91,12 @@ impl Not for UtttColor {
 
     fn not(self) -> Self::Output {
         self.other()
+    }
+}
+
+impl Into<usize> for UtttColor {
+    fn into(self) -> usize {
+        self as usize
     }
 }
 
@@ -297,11 +303,7 @@ impl UtttMove {
 
 impl Display for UtttMove {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        if self.is_null() {
-            write!(f, "0000")
-        } else {
-            write!(f, "{}", self.dest_square())
-        }
+        if self.is_null() { write!(f, "0000") } else { write!(f, "{}", self.dest_square()) }
     }
 }
 
@@ -561,7 +563,8 @@ impl UtttBoard {
     pub fn from_alternative_fen(fen: &str, strictness: Strictness) -> Res<Self> {
         if fen.len() != Self::NUM_SQUARES || fen.contains(|c: char| ![' ', 'x', 'o', 'X', 'O'].contains(&c)) {
             bail!(
-                "Incorrect alternative UTTT FEN '{}', must consist of exactly 81 chars, all of which must be ' ', 'x', 'o', 'X', or 'O'", fen.red()
+                "Incorrect alternative UTTT FEN '{}', must consist of exactly 81 chars, all of which must be ' ', 'x', 'o', 'X', or 'O'",
+                fen.red()
             );
         }
         let mut board = UnverifiedUtttBoard::new(Self::empty());
@@ -577,7 +580,10 @@ impl UtttBoard {
                 board.0.active = UtttColor::from_char(c, &UtttSettings::default()).unwrap().other();
                 let mov = board.last_move_mut();
                 if *mov != UtttMove::NULL {
-                    bail!("Upper case pieces are used for the last move, but there is more than one upper case letter in '{}'", fen.red());
+                    bail!(
+                        "Upper case pieces are used for the last move, but there is more than one upper case letter in '{}'",
+                        fen.red()
+                    );
                 }
                 *mov = UtttMove::new(square);
             }
@@ -709,6 +715,36 @@ impl Board for UtttBoard {
             .collect_vec()
     }
 
+    fn random_pos(rng: &mut impl Rng, strictness: Strictness, symmetry: Option<Symmetry>) -> Res<Self> {
+        if symmetry.is_some() {
+            bail!("The UTTT game doesn't support setting up a random symmetrical position")
+        }
+        loop {
+            let mut pos = UnverifiedUtttBoard::new(UtttBoard::empty());
+            let num_pieces = rng.random_range(0..42);
+            for _ in 0..num_pieces {
+                let empty = pos.0.all_empty_squares_bb();
+                let sq = ith_one_u128(rng.random_range(0..empty.num_ones()), empty);
+                let piece = if rng.random_bool(0.5) { O } else { X };
+                let piece = ColoredUtttPieceType::new(piece, Occupied);
+                pos.place_piece(UtttSquare::from_bb_idx(sq), piece)
+            }
+            if rng.random_bool(0.5) {
+                pos.0.active = !pos.0.active;
+            }
+            if rng.random_bool(0.5) {
+                let bb = pos.0.inactive_player_bb();
+                if bb.has_set_bit() {
+                    let piece = ith_one_u128(rng.random_range(0..bb.num_ones()), bb);
+                    pos.0.last_move = UtttMove::new(UtttSquare::from_bb_idx(piece));
+                }
+            }
+            if let Ok(pos) = pos.verify(strictness) {
+                return Ok(pos);
+            }
+        }
+    }
+
     fn settings(&self) -> UtttSettings {
         UtttSettings {}
     }
@@ -721,7 +757,7 @@ impl Board for UtttBoard {
         self.ply_since_start
     }
 
-    fn halfmove_repetition_clock(&self) -> usize {
+    fn ply_draw_clock(&self) -> usize {
         0
     }
 
@@ -746,7 +782,7 @@ impl Board for UtttBoard {
     }
 
     fn default_perft_depth(&self) -> Depth {
-        Depth::new(4)
+        Depth::new(5)
     }
 
     fn cannot_call_movegen(&self) -> bool {
@@ -762,7 +798,7 @@ impl Board for UtttBoard {
                 debug_assert!(!self.is_sub_board_won(X, sub_board) && !self.is_sub_board_won(O, sub_board));
                 let sub_bitboard = self.open_sub_board(sub_board);
                 for idx in sub_bitboard.one_indices() {
-                    let square = UtttSquare::new(sub_board, UtttSubSquare::from_bb_index(idx));
+                    let square = UtttSquare::new(sub_board, UtttSubSquare::from_bb_idx(idx));
                     moves.add_move(UtttMove::new(square));
                 }
                 return;
@@ -800,7 +836,7 @@ impl Board for UtttBoard {
                 let bb = self.open_sub_board(sub_board);
                 let idx = rng.random_range(0..bb.num_ones());
                 let idx = ith_one_u64(idx, bb.raw());
-                let sq = UtttSquare::new(sub_board, UtttSubSquare::from_bb_index(idx));
+                let sq = UtttSquare::new(sub_board, UtttSubSquare::from_bb_idx(idx));
                 return Some(UtttMove::new(sq));
             }
         }
@@ -835,6 +871,9 @@ impl Board for UtttBoard {
     }
 
     fn is_move_pseudolegal(&self, mov: Self::Move) -> bool {
+        if !self.size().coordinates_valid(mov.dest_square()) {
+            return false;
+        }
         if !self.last_move.is_null() {
             let sub_board = self.last_move.dest_square().sub_square();
             if self.is_sub_board_open(sub_board) && mov.dest_square().sub_board() != sub_board {
@@ -885,8 +924,8 @@ impl Board for UtttBoard {
     // reachable because the sub board has been won, and update the piece_on function
 
     fn read_fen_and_advance_input(input: &mut Tokens, strictness: Strictness) -> Res<Self> {
-        let pos = Self::default();
-        let mut pos = read_common_fen_part::<UtttBoard>(input, pos.into())?;
+        let mut pos = Self::default().into();
+        read_common_fen_part::<UtttBoard>(input, &mut pos)?;
 
         let mut fullmove_counter = parse_int(input, "fullmove counter")?;
         if fullmove_counter == 0 {
@@ -927,6 +966,8 @@ impl Board for UtttBoard {
         last_move: Option<UtttMove>,
         opts: OutputOpts,
     ) -> Box<dyn BoardFormatter<Self>> {
+        let l = if self.last_move.is_null() { None } else { Some(self.last_move) };
+        let last_move = last_move.or(l);
         let pos = *self;
         let formatter = AdaptFormatter {
             underlying: Box::new(DefaultBoardFormatter::new(*self, piece_to_char, last_move, opts)),
@@ -1024,7 +1065,7 @@ impl UnverifiedBoard<UtttBoard> for UnverifiedUtttBoard {
         }
         let mut won_by_both = this.won_sub_boards(O) & this.won_sub_boards(X);
         if won_by_both.has_set_bit() {
-            bail!("Sub board {0} has been won by both players", UtttSubSquare::from_bb_index(won_by_both.pop_lsb()));
+            bail!("Sub board {0} has been won by both players", UtttSubSquare::from_bb_idx(won_by_both.pop_lsb()));
         }
         for color in UtttColor::iter() {
             let won_sub_boards = this.won_sub_boards(color);

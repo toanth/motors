@@ -274,6 +274,31 @@ impl PgnParserState<'_> {
         Ok(())
     }
 
+    /// The resulting [`UgiPosState`] can't represent variations, so we ignore them.
+    /// Currently, we do not even check for legality; as long as all parens are closed we accept.
+    fn parse_variations(&mut self) -> Res<()> {
+        let paren = self.eat();
+        assert_eq!(paren, Some('('));
+
+        let mut nesting = 1;
+        loop {
+            self.ignore_whitespace()?;
+            match self.eat() {
+                Some('(') => nesting += 1,
+                Some(')') => nesting -= 1,
+                None => bail!("Unclosed variation: Opening '(' does not have a matching ')'"),
+                _ => {}
+            }
+            if nesting == 0 {
+                self.ignore_whitespace()?;
+                if let Some('(') = self.unread.peek() {
+                    continue;
+                }
+                return Ok(());
+            }
+        }
+    }
+
     fn parse_brace_comment(&mut self) -> Res<()> {
         assert!(self.unread.peek().is_some_and(|&c| c == '{'));
         _ = self.eat();
@@ -345,7 +370,7 @@ impl PgnParserState<'_> {
         Ok(())
     }
 
-    fn unread(&mut self) -> &str {
+    fn unread(&self) -> &str {
         &self.original_input[self.byte_idx..]
     }
 }
@@ -398,11 +423,13 @@ impl<'a, B: Board> PgnParser<'a, B> {
         Ok(())
     }
 
-    // TODO: Support for Variations with (moves)
     fn parse_move(&mut self) -> Res<()> {
         self.state.ignore_whitespace()?;
-        if self.state.unread.peek().is_none() {
+        let next = self.state.unread.peek().copied();
+        if next.is_none() {
             return Ok(());
+        } else if next == Some('(') {
+            self.state.parse_variations()?;
         }
         let string = self.state.unread();
         let next_word = string.split_ascii_whitespace().next().unwrap_or_default();
@@ -419,7 +446,7 @@ impl<'a, B: Board> PgnParser<'a, B> {
             bail!("The game has already ended, cannot parse additional moves at start of '{}'", string.bold())
         }
         let prev_board = &self.res.game.board;
-        let (remaining, mov) = B::Move::parse_extended_text(string, prev_board)?;
+        let (remaining, mov) = B::Move::parse_text(string, prev_board)?;
         let Some(new_board) = prev_board.clone().make_move(mov) else {
             bail!("Illegal psuedolegal move '{}'", mov.compact_formatter(prev_board).to_string().red());
         };
@@ -431,7 +458,8 @@ impl<'a, B: Board> PgnParser<'a, B> {
                 *st = Over(res);
             }
         }
-        for _ in 0..string.len() - remaining.len() {
+        let remaining_len = remaining.len();
+        while self.state.unread().len() != remaining_len {
             _ = self.state.eat().unwrap();
         }
         Ok(())
@@ -452,12 +480,28 @@ impl<'a, B: Board> PgnParser<'a, B> {
     }
 }
 
+#[cold]
 pub fn parse_pgn<B: Board>(pgn: &str, strictness: Strictness, pos: Option<B>) -> Res<PgnData<B>> {
     let mut parser: PgnParser<'_, B> = PgnParser::new(pgn);
     if let Some(pos) = pos {
         parser.res.tag_pairs.push(Fen(pos.as_fen()));
     }
-    parser.parse(strictness).map_err(|err| anyhow!("{err}. Unconsumed input: '{}'", parser.state.unread().red()))
+    parser.parse(strictness).map_err(|err| {
+        anyhow!(
+            "{err}.\nPosition when the error occurred: '{0}'. Unconsumed input: '{1}'",
+            parser.res.game.board,
+            parser.state.unread().red()
+        )
+    })
+}
+
+#[cold]
+/// This function is used as a fallback when parsing UGI moves, to enable pgn format after `position <fen> moves`.
+pub fn parse_pgn_moves_format<B: Board>(pgn_moves: &str, pos: &B) -> Res<PgnData<B>> {
+    let mut parser: PgnParser<'_, B> = PgnParser::new(pgn_moves);
+    parser.res.game.board = pos.clone();
+    parser.parse_all_moves()?;
+    Ok(parser.res)
 }
 
 #[cfg(test)]
@@ -467,6 +511,8 @@ mod tests {
     use crate::games::chess::moves::ChessMove;
     use crate::games::chess::pieces::ChessPieceType::Bishop;
     use crate::games::chess::squares::ChessSquare;
+    use crate::general::board::Strictness::Strict;
+    use itertools::Itertools;
 
     #[test]
     fn parse_one_ply_pgn() {
@@ -511,11 +557,12 @@ mod tests {
 [ Black "Spassky, Boris V."]
 [Result{} "1/2-1/2"]
 
-1.e4 e5 2.Nf3 Nc6 3.Bb5 {This opening is called the Ruy Lopez.} 3...a6
+1.e4 e5 ({or maybe} 1...d5? {hmm, doesn't seem right :(}) 2.Nf3 Nc6 3.Bb5 {This opening is called the Ruy Lopez.} 3...a6
 4.Ba4 Nf6 5.O-O Be7 6.Re1 b5 7.Bb3 d6 8.c3 O-O 9.h3 Nb8 10.d4 Nbd7
 %test%\
 11.c4 c6 12.cxb5 axb5 13.Nc3 Bb7 14.Bg5 b4 15.Nb1 h6 16.Bh4 c5 17.dxe5
 Nxe4 18.Bxe7 Qxe7 19.exd6 Qf6 20.Nbd2 Nxd6 21.Nc4 Nxc4 22.Bxc4 Nb6
+({look,} {a test!})
 23.Ne5 Rae8 24.Bxf7+ Rxf7 25.Nxf7 Rxe1+ 26.Qxe1 Kxf7 27.Qe3 Qg5 28.Qxg5
 hxg5 29.b3 Ke6 30.a3 Kd6 31.axb4 cxb4 32.Ra5 Nd5 33.f3 Bc8 34.Kf2 Bf5
 {another test %}
@@ -558,7 +605,7 @@ Nf2 42.g4 Bd3 43.Re6 1/2-1/2"#;
         [ECO "B17"]
         [Result "1-0"]
 %̷̹̈́̓ ̹̓ ͉̽̈́ ͉̼̰̻̽͂ ̰̓c̹̹ ̴͇̈́̈́|
-        1...c6 2. d4 d5 3. Nc3 dxe4 4. Nxe4 Nd7 5. Ng5 Ngf6 6. Bd3 e6 7. N1f3 h6 8. Nxe6 Qe7 9. O-O fxe6 10. Bg6+ Kd8 {Kasparov schüttelt kurz den Kopf} 11. Bf4 b5 12. a4 Bb7 13. Re1 Nd5 14. Bg3 Kc8 15. axb5 cxb5 16. Qd3 Bc6 17. Bf5 exf5 18. Rxe7 Bxe7 19. c4 1-0
+        1...c6 2. d4 d5 3. Nc3 dxe4 ()4. Nxe4 Nd7 5. Ng5( (a)) Ngf6 6. Bd3 e6 7. N1f3 h6 8. Nxe6 Qe7 9. O-O fxe6 10. Bg6+ Kd8 {Kasparov schüttelt kurz den Kopf} 11. Bf4 b5 12. a4 Bb7 13. Re1 Nd5 14. Bg3 Kc8 15. axb5 cxb5 16. Qd3 Bc6 17. Bf5 exf5 18. Rxe7 Bxe7 19. c4 1-0
         "#;
         let info = parse_pgn::<Chessboard>(pgn, Relaxed, None).unwrap();
         assert_eq!(info.tag_pairs.len(), 11);
@@ -582,5 +629,23 @@ Nf2 42.g4 Bd3 43.Re6 1/2-1/2"#;
         assert!(info.is_err());
         assert!(info.err().unwrap().to_string().contains("The game has already ended"));
     }
-    // TODO: Pgn test for another game than chess
+
+    #[test]
+    fn lots_of_checks() {
+        // from <https://timkr.home.xs4all.nl/records/records.htm>
+        let pgn = r#"[Variant "From Position"]
+            [FEN "4r1Q1/B2nr3/5b2/8/4p3/4KbNq/ppppppp1/RR3Nkn w - - 0 1"]
+            1. Nh2+??  (1. Nxe2+ Bxe2+ 2. Qg3 Nxg3 3. Nxg3+ axb1=Q 4. Rxb1+ cxb1=Q 5. Kf4 Qh6+ 6. Kf5 Re5#)(1.Nxd2{is also possible:)})
+                f1=N+ 2. Rxf1+ gxf1=N+ 3. Ngxf1+ Bg5+ 4. Qxg5+ Bg2+ 5. Nf3+ exf3+ 6. Kd3+ Nc5+
+{comment {} 7. Qxc5+ Re3+ 8. Nxe3+ c1=N+ 9. Qxc1+ d1=Q+ 10. Qxd1+ e1=N+ 11. Qxe1+ Bf1+ 12. Nxf1+ f2+
+  {\}       13. Ne3+ f1=Q+ 14. Qxf1+ Qxf1+ 15. Nxf1+ Re3+ 16. Nxe3+ b1=Q+ 17. Rxb1+ axb1=Q+ 18. Nc2+ Nf2+ 19. Bxf2+??"#;
+        let data = PgnParser::<'_, Chessboard>::new(pgn).parse(Strict).unwrap();
+        assert_eq!(data.tag_pairs.len(), 2);
+        for (pos, mov) in data.game.seen_so_far().dropping(1) {
+            assert!(pos.is_in_check(), "{pos}");
+            assert!(pos.gives_check(mov));
+        }
+    }
+
+    // TODO: Pgn test for another game than chess, especially fairy chess
 }

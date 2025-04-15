@@ -21,10 +21,11 @@ pub mod uttt;
 pub trait Eval<B: Board>: Debug + Send + StaticallyNamedEntity + DynClone + 'static {
     /// Eval the given board at the given depth in a search. To just eval a single position,
     /// `ply` should be set to 0. Most eval functions completely ignore it.
-    fn eval(&mut self, pos: &B, _ply: usize) -> Score;
+    /// `engine` is used for asymmetric evals like king gambot.
+    fn eval(&mut self, pos: &B, _ply: usize, _engine: B::Color) -> Score;
 
-    fn eval_incremental(&mut self, _old_pos: &B, _mov: B::Move, new_pos: &B, ply: usize) -> Score {
-        self.eval(new_pos, ply)
+    fn eval_incremental(&mut self, _old_pos: &B, _mov: B::Move, new_pos: &B, ply: usize, engine: B::Color) -> Score {
+        self.eval(new_pos, ply, engine)
     }
 
     /// How much larger do we expect variation in piece scores to be than variation in eval scores?
@@ -75,6 +76,7 @@ pub trait ScoreType:
         max_phase: PhaseType,
         color: C,
         tempo: Self::Finalized,
+        bonus: &[Self; 2],
     ) -> Self::Finalized;
 }
 
@@ -82,7 +84,19 @@ impl ScoreType for PhasedScore {
     type Finalized = Score;
     type SingleFeatureScore = Self;
 
-    fn finalize<C: Color>(self, phase: PhaseType, max_phase: PhaseType, color: C, tempo: Self::Finalized) -> Score {
+    fn finalize<C: Color>(
+        mut self,
+        phase: PhaseType,
+        max_phase: PhaseType,
+        color: C,
+        tempo: Self::Finalized,
+        bonus: &[Self; 2],
+    ) -> Score {
+        if color.is_first() {
+            self += bonus[0]
+        } else {
+            self -= bonus[1]
+        }
         let score = self.taper(phase, max_phase);
         tempo + if color.is_first() { score } else { -score }
     }
