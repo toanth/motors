@@ -1077,7 +1077,7 @@ impl Caps {
 
         // Corrhist updates
         if !(in_check
-            || best_move.is_tactical(&pos)
+            || (!best_move.is_null() && best_move.is_tactical(&pos))
             || (best_score <= eval && bound_so_far == NodeType::lower_bound())
             || (best_score >= eval && bound_so_far == NodeType::upper_bound()))
         {
