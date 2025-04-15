@@ -44,8 +44,9 @@ impl<B: Board> Eval<B> for RandEval {
     fn eval(&mut self, pos: &B, _ply: usize, _engine: B::Color) -> Score {
         if self.deterministic {
             // deterministic and faster than seeding a rng while still being good enough
-            let random = (pos.hash_pos().0 % (MAX_NORMAL_SCORE.0 as i64 - MIN_NORMAL_SCORE.0 as i64 + 1) as u64) as i64;
-            Score((random + MIN_NORMAL_SCORE.0 as i64) as ScoreT)
+            let random =
+                (pos.hash_pos().0 % (MAX_NORMAL_SCORE.0 as i64 - MIN_NORMAL_SCORE.0 as i64 + 1 - 10) as u64) as i64;
+            Score((random + MIN_NORMAL_SCORE.0 as i64 + 5) as ScoreT)
             // too slow (there's probably a way to do this faster while using the rng crate, but the above is good enough)
             // StdRng::seed_from_u64(pos.zobrist_hash().0)
             //     .random_range(MIN_NORMAL_SCORE.0..=MAX_NORMAL_SCORE.0),

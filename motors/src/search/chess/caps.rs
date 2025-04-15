@@ -1221,7 +1221,7 @@ impl Caps {
             let mov = self.search_stack[ply - 1].last_tried_move();
             let res = self.eval.eval_incremental(old_pos, mov, pos, ply, us);
             debug_assert_eq!(res, self.eval.eval(pos, ply, us), "{pos} {mov:?} {old_pos} {ply}");
-            res
+            res + Score(self.uci_nodes() as ScoreT % 4 - 1)
         };
         // the score must not be in the mate score range unless the position includes too many pieces
         debug_assert!(
