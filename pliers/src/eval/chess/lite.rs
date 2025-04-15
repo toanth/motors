@@ -16,6 +16,7 @@ use gears::games::chess::see::SEE_SCORES;
 use gears::games::chess::squares::{ChessSquare, NUM_SQUARES};
 use gears::games::chess::{ChessColor, Chessboard};
 use gears::general::common::StaticallyNamedEntity;
+use motors::eval::SingleFeatureScore;
 use motors::eval::chess::FileOpenness::*;
 use motors::eval::chess::lite::GenericLiTEval;
 use motors::eval::chess::lite_values::{LiteValues, MAX_MOBILITY};
@@ -33,6 +34,7 @@ struct LiTETrace {}
 #[allow(missing_docs)]
 #[derive(Debug, Copy, Clone, Eq, PartialEq, EnumIter, FromRepr, derive_more::Display)]
 pub enum LiteFeatureSubset {
+    Tempo,
     Psqt,
     BishopPair,
     BadBishop,
@@ -69,6 +71,7 @@ pub enum LiteFeatureSubset {
 impl FeatureSubSet for LiteFeatureSubset {
     fn num_features(self) -> usize {
         match self {
+            Tempo => 1,
             Psqt => NUM_SQUARES * NUM_CHESS_PIECES,
             BishopPair => 1,
             BadBishop => 9,
@@ -109,6 +112,9 @@ impl FeatureSubSet for LiteFeatureSubset {
 
     fn write(self, f: &mut Formatter, weights: &Weights, special: &[bool]) -> fmt::Result {
         match self {
+            Tempo => {
+                write!(f, "const TEMPO: PhasedScore = ")?;
+            }
             Psqt => {
                 return write_psqts(f, weights, special);
             }
@@ -438,6 +444,10 @@ impl LiteValues for LiTETrace {
 
     fn check_stm() -> SingleFeature {
         SingleFeature::new(CheckStm, 0)
+    }
+
+    fn tempo() -> SingleFeatureScore<Self::Score> {
+        SingleFeature::new(Tempo, 0)
     }
 }
 

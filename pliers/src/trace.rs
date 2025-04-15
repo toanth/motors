@@ -252,7 +252,6 @@ impl ScoreType for SparseTrace {
         phase: PhaseType,
         max_phase: PhaseType,
         color: C,
-        _tempo: Self::Finalized,
         bonus: &[Self; 2],
     ) -> Self::Finalized {
         if color.is_first() {

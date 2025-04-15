@@ -72,6 +72,10 @@ impl StaticallyNamedEntity for KingGambotValues {
 impl LiteValues for KingGambotValues {
     type Score = PhasedScore;
 
+    fn tempo() -> PhasedScore {
+        Lite::tempo()
+    }
+
     fn psqt(&self, square: ChessSquare, piece: ChessPieceType, color: ChessColor) -> PhasedScore {
         if color == self.us && piece == King {
             KING_GAMBOT_VALUES[square.flip_if(color == White).bb_idx()]

@@ -70,34 +70,21 @@ pub trait ScoreType:
     type Finalized: Default;
     type SingleFeatureScore: Default + Mul<usize, Output = Self::SingleFeatureScore>;
 
-    fn finalize<C: Color>(
-        self,
-        phase: PhaseType,
-        max_phase: PhaseType,
-        color: C,
-        tempo: Self::Finalized,
-        bonus: &[Self; 2],
-    ) -> Self::Finalized;
+    fn finalize<C: Color>(self, phase: PhaseType, max_phase: PhaseType, color: C, bonus: &[Self; 2])
+    -> Self::Finalized;
 }
 
 impl ScoreType for PhasedScore {
     type Finalized = Score;
     type SingleFeatureScore = Self;
 
-    fn finalize<C: Color>(
-        mut self,
-        phase: PhaseType,
-        max_phase: PhaseType,
-        color: C,
-        tempo: Self::Finalized,
-        bonus: &[Self; 2],
-    ) -> Score {
+    fn finalize<C: Color>(mut self, phase: PhaseType, max_phase: PhaseType, color: C, bonus: &[Self; 2]) -> Score {
         if color.is_first() {
             self += bonus[0]
         } else {
             self -= bonus[1]
         }
         let score = self.taper(phase, max_phase);
-        tempo + if color.is_first() { score } else { -score }
+        if color.is_first() { score } else { -score }
     }
 }
