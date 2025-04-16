@@ -20,8 +20,9 @@ use gears::games::chess::moves::ChessMove;
 use gears::games::chess::pieces::ChessPieceType::Pawn;
 use gears::games::chess::see::SeeScore;
 use gears::games::chess::squares::NUM_SQUARES;
+use gears::games::chess::zobrist::ZOBRIST_KEYS;
 use gears::games::chess::{ChessColor, Chessboard, MAX_CHESS_MOVES_IN_POS, unverified::UnverifiedChessboard};
-use gears::games::{BoardHistory, PosHash, ZobristHistory, n_fold_repetition};
+use gears::games::{BoardHistory, ZobristHistory, n_fold_repetition};
 use gears::general::bitboards::RawBitboard;
 use gears::general::board::Strictness::Strict;
 use gears::general::board::{BitboardBoard, UnverifiedBoard};
@@ -357,10 +358,6 @@ impl NormalEngine<Chessboard> for Caps {
 
 #[allow(clippy::too_many_arguments)]
 impl Caps {
-    fn prefetch(&self) -> impl Fn(PosHash) + '_ {
-        |hash| self.tt().prefetch(hash)
-    }
-
     /// Iterative Deepening (ID): Do a depth 1 search, then a depth 2 search, then a depth 3 search, etc.
     /// This has two advantages: It allows the search to be stopped at any time, and it actually improves strength:
     /// The low-depth searches fill the TT and various heuristics, which improves move ordering and therefore results in
@@ -790,6 +787,7 @@ impl Caps {
                 && !*self.nmp_disabled_for(pos.active_player())
                 && has_nonpawns
             {
+                self.tt().prefetch(pos.hash_pos() ^ ZOBRIST_KEYS.side_to_move_key);
                 // `make_nullmove` resets the 50mr counter, so we don't consider positions after a nullmove as repetitions,
                 // but we can still get TT cutoffs
                 self.params.history.push(pos.hash_pos());
@@ -888,7 +886,8 @@ impl Caps {
             if root && self.excluded_moves.contains(&mov) {
                 continue;
             }
-            let Some(new_pos) = pos.make_move_and_prefetch_tt(mov, self.prefetch()) else {
+            self.tt().prefetch(pos.approx_hash_after(mov));
+            let Some(new_pos) = pos.make_move(mov) else {
                 continue; // illegal pseudolegal move
             };
             #[cfg(debug_assertions)]
@@ -1183,6 +1182,7 @@ impl Caps {
                 // If the move has a negative SEE score or if we've already looked at enough moves, don't even bother playing it in qsearch.
                 break;
             }
+            self.tt().prefetch(pos.approx_hash_after(mov));
             let Some(new_pos) = pos.make_move(mov) else {
                 continue;
             };

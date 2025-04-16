@@ -427,7 +427,7 @@ impl Board for Chessboard {
         if !self.is_move_legal(mov) {
             return None;
         }
-        Some(self.make_move_impl(mov, |_hash| ()))
+        Some(self.make_move_impl(mov))
     }
 
     fn make_nullmove(mut self) -> Option<Self> {
@@ -1421,7 +1421,8 @@ mod tests {
         let insufficient = [
             "8/4k3/8/8/8/8/8/2K5 w - - 0 1",
             "8/4k3/8/8/8/8/5N2/2K5 w - - 0 1",
-            "8/8/8/6k1/8/2K5/5b2/6b1 w - - 0 1",
+            "8/8/8/3b2k1/8/2K5/6b1/8 w - - 0 1",
+            "8/8/8/6k1/8/2K5/8/4b1b1 w - - 0 1",
             "8/8/3B4/7k/8/8/1K6/6b1 w - - 0 1",
             "8/6B1/8/6k1/8/2K5/8/6b1 w - - 0 1",
             "3b3B/2B5/1B1B4/B7/3b4/4b2k/5b2/1K6 w - - 0 1",

@@ -421,16 +421,16 @@ impl Chessboard {
         ChessSquare::from_rank_file(rank, file)
     }
 
-    pub fn make_move_and_prefetch_tt<F: Fn(PosHash)>(self, mov: ChessMove, prefetch: F) -> Option<Self> {
-        if !self.is_pseudolegal_move_legal(mov) {
-            return None;
-        }
-        Some(self.make_move_impl(mov, prefetch))
+    // For most moves, this returns the hash after playing that move.
+    pub fn approx_hash_after(&self, mov: ChessMove) -> PosHash {
+        let us = self.active_player;
+        let delta = Self::zobrist_delta(us, mov.piece_type(), mov.src_square(), mov.dest_square());
+        self.hash_pos() ^ delta ^ ZOBRIST_KEYS.side_to_move_key
     }
 
     /// Is only ever called on a copy of the board, so no need to undo the changes when a move gets aborted due to pseudo-legality.
     #[allow(clippy::too_many_lines)]
-    pub(super) fn make_move_impl<F: Fn(PosHash)>(mut self, mov: ChessMove, prefetch: F) -> Self {
+    pub(super) fn make_move_impl(mut self, mov: ChessMove) -> Self {
         let piece = mov.piece_type();
         debug_assert_eq!(piece, self.piece_type_on(mov.src_square()));
         let us = self.active_player;
@@ -438,10 +438,6 @@ impl Chessboard {
         let from = mov.src_square();
         let mut to = mov.dest_square();
         let hash_delta = Self::zobrist_delta(us, piece, from, to);
-        let new_hash = self.hash_pos() ^ hash_delta ^ ZOBRIST_KEYS.side_to_move_key;
-        // this is only an approximation of the new hash, but that is good enough
-        prefetch(new_hash ^ ZOBRIST_KEYS.side_to_move_key); // TODO: Remove?
-        prefetch(new_hash);
         debug_assert_eq!(us, mov.piece(&self).color().unwrap());
         self.ply_100_ctr += 1;
         if piece == Pawn {
@@ -509,7 +505,7 @@ impl Chessboard {
             self.hashes.pawns ^= ZOBRIST_KEYS.piece_key(Pawn, us, to);
             self.hashes.nonpawns[us] ^= ZOBRIST_KEYS.piece_key(piece, us, to);
         }
-        self.ply += 1;
+        // self.ply += 1;
         self.hashes.total = special_hash ^ self.hashes.pawns ^ self.hashes.nonpawns[0] ^ self.hashes.nonpawns[1];
         self.flip_side_to_move()
     }
