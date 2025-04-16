@@ -53,7 +53,6 @@ mod tests {
     }
 
     #[test]
-    #[cfg(feature = "random_mover")]
     fn random_mover_test() {
         game_over_test(&mut RandomMover::<Chessboard, StdRng>::default());
     }

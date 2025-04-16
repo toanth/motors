@@ -8,10 +8,9 @@ use crate::games::ataxx::AtaxxColor::{O, X};
 use crate::games::ataxx::common::AtaxxPieceType::Occupied;
 use crate::games::ataxx::common::ColoredAtaxxPieceType::{Blocked, Empty, OPiece, XPiece};
 use crate::games::ataxx::common::{AtaxxMove, ColoredAtaxxPieceType, MAX_ATAXX_MOVES_IN_POS};
-use crate::games::chess::pieces::NUM_COLORS;
 use crate::games::{
-    Board, BoardHistory, CharType, Color, ColoredPiece, ColoredPieceType, Coordinates, GenericPiece, NoHistory,
-    PosHash, Settings, Size,
+    Board, BoardHistory, CharType, Color, ColoredPiece, ColoredPieceType, Coordinates, GenericPiece, NUM_COLORS,
+    NoHistory, PosHash, Settings, Size,
 };
 use crate::general::bitboards::{Bitboard, KnownSizeBitboard, RawBitboard, RawStandardBitboard, SmallGridBitboard};
 use crate::general::board::SelfChecks::{Assertion, CheckFen};
@@ -62,6 +61,12 @@ impl Not for AtaxxColor {
 
     fn not(self) -> Self::Output {
         self.other()
+    }
+}
+
+impl Into<usize> for AtaxxColor {
+    fn into(self) -> usize {
+        self as usize
     }
 }
 

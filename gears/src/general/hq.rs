@@ -16,8 +16,10 @@
  *  along with Gears. If not, see <https://www.gnu.org/licenses/>.
  */
 use crate::games::Size;
+#[cfg(feature = "chess")]
 use crate::games::chess::squares::ChessSquare;
 use crate::general::bitboards::RayDirections::{AntiDiagonal, Diagonal, Horizontal, Vertical};
+#[cfg(feature = "chess")]
 use crate::general::bitboards::chessboard::ChessBitboard;
 use crate::general::bitboards::{
     ANTI_DIAGONALS_U64, ANTI_DIAGONALS_U128, Bitboard, DIAGONALS_U64, DIAGONALS_U128, ExtendedRawBitboard, MAX_WIDTH,
@@ -61,10 +63,12 @@ impl U128BitReverseHq {
     }
 }
 
+#[cfg(feature = "chess")]
 pub struct ChessSliderGenerator {
     blockers: U64AndRev,
 }
 
+#[cfg(feature = "chess")]
 impl ChessSliderGenerator {
     #[inline]
     pub fn new(blockers: ChessBitboard) -> Self {
@@ -392,6 +396,7 @@ impl WithRev for U128AndRev {
 
 /// Because boards smaller than 8x8 still use an internal width of 8, this can be used as-is for those boards
 /// `static` instead of `const` because it's relatively large and used in multiple places
+#[allow(unused)]
 static CHESS_HQ_DATA: [HqDataByteswap<u64>; 64] = {
     let zero = HqDataByteswap { square: U64AndRev::unreversed(0), rays: [U64AndRev::unreversed(0); 3] };
     let mut res = [zero; 64];
@@ -410,6 +415,7 @@ static CHESS_HQ_DATA: [HqDataByteswap<u64>; 64] = {
     res
 };
 
+#[allow(unused)]
 static RANK_LOOKUP: [u8; 8 * (1 << (8 - 2))] = {
     let mut res = [0; 64 * 8];
     let mut i = 0;

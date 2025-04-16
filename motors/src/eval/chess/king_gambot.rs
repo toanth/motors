@@ -15,7 +15,6 @@
  *  You should have received a copy of the GNU General Public License
  *  along with Motors. If not, see <https://www.gnu.org/licenses/>.
  */
-use crate::eval::SingleFeatureScore;
 use crate::eval::chess::FileOpenness;
 use crate::eval::chess::lite_values::{Lite, LiteValues};
 use gears::games::DimT;
@@ -101,7 +100,7 @@ impl LiteValues for KingGambotValues {
         Lite::passer_protection()
     }
 
-    fn candidate_passer(rank: DimT) -> SingleFeatureScore<Self::Score> {
+    fn candidate_passer(rank: DimT) -> PhasedScore {
         Lite::candidate_passer(rank)
     }
 
@@ -150,7 +149,7 @@ impl LiteValues for KingGambotValues {
         if self.us == color { value / 2 } else { value }
     }
 
-    fn pawnless_flank() -> SingleFeatureScore<Self::Score> {
+    fn pawnless_flank() -> PhasedScore {
         Lite::pawnless_flank()
     }
 
@@ -162,7 +161,7 @@ impl LiteValues for KingGambotValues {
         Lite::pawn_attack(piece)
     }
 
-    fn pawn_advance_threat(piece: ChessPieceType) -> SingleFeatureScore<Self::Score> {
+    fn pawn_advance_threat(piece: ChessPieceType) -> PhasedScore {
         Lite::pawn_advance_threat(piece)
     }
 
@@ -192,5 +191,13 @@ impl LiteValues for KingGambotValues {
 
     fn discovered_check(piece: ChessPieceType) -> PhasedScore {
         Lite::discovered_check(piece)
+    }
+
+    fn discovered_check_stm() -> PhasedScore {
+        Lite::discovered_check_stm()
+    }
+
+    fn check_stm() -> PhasedScore {
+        Lite::check_stm()
     }
 }

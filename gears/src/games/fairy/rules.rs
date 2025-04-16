@@ -16,7 +16,6 @@
  *  along with Gears. If not, see <https://www.gnu.org/licenses/>.
  */
 use crate::PlayerResult;
-use crate::games::chess::pieces::NUM_COLORS;
 use crate::games::fairy::attacks::EffectRules;
 use crate::games::fairy::moves::FairyMove;
 use crate::games::fairy::pieces::{Piece, PieceId};
@@ -27,7 +26,7 @@ use crate::games::fairy::{
     RawFairyBitboard, UnverifiedFairyBoard,
 };
 use crate::games::mnk::{MNKBoard, MnkSettings};
-use crate::games::{BoardHistory, DimT, PosHash, Settings, chess, n_fold_repetition};
+use crate::games::{BoardHistory, DimT, NUM_COLORS, PosHash, Settings, chess, n_fold_repetition};
 use crate::general::bitboards::{Bitboard, RawBitboard};
 use crate::general::board::{BitboardBoard, Board, BoardHelpers};
 use crate::general::common::{Res, Tokens};
@@ -276,10 +275,10 @@ impl Rules {
 
     // Used for chess and many other variants
     fn chess_colors() -> [ColorInfo; NUM_COLORS] {
-        [ColorInfo { ascii_char: 'w', name: "white".to_string() }, ColorInfo {
-            ascii_char: 'b',
-            name: "black".to_string(),
-        }]
+        [
+            ColorInfo { ascii_char: 'w', name: "white".to_string() },
+            ColorInfo { ascii_char: 'b', name: "black".to_string() },
+        ]
     }
 
     pub fn chess() -> Self {

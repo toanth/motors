@@ -18,13 +18,13 @@ use crate::games::chess::castling::CastleRight::*;
 use crate::games::chess::castling::{CastleRight, CastlingFlags};
 use crate::games::chess::moves::ChessMove;
 use crate::games::chess::pieces::ChessPieceType::*;
-use crate::games::chess::pieces::{ChessPiece, ChessPieceType, ColoredChessPieceType, NUM_CHESS_PIECES, NUM_COLORS};
+use crate::games::chess::pieces::{ChessPiece, ChessPieceType, ColoredChessPieceType, NUM_CHESS_PIECES};
 use crate::games::chess::squares::{ChessSquare, ChessboardSize};
 use crate::games::chess::unverified::UnverifiedChessboard;
 use crate::games::chess::zobrist::ZOBRIST_KEYS;
 use crate::games::{
-    AbstractPieceType, Board, BoardHistory, CharType, Color, ColoredPiece, ColoredPieceType, DimT, PieceType, PosHash,
-    Settings, n_fold_repetition,
+    AbstractPieceType, Board, BoardHistory, CharType, Color, ColoredPiece, ColoredPieceType, DimT, NUM_COLORS,
+    PieceType, PosHash, Settings, n_fold_repetition,
 };
 use crate::general::bitboards::chessboard::{ChessBitboard, black_squares, white_squares};
 use crate::general::bitboards::{Bitboard, KnownSizeBitboard, RawBitboard, RawStandardBitboard};
@@ -103,6 +103,12 @@ impl Not for ChessColor {
 
     fn not(self) -> Self::Output {
         self.other()
+    }
+}
+
+impl Into<usize> for ChessColor {
+    fn into(self) -> usize {
+        self as usize
     }
 }
 
@@ -941,7 +947,7 @@ mod tests {
     use std::collections::HashSet;
 
     use crate::games::chess::squares::{B_FILE_NO, E_FILE_NO, F_FILE_NO, G_FILE_NO, H_FILE_NO};
-    use crate::games::{Coordinates, NoHistory, RectangularCoordinates, ZobristHistory, char_to_file};
+    use crate::games::{Coordinates, NoHistory, ZobristHistory, char_to_file};
     use crate::general::board::RectangularBoard;
     use crate::general::board::Strictness::Relaxed;
     use crate::general::moves::Move;
@@ -1408,7 +1414,8 @@ mod tests {
         let insufficient = [
             "8/4k3/8/8/8/8/8/2K5 w - - 0 1",
             "8/4k3/8/8/8/8/5N2/2K5 w - - 0 1",
-            "8/8/8/6k1/8/2K5/5b2/6b1 w - - 0 1",
+            "8/8/8/3b2k1/8/2K5/6b1/8 w - - 0 1",
+            "8/8/8/6k1/8/2K5/8/4b1b1 w - - 0 1",
             "8/8/3B4/7k/8/8/1K6/6b1 w - - 0 1",
             "8/6B1/8/6k1/8/2K5/8/6b1 w - - 0 1",
             "3b3B/2B5/1B1B4/B7/3b4/4b2k/5b2/1K6 w - - 0 1",

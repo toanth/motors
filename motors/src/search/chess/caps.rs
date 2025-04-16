@@ -448,7 +448,9 @@ impl Caps {
             let alpha = self.cur_pv_data().alpha;
             let beta = self.cur_pv_data().beta;
             let mut window_radius = self.cur_pv_data().radius;
-            let mut soft_limit = unscaled_soft_limit.mul_f64(soft_limit_fail_low_extension);
+            // limit.fixed time is the min of the fixed time and the remaining time
+            let mut soft_limit =
+                unscaled_soft_limit.mul_f64(soft_limit_fail_low_extension).min(self.params.limit.fixed_time);
             soft_limit_fail_low_extension = 1.0;
             if depth > 8 && self.multi_pvs.len() == 1 {
                 let node_frac = self.root_move_nodes.frac_1024(self.cur_pv_data().pv.list[0], self.uci_nodes());
@@ -886,9 +888,11 @@ impl Caps {
                 if (move_score.0 as isize) < -150 * depth && depth <= 3 {
                     break;
                 }
-                // PVS SEE pruning: Don't play moves with bad SEE score at low depth
-                let see_threshold = -50 * depth as i32;
-                if move_score < KILLER_SCORE && depth < 4 && !pos.see_at_least(mov, SeeScore(see_threshold)) {
+                // PVS SEE pruning: Don't play moves with bad SEE scores at low depth.
+                // Be less aggressive with pruning captures to avoid overlooking tactics.
+                let bad_tactical = move_score < MoveScore(-HIST_DIVISOR * 8);
+                let see_threshold = if bad_tactical { (-50 * depth * depth) as i32 } else { -80 * depth as i32 };
+                if move_score < KILLER_SCORE && depth <= 8 && !pos.see_at_least(mov, SeeScore(see_threshold)) {
                     continue;
                 }
             }
@@ -1123,7 +1127,7 @@ impl Caps {
         // Corrhist updates
         if !(in_check
             || in_singular_search
-            || best_move.is_tactical(&pos)
+            || (!best_move.is_null() && best_move.is_tactical(&pos))
             || (best_score <= eval && bound_so_far == NodeType::lower_bound())
             || (best_score >= eval && bound_so_far == NodeType::upper_bound()))
         {
@@ -1653,7 +1657,7 @@ mod tests {
                 res.chosen_move.extended_formatter(&pos, Standard),
                 pos.as_fen(),
                 engine.depth(),
-                engine.start_time.elapsed().as_millis()
+                engine.start_time().elapsed().as_millis()
             );
             assert!(score.is_game_won_score());
             assert_eq!(res.chosen_move.compact_formatter(&pos).to_string(), best_move);

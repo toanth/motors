@@ -36,6 +36,7 @@ struct EvalState<Tuned: LiteValues> {
     // scores are stored from the perspective of the white player
     psqt_score: Tuned::Score,
     pawn_score: Tuned::Score,
+    stm_bonus: [Tuned::Score; 2],
     total_score: Tuned::Score,
 }
 
@@ -261,31 +262,39 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
         result
     }
 
-    fn pins_and_discovered_checks(pos: &Chessboard, color: ChessColor) -> Tuned::Score {
+    fn pins_and_discovered_checks(state: &mut EvalState<Tuned>, pos: &Chessboard, color: ChessColor) -> Tuned::Score {
         let mut score = Tuned::Score::default();
         let their_king = pos.king_square(!color);
         let blockers = pos.occupied_bb();
         let rook_sliders = (pos.piece_bb(Rook) | pos.piece_bb(Queen)) & pos.player_bb(color);
-        for piece in rook_sliders.ones() {
-            let ray = ChessBitboard::ray_exclusive(piece, their_king, ChessboardSize::default());
+        for slider in rook_sliders.ones() {
+            let ray = ChessBitboard::ray_exclusive(slider, their_king, ChessboardSize::default());
             let blockers = ray & blockers;
-            if blockers.is_single_piece() && (piece.rank() == their_king.rank() || piece.file() == their_king.file()) {
+            if blockers.is_single_piece() && (slider.rank() == their_king.rank() || slider.file() == their_king.file())
+            {
                 let piece = pos.piece_type_on(blockers.ones().next().unwrap());
                 if (blockers & pos.player_bb(color)).has_set_bit() {
                     score += Tuned::discovered_check(piece);
+                    if piece != Pawn {
+                        state.stm_bonus[color] += Tuned::discovered_check_stm();
+                    }
                 } else {
                     score += Tuned::pin(piece)
                 }
             }
         }
         let bishop_sliders = (pos.piece_bb(Bishop) | pos.piece_bb(Queen)) & pos.player_bb(color);
-        for piece in bishop_sliders.ones() {
-            let ray = ChessBitboard::ray_exclusive(piece, their_king, ChessboardSize::default());
+        for slider in bishop_sliders.ones() {
+            let ray = ChessBitboard::ray_exclusive(slider, their_king, ChessboardSize::default());
             let blockers = ray & blockers;
-            if blockers.is_single_piece() && (piece.rank() != their_king.rank() && piece.file() != their_king.file()) {
+            if blockers.is_single_piece() && (slider.rank() != their_king.rank() && slider.file() != their_king.file())
+            {
                 let piece = pos.piece_type_on(blockers.ones().next().unwrap());
                 if (blockers & pos.player_bb(color)).has_set_bit() {
                     score += Tuned::discovered_check(piece);
+                    if piece != Pawn {
+                        state.stm_bonus[color] += Tuned::discovered_check_stm();
+                    }
                 } else {
                     score += Tuned::pin(piece)
                 }
@@ -294,7 +303,7 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
         score
     }
 
-    fn mobility_and_threats(state: &EvalState<Tuned>, pos: &Chessboard, us: ChessColor) -> Tuned::Score {
+    fn mobility_and_threats(state: &mut EvalState<Tuned>, pos: &Chessboard, us: ChessColor) -> Tuned::Score {
         let mut score = Tuned::Score::default();
         let generator = pos.slider_generator();
 
@@ -339,6 +348,7 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
                 }
                 if piece != King && (attacks_no_pawn_recapture & checking_squares[piece as usize]).has_set_bit() {
                     score += Tuned::can_give_check(piece);
+                    state.stm_bonus[us] += Tuned::check_stm();
                 }
                 if (attacks & passer_close).has_set_bit() {
                     score += Tuned::passer_protection();
@@ -349,14 +359,15 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
     }
 
     // should be called last because it uses information set by other functions
-    fn recomputed_every_time(state: &EvalState<Tuned>, pos: &Chessboard) -> Tuned::Score {
+    fn recomputed_every_time(state: &mut EvalState<Tuned>, pos: &Chessboard) -> Tuned::Score {
         let mut score = Tuned::Score::default();
+        state.stm_bonus = [Tuned::Score::default(), Tuned::Score::default()];
         for color in ChessColor::iter() {
             score += Self::bishop_pair(pos, color);
             score += Self::bad_bishop(pos, color);
             score += Self::open_lines(pos, color);
             score += Self::mobility_and_threats(state, pos, color);
-            score += Self::pins_and_discovered_checks(pos, color);
+            score += Self::pins_and_discovered_checks(state, pos, color);
             score = -score;
         }
         score
@@ -421,7 +432,7 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
         state.pawn_score = pawn_score.clone();
         state.hash = pos.hash_pos();
         state.pawn_key = pos.pawn_key();
-        state.total_score = Self::recomputed_every_time(&state, pos) + psqt_score + pawn_score;
+        state.total_score = Self::recomputed_every_time(&mut state, pos) + psqt_score + pawn_score;
         state
     }
 
@@ -432,6 +443,7 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
             24,
             pos.active_player(),
             <Tuned::Score as ScoreType>::Finalized::default(),
+            &state.stm_bonus,
         )
     }
 
@@ -488,8 +500,8 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
         }
         state.hash = new_pos.hash_pos();
         state.pawn_key = new_pos.pawn_key();
-        let score = Self::recomputed_every_time(&state, new_pos) + state.psqt_score.clone() + state.pawn_score.clone();
-        state.total_score = score;
+        state.total_score =
+            Self::recomputed_every_time(&mut state, new_pos) + state.psqt_score.clone() + state.pawn_score.clone();
         state
     }
 }
@@ -501,7 +513,7 @@ fn eval_lite<Tuned: LiteValues<Score = PhasedScore>>(
 ) -> Score {
     let state = this.eval_from_scratch(pos);
     this.stack[ply] = state;
-    state.total_score.finalize(state.phase, 24, pos.active_player(), TEMPO)
+    state.total_score.finalize(state.phase, 24, pos.active_player(), TEMPO, &state.stm_bonus)
 }
 
 fn eval_lite_incremental<Tuned: LiteValues<Score = PhasedScore>>(
@@ -516,7 +528,13 @@ fn eval_lite_incremental<Tuned: LiteValues<Score = PhasedScore>>(
     if this.stack[ply].hash != new_pos.hash_pos() {
         this.stack[ply] = this.incremental(prev, old_pos, mov, new_pos);
     }
-    this.stack[ply].total_score.finalize(this.stack[ply].phase, 24, new_pos.active_player(), TEMPO)
+    this.stack[ply].total_score.finalize(
+        this.stack[ply].phase,
+        24,
+        new_pos.active_player(),
+        TEMPO,
+        &this.stack[ply].stm_bonus,
+    )
 }
 
 impl Eval<Chessboard> for LiTEval {
@@ -585,10 +603,11 @@ mod tests {
         assert_eq!(e, eval.eval(&pos, 1, Black));
         let pos = Chessboard::from_fen("1k6/p6r/4p3/8/8/4P3/P6R/1K6 w - - 0 1", Strict).unwrap();
         let e = eval.eval(&pos, 0, White);
-        assert_eq!(e, TEMPO);
-        let pos = pos.make_move_from_str("Rxh7").unwrap();
+        assert!(e >= TEMPO);
+        assert!(e <= Score(300));
+        let pos = Chessboard::from_fen("1k6/p6n/4p3/8/8/4P3/P6N/1K6 w - - 0 1", Strict).unwrap();
         let e = eval.eval(&pos, 0, White);
-        assert!(-e > TEMPO + Score(300), "{e}");
+        assert_eq!(e, TEMPO);
         let e2 = eval.eval(&pos.make_nullmove().unwrap(), 0, Black);
         assert_eq!(e - TEMPO, -e2 + TEMPO);
     }
