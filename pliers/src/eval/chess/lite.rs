@@ -51,6 +51,7 @@ pub enum LiteFeatureSubset {
     CandidatePasser,
     UnsupportedPawn,
     DoubledPawn,
+    ImmobilePawn,
     Phalanx,
     PawnProtection,
     PawnAttacks,
@@ -86,6 +87,7 @@ impl FeatureSubSet for LiteFeatureSubset {
             CandidatePasser => 6,
             UnsupportedPawn => 1,
             DoubledPawn => 1,
+            ImmobilePawn => 1,
             Phalanx => 6,
             PawnlessFlank => 1,
             PawnProtection => NUM_CHESS_PIECES,
@@ -190,6 +192,9 @@ impl FeatureSubSet for LiteFeatureSubset {
             }
             DoubledPawn => {
                 write!(f, "const DOUBLED_PAWN: PhasedScore = ")?;
+            }
+            ImmobilePawn => {
+                write!(f, "const IMMOBILE_PAWN: PhasedScore = ")?;
             }
             Phalanx => {
                 write!(f, "const PHALANX: [PhasedScore; 6] = ")?;
@@ -333,6 +338,10 @@ impl LiteValues for LiTETrace {
 
     fn doubled_pawn() -> SingleFeature {
         SingleFeature::new(DoubledPawn, 0)
+    }
+
+    fn immobile_pawn() -> SingleFeature {
+        SingleFeature::new(ImmobilePawn, 0)
     }
 
     fn phalanx(rank: DimT) -> SingleFeature {

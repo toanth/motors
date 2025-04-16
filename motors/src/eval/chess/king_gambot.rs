@@ -104,6 +104,10 @@ impl LiteValues for KingGambotValues {
         Lite::candidate_passer(rank)
     }
 
+    fn immobile_pawn() -> PhasedScore {
+        Lite::immobile_pawn()
+    }
+
     fn unsupported_pawn() -> PhasedScore {
         Lite::unsupported_pawn()
     }

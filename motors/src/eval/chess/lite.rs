@@ -214,6 +214,9 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
                 }
                 *passers |= square.bb();
             }
+            if pos.occupied_bb().is_bit_set(square.pawn_advance_unchecked(us)) {
+                score += Tuned::immobile_pawn()
+            }
             // may become a passer
             if (in_front & all_pawns).is_zero()
                 && (blocking_squares & their_pawns).num_ones() <= (supporting & our_pawns).num_ones()
