@@ -5,13 +5,14 @@ use crate::eval::chess::{
     DiagonalOpenness, FLANK, FileOpenness, REACHABLE_PAWNS, pawn_advanced_center_idx, pawn_passive_center_idx,
     pawn_shield_idx,
 };
-use gears::games::Color;
 use gears::games::chess::ChessColor::{Black, White};
+use gears::games::chess::castling::CastleRight::Kingside;
 use gears::games::chess::moves::ChessMove;
 use gears::games::chess::pieces::ChessPieceType::*;
 use gears::games::chess::pieces::{ChessPieceType, NUM_CHESS_PIECES};
 use gears::games::chess::squares::{ChessSquare, ChessboardSize};
 use gears::games::chess::{ChessBitboardTrait, ChessColor, Chessboard};
+use gears::games::{Color, Coordinates};
 use gears::games::{DimT, PosHash};
 use gears::general::bitboards::RawBitboard;
 use gears::general::bitboards::chessboard::{COLORED_SQUARES, ChessBitboard};
@@ -127,9 +128,10 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
     fn psqt(&self, pos: &Chessboard) -> Tuned::Score {
         let mut res = Tuned::Score::default();
         for color in ChessColor::iter() {
+            let flip = if pos.king_square(color).file() < 4 { 0x7 } else { 0x0 };
             for piece in ChessPieceType::pieces() {
                 for square in pos.col_piece_bb(color, piece).ones() {
-                    res += self.tuned.psqt(square, piece, color);
+                    res += self.tuned.psqt(ChessSquare::from_bb_idx(square.bb_idx() ^ flip), piece, color);
                 }
             }
             res = -res;
@@ -192,7 +194,12 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
             }
             // passed pawn
             if (in_front & our_pawns).is_zero() && (blocking_squares & their_pawns).is_zero() {
-                score += Tuned::passed_pawn(normalized_square);
+                let mirrored_sq = if our_king.file() < 4 {
+                    normalized_square.flip_left_right(ChessboardSize::default())
+                } else {
+                    normalized_square
+                };
+                score += Tuned::passed_pawn(mirrored_sq);
                 let their_king = pos.king_square(!us).flip_if(us == Black);
                 if REACHABLE_PAWNS[their_king.bb_idx()].is_bit_set(normalized_square) {
                     score += Tuned::stoppable_passer();
@@ -381,13 +388,19 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
         new_pos: &Chessboard,
     ) -> (Tuned::Score, PhaseType) {
         let moving_player = old_pos.active_player();
-        // the current player has been flipped
         let mut delta = Tuned::Score::default();
         let mut phase_delta = PhaseType::default();
         let piece = mov.piece_type();
-        delta -= self.tuned.psqt(mov.src_square(), piece, moving_player);
+        let mirror = new_pos.king_square(moving_player).file() < 4;
+        let src_sq = mov.src_square().flip_horizontal_if(mirror);
+        let dest_sq = mov.dest_square().flip_horizontal_if(mirror);
+        debug_assert!(
+            !(piece == King && (mov.src_square().file() < 4) != (new_pos.king_square(moving_player).file() < 4))
+        );
+        delta -= self.tuned.psqt(src_sq, piece, moving_player);
         if mov.is_castle() {
             let side = mov.castle_side();
+            debug_assert_eq!(side, Kingside); // otherwise, we would have mirrored the psqts.
             delta += self.tuned.psqt(new_pos.king_square(moving_player), King, moving_player);
             // since PSQTs are player-relative, castling always takes place on the 0th rank
             let rook_dest_square = ChessSquare::from_rank_file(7, side.rook_dest_file());
@@ -395,16 +408,18 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
             delta += self.tuned.psqt(rook_dest_square, Rook, Black);
             delta -= self.tuned.psqt(rook_start_square, Rook, Black);
         } else if mov.promo_piece() == Empty {
-            delta += self.tuned.psqt(mov.dest_square(), piece, moving_player);
+            delta += self.tuned.psqt(dest_sq, piece, moving_player);
         } else {
-            delta += self.tuned.psqt(mov.dest_square(), mov.promo_piece(), moving_player);
+            delta += self.tuned.psqt(dest_sq, mov.promo_piece(), moving_player);
             phase_delta += PIECE_PHASE[mov.promo_piece() as usize];
         }
+        let mirror_other = new_pos.king_square(!moving_player).file() < 4;
         if let Some(ep_sq) = mov.square_of_pawn_taken_by_ep() {
-            delta += self.tuned.psqt(ep_sq, Pawn, moving_player.other());
+            delta += self.tuned.psqt(ep_sq.flip_horizontal_if(mirror_other), Pawn, !moving_player);
         } else if captured != Empty {
             // capturing a piece increases our score by the piece's psqt value from the opponent's point of view
-            delta += self.tuned.psqt(mov.dest_square(), captured, moving_player.other());
+            delta +=
+                self.tuned.psqt(mov.dest_square().flip_horizontal_if(mirror_other), captured, moving_player.other());
             phase_delta -= PIECE_PHASE[captured as usize];
         }
         // the position is always evaluated from white's perspective
@@ -474,23 +489,32 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
             mov.compact_formatter(old_pos)
         );
         debug_assert_eq!(&old_pos.make_move(mov).unwrap(), new_pos);
-        let captured = mov.captured(old_pos);
-        let (psqt_delta, phase_delta) = self.psqt_delta(old_pos, mov, captured, new_pos);
-        state.psqt_score += psqt_delta;
-        state.phase += phase_delta;
-        debug_assert_eq!(
-            state.psqt_score,
-            self.psqt(new_pos),
-            "{0} {1} {2} {old_pos} {new_pos} {3}",
-            state.psqt_score,
-            self.psqt(new_pos),
-            self.psqt_delta(old_pos, mov, captured, new_pos).0,
-            mov.compact_formatter(old_pos)
-        );
+
         let piece_type = mov.piece_type();
-        // TODO: Test if this is actually faster -- getting the captured piece is quite expensive
-        // (but this could be remedied by reusing that info from `psqt_delta`, or by using a redundant mailbox)
-        // In the long run, move pawn protection / attacks to another function and cache `Self::pawns` as well
+        let captured = mov.captured(old_pos);
+        // also deals with castles, unlike testing mov.dest_square().rank()
+        if piece_type == King
+            && (mov.src_square().file() < 4) != (new_pos.king_square(old_pos.active_player()).file() < 4)
+        {
+            state.psqt_score = self.psqt(new_pos);
+            state.phase = 0;
+            for piece in ChessPieceType::non_king_pieces() {
+                state.phase += new_pos.piece_bb(piece).num_ones() as isize * PIECE_PHASE[piece as usize];
+            }
+        } else {
+            let (psqt_delta, phase_delta) = self.psqt_delta(old_pos, mov, captured, new_pos);
+            state.psqt_score += psqt_delta;
+            state.phase += phase_delta;
+            debug_assert_eq!(
+                state.psqt_score,
+                self.psqt(new_pos),
+                "{0} {1} {2} {old_pos} {new_pos} {3}",
+                state.psqt_score,
+                self.psqt(new_pos),
+                self.psqt_delta(old_pos, mov, captured, new_pos).0,
+                mov.compact_formatter(old_pos)
+            );
+        }
         let in_front_of_pawns = old_pos.col_piece_bb(White, Pawn).pawn_advance(White)
             | old_pos.col_piece_bb(Black, Pawn).pawn_advance(Black);
         let maybe_pawn_eval_change =
@@ -610,5 +634,16 @@ mod tests {
         assert_eq!(e, TEMPO);
         let e2 = eval.eval(&pos.make_nullmove().unwrap(), 0, Black);
         assert_eq!(e - TEMPO, -e2 + TEMPO);
+    }
+
+    #[test]
+    fn test_mirroring() {
+        let mut eval = LiTEval::default();
+        let pos = Chessboard::from_fen("4k3/p6p/8/8/8/8/P6P/4K3 w - - 0 1", Strict).unwrap();
+        let new_pos = pos.make_move_from_str("Kd1").unwrap().make_move_from_str("Kd8").unwrap();
+        assert_eq!(eval.eval(&pos, 0, White), eval.eval(&new_pos, 0, White));
+        let pos1 = Chessboard::from_fen("4k3/8/1q4pn/8/1B6/1R6/P7/4K3 w - - 0 1", Strict).unwrap();
+        let pos2 = Chessboard::from_fen("3k4/8/np4q1/8/6B1/6R1/7P/3K4 w - - 0 1", Strict).unwrap();
+        assert_eq!(eval.eval(&pos1, 0, White), eval.eval(&pos2, 0, White));
     }
 }
