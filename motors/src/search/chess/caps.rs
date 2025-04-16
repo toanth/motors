@@ -878,9 +878,11 @@ impl Caps {
                 if (move_score.0 as isize) < -150 * depth && depth <= 3 {
                     break;
                 }
-                // PVS SEE pruning: Don't play moves with bad SEE score at low depth
-                let see_threshold = -50 * depth as i32;
-                if move_score < KILLER_SCORE && depth < 4 && !pos.see_at_least(mov, SeeScore(see_threshold)) {
+                // PVS SEE pruning: Don't play moves with bad SEE scores at low depth.
+                // Be less aggressive with pruning captures to avoid overlooking tactics.
+                let bad_tactical = move_score < MoveScore(-HIST_DIVISOR * 8);
+                let see_threshold = if bad_tactical { (-50 * depth * depth) as i32 } else { -80 * depth as i32 };
+                if move_score < KILLER_SCORE && depth < 6 && !pos.see_at_least(mov, SeeScore(see_threshold)) {
                     continue;
                 }
             }
