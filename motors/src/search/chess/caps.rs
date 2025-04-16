@@ -1605,7 +1605,7 @@ mod tests {
                 res.chosen_move.extended_formatter(&pos, Standard),
                 pos.as_fen(),
                 engine.depth(),
-                engine.start_time.elapsed().as_millis()
+                engine.start_time().elapsed().as_millis()
             );
             assert!(score.is_game_won_score());
             assert_eq!(res.chosen_move.compact_formatter(&pos).to_string(), best_move);

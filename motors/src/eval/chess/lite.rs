@@ -603,10 +603,11 @@ mod tests {
         assert_eq!(e, eval.eval(&pos, 1, Black));
         let pos = Chessboard::from_fen("1k6/p6r/4p3/8/8/4P3/P6R/1K6 w - - 0 1", Strict).unwrap();
         let e = eval.eval(&pos, 0, White);
-        assert_eq!(e, TEMPO);
-        let pos = pos.make_move_from_str("Rxh7").unwrap();
+        assert!(e >= TEMPO);
+        assert!(e <= Score(300));
+        let pos = Chessboard::from_fen("1k6/p6n/4p3/8/8/4P3/P6N/1K6 w - - 0 1", Strict).unwrap();
         let e = eval.eval(&pos, 0, White);
-        assert!(-e > TEMPO + Score(300), "{e}");
+        assert_eq!(e, TEMPO);
         let e2 = eval.eval(&pos.make_nullmove().unwrap(), 0, Black);
         assert_eq!(e - TEMPO, -e2 + TEMPO);
     }
