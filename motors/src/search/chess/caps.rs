@@ -254,7 +254,7 @@ impl Engine<Chessboard> for Caps {
             self,
             self.eval.as_ref(),
             "0.1.0",
-            Depth::new(15),
+            Depth::new(14),
             NodesLimit::new(20_000).unwrap(),
             None,
             options,
@@ -939,8 +939,8 @@ impl Caps {
                 {
                     self.search_stack[ply].tried_moves.clear();
                     self.params.history.pop();
-                    let reduced_depth = depth / 2 - 2;
-                    let singular_beta = old_entry.unwrap().score() - Score(4 * depth as ScoreT);
+                    let reduced_depth = (depth - 1) / 2;
+                    let singular_beta = old_entry.unwrap().score() - Score(1 * depth as ScoreT);
                     let singular_score = self.negamax(
                         pos,
                         ply,
