@@ -882,7 +882,7 @@ impl Caps {
                 // Be less aggressive with pruning captures to avoid overlooking tactics.
                 let bad_tactical = move_score < MoveScore(-HIST_DIVISOR * 8);
                 let see_threshold = if bad_tactical { (-50 * depth * depth) as i32 } else { -80 * depth as i32 };
-                if move_score < KILLER_SCORE && depth < 6 && !pos.see_at_least(mov, SeeScore(see_threshold)) {
+                if move_score < KILLER_SCORE && depth <= 8 && !pos.see_at_least(mov, SeeScore(see_threshold)) {
                     continue;
                 }
             }
