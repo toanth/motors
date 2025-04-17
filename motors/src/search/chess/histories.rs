@@ -73,6 +73,30 @@ impl Default for HistoryHeuristic {
     }
 }
 
+pub(super) const NUM_PAWNHIST_BUCKETS: usize = 512;
+
+// Idea from Weiss
+#[derive(Debug, Clone, Deref, DerefMut, Index, IndexMut)]
+pub(super) struct PawnHist(Box<[[[HistScoreT; NUM_SQUARES]; NUM_CHESS_PIECES]; NUM_PAWNHIST_BUCKETS]>);
+
+impl PawnHist {
+    pub(super) fn update(&mut self, pos: &Chessboard, mov: ChessMove, bonus: HistScoreT) {
+        let idx = pos.pawn_key().0 as usize % NUM_PAWNHIST_BUCKETS;
+        update_history_score(&mut self[idx][mov.piece_type()][mov.dest_square().bb_idx()], bonus);
+    }
+
+    pub(super) fn get(&self, pos: &Chessboard, mov: ChessMove) -> HistScoreT {
+        let idx = pos.pawn_key().0 as usize % NUM_PAWNHIST_BUCKETS;
+        self[idx][mov.piece_type()][mov.dest_square().bb_idx()]
+    }
+}
+
+impl Default for PawnHist {
+    fn default() -> Self {
+        PawnHist(Box::new([[[0; NUM_SQUARES]; NUM_CHESS_PIECES]; NUM_PAWNHIST_BUCKETS]))
+    }
+}
+
 /// Capture History Heuristic: Same as quiet history heuristic, but for captures.
 #[derive(Debug, Clone)]
 pub(super) struct CaptHist(Box<[[[[HistScoreT; 64]; 6]; 2]; NUM_COLORS]>);

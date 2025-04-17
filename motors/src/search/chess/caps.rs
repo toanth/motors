@@ -7,7 +7,7 @@ use crate::eval::Eval;
 use crate::eval::chess::lite::LiTEval;
 use crate::search::chess::caps_values::cc;
 use crate::search::chess::histories::{
-    CaptHist, ContHist, CorrHist, HIST_DIVISOR, HistScoreT, HistoryHeuristic, write_single_hist_table,
+    CaptHist, ContHist, CorrHist, HIST_DIVISOR, HistScoreT, HistoryHeuristic, PawnHist, write_single_hist_table,
 };
 use crate::search::move_picker::MovePicker;
 use crate::search::statistics::SearchType;
@@ -80,6 +80,7 @@ impl RootMoveNodes {
 #[derive(Debug, Clone, Default)]
 pub struct CapsCustomInfo {
     history: HistoryHeuristic,
+    pawn_hist: PawnHist,
     /// Many moves have a "natural" response, so use that for move ordering:
     /// Instead of only learning which quiet moves are good, learn which quiet moves are good after our
     /// opponent played a given move.
@@ -112,6 +113,9 @@ impl CustomInfo<Chessboard> for CapsCustomInfo {
 
     fn hard_forget_except_tt(&mut self) {
         for value in self.history.iter_mut().flatten() {
+            *value = 0;
+        }
+        for value in self.pawn_hist.iter_mut().flatten().flatten() {
             *value = 0;
         }
         self.capt_hist.reset();
@@ -1266,10 +1270,12 @@ impl Caps {
             return;
         }
         entry.killer = mov;
-        for disappointing in entry.tried_moves.iter().dropping_back(1).filter(|m| !m.is_tactical(pos)) {
-            self.state.custom.history.update(*disappointing, threats, -bonus);
+        for &disappointing in entry.tried_moves.iter().dropping_back(1).filter(|m| !m.is_tactical(pos)) {
+            self.state.custom.history.update(disappointing, threats, -bonus);
+            self.state.custom.pawn_hist.update(pos, disappointing, -bonus);
         }
         self.state.custom.history.update(mov, threats, bonus);
+        self.state.custom.pawn_hist.update(pos, mov, bonus);
         if ply > 0 {
             let parent = before.last_mut().unwrap();
             Self::update_continuation_hist(
@@ -1364,7 +1370,8 @@ impl MoveScorer<Chessboard, Caps> for CapsMoveScorer {
             } else {
                 0
             };
-            MoveScore(state.history.get(mov, self.board.threats()) + countermove_score + follow_up_score / 2)
+            let hist_score = state.history.get(mov, self.board.threats()) + state.pawn_hist.get(&self.board, mov);
+            MoveScore(hist_score + countermove_score + follow_up_score / 2)
         }
     }
 
