@@ -438,8 +438,8 @@ impl<B: Board> EngineWrapper<B> {
         };
         self.main_thread_data.new_search(ponder, &limit)?; // resets the atomic search state
         let thread_data = self.main_thread_data.clone();
-        let mut tt = tt.unwrap_or(self.tt_for_next_search.clone());
-        tt.age.increment();
+        self.tt_for_next_search.age.increment();
+        let tt = tt.unwrap_or(self.tt_for_next_search.clone());
         let params = SearchParams::create(
             pos,
             limit,

@@ -252,6 +252,7 @@ impl TT {
     }
 
     pub fn forget(&mut self) {
+        self.age.increment();
         // TODO: Instead of overwriting every entry, simply increase the age such that old entries will be ignored
         for bucket in self.tt.iter() {
             for entry in &bucket.0 {
@@ -272,7 +273,6 @@ impl TT {
             .flat_map(|bucket| bucket.0.iter())
             .filter(|e: &&AtomicTTEntry| TTEntry::<B>::is_atomic_entry_from_current_search(e, age))
             .count();
-        println!("age {age}");
         if num_entries < 1000 { (num_used as f64 * 1000.0 / num_entries as f64).round() as usize } else { num_used }
     }
 
@@ -541,6 +541,7 @@ mod test {
         let pos2 = Chessboard::from_name("kiwipete").unwrap();
         params2.pos = pos2;
         let mut age = engine.age();
+        age.increment();
         age.increment();
         assert_eq!(age, tt.age);
         let handle = spawn(move || engine.search(params));
