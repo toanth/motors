@@ -848,7 +848,12 @@ impl Caps {
         let mut move_picker = MovePicker::<Chessboard, MAX_CHESS_MOVES_IN_POS>::new(pos, best_move, false);
         let move_scorer = CapsMoveScorer { board: pos, ply };
         while let Some((mov, move_score)) = move_picker.next(&move_scorer, self) {
-            if can_prune && best_score > MAX_SCORE_LOST {
+            let Some(new_pos) = pos.make_move_and_prefetch_tt(mov, self.prefetch()) else {
+                continue; // illegal pseudolegal move
+            };
+
+            // idea of not pruning moves that give check from nalwald
+            if can_prune && best_score > MAX_SCORE_LOST && !new_pos.is_in_check() {
                 // LMP (Late Move Pruning): Trust the move ordering and assume that moves ordered late aren't very interesting,
                 // so don't even bother looking at them in the last few layers.
                 // FP (Futility Pruning): If the static eval is far below alpha,
@@ -890,9 +895,6 @@ impl Caps {
             if root && self.excluded_moves.contains(&mov) {
                 continue;
             }
-            let Some(new_pos) = pos.make_move_and_prefetch_tt(mov, self.prefetch()) else {
-                continue; // illegal pseudolegal move
-            };
             #[cfg(debug_assertions)]
             let debug_history_len = self.params.history.len();
             self.record_move(mov, pos, ply, MainSearch);
