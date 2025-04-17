@@ -1346,6 +1346,12 @@ impl MoveScorer<Chessboard, Caps> for CapsMoveScorer {
         if mov.is_tactical(&self.board) {
             let captured = mov.captured(&self.board);
             let base_val = MoveScore(HIST_DIVISOR * 10);
+            if self.ply > 0 {
+                let prev_move = state.search_stack[self.ply - 1].last_tried_move();
+                if !prev_move.is_null() && mov.dest_square() == prev_move.dest_square() {
+                    return base_val + MoveScore(HIST_DIVISOR * 6 - 1);
+                }
+            }
             let hist_val = state.capt_hist.get(mov, self.board.threats(), self.board.active_player());
             base_val + MoveScore(captured as i16 * HIST_DIVISOR) + hist_val
         } else if mov == state.search_stack[self.ply].killer {
