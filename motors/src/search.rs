@@ -743,6 +743,9 @@ pub trait AbstractSearchState<B: Board> {
             output.write_ugi(message);
         }
     }
+    fn age(&self) -> Age {
+        self.search_params().tt.age
+    }
     /// Engine-specific info, like the contents of history tables.
     fn write_internal_info(&self, pos: &B) -> Option<String>;
 }
@@ -761,7 +764,6 @@ pub struct SearchState<B: Board, E: SearchStackEntry<B>, C: CustomInfo<B>> {
     last_msg_time: Instant,
     statistics: Statistics,
     aggregated_statistics: Statistics, // statistics aggregated over all searches of the current match
-    age: Age,
 }
 
 impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo<B>> Deref for SearchState<B, E, C> {
@@ -787,10 +789,8 @@ impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo<B>> AbstractSearchState<B> 
         if hard {
             self.custom.hard_forget_except_tt();
             self.params.atomic.reset(false);
-            self.age = Age::default();
         } else {
             self.custom.new_search();
-            self.age.increment();
         }
         self.params.history = ZobristHistory::default(); // will get overwritten later
         self.statistics = Statistics::default();
@@ -888,7 +888,7 @@ impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo<B>> AbstractSearchState<B> 
             max_num_pvs: self.params.num_multi_pv,
             pv: self.current_mpv_pv(),
             score: self.cur_pv_data().score,
-            hashfull: self.estimate_hashfull(self.age),
+            hashfull: self.estimate_hashfull(self.age()),
             pos: self.params.pos.clone(),
             bound: self.cur_pv_data().bound,
             num_threads: 1,
@@ -1024,7 +1024,6 @@ impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo<B>> SearchState<B, E, C> {
             current_pv_num: 0,
             execution_start_time: now,
             last_msg_time: now,
-            age: Age::default(),
         }
     }
 
@@ -1115,11 +1114,13 @@ pub fn run_bench_with<B: Board>(
 ) -> BenchResult {
     let mut hasher = DefaultHasher::new();
     let mut total = BenchResult::default();
-    let tt = tt.unwrap_or_default();
+    let mut tt = tt.unwrap_or_default();
     for position in bench_positions {
-        // engine.forget();
+        // don't reset the engine state between searches to make `bench` reflect how aging etc affect search.
+        tt.age.increment();
         single_bench(position, engine, limit, tt.clone(), 0, &mut total, &mut hasher);
         if let Some(limit) = second_limit {
+            tt.age.increment();
             single_bench(position, engine, limit, tt.clone(), 1, &mut total, &mut hasher);
         }
     }

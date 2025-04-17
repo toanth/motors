@@ -1069,7 +1069,7 @@ impl Caps {
         }
 
         let tt_entry: TTEntry<Chessboard> =
-            TTEntry::new(pos.hash_pos(), best_score, raw_eval, best_move, depth, bound_so_far, self.age);
+            TTEntry::new(pos.hash_pos(), best_score, raw_eval, best_move, depth, bound_so_far, self.age());
 
         // Store the results in the TT, always replacing the previous entry. Note that the TT move is only overwritten
         // if this node was an exact or fail high node or if there was a collision.
@@ -1209,7 +1209,7 @@ impl Caps {
         self.statistics.count_complete_node(Qsearch, bound_so_far, 0, ply, children_visited);
 
         let tt_entry: TTEntry<Chessboard> =
-            TTEntry::new(pos.hash_pos(), best_score, raw_eval, best_move, 0, bound_so_far, self.age);
+            TTEntry::new(pos.hash_pos(), best_score, raw_eval, best_move, 0, bound_so_far, self.age());
         self.tt_mut().store(tt_entry, ply);
         Some(best_score)
     }

@@ -196,11 +196,14 @@ pub const DEFAULT_HASH_SIZE_MB: usize = 16;
 
 /// Resizing the TT during search will wait until the search is finished (all threads will receive a new arc)
 #[derive(Clone, Debug)]
-pub struct TT(Arc<[TTBucket]>);
+pub struct TT {
+    tt: Arc<[TTBucket]>,
+    pub age: Age,
+}
 
 impl Default for TT {
     fn default() -> Self {
-        TT::new_with_bytes(DEFAULT_HASH_SIZE_MB * 1_000_000)
+        Self::new_with_bytes(DEFAULT_HASH_SIZE_MB * 1_000_000)
     }
 }
 
@@ -229,11 +232,11 @@ impl TT {
             arr.resize_with(new_size, TTBucket::default);
             arr.into_boxed_slice()
         };
-        Self(tt.into())
+        Self { tt: tt.into(), age: Age::default() }
     }
 
     pub fn size_in_buckets(&self) -> usize {
-        self.0.len()
+        self.tt.len()
     }
 
     pub fn size_in_entries(&self) -> usize {
@@ -250,7 +253,7 @@ impl TT {
 
     pub fn forget(&mut self) {
         // TODO: Instead of overwriting every entry, simply increase the age such that old entries will be ignored
-        for bucket in self.0.iter() {
+        for bucket in self.tt.iter() {
             for entry in &bucket.0 {
                 entry.hash.store(0, Relaxed);
                 entry.rest.store(0, Relaxed);
@@ -263,12 +266,13 @@ impl TT {
         let num_buckets = (1000 / NUM_ENTRIES_IN_BUCKET).min(self.size_in_buckets());
         let num_entries = num_buckets * NUM_ENTRIES_IN_BUCKET;
         let num_used = self
-            .0
+            .tt
             .iter()
             .take(num_buckets)
             .flat_map(|bucket| bucket.0.iter())
             .filter(|e: &&AtomicTTEntry| TTEntry::<B>::is_atomic_entry_from_current_search(e, age))
             .count();
+        println!("age {age}");
         if num_entries < 1000 { (num_used as f64 * 1000.0 / num_entries as f64).round() as usize } else { num_used }
     }
 
@@ -301,7 +305,7 @@ impl TT {
             }
         }
         let bucket = self.bucket_index_of(entry.hash);
-        let bucket = &self.0[bucket].0;
+        let bucket = &self.tt[bucket].0;
         let idx_in_bucket = bucket
             .iter()
             .map(|e| TTEntry::unpack(e))
@@ -317,7 +321,7 @@ impl TT {
     }
 
     pub fn load<B: Board>(&self, hash: PosHash, ply: usize) -> Option<TTEntry<B>> {
-        let bucket = &self.0[self.bucket_index_of(hash)];
+        let bucket = &self.tt[self.bucket_index_of(hash)];
         let mut entry = bucket.0.iter().map(|e| TTEntry::<B>::unpack(e)).find(|e| e.hash == hash && !e.is_empty())?;
         // Mate score adjustments, see `store`
         if let Some(tt_plies) = entry.score().plies_until_game_won() {
@@ -338,7 +342,7 @@ impl TT {
         // SAFETY: This function is safe to call and computing the pointer is also safe.
         unsafe {
             #[cfg(all(target_arch = "x86_64", target_feature = "sse"))]
-            _mm_prefetch::<_MM_HINT_T1>(&raw const self.0[self.bucket_index_of(hash)] as *const i8);
+            _mm_prefetch::<_MM_HINT_T1>(&raw const self.tt[self.bucket_index_of(hash)] as *const i8);
         }
     }
 }
@@ -348,7 +352,7 @@ mod test {
     use super::*;
     use crate::search::chess::caps::Caps;
     use crate::search::multithreading::AtomicSearchState;
-    use crate::search::{Engine, NormalEngine, SearchParams};
+    use crate::search::{AbstractSearchState, Engine, NormalEngine, SearchParams};
     use gears::games::ZobristHistory;
     use gears::games::chess::moves::ChessMove;
     use gears::general::board::BoardHelpers;
@@ -462,7 +466,7 @@ mod test {
         let entry = TTEntry::<Chessboard>::new(PosHash(42), Score(0), Score(100), mov, 10, Exact, Age(0));
         tt.store(entry, 0);
         let bucket_idx = tt.bucket_index_of(entry.hash);
-        let bucket = &tt.0[bucket_idx].0;
+        let bucket = &tt.tt[bucket_idx].0;
         assert_ne!(tt.bucket_index_of(PosHash(!0)), bucket_idx);
         let entry2 = TTEntry::<Chessboard>::new(PosHash(100), Score(10), Score(-20), mov, 5, FailHigh, Age(1));
         assert_eq!(bucket_idx, tt.bucket_index_of(entry2.hash));
@@ -512,6 +516,7 @@ mod test {
         _ = engine2.search_with_new_tt(pos, limit);
         let nodes = engine2.search_state().uci_nodes();
         engine2.forget();
+        tt.age.increment();
         let _ = engine.search_with_tt(pos, SearchLimit::depth(Depth::new(5)), tt.clone());
         let entry = tt.load::<Chessboard>(pos.hash_pos(), 0);
         assert!(entry.is_some());
@@ -519,6 +524,7 @@ mod test {
         _ = engine2.search_with_tt(pos, limit, tt.clone());
         assert!(engine2.search_state().uci_nodes() <= nodes);
         tt.forget();
+        tt.age.increment();
         let atomic = Arc::new(AtomicSearchState::default());
         let params = SearchParams::with_atomic_state(
             pos,
@@ -528,13 +534,15 @@ mod test {
             atomic.clone(),
         )
         .set_tt(tt.clone());
-        assert_eq!(params.tt.0.as_ptr(), tt.0.as_ptr());
+        assert_eq!(params.tt.tt.as_ptr(), tt.tt.as_ptr());
+        assert_eq!(tt.estimate_hashfull::<Chessboard>(Age(0)), 0);
         let atomic2 = Arc::new(AtomicSearchState::default());
         let mut params2 = params.auxiliary(atomic2.clone());
         let pos2 = Chessboard::from_name("kiwipete").unwrap();
         params2.pos = pos2;
-        let mut age = engine.age;
+        let mut age = engine.age();
         age.increment();
+        assert_eq!(age, tt.age);
         let handle = spawn(move || engine.search(params));
         let handle2 =
             spawn(move || engine2.search(params2) /*SearchResult::<Chessboard>::move_only(ChessMove::NULL)*/);
