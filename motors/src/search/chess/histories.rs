@@ -20,13 +20,14 @@ use crate::search::MoveScore;
 use derive_more::{Deref, DerefMut, Index, IndexMut};
 use gears::colored::Colorize;
 use gears::games::chess::moves::{ChessMove, ChessMoveFlags};
+use gears::games::chess::pieces::ChessPieceType::Pawn;
 use gears::games::chess::pieces::NUM_CHESS_PIECES;
 use gears::games::chess::squares::{ChessSquare, NUM_SQUARES};
-use gears::games::chess::{ChessColor, Chessboard};
+use gears::games::chess::{ChessBitboardTrait, ChessColor, Chessboard};
 use gears::games::{Color, NUM_COLORS};
 use gears::general::bitboards::chessboard::ChessBitboard;
 use gears::general::bitboards::{KnownSizeBitboard, RawBitboard};
-use gears::general::board::Board;
+use gears::general::board::{BitboardBoard, Board, BoardHelpers};
 use gears::general::moves::Move;
 use gears::itertools::Itertools;
 use gears::output::OutputOpts;
@@ -52,24 +53,34 @@ fn update_history_score(entry: &mut HistScoreT, bonus: HistScoreT) {
 /// but didn't cause a beta cutoff. Order all non-TT non-killer moves based on that (as well as based on the continuation
 /// history)
 #[derive(Debug, Clone, Deref, DerefMut, Index, IndexMut)]
-pub(super) struct HistoryHeuristic(Box<[[HistScoreT; 64 * 64]; 4]>);
+pub(super) struct HistoryHeuristic(Box<[[HistScoreT; 64 * 64]; 9]>);
 
 impl HistoryHeuristic {
-    pub(super) fn update(&mut self, mov: ChessMove, threats: ChessBitboard, bonus: HistScoreT) {
-        let mut threats_idx = threats.is_bit_set(mov.src_square()) as usize;
-        threats_idx = threats_idx * 2 + threats.is_bit_set(mov.dest_square()) as usize;
+    pub(super) fn update(&mut self, mov: ChessMove, pos: &Chessboard, bonus: HistScoreT) {
+        let threats = pos.threats();
+        let pawn_threats = pos.col_piece_bb(pos.inactive_player(), Pawn).pawn_attacks(pos.inactive_player());
+        let mut threats_idx =
+            threats.is_bit_set(mov.src_square()) as usize + pawn_threats.is_bit_set(mov.src_square()) as usize;
+        threats_idx = threats_idx * 3
+            + threats.is_bit_set(mov.dest_square()) as usize
+            + pawn_threats.is_bit_set(mov.dest_square()) as usize;
         update_history_score(&mut self[threats_idx][mov.from_to_square()], bonus);
     }
-    pub(super) fn get(&self, mov: ChessMove, threats: ChessBitboard) -> HistScoreT {
-        let mut threats_idx = threats.is_bit_set(mov.src_square()) as usize;
-        threats_idx = threats_idx * 2 + threats.is_bit_set(mov.dest_square()) as usize;
+    pub(super) fn get(&self, mov: ChessMove, pos: &Chessboard) -> HistScoreT {
+        let threats = pos.threats();
+        let pawn_threats = pos.col_piece_bb(pos.inactive_player(), Pawn).pawn_attacks(pos.inactive_player());
+        let mut threats_idx =
+            threats.is_bit_set(mov.src_square()) as usize + pawn_threats.is_bit_set(mov.src_square()) as usize;
+        threats_idx = threats_idx * 3
+            + threats.is_bit_set(mov.dest_square()) as usize
+            + pawn_threats.is_bit_set(mov.dest_square()) as usize;
         self[threats_idx][mov.from_to_square()]
     }
 }
 
 impl Default for HistoryHeuristic {
     fn default() -> Self {
-        HistoryHeuristic(Box::new([[0; 64 * 64]; 4]))
+        HistoryHeuristic(Box::new([[0; 64 * 64]; 9]))
     }
 }
 
@@ -230,7 +241,7 @@ pub(super) fn write_single_hist_table(table: &HistoryHeuristic, pos: &Chessboard
                 } else {
                     ChessMove::new(from, to, ChessMoveFlags::QueenMove)
                 };
-                table.get(mov, pos.threats()) as i32
+                table.get(mov, &pos) as i32
             })
             .sum();
         sum as f64 / 64.0

@@ -1267,9 +1267,9 @@ impl Caps {
         }
         entry.killer = mov;
         for disappointing in entry.tried_moves.iter().dropping_back(1).filter(|m| !m.is_tactical(pos)) {
-            self.state.custom.history.update(*disappointing, threats, -bonus);
+            self.state.custom.history.update(*disappointing, pos, -bonus);
         }
-        self.state.custom.history.update(mov, threats, bonus);
+        self.state.custom.history.update(mov, pos, bonus);
         if ply > 0 {
             let parent = before.last_mut().unwrap();
             Self::update_continuation_hist(
@@ -1364,7 +1364,7 @@ impl MoveScorer<Chessboard, Caps> for CapsMoveScorer {
             } else {
                 0
             };
-            MoveScore(state.history.get(mov, self.board.threats()) + countermove_score + follow_up_score / 2)
+            MoveScore(state.history.get(mov, &self.board) + countermove_score + follow_up_score / 2)
         }
     }
 
@@ -1541,16 +1541,15 @@ mod tests {
         let tt = TT::default();
         let entry = TTEntry::new(pos.hash_pos(), Score(0), Score(-12), tt_move, 123, Exact, Age::default());
         tt.store::<Chessboard>(entry, 0);
-        let threats = pos.threats();
         let mut caps = Caps::default();
         let killer = ChessMove::from_text("b2c2", &pos).unwrap();
         caps.search_stack[0].killer = killer;
         let hist_move = ChessMove::from_text("b2b1", &pos).unwrap();
-        caps.history.update(hist_move, threats, 1000);
+        caps.history.update(hist_move, &pos, 1000);
         let bad_quiet = ChessMove::from_text("b2a2", &pos).unwrap();
-        caps.history.update(bad_quiet, threats, -1);
+        caps.history.update(bad_quiet, &pos, -1);
         let bad_capture = ChessMove::from_text("b2b3", &pos).unwrap();
-        caps.capt_hist.update(bad_capture, threats, White, 100);
+        caps.capt_hist.update(bad_capture, pos.threats(), White, 100);
 
         let mut move_picker: MovePicker<Chessboard, MAX_CHESS_MOVES_IN_POS> = MovePicker::new(pos, tt_move, false);
         let move_scorer = CapsMoveScorer { board: pos, ply: 0 };
