@@ -623,6 +623,7 @@ impl Caps {
             }
         }
 
+        let us = pos.active_player();
         let in_check = pos.is_in_check();
         // Check extensions. Increase the depth by 1 if in check.
         // Do this before deciding whether to drop into qsearch.
@@ -723,7 +724,7 @@ impl Caps {
         // However, captures and promos are generally good moves, so if our eval is the static eval instead of adjusted from the TT,
         // a noisy condition would mean we're doing even better than expected. // TODO: Apply noisy for RFP etc only if eval is TT eval?
         // If it's from the TT, however, and the first move didn't produce a beta cutoff, we're probably worse than expected
-        let is_noisy = in_check || (best_move != ChessMove::default() && best_move.is_tactical(&pos));
+        let pos_noisy = in_check || (best_move != ChessMove::default() && best_move.is_tactical(&pos));
 
         // Like the commonly used `improving` and `regressing`, these variables compare the current static eval with
         // the static eval 2 plies ago to recognize blunders. Conceptually, `improving` and `regressing` can be seen as
@@ -752,7 +753,7 @@ impl Caps {
                     margin += margin / 4;
                 }
             }
-            if is_noisy {
+            if pos_noisy {
                 margin *= 2;
             }
 
@@ -785,11 +786,7 @@ impl Caps {
             // If we don't have non-pawn, non-king pieces, we're likely to be in zugzwang, so don't even try NMP.
             let has_nonpawns = (pos.active_player_bb() & !pos.piece_bb(Pawn)).more_than_one_bit_set();
             let nmp_threshold = beta + ScoreT::from(expected_node_type == FailLow) * cc::nmp_fail_low();
-            if depth >= cc::nmp_min_depth()
-                && eval >= nmp_threshold
-                && !*self.nmp_disabled_for(pos.active_player())
-                && has_nonpawns
-            {
+            if depth >= cc::nmp_min_depth() && eval >= nmp_threshold && !*self.nmp_disabled_for(us) && has_nonpawns {
                 // `make_nullmove` resets the 50mr counter, so we don't consider positions after a nullmove as repetitions,
                 // but we can still get TT cutoffs
                 self.params.history.push(pos.hash_pos());
@@ -810,12 +807,12 @@ impl Caps {
                     if depth < cc::nmp_verif_depth() && !score.is_won_or_lost() {
                         return Some(score);
                     }
-                    *self.nmp_disabled_for(pos.active_player()) = true;
+                    *self.nmp_disabled_for(us) = true;
                     // nmp was done with `depth - 1 - reduction`, but we're not doing a null move now, so technically we
                     // should use `depth - reduction`, but using `depth - 1 - reduction` is less expensive and good enough.
                     let verification_score = self.negamax(pos, ply, depth - 1 - reduction, beta - 1, beta, FailHigh);
                     self.search_stack[ply].tried_moves.clear();
-                    *self.nmp_disabled_for(pos.active_player()) = false;
+                    *self.nmp_disabled_for(us) = false;
                     // The verification score is more trustworthy than the nmp score.
                     if verification_score.is_none_or(|score| score >= beta) {
                         return verification_score;
@@ -960,7 +957,10 @@ impl Caps {
                     reduction += ((depth + 4) / 4).ilog2() as isize;
                 }
                 // if the TT move is a capture and we didn't already fail high, it's likely that later moves are worse
-                if !in_check && is_noisy {
+                if !in_check && pos_noisy {
+                    reduction += 1;
+                }
+                if mov.is_tactical(&pos) && self.capt_hist.get(mov, pos.threats(), us) <= MoveScore(-250) {
                     reduction += 1;
                 }
                 // this ensures that check extensions prevent going into qsearch while in check
