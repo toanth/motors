@@ -845,9 +845,13 @@ impl Caps {
         // ***** The move loop *****
         // *************************
 
+        let mut skip_quiets = false;
         let mut move_picker = MovePicker::<Chessboard, MAX_CHESS_MOVES_IN_POS>::new(pos, best_move, false);
         let move_scorer = CapsMoveScorer { board: pos, ply };
         while let Some((mov, move_score)) = move_picker.next(&move_scorer, self) {
+            if move_score < KILLER_SCORE && skip_quiets && !mov.is_tactical(&pos) {
+                continue;
+            }
             if can_prune && best_score > MAX_SCORE_LOST {
                 // LMP (Late Move Pruning): Trust the move ordering and assume that moves ordered late aren't very interesting,
                 // so don't even bother looking at them in the last few layers.
@@ -872,11 +876,13 @@ impl Caps {
                     && (num_uninteresting_visited >= lmp_threshold
                         || (eval + Score(fp_margin as ScoreT) < alpha && move_score < KILLER_SCORE))
                 {
-                    break;
+                    skip_quiets = true;
+                    continue;
                 }
-                // History Pruning: At very low depth, don't play quiet moves with bad history scores. Skipping bad captures too gained elo.
+                // History Pruning: At very low depth, don't play quiet moves with bad history scores.
                 if (move_score.0 as isize) < -150 * depth && depth <= 3 {
-                    break;
+                    skip_quiets = true;
+                    continue;
                 }
                 // PVS SEE pruning: Don't play moves with bad SEE scores at low depth.
                 // Be less aggressive with pruning captures to avoid overlooking tactics.
