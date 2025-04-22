@@ -658,9 +658,9 @@ impl Caps {
                 eval = raw_eval;
             } else {
                 let tt_bound = tt_entry.bound();
-                debug_assert_eq!(tt_entry.hash, pos.hash_pos());
+                debug_assert!(tt_entry.hash_part().equals(pos.hash_pos()));
 
-                if let Some(tt_move) = tt_entry.mov.check_pseudolegal(&pos) {
+                if let Some(tt_move) = tt_entry.mov(&pos) {
                     best_move = tt_move;
                 }
                 let tt_score = tt_entry.score();
@@ -1079,7 +1079,7 @@ impl Caps {
         // Store the results in the TT, always replacing the previous entry. Note that the TT move is only overwritten
         // if this node was an exact or fail high node or if there was a collision.
         if !(root && self.current_pv_num > 0) {
-            self.tt_mut().store(tt_entry, ply);
+            self.tt_mut().store(tt_entry, pos.hash_pos(), ply);
         }
 
         // Corrhist updates
@@ -1119,7 +1119,7 @@ impl Caps {
         // But if there's a TT entry from normal search that's worse than the stand pat score, we should trust that more.
         let old_entry = self.tt().load::<Chessboard>(pos.hash_pos(), ply);
         if let Some(tt_entry) = old_entry {
-            debug_assert_eq!(tt_entry.hash, pos.hash_pos());
+            debug_assert!(tt_entry.hash_part().equals(pos.hash_pos()));
             let bound = tt_entry.bound();
             let tt_score = tt_entry.score();
             // depth 0 drops immediately to qsearch, so a depth 0 entry always comes from qsearch.
@@ -1148,7 +1148,7 @@ impl Caps {
             {
                 eval = tt_score;
             };
-            if let Some(mov) = tt_entry.mov.check_pseudolegal(&pos) {
+            if let Some(mov) = tt_entry.mov(&pos) {
                 best_move = mov;
             }
         } else {
@@ -1215,7 +1215,7 @@ impl Caps {
 
         let tt_entry: TTEntry<Chessboard> =
             TTEntry::new(pos.hash_pos(), best_score, raw_eval, best_move, 0, bound_so_far, self.age());
-        self.tt_mut().store(tt_entry, ply);
+        self.tt_mut().store(tt_entry, pos.hash_pos(), ply);
         Some(best_score)
     }
 
@@ -1482,7 +1482,7 @@ mod tests {
             let root_entry = tt.load(pos.hash_pos(), 0).unwrap();
             assert!(root_entry.depth <= 2); // possible extensions
             assert_eq!(root_entry.bound(), Exact);
-            assert!(root_entry.mov.check_legal(&pos).is_some());
+            assert!(root_entry.mov(&pos).is_some());
             let moves = pos.legal_moves_slow();
             assert!(engine.uci_nodes() as usize >= moves.len()); // >= because of extensions
             for m in moves {
@@ -1545,7 +1545,7 @@ mod tests {
         let tt_move = ChessMove::from_text("a1b1", &pos).unwrap();
         let tt = TT::default();
         let entry = TTEntry::new(pos.hash_pos(), Score(0), Score(-12), tt_move, 123, Exact, Age::default());
-        tt.store::<Chessboard>(entry, 0);
+        tt.store::<Chessboard>(entry, pos.hash_pos(), 0);
         let threats = pos.threats();
         let mut caps = Caps::default();
         let killer = ChessMove::from_text("b2c2", &pos).unwrap();
@@ -1580,7 +1580,7 @@ mod tests {
         assert!(search_res.score > Score(0));
         let tt_entry = tt.load::<Chessboard>(pos.hash_pos(), 0).unwrap();
         assert_eq!(tt_entry.score, search_res.score.compact());
-        assert_eq!(tt_entry.mov, UntrustedMove::from_move(good_capture));
+        assert_eq!(tt_entry.move_untrusted(), UntrustedMove::from_move(good_capture));
     }
 
     #[test]

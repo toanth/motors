@@ -393,7 +393,7 @@ mod tests {
         assert_ne!(res2.chosen_move, res1.chosen_move);
         assert!(pos2.is_move_legal(res2.chosen_move));
         let entry = tt.load::<Chessboard>(pos2.hash_pos(), 0).unwrap();
-        assert_eq!(entry.mov.trust_unchecked(), res2.chosen_move);
+        assert_eq!(entry.move_untrusted().trust_unchecked(), res2.chosen_move);
         let entry1 = tt.load(pos1.hash_pos(), 0).unwrap();
         assert_eq!(entry1, entry);
         let res1 = engine.search_with_tt(pos1, SearchLimit::depth_(3), tt.clone());

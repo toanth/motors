@@ -1794,7 +1794,7 @@ fn format_tt_entry<B: Board>(state: MatchState<B>, entry: TTEntry<B>) -> String 
     let pos = state.board.clone();
     let pos2 = pos.clone();
     let formatter = pos.pretty_formatter(None, state.last_move(), OutputOpts::default());
-    let mov = entry.mov.check_legal(&pos);
+    let mov = entry.mov(&pos);
     let mut formatter = AdaptFormatter {
         underlying: formatter,
         color_frame: Box::new(move |coords, color| {

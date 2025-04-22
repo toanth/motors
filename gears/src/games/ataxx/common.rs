@@ -1,12 +1,13 @@
+use crate::games::ataxx::AtaxxColor::{O, X};
 use crate::games::ataxx::common::AtaxxMoveType::{Cloning, Leaping};
 use crate::games::ataxx::common::AtaxxPieceType::{Blocked, Empty, Occupied};
-use crate::games::ataxx::AtaxxColor::{O, X};
 use crate::games::ataxx::{AtaxxBoard, AtaxxColor, AtaxxSettings, AtaxxSquare};
 use crate::games::{AbstractPieceType, CharType, ColoredPieceType, DimT, PieceType};
 use crate::general::board::{Board, BoardHelpers};
 use crate::general::common::Res;
 use crate::general::moves::Legality::Legal;
 use crate::general::moves::{Legality, Move, UntrustedMove};
+use ColoredAtaxxPieceType::*;
 use anyhow::{bail, ensure};
 use arbitrary::Arbitrary;
 use colored::Colorize;
@@ -15,7 +16,6 @@ use std::fmt::{Debug, Display, Formatter};
 use std::str::FromStr;
 use strum::IntoEnumIterator;
 use strum_macros::EnumIter;
-use ColoredAtaxxPieceType::*;
 
 pub const NUM_ROWS: usize = 7;
 pub const NUM_COLUMNS: usize = 7;
@@ -211,11 +211,7 @@ impl Move<AtaxxBoard> for AtaxxMove {
     }
 
     fn src_square_in(self, _pos: &AtaxxBoard) -> Option<AtaxxSquare> {
-        if self.source == u8::MAX {
-            None
-        } else {
-            Some(AtaxxSquare::unchecked(self.source as usize))
-        }
+        if self.source == u8::MAX { None } else { Some(AtaxxSquare::unchecked(self.source as usize)) }
     }
 
     fn dest_square_in(self, _pos: &AtaxxBoard) -> AtaxxSquare {
@@ -295,10 +291,6 @@ impl AtaxxMove {
     }
 
     pub fn typ(self) -> AtaxxMoveType {
-        if self.source == u8::MAX {
-            Cloning
-        } else {
-            Leaping
-        }
+        if self.source == u8::MAX { Cloning } else { Leaping }
     }
 }
