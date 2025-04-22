@@ -849,37 +849,40 @@ impl Caps {
         let mut move_picker = MovePicker::<Chessboard, MAX_CHESS_MOVES_IN_POS>::new(pos, best_move, false);
         let move_scorer = CapsMoveScorer { board: pos, ply };
         while let Some((mov, move_score)) = move_picker.next(&move_scorer, self) {
-            if move_score < KILLER_SCORE && skip_quiets && !mov.is_tactical(&pos) {
+            let quiet_move = !mov.is_tactical(&pos);
+            if move_score < KILLER_SCORE && skip_quiets && quiet_move {
                 continue;
             }
             if can_prune && best_score > MAX_SCORE_LOST {
-                // LMP (Late Move Pruning): Trust the move ordering and assume that moves ordered late aren't very interesting,
-                // so don't even bother looking at them in the last few layers.
-                // FP (Futility Pruning): If the static eval is far below alpha,
-                // then it's unlikely that a quiet move can raise alpha: We've probably blundered at some prior point in search,
-                // so cut our losses and return. This has the potential of missing sacrificing mate combinations, though.
-                let fp_margin = if we_blundered {
-                    cc::fp_blunder_base() + cc::fp_blunder_scale() * depth
-                } else {
-                    cc::fp_base() + cc::fp_scale() * depth
-                };
-                let mut lmp_threshold = if we_blundered {
-                    cc::lmp_blunder_base() + cc::lmp_blunder_scale() * depth
-                } else {
-                    cc::lmp_base() + cc::lmp_scale() * depth
-                };
-                // LMP faster if we expect to fail low anyway
-                if expected_node_type == FailLow {
-                    lmp_threshold -= lmp_threshold / cc::lmp_fail_low_div();
+                if quiet_move {
+                    // LMP (Late Move Pruning): Trust the move ordering and assume that moves ordered late aren't very interesting,
+                    // so don't even bother looking at them in the last few layers.
+                    // FP (Futility Pruning): If the static eval is far below alpha,
+                    // then it's unlikely that a quiet move can raise alpha: We've probably blundered at some prior point in search,
+                    // so cut our losses and return. This has the potential of missing sacrificing mate combinations, though.
+                    let fp_margin = if we_blundered {
+                        cc::fp_blunder_base() + cc::fp_blunder_scale() * depth
+                    } else {
+                        cc::fp_base() + cc::fp_scale() * depth
+                    };
+                    let mut lmp_threshold = if we_blundered {
+                        cc::lmp_blunder_base() + cc::lmp_blunder_scale() * depth
+                    } else {
+                        cc::lmp_base() + cc::lmp_scale() * depth
+                    };
+                    // LMP faster if we expect to fail low anyway
+                    if expected_node_type == FailLow {
+                        lmp_threshold -= lmp_threshold / cc::lmp_fail_low_div();
+                    }
+                    if depth <= cc::max_move_loop_pruning_depth()
+                        && (num_uninteresting_visited >= lmp_threshold
+                            || (eval + Score(fp_margin as ScoreT) < alpha && move_score < KILLER_SCORE))
+                    {
+                        skip_quiets = true;
+                        continue;
+                    }
                 }
-                if depth <= cc::max_move_loop_pruning_depth()
-                    && (num_uninteresting_visited >= lmp_threshold
-                        || (eval + Score(fp_margin as ScoreT) < alpha && move_score < KILLER_SCORE))
-                {
-                    skip_quiets = true;
-                    continue;
-                }
-                // History Pruning: At very low depth, don't play quiet moves with bad history scores.
+                // History Pruning: At very low depth, don't play quiet moves with bad history scores or losing captures.
                 if (move_score.0 as isize) < -150 * depth && depth <= 3 {
                     skip_quiets = true;
                     continue;
