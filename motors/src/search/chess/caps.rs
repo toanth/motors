@@ -960,8 +960,13 @@ impl Caps {
                 if !in_check && pos_noisy {
                     reduction += 1;
                 }
-                if mov.is_tactical(&pos) && self.capt_hist.get(mov, pos.threats(), us) <= MoveScore(-500) {
-                    reduction += 1;
+                if mov.is_tactical(&pos) {
+                    let hist = self.capt_hist.get(mov, pos.threats(), us);
+                    if hist <= MoveScore(-500) {
+                        reduction += 1;
+                    } else if hist >= MoveScore(250) {
+                        reduction -= 1;
+                    }
                 }
                 // this ensures that check extensions prevent going into qsearch while in check
                 reduction = reduction.clamp(0, depth - 1);
