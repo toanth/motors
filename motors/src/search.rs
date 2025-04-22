@@ -764,6 +764,7 @@ pub struct SearchState<B: Board, E: SearchStackEntry<B>, C: CustomInfo<B>> {
     last_msg_time: Instant,
     statistics: Statistics,
     aggregated_statistics: Statistics, // statistics aggregated over all searches of the current match
+    age: Age,
 }
 
 impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo<B>> Deref for SearchState<B, E, C> {
@@ -804,6 +805,7 @@ impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo<B>> AbstractSearchState<B> 
         self.forget(false);
         let moves = parameters.pos.legal_moves_slow();
         let num_moves = moves.num_moves();
+        self.age = parameters.tt.age;
         self.current_pv_num = 0;
         if let Some(search_moves) = &parameters.restrict_moves {
             // remove duplicates and invalid moves from the `restrict_move` parameter and invert the set because the usual case is
@@ -840,6 +842,10 @@ impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo<B>> AbstractSearchState<B> 
 
     fn search_params(&self) -> &SearchParams<B> {
         &self.params
+    }
+
+    fn age(&self) -> Age {
+        self.age
     }
 
     fn pv_data(&self) -> &[PVData<B>] {
@@ -1024,6 +1030,7 @@ impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo<B>> SearchState<B, E, C> {
             current_pv_num: 0,
             execution_start_time: now,
             last_msg_time: now,
+            age: Age::default(),
         }
     }
 
