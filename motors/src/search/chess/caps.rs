@@ -927,8 +927,8 @@ impl Caps {
                         + (num_uninteresting_visited + 1).ilog2() as isize
                         + cc::lmr_const();
                     // Reduce bad captures and quiet moves with bad combined history scores more.
-                    if move_score < MoveScore(cc::lmr_bad_hist()) {
-                        reduction += 1;
+                    if move_score < MoveScore(0) {
+                        reduction += (move_score.0 / cc::lmr_bad_hist()) as isize;
                     } else if move_score > MoveScore(cc::lmr_good_hist()) {
                         // Since the TT and killer move and good captures are not lmr'ed,
                         // this only applies to quiet moves with a good combined history score.
@@ -1330,7 +1330,7 @@ impl Caps {
             let score = score.flip_if(flip);
             let alpha = alpha.flip_if(flip);
             let beta = beta.flip_if(flip);
-            self.send_currline(ply - 1, score, alpha.min(beta), beta.max(alpha));
+            self.send_currline(ply.saturating_sub(1), score, alpha.min(beta), beta.max(alpha));
         }
     }
 }
