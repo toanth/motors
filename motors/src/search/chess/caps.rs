@@ -929,13 +929,13 @@ impl Caps {
                     // Reduce bad captures and quiet moves with bad combined history scores more.
                     if move_score < MoveScore(cc::lmr_bad_hist()) {
                         reduction += 1;
-                        if move_score < MoveScore(cc::lmr_very_bad_hist()) {
-                            reduction += 1;
-                        }
                     } else if move_score > MoveScore(cc::lmr_good_hist()) {
                         // Since the TT and killer move and good captures are not lmr'ed,
                         // this only applies to quiet moves with a good combined history score.
                         reduction -= 1;
+                        if move_score > MoveScore(cc::lmr_very_good_hist()) {
+                            reduction -= 1;
+                        }
                     }
                     if !is_pv_node {
                         reduction += 1;
