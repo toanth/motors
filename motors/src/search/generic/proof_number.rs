@@ -369,6 +369,7 @@ impl<B: Board> Engine<B> for ProofNumberSearcher<B> {
             if let Some(mut o) = self.params.thread_type.output() {
                 let info = SearchInfo {
                     best_move_of_all_pvs: mov,
+                    iterations: 1,
                     depth: Depth::new(1),
                     seldepth: Depth::new(1),
                     time: self.start_time.elapsed(),

@@ -185,8 +185,9 @@ impl CorrHist {
         eval: Score,
         score: Score,
     ) {
+        assert_eq!(depth % 128, 0); // TODO: Remove
         let color = pos.active_player();
-        let weight = (1 + depth).min(16);
+        let weight = (128 + depth).min(2048) / 128;
         let bonus = (score - eval).0 as isize * CORRHIST_SCALE;
         let pawn_idx = pos.pawn_key().0 as usize % CORRHIST_SIZE;
         Self::update_entry(&mut self.pawns[color][pawn_idx], weight, bonus);

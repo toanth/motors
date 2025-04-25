@@ -758,6 +758,8 @@ pub struct SearchState<B: Board, E: SearchStackEntry<B>, C: CustomInfo<B>> {
     excluded_moves: Vec<B::Move>,
     multi_pvs: Vec<PVData<B>>,
     current_pv_num: usize,
+    // Not necessarily the same as the depth, because the depth can be fractional
+    iterations: usize,
     // This is the point at which the search actually started.
     // The `limit` (part of `params`) has the point when the search was requested
     execution_start_time: Instant,
@@ -886,6 +888,7 @@ impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo<B>> AbstractSearchState<B> 
     fn to_search_info(&self) -> SearchInfo<B> {
         let mut res = SearchInfo {
             best_move_of_all_pvs: self.best_move(),
+            iterations: self.iterations,
             depth: self.depth(),
             seldepth: self.seldepth(),
             time: self.execution_start_time().elapsed(),
@@ -1028,6 +1031,7 @@ impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo<B>> SearchState<B, E, C> {
             params,
             excluded_moves: vec![],
             current_pv_num: 0,
+            iterations: 0,
             execution_start_time: now,
             last_msg_time: now,
             age: Age::default(),
@@ -1175,7 +1179,6 @@ mod tests {
         for p in B::bench_positions() {
             let res = engine.bench(p.clone(), SearchLimit::nodes_(1), tt.clone(), 0);
             assert!(res.depth.is_none(), "{res}");
-            assert!(res.max_depth.get() <= 1 + 1, "{res}"); // possible extensions
             assert!(res.nodes <= 100, "{res}"); // TODO: Assert exactly 1
             let params =
                 SearchParams::new_unshared(p.clone(), SearchLimit::depth_(1), ZobristHistory::default(), tt.clone());

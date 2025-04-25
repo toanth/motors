@@ -103,6 +103,7 @@ impl<B: Board> Engine<B> for Gaps<B> {
         self.state.search_params_mut().limit = limit;
 
         'id: for depth in 1..=max_depth {
+            self.state.iterations = depth as usize;
             for pv_num in 0..self.state.multi_pv() {
                 if self.should_not_start_negamax(limit.fixed_time, limit.soft_nodes.get(), max_depth, limit.mate) {
                     break 'id;

@@ -104,6 +104,7 @@ impl EngineStatus {
 #[must_use]
 pub struct OwnedSearchInfo<B: Board> {
     pub best_move_of_all_pvs: B::Move,
+    pub iterations: usize,
     pub depth: Depth,
     pub seldepth: Depth,
     pub time: Duration,
@@ -122,6 +123,7 @@ impl<B: Board> Default for OwnedSearchInfo<B> {
     fn default() -> Self {
         Self {
             best_move_of_all_pvs: B::Move::default(),
+            iterations: 0,
             depth: Depth::default(),
             seldepth: Depth::default(),
             time: Duration::default(),
@@ -148,6 +150,7 @@ impl<B: Board> OwnedSearchInfo<B> {
     pub fn to_search_info(&self) -> SearchInfo<B> {
         SearchInfo {
             best_move_of_all_pvs: self.best_move_of_all_pvs,
+            iterations: self.iterations,
             depth: self.depth,
             seldepth: self.seldepth,
             time: self.time,

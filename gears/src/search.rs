@@ -15,7 +15,7 @@ use std::str::FromStr;
 use std::time::{Duration, Instant};
 use strum_macros::FromRepr;
 
-pub const MAX_DEPTH: Depth = Depth(10_000);
+pub const MAX_DEPTH: Depth = Depth(1 << 20);
 
 #[derive(Eq, PartialEq, Debug, Default, Copy, Clone)]
 #[must_use]
@@ -135,6 +135,7 @@ impl NodeType {
 #[must_use]
 pub struct SearchInfo<'a, B: Board> {
     pub best_move_of_all_pvs: B::Move,
+    pub iterations: usize,
     pub depth: Depth,
     pub seldepth: Depth,
     pub time: Duration,
@@ -154,6 +155,7 @@ impl<B: Board> Default for SearchInfo<'_, B> {
     fn default() -> Self {
         Self {
             best_move_of_all_pvs: B::Move::default(),
+            iterations: 0,
             depth: Depth::default(),
             seldepth: Depth::default(),
             time: Duration::default(),

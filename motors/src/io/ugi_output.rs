@@ -43,6 +43,7 @@ use std::{fmt, mem};
 #[derive(Debug)]
 struct TypeErasedSearchInfo {
     depth: Depth,
+    iterations: usize,
     seldepth: Depth,
     time: Duration,
     nodes: NodesLimit,
@@ -57,6 +58,7 @@ impl TypeErasedSearchInfo {
     fn new<B: Board>(info: SearchInfo<B>) -> Self {
         Self {
             depth: info.depth,
+            iterations: info.iterations,
             seldepth: info.seldepth,
             time: info.time,
             nodes: info.nodes,
@@ -71,12 +73,12 @@ impl TypeErasedSearchInfo {
     fn effective_branching_factor(&self) -> f64 {
         // this method of computing the effective branching factor is somewhat flawed, but it's what most engines do,
         // so for the sake of comparability we do this as well
-        let depth = self.depth.get() as u64;
-        if depth == 0 {
+        let iters = self.iterations as u64;
+        if iters == 0 {
             return 0.0; // I hate NaNs.
         }
         // subtract the depth to not count the root node, which means the branching factor for depth 1 is the number of legal moves
-        ((self.nodes.get() - depth) as f64 / self.num_threads).powf(1.0 / depth as f64)
+        ((self.nodes.get() - iters) as f64 / self.num_threads).powf(1.0 / iters as f64)
     }
 }
 
