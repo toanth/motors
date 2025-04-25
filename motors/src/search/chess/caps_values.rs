@@ -20,8 +20,8 @@ use crate::spsa_params;
 spsa_params![
     cc,
     start_depth: usize = 128; 0..=512; step=16;
-    // min_depth_incremenet: isize = 128; 32..=256; step=2;
-    // max_depth_incremenet: isize = 172; 32..=512; step=2;
+    min_depth_incremenet: usize = 128; 32..=256; step=2;
+    max_depth_incremenet: usize = 172; 32..=512; step=2;
     soft_limit_div: u32 = 30; 5..=60; step=1;
     inv_soft_limit_div_clamp: u32 = 256; 1..=750; step=10;
     inv_hard_limit_div: usize = 512; 1..=750; step=10;

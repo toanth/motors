@@ -187,7 +187,6 @@ impl CorrHist {
         eval: Score,
         score: Score,
     ) {
-        assert_eq!(depth % 128, 0); // TODO: Remove
         let color = pos.active_player();
         let weight = (cc::corrhist_offset() + depth).min(corrhist_max()) / 128;
         let bonus = (score - eval).0 as isize * CORRHIST_SCALE;

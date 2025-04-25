@@ -41,9 +41,6 @@ use gears::ugi::EngineOptionName::*;
 use gears::ugi::EngineOptionType::Check;
 use gears::ugi::{EngineOption, EngineOptionName, EngineOptionType, UgiCheck};
 
-/// By how much the fractional depth increases each ID iteration.
-const DEPTH_INCREMENT: usize = 128;
-
 /// The maximum value of the uci `depth` parameter, i.e. the maximum number of Iterative Deepening iterations
 const ID_ITERS_SOFT_LIMIT: DepthPly = DepthPly::new(225);
 
@@ -382,8 +379,8 @@ impl Caps {
     /// The low-depth searches fill the TT and various heuristics, which improves move ordering and therefore results in
     /// better moves within the same time or nodes budget because the lower-depth searches are comparatively cheap.
     fn iterative_deepening(&mut self, pos: Chessboard, soft_limit: Duration) -> bool {
-        // let phase = pos.phase().clamp(0, 24);
-        // let increment = (cc::min_depth_incremenet() * phase + cc::max_depth_incremenet() * (24 - phase)) / 24;
+        let phase = pos.phase().clamp(0, 24) as usize;
+        let increment = (cc::min_depth_incremenet() * phase + cc::max_depth_incremenet() * (24 - phase)) / 24;
         // we multiply the depth limit by the depth increment to achieve a more consistent behavior of 'go depth'.
         let max_iter = self.limit().depth.get();
         let multi_pv = self.multi_pv();
@@ -393,7 +390,7 @@ impl Caps {
         let mut chosen_at_iter = EagerNonAllocMoveList::<Chessboard, { ID_ITERS_SOFT_LIMIT.get() }>::default();
 
         for (iter, budget) in
-            (cc::start_depth()..=(ID_ITERS_SOFT_LIMIT.get() * DEPTH_INCREMENT)).step_by(DEPTH_INCREMENT).enumerate()
+            (cc::start_depth()..=(ID_ITERS_SOFT_LIMIT.get() * increment)).step_by(increment).enumerate()
         {
             if iter >= max_iter {
                 break;
@@ -536,8 +533,7 @@ impl Caps {
                             // currently, it's possible to reduce the PV through IIR when the TT entry of a PV node gets overwritten,
                             // but that should be relatively rare. In the future, a better replacement policy might make this actually sound
                             self.multi_pv() > 1
-                                || pv.len() + pv.len() / 4 + 5
-                                    >= self.ply_hard_limit.min(aw_budget as usize / DEPTH_INCREMENT)
+                                || pv.len() + pv.len() / 4 + 5 >= self.ply_hard_limit.min(self.iterations().get())
                                 || pv_score.is_won_lost_or_draw_score(),
                             "{aw_budget} {budget} {0} {pv_score} {1}",
                             pv.len(),
@@ -597,11 +593,9 @@ impl Caps {
     ) -> Option<Score> {
         debug_assert!(alpha < beta, "{alpha} {beta} {pos} {ply} {depth}");
         debug_assert!(ply <= PLY_HARD_LIMIT, "{ply} {depth} {pos}");
-        debug_assert!(depth <= ID_ITERS_SOFT_LIMIT.isize() * DEPTH_INCREMENT as isize, "{ply} {depth} {pos}"); // TODO: Remove?
+        debug_assert!(depth <= ID_ITERS_SOFT_LIMIT.isize() * 256, "{ply} {depth} {pos}");
         debug_assert!(self.params.history.len() >= ply, "{ply} {depth} {pos}, {:?}", self.params.history);
         self.statistics.count_node_started(MainSearch);
-
-        assert_eq!(depth % 128, 0); // TODO: Remove
 
         let root = ply == 0;
         let is_pv_node = expected_node_type == Exact; // TODO: Make this a generic argument of search?
@@ -875,8 +869,6 @@ impl Caps {
         // ***** The move loop *****
         // *************************
 
-        debug_assert!(depth % 128 == 0); // TODO: Remove
-
         let mut move_picker = MovePicker::<Chessboard, MAX_CHESS_MOVES_IN_POS>::new(pos, best_move, false);
         let move_scorer = CapsMoveScorer { board: pos, ply };
         while let Some((mov, move_score)) = move_picker.next(&move_scorer, self) {
@@ -907,7 +899,6 @@ impl Caps {
                     break;
                 }
                 // History Pruning: At very low depth, don't play quiet moves with bad history scores. Skipping bad captures too gained elo.
-                assert_eq!(depth % 128, 0);
                 // TODO: Remove '()', change order and use / 1024 instead of / 128 (changes bench)
                 if (move_score.0 as isize) < -150 * (depth / 128) && depth <= cc::hist_pruning_max_depth() {
                     break;
@@ -1542,7 +1533,7 @@ mod tests {
                 continue;
             }
             let root_entry = tt.load(pos.hash_pos(), 0).unwrap();
-            assert!(root_entry.depth <= 2 * DEPTH_INCREMENT as u16); // possible extensions
+            assert!(root_entry.depth <= 256); // possible extensions
             assert_eq!(root_entry.bound(), Exact);
             assert!(root_entry.mov(&pos).is_some());
             let moves = pos.legal_moves_slow();
@@ -1553,7 +1544,7 @@ mod tests {
                 let Some(entry) = entry else {
                     continue; // it's possible that a position is not in the TT because qsearch didn't save it
                 };
-                assert!(entry.depth <= 2 * DEPTH_INCREMENT as u16, "{entry:?} {new_pos}");
+                assert!(entry.depth <= 256, "{entry:?} {new_pos}");
                 assert!(-entry.score <= root_entry.score, "{entry:?}\n{root_entry:?}\n{new_pos}");
             }
         }
