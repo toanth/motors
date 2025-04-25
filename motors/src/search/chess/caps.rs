@@ -601,8 +601,6 @@ impl Caps {
         debug_assert!(self.params.history.len() >= ply, "{ply} {depth} {pos}, {:?}", self.params.history);
         self.statistics.count_node_started(MainSearch);
 
-        assert_eq!(depth % 128, 0); // TODO: Remove
-
         let root = ply == 0;
         let is_pv_node = expected_node_type == Exact; // TODO: Make this a generic argument of search?
         debug_assert!(!root || is_pv_node); // root implies pv node
@@ -769,12 +767,9 @@ impl Caps {
             // (like imminent threats) so don't prune too aggressively if our opponent hasn't blundered.
             // Be more careful about pruning too aggressively if the node is expected to fail low -- we should not rfp
             // a true fail low node, but our expectation may also be wrong.
-            // TODO: introduce tunable constant without `()` (changes bench)
-            let mut margin =
-                (cc::rfp_base() - (ScoreT::from(they_blundered) * cc::rfp_blunder())) * (depth / 128) as ScoreT;
+            let mut margin = (cc::rfp_base() - (ScoreT::from(they_blundered) * cc::rfp_blunder())) * depth as ScoreT;
             if expected_node_type == FailHigh {
-                // TODO: Multiplicative constant (changes bench)
-                margin /= cc::rfp_fail_high_div();
+                margin = margin * cc::rfp_fail_high() / 1024;
             }
             if let Some(entry) = old_entry {
                 if entry.score() <= eval && entry.bound() == NodeType::upper_bound() {
@@ -785,7 +780,7 @@ impl Caps {
                 margin += margin * cc::rfp_noisy_pos() / 1024;
             }
 
-            if depth <= cc::rfp_max_depth() && eval >= beta + Score(margin) {
+            if depth <= cc::rfp_max_depth() && eval >= beta + Score(margin / 128) {
                 return Some(eval);
             }
 
@@ -824,9 +819,8 @@ impl Caps {
                 let new_pos = pos.make_nullmove().unwrap();
                 // necessary to recognize the null move and to make `last_tried_move()` not panic
                 self.search_stack[ply].tried_moves.push(ChessMove::default());
-                // TODO: Change order of multiplication and division (changes bench), use * 1024 instead of * 128 for depth div
                 let reduction = cc::nmp_base()
-                    + depth / cc::nmp_depth_div() * 128
+                    + depth * 1024 / cc::nmp_depth_div()
                     + isize::from(they_blundered) * cc::nmp_blunder();
                 // the child node is expected to fail low, leading to a fail high in this node
                 let nmp_res = self.negamax(new_pos, ply + 1, depth - reduction, -beta, -beta + 1, FailLow);
@@ -875,8 +869,6 @@ impl Caps {
         // ***** The move loop *****
         // *************************
 
-        debug_assert!(depth % 128 == 0); // TODO: Remove
-
         let mut move_picker = MovePicker::<Chessboard, MAX_CHESS_MOVES_IN_POS>::new(pos, best_move, false);
         let move_scorer = CapsMoveScorer { board: pos, ply };
         while let Some((mov, move_score)) = move_picker.next(&move_scorer, self) {
@@ -907,17 +899,19 @@ impl Caps {
                     break;
                 }
                 // History Pruning: At very low depth, don't play quiet moves with bad history scores. Skipping bad captures too gained elo.
-                assert_eq!(depth % 128, 0);
-                // TODO: Remove '()', change order and use / 1024 instead of / 128 (changes bench)
-                if (move_score.0 as isize) < -150 * (depth / 128) && depth <= cc::hist_pruning_max_depth() {
+                if (move_score.0 as isize) < -cc::hist_pruning_threshold() * depth / 1024
+                    && depth <= cc::hist_pruning_max_depth()
+                {
                     break;
                 }
                 // PVS SEE pruning: Don't play moves with bad SEE scores at low depth.
                 // Be less aggressive with pruning captures to avoid overlooking tactics.
                 let bad_tactical = move_score < MoveScore(-HIST_DIVISOR * 8);
-                // TODO: Tunable constants, different divisors (changaes bench)
-                let see_threshold =
-                    if bad_tactical { (-depth * depth * 50 / (128 * 128)) as i32 } else { (-depth * 80 / 128) as i32 };
+                let see_threshold = if bad_tactical {
+                    (-depth * depth * cc::see_pruning_tactical() / (1 << 20)) as i32
+                } else {
+                    (-depth * cc::see_pruning_quiet() / 1024) as i32
+                };
                 if move_score < KILLER_SCORE
                     && depth <= cc::max_see_pruning_depth()
                     && !pos.see_at_least(mov, SeeScore(see_threshold))
@@ -972,8 +966,7 @@ impl Caps {
                 // I think it's common to have a minimum depth for doing LMR, but not having that gained elo.
                 let mut reduction = 0;
                 if num_uninteresting_visited >= cc::lmr_min_uninteresting() {
-                    // TODO: Constants (changes bench)
-                    reduction = (depth / 128) / cc::lmr_depth_div() * 128
+                    reduction = depth / cc::lmr_depth_div()
                         + (num_uninteresting_visited + 1).ilog2() as isize * cc::lmr_moves_mult()
                         + cc::lmr_const();
                     // Reduce bad captures and quiet moves with bad combined history scores more.
@@ -1004,8 +997,7 @@ impl Caps {
                     && move_score < KILLER_SCORE
                     && eval + cc::fr_base() + ((depth * cc::fr_scale() / 1024) as ScoreT) < alpha
                 {
-                    // TODO: Constants, multiply instead of div (changes bench)
-                    reduction += (1 + depth / 512).ilog2() as isize * cc::fr_mult();
+                    reduction += (1 + depth / cc::fr_depth_div()).ilog2() as isize * cc::fr_mult();
                 }
                 // if the TT move is a capture and we didn't already fail high, it's likely that later moves are worse
                 if !in_check && pos_noisy {
@@ -1028,8 +1020,7 @@ impl Caps {
                 if alpha < score && reduction >= cc::min_reduction_research() {
                     // do deeper / shallower: Adjust the first re-search depth based on the result of the first search
                     let mut retry_depth = depth - cc::retry_base_reduction();
-                    // TODO: Constants (changes bench)
-                    if score > alpha + cc::do_deeper_base() + (depth * 4 / 128) as ScoreT {
+                    if score > alpha + cc::do_deeper_base() + (depth * cc::do_deeper_scale() / 1024) as ScoreT {
                         retry_depth += cc::do_deeper_reduction();
                     } else if score < alpha + cc::do_shallower_base() {
                         retry_depth -= cc::do_shallower_reduction();
@@ -1427,11 +1418,10 @@ impl MoveScorer<Chessboard, Caps> for CapsMoveScorer {
                 0
             };
             let main_hist_score = state.history.score(mov, self.board.threats());
-            // TODO: Divide at the end (changes bench)
-            let score = main_hist_score * cc::main_hist_weight() / 1024
-                + countermove_score * cc::countermove_weight() / 1024
-                + follow_up_score * cc::follow_up_weight() / 1024;
-            MoveScore((score) as HistScoreT)
+            let score = main_hist_score * cc::main_hist_weight()
+                + countermove_score * cc::countermove_weight()
+                + follow_up_score * cc::follow_up_weight();
+            MoveScore((score / 1024) as HistScoreT)
         }
     }
 

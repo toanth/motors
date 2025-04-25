@@ -47,7 +47,7 @@ spsa_params![
     iir_reduction: isize = 128; 0..=256; step=16;
     rfp_base: ScoreT = 158; 0..=900; step=15;
     rfp_blunder: ScoreT = 48; 0..=512; step=8;
-    rfp_fail_high_div: ScoreT = 3; 1..=10; step=1;
+    rfp_fail_high: ScoreT = 300; 32..=1024; step=16;
     rfp_tt_upper_bound: ScoreT = 256; 0..=1024; step=64;
     rfp_noisy_pos: ScoreT = 1024; 0..=2048; step=128;
     rfp_max_depth: isize = 6 * 128; 128..=1024; step=32;
@@ -56,7 +56,7 @@ spsa_params![
     nmp_fail_low: ScoreT = 62; 0..=256; step=4;
     nmp_min_depth: isize = 128; 128..=1024; step=32;
     nmp_base: isize = 640; 256..=2048; step=32;
-    nmp_depth_div: isize = 512; 128..=2048; step=64;
+    nmp_depth_div: isize = 2048; 512..=8192; step=256;
     nmp_blunder: isize = 128; 0..=512; step=16;
     nmp_verif_depth: isize = 1024; 128..=4096; step=32;
     fp_blunder_base: isize = 171 * 1024; 0..=512 * 1024; step=32 * 1024;
@@ -69,7 +69,10 @@ spsa_params![
     lmp_scale: isize = 40; 0..=128; step=4;
     lmp_fail_low_div: isize = 2; 2..=16; step=1;
     max_move_loop_pruning_depth: isize = 6 * 128; 1..=16_384; step=64;
+    hist_pruning_threshold: isize = 1200; 512..=8192; step=256;
     hist_pruning_max_depth: isize = 3 * 128; 128..=2048; step=32;
+    see_pruning_tactical: isize = 320; 8..=1024; step=16;
+    see_pruning_quiet: isize = 640; 32..=2048; step=32;
     max_see_pruning_depth: isize = 1024; 128..=2048; step=64;
     first_child_reduction: isize = 128; 64..=256; step=2;
     lmr_min_uninteresting: isize = 3; 0..=16; step=1;
@@ -87,6 +90,7 @@ spsa_params![
     min_fr_depth: isize = 7 * 128; 1..=8192; step=64;
     fr_base: ScoreT = 400; 100..=800; step=16;
     fr_scale: isize = 32 * 8; 64..=1024; step=8;
+    fr_depth_div: isize = 512; 128..=2046; step=8;
     fr_mult: isize = 128; 32..=256; step=4;
     tt_capt_reduction: isize = 128; 32..=256; step=8;
     lmr_bad_capthist: i16 = -500; -1000..=0; step=16;
@@ -96,6 +100,7 @@ spsa_params![
     min_reduction_research: isize = 1; 0..=256; step=8;
     retry_base_reduction: isize = 128; 16..=256; step=16;
     do_deeper_base: ScoreT = 50; 8..=256; step=4;
+    do_deeper_scale: isize = 32; 16..=128; step=4;
     do_deeper_reduction: isize = 128; 32..=256; step=8;
     do_shallower_base: ScoreT = 10; 2..=128; step=4;
     do_shallower_reduction: isize = 128; 32..=256; step=8;
