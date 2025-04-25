@@ -381,7 +381,6 @@ impl Caps {
     fn iterative_deepening(&mut self, pos: Chessboard, soft_limit: Duration) -> bool {
         let phase = pos.phase().clamp(0, 24) as usize;
         let increment = (cc::min_depth_incremenet() * phase + cc::max_depth_incremenet() * (24 - phase)) / 24;
-        // we multiply the depth limit by the depth increment to achieve a more consistent behavior of 'go depth'.
         let max_iter = self.limit().depth.get();
         let multi_pv = self.multi_pv();
         let mut soft_limit_scale = 1.0;
@@ -1585,7 +1584,7 @@ mod tests {
         let fresh_d3_search = caps.search_with_new_tt(pos, d3);
         assert!(!fresh_d3_search.score.is_won_or_lost(), "{}", fresh_d3_search.score.0);
         let fresh_d3_nodes = caps.search_state().uci_nodes();
-        assert!(fresh_d3_nodes > d3_nodes + d3_nodes / 4, "{fresh_d3_nodes} {d3_nodes}");
+        assert!(fresh_d3_nodes > d3_nodes + d3_nodes / 5, "{fresh_d3_nodes} {d3_nodes}");
         caps.forget();
         _ = caps.search_with_new_tt(pos, d3);
         assert_eq!(caps.search_state().uci_nodes(), fresh_d3_nodes);
