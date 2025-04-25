@@ -888,7 +888,7 @@ impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo<B>> AbstractSearchState<B> 
     fn to_search_info(&self) -> SearchInfo<B> {
         let mut res = SearchInfo {
             best_move_of_all_pvs: self.best_move(),
-            iterations: self.iterations,
+            iterations: self.iterations(),
             depth: self.depth(),
             seldepth: self.seldepth(),
             time: self.execution_start_time().elapsed(),
@@ -939,6 +939,10 @@ impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo<B>> SearchState<B, E, C> {
 
     fn depth(&self) -> Depth {
         self.search_params().atomic.depth()
+    }
+
+    fn iterations(&self) -> usize {
+        self.iterations
     }
 
     fn seldepth(&self) -> Depth {

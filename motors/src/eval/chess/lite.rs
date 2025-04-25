@@ -27,6 +27,7 @@ use gears::score::{PhaseType, PhasedScore, Score, ScoreT};
 use crate::eval::chess::king_gambot::KingGambotValues;
 use crate::eval::chess::lite::FileOpenness::{Closed, Open, SemiClosed, SemiOpen};
 use crate::eval::{Eval, ScoreType, SingleFeatureScore};
+use crate::spsa_params;
 
 #[derive(Debug, Default, Copy, Clone)]
 struct EvalState<Tuned: LiteValues> {
@@ -59,7 +60,11 @@ pub type LiTEval = GenericLiTEval<Lite>;
 
 pub type KingGambot = GenericLiTEval<KingGambotValues>;
 
-pub const TEMPO: Score = Score(10);
+spsa_params![lc,
+    tempo: ScoreT = 10; 0..=32; step=1;
+];
+
+pub const TEMPO: Score = Score(lc::tempo());
 // TODO: Differentiate between rooks and kings in front of / behind pawns?
 
 /// Includes a phase for the empty piece to simplify the implementation

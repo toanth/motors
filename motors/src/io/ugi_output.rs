@@ -177,7 +177,9 @@ impl TypeErasedUgiOutput {
 
         let important = mpv_type != SecondaryLine && exact;
 
-        if mpv_type != SecondaryLine && self.previous_exact_info.as_ref().is_some_and(|i| i.depth != info.depth - 1) {
+        if mpv_type != SecondaryLine
+            && self.previous_exact_info.as_ref().is_some_and(|i| i.iterations != info.iterations - 1)
+        {
             self.previous_exact_info = None;
         }
 
@@ -217,7 +219,7 @@ impl TypeErasedUgiOutput {
             multipv = multipv.dimmed().to_string();
         }
 
-        let mut iter = format!("{:>3}", info.depth);
+        let mut iter = format!("{:>3}", info.iterations);
         if !exact {
             iter = iter.dimmed().to_string();
             // use color_for_score instead of `.green()` etc because some terminals struggle with non-true colors and dimmed/bold text.
@@ -230,13 +232,14 @@ impl TypeErasedUgiOutput {
             iter = iter.bold().to_string();
         }
         let complete = if info.bound.is_some() { "   ".to_string() } else { "(*)".dimmed().to_string() };
+        let depth = info.depth;
         let seldepth = info.seldepth;
 
         let [r, g, b, _] = self.alt_grad.at(0.5 - info.hashfull as f32 / 1000.0).to_rgba8();
         let tt = format!("{:5.1}", info.hashfull as f64 / 10.0).to_string().color(TrueColor { r, g, b }).dimmed();
         let branching = format!("{:>6.2}", info.effective_branching_factor()).dimmed();
         format!(
-            " {iter}{complete} {seldepth:>3} {multipv} {score:>8}  {time}{s}{nodes}{diff_string}  {nps}{M}  {branching} {tt}{p}  {pv}",
+            " {iter}{complete} {depth:>5}/{seldepth:<3} {multipv} {score:>8}  {time}{s}{nodes}{diff_string}  {nps}{M}  {branching} {tt}{p}  {pv}",
             s = if in_seconds { "s" } else { "m" }.dimmed(),
             M = "M".dimmed(),
             p = "%".dimmed(),

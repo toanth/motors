@@ -17,6 +17,8 @@
  */
 use crate::io::ugi_output::{color_for_score, score_gradient};
 use crate::search::MoveScore;
+use crate::search::chess::caps_values::cc;
+use crate::search::chess::caps_values::cc::corrhist_max;
 use derive_more::{Deref, DerefMut, Index, IndexMut};
 use gears::colored::Colorize;
 use gears::games::chess::moves::{ChessMove, ChessMoveFlags};
@@ -60,10 +62,10 @@ impl HistoryHeuristic {
         threats_idx = threats_idx * 2 + threats.is_bit_set(mov.dest_square()) as usize;
         update_history_score(&mut self[threats_idx][mov.from_to_square()], bonus);
     }
-    pub(super) fn get(&self, mov: ChessMove, threats: ChessBitboard) -> HistScoreT {
+    pub(super) fn score(&self, mov: ChessMove, threats: ChessBitboard) -> isize {
         let mut threats_idx = threats.is_bit_set(mov.src_square()) as usize;
         threats_idx = threats_idx * 2 + threats.is_bit_set(mov.dest_square()) as usize;
-        self[threats_idx][mov.from_to_square()]
+        self[threats_idx][mov.from_to_square()] as isize
     }
 }
 
@@ -117,8 +119,8 @@ impl ContHist {
         let entry = &mut self[Self::idx(mov, prev_mov, color)];
         update_history_score(entry, bonus);
     }
-    pub(super) fn score(&self, mov: ChessMove, prev_move: ChessMove, color: ChessColor) -> HistScoreT {
-        self[Self::idx(mov, prev_move, color)]
+    pub(super) fn score(&self, mov: ChessMove, prev_move: ChessMove, color: ChessColor) -> isize {
+        self[Self::idx(mov, prev_move, color)] as isize
     }
 }
 
@@ -187,7 +189,7 @@ impl CorrHist {
     ) {
         assert_eq!(depth % 128, 0); // TODO: Remove
         let color = pos.active_player();
-        let weight = (128 + depth).min(2048) / 128;
+        let weight = (cc::corrhist_offset() + depth).min(corrhist_max()) / 128;
         let bonus = (score - eval).0 as isize * CORRHIST_SCALE;
         let pawn_idx = pos.pawn_key().0 as usize % CORRHIST_SIZE;
         Self::update_entry(&mut self.pawns[color][pawn_idx], weight, bonus);
@@ -211,11 +213,13 @@ impl CorrHist {
         let mut correction = self.pawns[color][pawn_idx] as isize;
         for c in ChessColor::iter() {
             let nonpawn_idx = pos.nonpawn_key(c).0 as usize % CORRHIST_SIZE;
-            correction += self.nonpawns[color][nonpawn_idx][c] as isize / 2;
+            correction += self.nonpawns[color][nonpawn_idx][c] as isize * cc::nonpawn_corrhist_weight() / 1024;
         }
         if !continued_move.is_null() {
             let mov = continued_move;
-            correction += self.continuation[color][mov.dest_square().bb_idx()][mov.piece_type() as usize] as isize;
+            correction += self.continuation[color][mov.dest_square().bb_idx()][mov.piece_type() as usize] as isize
+                * cc::contcorrhist_weight()
+                / 1024;
         }
         let score = raw.0 as isize + correction / CORRHIST_SCALE;
         Score(score.clamp(MIN_NORMAL_SCORE.0 as isize, MAX_NORMAL_SCORE.0 as isize) as ScoreT)
@@ -231,7 +235,7 @@ pub(super) fn write_single_hist_table(table: &HistoryHeuristic, pos: &Chessboard
                 } else {
                     ChessMove::new(from, to, ChessMoveFlags::QueenMove)
                 };
-                table.get(mov, pos.threats()) as i32
+                table.score(mov, pos.threats()) as i32
             })
             .sum();
         sum as f64 / 64.0

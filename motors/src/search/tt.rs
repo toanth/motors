@@ -1,3 +1,4 @@
+use crate::spsa_params;
 use derive_more::Index;
 use gears::games::PosHash;
 #[cfg(feature = "chess")]
@@ -228,6 +229,10 @@ const _: () = assert!(size_of::<TTEntry<Chessboard>>() == size_of::<AtomicTTEntr
 
 pub const DEFAULT_HASH_SIZE_MB: usize = 16;
 
+spsa_params![ttc,
+age_diff_mult: isize = 4; 0..=128; step=4;
+];
+
 /// Resizing the TT during search will wait until the search is finished (all threads will receive a new arc)
 #[derive(Clone, Debug)]
 pub struct TT {
@@ -321,7 +326,7 @@ impl TT {
             isize::MIN
         } else {
             let age_diff = (to_insert.age().0.wrapping_sub(candidate.age().0).wrapping_add(1 << 6)) & 0b11_1111;
-            candidate.depth as isize / 128 - age_diff as isize * 4
+            candidate.depth as isize / 128 - age_diff as isize * ttc::age_diff_mult()
         }
     }
 
@@ -504,21 +509,21 @@ mod test {
         let mov = ChessMove::default();
         let hash = PosHash(42);
         let first_hash = hash;
-        let entry = TTEntry::<Chessboard>::new(hash, Score(0), Score(100), mov, 10, Exact, Age(0));
+        let entry = TTEntry::<Chessboard>::new(hash, Score(0), Score(100), mov, 1280, Exact, Age(0));
         tt.store(entry, hash, 0);
         let bucket_idx = tt.bucket_index_of(hash);
         let bucket = &tt.tt[bucket_idx].0;
         assert_ne!(tt.bucket_index_of(PosHash(!0)), bucket_idx);
         let second_hash = PosHash(100);
-        let entry2 = TTEntry::<Chessboard>::new(second_hash, Score(10), Score(-20), mov, 5, FailHigh, Age(1));
+        let entry2 = TTEntry::<Chessboard>::new(second_hash, Score(10), Score(-20), mov, 640, FailHigh, Age(1));
         assert_eq!(bucket_idx, tt.bucket_index_of(second_hash));
         tt.store(entry2, second_hash, 1);
         let hash = PosHash(0);
-        let entry3 = TTEntry::<Chessboard>::new(hash, Score(-1210), Score(-512), mov, 7, FailLow, Age(0));
+        let entry3 = TTEntry::<Chessboard>::new(hash, Score(-1210), Score(-512), mov, 7 * 128, FailLow, Age(0));
         assert_eq!(bucket_idx, tt.bucket_index_of(hash));
         tt.store(entry3, hash, 0);
         let hash = PosHash(0x100000);
-        let entry4 = TTEntry::<Chessboard>::new(hash, Score(1234), Score(9876), mov, 12, FailHigh, Age(0));
+        let entry4 = TTEntry::<Chessboard>::new(hash, Score(1234), Score(9876), mov, 12 * 128, FailHigh, Age(0));
         assert_eq!(bucket_idx, tt.bucket_index_of(hash));
         tt.store(entry4, hash, 0);
         let num_empty = bucket.iter().map(|e| TTEntry::<Chessboard>::unpack(e)).filter(|e| e.is_empty()).count();
