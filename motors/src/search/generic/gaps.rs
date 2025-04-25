@@ -15,9 +15,9 @@ use gears::score::{
     MAX_NORMAL_SCORE, MIN_NORMAL_SCORE, SCORE_LOST, SCORE_TIME_UP, SCORE_WON, Score, game_result_to_score,
 };
 use gears::search::NodeType::*;
-use gears::search::{Depth, NodesLimit, SearchResult};
+use gears::search::{Budget, DepthPly, NodesLimit, SearchResult};
 
-const MAX_DEPTH: Depth = Depth::new(100);
+const MAX_DEPTH: DepthPly = DepthPly::new(100);
 
 type DefaultEval = RandEval;
 
@@ -65,7 +65,7 @@ impl<B: Board> Engine<B> for Gaps<B> {
         self.eval.eval(pos, ply, self.state.params.pos.active_player()).clamp(MIN_NORMAL_SCORE, MAX_NORMAL_SCORE)
     }
 
-    fn max_bench_depth(&self) -> Depth {
+    fn max_bench_depth(&self) -> DepthPly {
         MAX_DEPTH
     }
 
@@ -82,7 +82,7 @@ impl<B: Board> Engine<B> for Gaps<B> {
             self,
             self.eval.as_ref(),
             "0.0.1",
-            Depth::new(4),
+            DepthPly::new(4),
             NodesLimit::new(50_000).unwrap(),
             None,
             vec![],
@@ -103,15 +103,15 @@ impl<B: Board> Engine<B> for Gaps<B> {
         self.state.search_params_mut().limit = limit;
 
         'id: for depth in 1..=max_depth {
-            self.state.iterations = depth as usize;
+            self.state.budget = Budget::new(depth as usize);
+            self.state.atomic().set_iteration(depth as usize);
+            self.state.atomic().update_seldepth(depth as usize);
             for pv_num in 0..self.state.multi_pv() {
-                if self.should_not_start_negamax(limit.fixed_time, limit.soft_nodes.get(), max_depth, limit.mate) {
+                if self.should_not_start_negamax(limit.fixed_time, limit.soft_nodes.get(), limit.mate) {
                     break 'id;
                 }
 
                 self.state.current_pv_num = pv_num;
-                self.state.atomic().set_depth(depth);
-                self.state.atomic().update_seldepth(depth as usize);
                 _ = self.state.atomic().count_node();
                 let iteration_score = self.negamax(pos.clone(), 0, depth, SCORE_LOST, SCORE_WON);
                 self.state.cur_pv_data_mut().score = iteration_score;

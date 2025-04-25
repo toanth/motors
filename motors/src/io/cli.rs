@@ -17,12 +17,12 @@
  */
 use crate::Mode;
 use crate::Mode::{Bench, Engine, Perft};
-use gears::cli::{get_next_arg, get_next_int, parse_output, ArgIter, Game};
+use gears::OutputArgs;
+use gears::cli::{ArgIter, Game, get_next_arg, get_next_int, parse_output};
 use gears::colored::Colorize;
 use gears::general::common::anyhow::bail;
-use gears::general::common::{parse_int_from_str, Res};
-use gears::search::Depth;
-use gears::OutputArgs;
+use gears::general::common::{Res, parse_int_from_str};
+use gears::search::DepthPly;
 use std::env;
 use std::process::exit;
 use std::str::FromStr;
@@ -60,26 +60,26 @@ impl EngineOpts {
     }
 }
 
-fn parse_depth(args: &mut ArgIter) -> Res<Option<Depth>> {
+fn parse_depth(args: &mut ArgIter) -> Res<Option<DepthPly>> {
     if let Some(next) = args.peek() {
         if next == "-d" || next == "--depth" {
             _ = args.next();
             if args.peek().is_some_and(|a| a != "default") {
-                return Ok(Some(Depth::try_new(get_next_int(args, "depth")?)?));
+                return Ok(Some(DepthPly::try_new(get_next_int(args, "depth")?)?));
             }
         } else if let Ok(val) = parse_int_from_str(next, "bench depth") {
             _ = args.next();
-            return Ok(Some(Depth::try_new(val)?));
+            return Ok(Some(DepthPly::try_new(val)?));
         }
     }
     Ok(None)
 }
 
-fn parse_bench(args: &mut ArgIter) -> Res<Option<Depth>> {
+fn parse_bench(args: &mut ArgIter) -> Res<Option<DepthPly>> {
     parse_depth(args)
 }
 
-fn parse_perft(args: &mut ArgIter) -> Res<Option<Depth>> {
+fn parse_perft(args: &mut ArgIter) -> Res<Option<DepthPly>> {
     parse_depth(args)
 }
 
@@ -110,8 +110,13 @@ fn parse_option(args: &mut ArgIter, opts: &mut EngineOpts) -> Res<()> {
         "-debug" | "-d" => opts.debug = true,
         "-non-interactive" => opts.interactive = false,
         "-additional-output" | "-output" | "-o" => parse_output(args, &mut opts.outputs)?,
-        "-help" => { print_help(); exit(0); },
-        x => bail!("Unrecognized option '{x}'. Only 'bench', 'bench-simple', 'perft', '--engine', '--game', '--debug' and '--outputs' are valid.")
+        "-help" => {
+            print_help();
+            exit(0);
+        }
+        x => bail!(
+            "Unrecognized option '{x}'. Only 'bench', 'bench-simple', 'perft', '--engine', '--game', '--debug' and '--outputs' are valid."
+        ),
     }
     Ok(())
 }

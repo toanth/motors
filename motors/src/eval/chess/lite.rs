@@ -8,10 +8,10 @@ use crate::eval::chess::{
 use gears::games::chess::ChessColor::{Black, White};
 use gears::games::chess::castling::CastleRight::Kingside;
 use gears::games::chess::moves::ChessMove;
+use gears::games::chess::pieces::ChessPieceType;
 use gears::games::chess::pieces::ChessPieceType::*;
-use gears::games::chess::pieces::{ChessPieceType, NUM_CHESS_PIECES};
 use gears::games::chess::squares::{ChessSquare, ChessboardSize};
-use gears::games::chess::{ChessBitboardTrait, ChessColor, Chessboard};
+use gears::games::chess::{CHESS_PIECE_PHASE, ChessBitboardTrait, ChessColor, Chessboard};
 use gears::games::{Color, Coordinates};
 use gears::games::{DimT, PosHash};
 use gears::general::bitboards::RawBitboard;
@@ -66,9 +66,6 @@ spsa_params![lc,
 
 pub const TEMPO: Score = Score(lc::tempo());
 // TODO: Differentiate between rooks and kings in front of / behind pawns?
-
-/// Includes a phase for the empty piece to simplify the implementation
-const PIECE_PHASE: [PhaseType; NUM_CHESS_PIECES + 1] = [0, 1, 1, 2, 4, 0, 0];
 
 fn openness(ray: ChessBitboard, our_pawns: ChessBitboard, their_pawns: ChessBitboard) -> FileOpenness {
     if (ray & our_pawns).is_zero() && (ray & their_pawns).is_zero() {
@@ -416,7 +413,7 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
             delta += self.tuned.psqt(dest_sq, piece, moving_player);
         } else {
             delta += self.tuned.psqt(dest_sq, mov.promo_piece(), moving_player);
-            phase_delta += PIECE_PHASE[mov.promo_piece() as usize];
+            phase_delta += CHESS_PIECE_PHASE[mov.promo_piece() as usize];
         }
         let mirror_other = new_pos.king_square(!moving_player).file() < 4;
         if let Some(ep_sq) = mov.square_of_pawn_taken_by_ep() {
@@ -425,7 +422,7 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
             // capturing a piece increases our score by the piece's psqt value from the opponent's point of view
             delta +=
                 self.tuned.psqt(mov.dest_square().flip_horizontal_if(mirror_other), captured, moving_player.other());
-            phase_delta -= PIECE_PHASE[captured as usize];
+            phase_delta -= CHESS_PIECE_PHASE[captured as usize];
         }
         // the position is always evaluated from white's perspective
         (
@@ -440,11 +437,7 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
     fn eval_from_scratch(&self, pos: &Chessboard) -> EvalState<Tuned> {
         let mut state = EvalState::default();
 
-        let mut phase = 0;
-        for piece in ChessPieceType::non_king_pieces() {
-            phase += pos.piece_bb(piece).num_ones() as isize * PIECE_PHASE[piece as usize];
-        }
-        state.phase = phase;
+        state.phase = pos.phase();
 
         let psqt_score = self.psqt(pos);
         state.psqt_score = psqt_score.clone();
@@ -504,7 +497,7 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
             state.psqt_score = self.psqt(new_pos);
             state.phase = 0;
             for piece in ChessPieceType::non_king_pieces() {
-                state.phase += new_pos.piece_bb(piece).num_ones() as isize * PIECE_PHASE[piece as usize];
+                state.phase += new_pos.piece_bb(piece).num_ones() as isize * CHESS_PIECE_PHASE[piece as usize];
             }
         } else {
             let (psqt_delta, phase_delta) = self.psqt_delta(old_pos, mov, captured, new_pos);

@@ -42,11 +42,10 @@ use gears::ugi::EngineOptionType::Check;
 use gears::ugi::{EngineOption, EngineOptionName, EngineOptionType, UgiCheck};
 
 /// By how much the fractional depth increases each ID iteration.
-const DEPTH_INCREMENT: Depth = Depth::new(128);
+const DEPTH_INCREMENT: usize = 128;
 
-/// The maximum value of the `depth` parameter, i.e. the maximum number of Iterative Deepening iterations
-/// multiplied by the depth increment per ID iteration.
-const DEPTH_SOFT_LIMIT: Depth = Depth::new(225 * DEPTH_INCREMENT.get());
+/// The maximum value of the uci `depth` parameter, i.e. the maximum number of Iterative Deepening iterations
+const ID_ITERS_SOFT_LIMIT: DepthPly = DepthPly::new(225);
 
 /// The maximum value of the `ply` parameter in main search, i.e. the maximum depth (in plies) before qsearch is reached
 const PLY_HARD_LIMIT: usize = 255;
@@ -230,15 +229,15 @@ impl Engine<Chessboard> for Caps {
 
     fn with_eval(eval: Box<dyn Eval<Chessboard>>) -> Self {
         Chessboard::force_init_upcoming_repetition_table();
-        Self { state: SearchState::new(Depth::new(SEARCH_STACK_LEN)), eval }
+        Self { state: SearchState::new(DepthPly::new(SEARCH_STACK_LEN)), eval }
     }
 
     fn static_eval(&mut self, pos: &Chessboard, ply: usize) -> Score {
         self.eval.eval(&pos, ply, self.params.pos.active_player())
     }
 
-    fn max_bench_depth(&self) -> Depth {
-        DEPTH_SOFT_LIMIT
+    fn max_bench_depth(&self) -> DepthPly {
+        ID_ITERS_SOFT_LIMIT
     }
 
     fn search_state_dyn(&self) -> &dyn AbstractSearchState<Chessboard> {
@@ -261,7 +260,7 @@ impl Engine<Chessboard> for Caps {
             self,
             self.eval.as_ref(),
             "0.1.0",
-            Depth::new(15),
+            DepthPly::new(15),
             NodesLimit::new(20_000).unwrap(),
             None,
             options,
@@ -383,23 +382,29 @@ impl Caps {
     /// The low-depth searches fill the TT and various heuristics, which improves move ordering and therefore results in
     /// better moves within the same time or nodes budget because the lower-depth searches are comparatively cheap.
     fn iterative_deepening(&mut self, pos: Chessboard, soft_limit: Duration) -> bool {
+        // let phase = pos.phase().clamp(0, 24);
+        // let increment = (cc::min_depth_incremenet() * phase + cc::max_depth_incremenet() * (24 - phase)) / 24;
         // we multiply the depth limit by the depth increment to achieve a more consistent behavior of 'go depth'.
-        let max_depth = DEPTH_SOFT_LIMIT.isize().min(self.limit().depth.isize() * DEPTH_INCREMENT.isize());
+        let max_iter = self.limit().depth.get();
         let multi_pv = self.multi_pv();
         let mut soft_limit_scale = 1.0;
 
         self.multi_pvs.resize(multi_pv, PVData::default());
-        let mut chosen_at_depth =
-            EagerNonAllocMoveList::<Chessboard, { DEPTH_SOFT_LIMIT.get() / DEPTH_INCREMENT.get() }>::default();
+        let mut chosen_at_iter = EagerNonAllocMoveList::<Chessboard, { ID_ITERS_SOFT_LIMIT.get() }>::default();
 
-        for (iter, depth) in (cc::start_depth()..=max_depth).step_by(DEPTH_INCREMENT.get()).enumerate() {
+        for (iter, budget) in
+            (cc::start_depth()..=(ID_ITERS_SOFT_LIMIT.get() * DEPTH_INCREMENT)).step_by(DEPTH_INCREMENT).enumerate()
+        {
+            if iter >= max_iter {
+                break;
+            }
             self.statistics.next_id_iteration();
-            self.iterations = iter + 1;
+            self.budget = Budget::new(budget);
             for pv_num in 0..multi_pv {
                 self.current_pv_num = pv_num;
                 self.cur_pv_data_mut().bound = None;
                 let scaled_soft_limit = soft_limit.mul_f64(soft_limit_scale);
-                let (keep_searching, send_info, score) = self.aspiration(pos, scaled_soft_limit, depth, max_depth);
+                let (keep_searching, send_info, score) = self.aspiration(pos, scaled_soft_limit, iter, budget as isize);
 
                 let atomic = &self.state.params.atomic;
                 let pv = &self.state.search_stack[0].pv;
@@ -433,10 +438,10 @@ impl Caps {
             }
             self.state.excluded_moves.truncate(self.excluded_moves.len() - multi_pv);
             let chosen = self.best_move();
-            chosen_at_depth.push(chosen);
+            chosen_at_iter.push(chosen);
             if iter >= cc::move_stability_min_iters()
                 && !is_duration_infinite(soft_limit)
-                && chosen_at_depth.iter().dropping(iter / cc::move_stability_start_div()).all(|m| *m == chosen)
+                && chosen_at_iter.iter().dropping(iter / cc::move_stability_start_div()).all(|m| *m == chosen)
             {
                 soft_limit_scale = cc::move_stability_factor() as f64 / 1000.0;
             } else {
@@ -456,11 +461,11 @@ impl Caps {
         &mut self,
         pos: Chessboard,
         unscaled_soft_limit: Duration,
-        depth: isize,
-        max_depth: isize,
+        iter: usize,
+        budget: isize,
     ) -> (bool, bool, Option<Score>) {
         let mut soft_limit_fail_low_extension = 1.0;
-        let mut aw_depth = depth;
+        let mut aw_budget = budget;
         loop {
             let alpha = self.cur_pv_data().alpha;
             let beta = self.cur_pv_data().beta;
@@ -469,7 +474,7 @@ impl Caps {
             let mut soft_limit =
                 unscaled_soft_limit.mul_f64(soft_limit_fail_low_extension).min(self.params.limit.fixed_time);
             soft_limit_fail_low_extension = 1.0;
-            if depth > cc::soft_limit_node_scale_min_depth() && self.multi_pvs.len() == 1 {
+            if budget > cc::soft_limit_node_scale_min_budget() && self.multi_pvs.len() == 1 {
                 let node_frac = self.root_move_nodes.frac_1024(self.cur_pv_data().pv.list[0], self.uci_nodes());
                 soft_limit = soft_limit
                     .mul_f64(((1024 + 512 - node_frac) * cc::soft_limit_node_scale()) as f64 / (1024.0 * 1024.0));
@@ -479,23 +484,23 @@ impl Caps {
                 (limit.remaining.saturating_sub(limit.increment)) * cc::inv_soft_limit_div_clamp() / 1024
                     + limit.increment,
             );
-            if self.should_not_start_negamax(soft_limit, self.limit().soft_nodes.get(), max_depth, self.limit().mate) {
+            if self.should_not_start_negamax(soft_limit, self.limit().soft_nodes.get(), self.limit().mate) {
                 self.statistics.soft_limit_stop();
                 return (false, false, None);
             }
-            self.atomic().set_depth(depth); // set depth now so that an immediate stop doesn't increase the depth
+            self.atomic().set_iteration(iter + 1); // set the iteration now so that an immediate stop doesn't increase it
             if self.atomic().count_node() >= self.limit().nodes.get() {
                 return (false, true, None);
             }
             let asp_start_time = Instant::now();
-            let Some(pv_score) = self.negamax(pos, 0, aw_depth, alpha, beta, Exact) else {
+            let Some(pv_score) = self.negamax(pos, 0, aw_budget, alpha, beta, Exact) else {
                 return (false, true, None);
             };
 
             self.state.send_non_ugi(
                 Debug,
                 &format_args!(
-                    "depth {depth}, score {0}, radius {1}, interval ({2}, {3}) nodes {4}",
+                    "depth {budget}, score {0}, radius {1}, interval ({2}, {3}) nodes {4}",
                     pv_score.0,
                     window_radius.0,
                     alpha.0,
@@ -513,11 +518,11 @@ impl Caps {
                 // In a fail low node, we didn't get any new information, and it's possible that we just discovered
                 // a problem with our chosen move. So increase the soft limit such that we can gather more information.
                 soft_limit_fail_low_extension = cc::soft_limit_fail_low_factor() as f64 / 1000.0;
-                aw_depth = depth;
-            } else if node_type == FailHigh && depth >= cc::fail_high_reduction_min_depth() {
+                aw_budget = budget;
+            } else if node_type == FailHigh && budget >= cc::fail_high_reduction_min_depth() {
                 // If the search discovers an unexpectedly good move, it can take a long while to search it because the TT isn't filled
                 // and because even with fail soft, scores tend to fall close to the aspiration window. So reduce the depth to speed this up.
-                aw_depth = (aw_depth - cc::fail_high_reduction()).max(depth - cc::fail_high_max_reduction());
+                aw_budget = (aw_budget - cc::fail_high_reduction()).max(budget - cc::fail_high_max_reduction());
             }
 
             if cfg!(debug_assertions) {
@@ -532,9 +537,9 @@ impl Caps {
                             // but that should be relatively rare. In the future, a better replacement policy might make this actually sound
                             self.multi_pv() > 1
                                 || pv.len() + pv.len() / 4 + 5
-                                    >= self.ply_hard_limit.min(aw_depth as usize / DEPTH_INCREMENT.get())
+                                    >= self.ply_hard_limit.min(aw_budget as usize / DEPTH_INCREMENT)
                                 || pv_score.is_won_lost_or_draw_score(),
-                            "{aw_depth} {depth} {0} {pv_score} {1}",
+                            "{aw_budget} {budget} {0} {pv_score} {1}",
                             pv.len(),
                             self.uci_nodes()
                         ),
@@ -592,7 +597,7 @@ impl Caps {
     ) -> Option<Score> {
         debug_assert!(alpha < beta, "{alpha} {beta} {pos} {ply} {depth}");
         debug_assert!(ply <= PLY_HARD_LIMIT, "{ply} {depth} {pos}");
-        debug_assert!(depth <= DEPTH_SOFT_LIMIT.isize(), "{ply} {depth} {pos}");
+        debug_assert!(depth <= ID_ITERS_SOFT_LIMIT.isize() * DEPTH_INCREMENT as isize, "{ply} {depth} {pos}"); // TODO: Remove?
         debug_assert!(self.params.history.len() >= ply, "{ply} {depth} {pos}, {:?}", self.params.history);
         self.statistics.count_node_started(MainSearch);
 
@@ -1083,7 +1088,7 @@ impl Caps {
                 let ([.., current], [child, ..]) = self.search_stack.split_at_mut(ply + 1) else { unreachable!() };
                 current.pv.extend(best_move, &child.pv);
                 if cfg!(debug_assertions)
-                    && depth > DEPTH_INCREMENT.isize()
+                    && depth > 256
                     && self.params.thread_type.num_threads() == Some(1)
                     && score < beta
                     && !score.is_won_lost_or_draw_score()
@@ -1463,7 +1468,7 @@ mod tests {
         for depth in 1..=3 {
             for _ in 0..42 {
                 let mut engine = Caps::for_eval::<RandEval>();
-                let res = engine.search_with_new_tt(board, SearchLimit::depth(Depth::new(depth)));
+                let res = engine.search_with_new_tt(board, SearchLimit::depth(DepthPly::new(depth)));
                 assert!(res.score.is_game_won_score());
                 assert_eq!(res.score.plies_until_game_won(), Some(1));
             }
@@ -1489,7 +1494,7 @@ mod tests {
     fn lucena_test() {
         let pos = Chessboard::from_name("lucena").unwrap();
         let mut engine = Caps::for_eval::<PistonEval>();
-        let res = engine.search_with_new_tt(pos, SearchLimit::depth(Depth::new(7)));
+        let res = engine.search_with_new_tt(pos, SearchLimit::depth(DepthPly::new(7)));
         // TODO: More aggressive bound once the engine is stronger
         assert!(res.score >= Score(200));
     }
@@ -1537,7 +1542,7 @@ mod tests {
                 continue;
             }
             let root_entry = tt.load(pos.hash_pos(), 0).unwrap();
-            assert!(root_entry.depth <= 2 * DEPTH_INCREMENT.get() as u16); // possible extensions
+            assert!(root_entry.depth <= 2 * DEPTH_INCREMENT as u16); // possible extensions
             assert_eq!(root_entry.bound(), Exact);
             assert!(root_entry.mov(&pos).is_some());
             let moves = pos.legal_moves_slow();
@@ -1548,7 +1553,7 @@ mod tests {
                 let Some(entry) = entry else {
                     continue; // it's possible that a position is not in the TT because qsearch didn't save it
                 };
-                assert!(entry.depth <= 2 * DEPTH_INCREMENT.get() as u16, "{entry:?} {new_pos}");
+                assert!(entry.depth <= 2 * DEPTH_INCREMENT as u16, "{entry:?} {new_pos}");
                 assert!(-entry.score <= root_entry.score, "{entry:?}\n{root_entry:?}\n{new_pos}");
             }
         }
@@ -1562,7 +1567,7 @@ mod tests {
         let limit = SearchLimit::per_move(Duration::from_millis(999_999_999));
         let res = caps.search_with_new_tt(pos, limit);
         assert_eq!(res.chosen_move, ChessMove::from_compact_text("f3g3", &pos).unwrap());
-        assert_eq!(caps.iterations(), 1);
+        assert_eq!(caps.iterations().get(), 1);
         assert!(caps.uci_nodes() <= 1000); // might be a bit more than 1 because of check extensions
     }
 
@@ -1580,7 +1585,7 @@ mod tests {
         assert!(second_search.score.is_game_won_score());
         let second_search_nodes = caps.search_state().uci_nodes();
         assert!(second_search_nodes * 2 < nodes, "{second_search_nodes} {nodes}");
-        let d3 = SearchLimit::depth(Depth::new(3));
+        let d3 = SearchLimit::depth(DepthPly::new(3));
         let d3_search = caps.search_with_tt(pos, d3, tt.clone());
         assert!(d3_search.score.is_game_won_score(), "{}", d3_search.score.0);
         let d3_nodes = caps.search_state().uci_nodes();

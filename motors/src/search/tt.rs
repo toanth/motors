@@ -401,7 +401,7 @@ mod test {
     use gears::rand::{Rng, RngCore, rng};
     use gears::score::{MAX_NORMAL_SCORE, MIN_NORMAL_SCORE};
     use gears::search::NodeType::{Exact, FailHigh, FailLow};
-    use gears::search::{Depth, SearchLimit};
+    use gears::search::{DepthPly, SearchLimit};
     use std::thread::{sleep, spawn};
     use std::time::Duration;
 
@@ -560,15 +560,15 @@ mod test {
         let next_entry: TTEntry<Chessboard> =
             TTEntry::new(next_pos.hash_pos(), MIN_NORMAL_SCORE, MAX_NORMAL_SCORE, ChessMove::NULL, 122, Exact, age);
         tt.store(next_entry, next_pos.hash_pos(), 1);
-        let mov = engine.search_with_tt(pos, SearchLimit::depth(Depth::new(1)), tt.clone()).chosen_move;
+        let mov = engine.search_with_tt(pos, SearchLimit::depth(DepthPly::new(1)), tt.clone()).chosen_move;
         assert_eq!(mov, bad_move);
-        let limit = SearchLimit::depth(Depth::new(3));
+        let limit = SearchLimit::depth(DepthPly::new(3));
         let mut engine2 = Caps::default();
         _ = engine2.search_with_new_tt(pos, limit);
         let nodes = engine2.search_state().uci_nodes();
         engine2.forget();
         tt.age.increment();
-        let _ = engine.search_with_tt(pos, SearchLimit::depth(Depth::new(5)), tt.clone());
+        let _ = engine.search_with_tt(pos, SearchLimit::depth(DepthPly::new(5)), tt.clone());
         let entry = tt.load::<Chessboard>(pos.hash_pos(), 0);
         assert!(entry.is_some());
         // assert_eq!(entry.unwrap().depth, 5);

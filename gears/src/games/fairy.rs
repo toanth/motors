@@ -44,7 +44,7 @@ use crate::general::move_list::{EagerNonAllocMoveList, MoveList};
 use crate::general::squares::{GridCoordinates, GridSize, RectangularCoordinates, SquareColor};
 use crate::output::OutputOpts;
 use crate::output::text_output::{BoardFormatter, DefaultBoardFormatter, board_to_string, display_board_pretty};
-use crate::search::Depth;
+use crate::search::DepthPly;
 use anyhow::{bail, ensure};
 use arbitrary::Arbitrary;
 use itertools::Itertools;
@@ -605,8 +605,8 @@ impl Board for FairyBoard {
         }
     }
 
-    fn default_perft_depth(&self) -> Depth {
-        Depth::new(3)
+    fn default_perft_depth(&self) -> DepthPly {
+        DepthPly::new(3)
     }
 
     fn cannot_call_movegen(&self) -> bool {
@@ -938,7 +938,7 @@ mod tests {
             println!("{chess_pos}");
             let max = if cfg!(debug_assertions) { 3 } else { 5 };
             for i in 1..max {
-                let depth = Depth::new(i);
+                let depth = DepthPly::new(i);
                 let chess_perft = perft(depth, chess_pos, false);
                 let fairy_perft = perft(depth, fairy_pos.clone(), false);
                 assert_eq!(chess_perft.depth, fairy_perft.depth);
@@ -1062,7 +1062,7 @@ mod tests {
             println!("{mnk_pos}");
             let max = if cfg!(debug_assertions) { 4 } else { 6 };
             for i in 1..max {
-                let depth = Depth::new(i);
+                let depth = DepthPly::new(i);
                 let mnk_perft = perft(depth, mnk_pos, false);
                 let fairy_perft = perft(depth, fairy_pos.clone(), false);
                 assert_eq!(mnk_perft.depth, fairy_perft.depth);

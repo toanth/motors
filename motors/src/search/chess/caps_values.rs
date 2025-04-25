@@ -19,7 +19,9 @@ use crate::spsa_params;
 
 spsa_params![
     cc,
-    start_depth: isize = 128; 0..=512; step=16;
+    start_depth: usize = 128; 0..=512; step=16;
+    // min_depth_incremenet: isize = 128; 32..=256; step=2;
+    // max_depth_incremenet: isize = 172; 32..=512; step=2;
     soft_limit_div: u32 = 30; 5..=60; step=1;
     inv_soft_limit_div_clamp: u32 = 256; 1..=750; step=10;
     inv_hard_limit_div: usize = 512; 1..=750; step=10;
@@ -27,7 +29,7 @@ spsa_params![
     move_stability_start_div: usize = 3; 1..=10; step=1;
     move_stability_factor: usize = 806; 250..=1000; step=50;
     soft_limit_fail_low_factor: usize = 1202; 1000..=3000; step=50;
-    soft_limit_node_scale_min_depth: isize = 1024; 64..=2048; step=64;
+    soft_limit_node_scale_min_budget: isize = 1024; 64..=2048; step=64;
     soft_limit_node_scale: u64 = 1400; 900..=2000; step = 50;
     fail_high_reduction_min_depth: isize = 8 * 128; 0..=2024; step=32;
     fail_high_reduction: isize = 128; 32..=512; step=32;

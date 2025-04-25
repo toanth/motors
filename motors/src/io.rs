@@ -64,7 +64,7 @@ use gears::output::text_output::{AdaptFormatter, display_color};
 use gears::output::{Message, OutputBox, OutputBuilder, OutputOpts};
 use gears::rand::rng;
 use gears::score::Score;
-use gears::search::{Depth, SearchLimit, TimeControl};
+use gears::search::{DepthPly, SearchLimit, TimeControl};
 use gears::ugi::EngineOptionName::*;
 use gears::ugi::EngineOptionType::*;
 use gears::ugi::{EngineOption, EngineOptionName, UgiCheck, UgiCombo, UgiSpin, UgiString, load_ugi_pos_simple};
@@ -345,8 +345,8 @@ impl<B: Board> EngineUGI<B> {
                 Relaxed,
                 move_overhead,
                 Normal,
-                Depth::new(1),
-                Depth::new(1),
+                DepthPly::new(1),
+                DepthPly::new(1),
             ),
             game_name: B::game_name(),
             protocol,
@@ -633,7 +633,7 @@ impl<B: Board> EngineUGI<B> {
             }
             if matches!(opts.generic.search_type, Perft | SplitPerft) {
                 let depth = if opts.generic.complete { 2 } else { 3 };
-                limit.depth = limit.depth.min(Depth::new(depth));
+                limit.depth = limit.depth.min(DepthPly::new(depth));
             }
         }
 
@@ -677,10 +677,11 @@ impl<B: Board> EngineUGI<B> {
                     if opts.unique {
                         self.output().write_ugi(&format_args!(
                             "# unique positions at depth {i}: {}",
-                            num_unique_positions_at(Depth::new(i), board.clone()).to_string().bold()
+                            num_unique_positions_at(DepthPly::new(i), board.clone()).to_string().bold()
                         ))
                     } else {
-                        self.output().write_ugi(&format_args!("{}", perft_for(Depth::new(i), &positions, threads != 1)))
+                        self.output()
+                            .write_ugi(&format_args!("{}", perft_for(DepthPly::new(i), &positions, threads != 1)))
                     }
                 }
             }
@@ -775,7 +776,7 @@ impl<B: Board> EngineUGI<B> {
             None
         } else {
             let mut limit = limit;
-            limit.depth = Depth::MAX;
+            limit.depth = DepthPly::MAX;
             limit.nodes = self.state.engine.get_engine_info().default_bench_nodes();
             Some(limit)
         };

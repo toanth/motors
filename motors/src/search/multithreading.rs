@@ -14,14 +14,14 @@ use gears::general::common::{Name, NamedEntity, Res, parse_int_from_str};
 use gears::general::moves::Move;
 use gears::output::Message::*;
 use gears::score::{NO_SCORE_YET, Score};
-use gears::search::{Depth, SearchLimit};
+use gears::search::{DepthPly, SearchLimit};
 use gears::ugi::EngineOptionName;
 use gears::ugi::EngineOptionName::{Hash, Threads};
 use std::fmt;
 use std::hint::spin_loop;
 use std::marker::PhantomData;
 use std::sync::atomic::Ordering::{Acquire, Relaxed, Release};
-use std::sync::atomic::{AtomicBool, AtomicI32, AtomicIsize, AtomicU64, AtomicUsize};
+use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU64, AtomicUsize};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::{Duration, Instant};
 
@@ -150,7 +150,7 @@ pub struct AtomicSearchState<B: Board> {
     pub(super) currently_searching: AtomicBool,
     pub suppress_best_move: AtomicBool,
     nodes: AtomicU64,
-    depth: AtomicIsize,
+    iteration: AtomicUsize,
     seldepth: AtomicUsize,
     best_move: AtomicU64,
     ponder_move: AtomicU64,
@@ -165,7 +165,7 @@ impl<B: Board> Default for AtomicSearchState<B> {
             currently_searching: AtomicBool::new(false),
             suppress_best_move: AtomicBool::new(false),
             nodes: AtomicU64::new(0),
-            depth: AtomicIsize::new(0),
+            iteration: AtomicUsize::new(0),
             seldepth: AtomicUsize::new(0),
             best_move: AtomicU64::new(B::Move::default().to_underlying().into()),
             ponder_move: AtomicU64::new(B::Move::default().to_underlying().into()),
@@ -183,7 +183,7 @@ impl<B: Board> AtomicSearchState<B> {
         self.set_ponder_move(None);
         self.set_best_move(B::Move::default());
         self.seldepth.store(0, Relaxed); // don't use `update_seldepth` as that uses `fetch_max`.
-        self.set_depth(0);
+        self.set_iteration(0);
         self.nodes.store(0, Relaxed);
         self.set_searching(starting_search);
         self.suppress_best_move.store(false, Relaxed);
@@ -210,12 +210,12 @@ impl<B: Board> AtomicSearchState<B> {
         self.nodes.load(Relaxed)
     }
 
-    pub fn depth(&self) -> Depth {
-        Depth::new(self.depth.load(Relaxed) as usize)
+    pub fn iterations(&self) -> DepthPly {
+        DepthPly::new(self.iteration.load(Relaxed) as usize)
     }
 
-    pub fn seldepth(&self) -> Depth {
-        Depth::new(self.seldepth.load(Relaxed))
+    pub fn seldepth(&self) -> DepthPly {
+        DepthPly::new(self.seldepth.load(Relaxed))
     }
 
     pub fn score(&self) -> Score {
@@ -245,8 +245,8 @@ impl<B: Board> AtomicSearchState<B> {
         self.nodes.fetch_add(1, Relaxed)
     }
 
-    pub(super) fn set_depth(&self, depth: isize) {
-        self.depth.store(depth, Relaxed);
+    pub(super) fn set_iteration(&self, iteration: usize) {
+        self.iteration.store(iteration, Relaxed);
     }
 
     pub(super) fn update_seldepth(&self, current_seldepth: usize) {
