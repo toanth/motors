@@ -47,7 +47,7 @@ spsa_params![
     iir_reduction: isize = 128; 0..=256; step=16;
     rfp_base: ScoreT = 158; 0..=900; step=15;
     rfp_blunder: ScoreT = 48; 0..=512; step=8;
-    rfp_fail_high: ScoreT = 300; 32..=1024; step=16;
+    rfp_fail_high: ScoreT = 350; 32..=1024; step=16;
     rfp_tt_upper_bound: ScoreT = 256; 0..=1024; step=64;
     rfp_noisy_pos: ScoreT = 1024; 0..=2048; step=128;
     rfp_max_depth: isize = 6 * 128; 128..=1024; step=32;
@@ -56,7 +56,7 @@ spsa_params![
     nmp_fail_low: ScoreT = 62; 0..=256; step=4;
     nmp_min_depth: isize = 128; 128..=1024; step=32;
     nmp_base: isize = 640; 256..=2048; step=32;
-    nmp_depth_div: isize = 2048; 512..=8192; step=256;
+    nmp_depth_div: isize = 4096; 1024..=16384; step=512;
     nmp_blunder: isize = 128; 0..=512; step=16;
     nmp_verif_depth: isize = 1024; 128..=4096; step=32;
     fp_blunder_base: isize = 171 * 1024; 0..=512 * 1024; step=32 * 1024;
