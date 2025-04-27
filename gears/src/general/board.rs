@@ -43,6 +43,7 @@ use rand::Rng;
 use std::fmt;
 use std::fmt::{Debug, Display, Formatter};
 use std::num::NonZeroUsize;
+use std::str::Split;
 use strum_macros::EnumIter;
 
 #[derive(Debug, Copy, Clone)]
@@ -893,29 +894,14 @@ pub fn simple_fen<T: RectangularBoard>(f: &mut Formatter<'_>, pos: &T, halfmove:
     Ok(())
 }
 
-pub(crate) fn read_position_fen<B: RectangularBoard>(position: &str, mut board: B::Unverified) -> Res<B::Unverified> {
-    let lines = position.split('/');
-    debug_assert!(lines.clone().count() > 0);
-    let num_lines = lines.clone().count();
-    let height = board.size().height().val();
-    if num_lines != height {
-        if num_lines == 1 {
-            bail!(
-                "Expected a FEN position description of {height} lines separated by '{0}', but found '{1}'",
-                "/".bold(),
-                position.red()
-            )
-        }
-        bail!(
-            "The {0} board has a height of {1}, but the FEN contains {2} rows",
-            B::game_name(),
-            board.size().height().val().to_string().bold(),
-            num_lines.to_string().bold()
-        )
-    }
-
+fn read_position_fen_impl<B: RectangularBoard>(
+    lines: Split<char>,
+    board: &mut B::Unverified,
+    lines_read: &mut usize,
+) -> Res<()> {
     let mut square = 0;
     for (line, line_num) in lines.zip(0_usize..) {
+        *lines_read += 1;
         let mut skipped_digits = 0;
         let square_before_line = square;
         debug_assert_eq!(square_before_line, line_num * board.size().width().val());
@@ -961,46 +947,72 @@ pub(crate) fn read_position_fen<B: RectangularBoard>(position: &str, mut board: 
             bail!("Line '{line}' has incorrect width: {line_len}, should be {0}", board.size().width().val());
         }
     }
-    Ok(board)
+    Ok(())
+}
+
+pub(crate) fn read_position_fen<B: RectangularBoard>(position: &str, board: &mut B::Unverified) -> Res<()> {
+    let lines = position.split('/');
+    let mut num_lines = 0;
+    let height = board.size().height().val();
+    let res = read_position_fen_impl::<B>(lines.clone(), board, &mut num_lines);
+
+    debug_assert!(num_lines > 0);
+    if num_lines != height {
+        if num_lines == 1 {
+            let msg = if let Err(e) = res { format!(": {e}") } else { String::default() };
+            bail!(
+                "Expected a FEN position description of {height} lines separated by '{0}', but found '{1}'{msg}",
+                "/".bold(),
+                position.red()
+            )
+        }
+        // If parsing the fen failed, the number of lines isn't accurate
+        if res.is_err() {
+            return res;
+        }
+        bail!(
+            "The {0} board has a height of {1}, but the FEN contains {2} rows",
+            B::game_name(),
+            height.to_string().bold(),
+            num_lines.to_string().bold()
+        )
+    }
+    res
 }
 
 /// Reads the position and active player part
-pub(crate) fn read_common_fen_part<B: RectangularBoard>(
-    words: &mut Tokens,
-    board: B::Unverified,
-) -> Res<B::Unverified> {
+pub(crate) fn read_common_fen_part<B: RectangularBoard>(words: &mut Tokens, board: &mut B::Unverified) -> Res<()> {
     let Some(position_part) = words.next() else { bail!("Empty {0} FEN string", B::game_name()) };
-    let mut board = read_position_fen::<B>(position_part, board)?;
+    read_position_fen::<B>(position_part, board)?;
 
     let Some(active) = words.next() else {
         bail!("{0} FEN ends after the position description and doesn't include the active player", B::game_name())
     };
-    let correct_chars = [B::Color::first().to_char(&board.settings()), B::Color::second().to_char(&board.settings())];
-    if active.chars().count() != 1 {
-        bail!(
-            "Expected a single char to describe the active player ('{0}' or '{1}'), got '{2}'",
-            correct_chars[0].to_string().bold(),
-            correct_chars[1].to_string().bold(),
-            active.red()
-        );
-    }
+    let [c1, c2] = [B::Color::first().to_char(&board.settings()), B::Color::second().to_char(&board.settings())];
+    ensure!(
+        active.chars().count() == 1,
+        "Expected a single char to describe the active player ('{0}' or '{1}'), got '{2}'",
+        c1.to_string().bold(),
+        c2.to_string().bold(),
+        active.red()
+    );
     let Some(active) = B::Color::from_char(active.chars().next().unwrap(), &board.settings()) else {
         bail!(
             "Expected '{0}' or '{1}' for the color, not '{2}'",
-            correct_chars[0].to_string().bold(),
-            correct_chars[1].to_string().bold(),
+            c1.to_string().bold(),
+            c2.to_string().bold(),
             active.red()
         )
     };
     board.set_active_player(active);
-    Ok(board)
+    Ok(())
 }
 
 pub(crate) fn read_two_move_numbers<B: RectangularBoard>(
     words: &mut Tokens,
-    mut board: B::Unverified,
+    board: &mut B::Unverified,
     strictness: Strictness,
-) -> Res<B::Unverified> {
+) -> Res<()> {
     let halfmove_clock = words.peek().copied().unwrap_or("");
     // Some FENs don't contain the halfmove clock and fullmove number, so assume that's the case if parsing
     // the halfmove clock fails -- but don't do this for the fullmove number.
@@ -1021,30 +1033,22 @@ pub(crate) fn read_two_move_numbers<B: RectangularBoard>(
         board.set_halfmove_repetition_clock(0)?;
         board.set_ply_since_start(usize::from(!board.active_player().is_first()))?;
     }
-    Ok(board)
+    Ok(())
 }
 
+#[allow(unused)]
 pub(crate) fn read_single_move_number<B: RectangularBoard>(
     words: &mut Tokens,
-    mut board: B::Unverified,
+    board: &mut B::Unverified,
     strictness: Strictness,
-) -> Res<B::Unverified> {
+) -> Res<()> {
     let fullmove_nr = words.next().unwrap_or("");
     if let Ok(fullmove_nr) = fullmove_nr.parse::<NonZeroUsize>() {
         board.set_ply_since_start(ply_counter_from_fullmove_nr(fullmove_nr, board.active_player().is_first()))?;
-        Ok(board)
+        Ok(())
     } else if strictness != Strict {
-        Ok(board)
+        Ok(())
     } else {
         bail!("FEN doesn't contain a valid fullmove counter, but that is required in strict mode")
     }
-}
-
-pub(crate) fn read_simple_fen_part<B: RectangularBoard>(
-    words: &mut Tokens,
-    board: B::Unverified,
-    strictness: Strictness,
-) -> Res<B::Unverified> {
-    let board = read_common_fen_part::<B>(words, board)?;
-    read_two_move_numbers::<B>(words, board, strictness)
 }

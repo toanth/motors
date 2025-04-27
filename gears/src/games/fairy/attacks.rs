@@ -677,7 +677,7 @@ impl UnverifiedFairyBoard {
         Ok(info)
     }
 
-    pub(super) fn read_castling_and_ep_fen_parts(mut self, words: &mut Tokens, _strictness: Strictness) -> Res<Self> {
+    pub(super) fn read_castling_and_ep_fen_parts(&mut self, words: &mut Tokens, _strictness: Strictness) -> Res<()> {
         if self.rules().has_castling {
             let Some(castling_word) = words.next() else {
                 bail!("FEN ends after color to move, missing castling rights")
@@ -688,6 +688,6 @@ impl UnverifiedFairyBoard {
             let Some(ep_square) = words.next() else { bail!("FEN ends before en passant square") };
             self.ep = if ep_square == "-" { None } else { Some(FairySquare::from_str(ep_square)?) };
         }
-        Ok(self)
+        Ok(())
     }
 }

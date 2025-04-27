@@ -22,20 +22,19 @@ pub mod pieces;
 mod rules;
 
 use crate::PlayerResult;
-use crate::games::chess::pieces::NUM_COLORS;
 use crate::games::fairy::moves::FairyMove;
 use crate::games::fairy::pieces::{ColoredPieceId, PieceId};
 use crate::games::fairy::rules::{Draw, GameLoss, NumRoyals, Rules, RulesRef};
 use crate::games::{
     AbstractPieceType, BoardHistory, CharType, Color, ColoredPiece, ColoredPieceType, Coordinates, DimT, GenericPiece,
-    NoHistory, PosHash, Size,
+    NUM_COLORS, NoHistory, PosHash, Size,
 };
 use crate::general::bitboards::{Bitboard, DynamicallySizedBitboard, ExtendedRawBitboard, RawBitboard};
 use crate::general::board::SelfChecks::CheckFen;
 use crate::general::board::Strictness::Strict;
 use crate::general::board::{
     BitboardBoard, Board, BoardHelpers, BoardSize, ColPieceTypeOf, NameToPos, PieceTypeOf, SelfChecks, Strictness,
-   Symmetry, UnverifiedBoard, position_fen_part, read_common_fen_part, read_single_move_number, read_two_move_numbers,
+    Symmetry, UnverifiedBoard, position_fen_part, read_common_fen_part, read_single_move_number, read_two_move_numbers,
 };
 use crate::general::common::Description::NoDescription;
 use crate::general::common::{
@@ -86,6 +85,12 @@ impl FairyColor {
     }
     pub fn from_idx(idx: usize) -> Self {
         Self(idx != 0)
+    }
+}
+
+impl Into<usize> for FairyColor {
+    fn into(self) -> usize {
+        self.idx()
     }
 }
 
@@ -733,12 +738,12 @@ impl Board for FairyBoard {
         if let Some(rules) = board.rules.0.read_rules_fen_part(input)? {
             board = Self::empty_for_settings(rules);
         }
-        board = read_common_fen_part::<Self>(input, board)?;
-        board = board.read_castling_and_ep_fen_parts(input, strictness)?;
+        read_common_fen_part::<Self>(input, &mut board)?;
+        board.read_castling_and_ep_fen_parts(input, strictness)?;
         if board.rules().has_halfmove_repetition_clock() {
-            board = read_two_move_numbers::<Self>(input, board, strictness)?;
+            read_two_move_numbers::<Self>(input, &mut board, strictness)?;
         } else {
-            board = read_single_move_number::<Self>(input, board, strictness)?;
+            read_single_move_number::<Self>(input, &mut board, strictness)?;
         }
         board.verify_with_level(CheckFen, strictness)
     }

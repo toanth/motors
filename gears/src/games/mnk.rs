@@ -1,14 +1,15 @@
 use anyhow::{anyhow, bail, ensure};
 use colored::Colorize;
 use itertools::Itertools;
-use static_assertions::const_assert_eq;
+use rand::Rng;
 use std::cmp::min;
 use std::fmt::{self, Debug, Display, Formatter};
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::mem::size_of;
 use strum_macros::EnumIter;
 
-use crate::games::PlayerResult::Draw;
+use crate::PlayerResult;
+use crate::PlayerResult::{Draw, Lose};
 use crate::games::mnk::MnkPieceType::{Empty, O, X};
 use crate::games::*;
 use crate::general::bitboards::{Bitboard, DynamicallySizedBitboard, ExtendedRawBitboard, MAX_WIDTH, RawBitboard};
@@ -20,10 +21,10 @@ use crate::general::board::{
 };
 use crate::general::common::*;
 use crate::general::hq::BitReverseSliderGenerator;
-use crate::general::move_list::EagerNonAllocMoveList;
+use crate::general::move_list::{EagerNonAllocMoveList, MoveList};
 use crate::general::moves::Legality::Legal;
 use crate::general::moves::{Legality, Move, UntrustedMove};
-use crate::general::squares::{GridCoordinates, GridSize};
+use crate::general::squares::{GridCoordinates, GridSize, RectangularCoordinates, SquareColor};
 use crate::output::OutputOpts;
 use crate::output::text_output::{BoardFormatter, DefaultBoardFormatter, board_to_string, display_board_pretty};
 use crate::search::Depth;
@@ -68,6 +69,12 @@ impl Not for MnkColor {
 
     fn not(self) -> Self::Output {
         self.other()
+    }
+}
+
+impl Into<usize> for MnkColor {
+    fn into(self) -> usize {
+        self as usize
     }
 }
 
@@ -196,7 +203,7 @@ pub struct FillSquare {
     // pub player: Player,
 }
 
-const_assert_eq!(size_of::<FillSquare>(), 2);
+const _: () = assert!(size_of::<FillSquare>() == 2);
 
 impl Default for FillSquare {
     fn default() -> Self {
@@ -721,7 +728,8 @@ impl Board for MNKBoard {
         };
         let settings = MnkSettings::from_input(first, words)?;
         let board = MNKBoard::empty_for_settings(settings);
-        let mut board = read_common_fen_part::<MNKBoard>(words, UnverifiedMnkBoard::new(board))?;
+        let mut board = UnverifiedMnkBoard::new(board);
+        read_common_fen_part::<MNKBoard>(words, &mut board)?;
 
         let mut ply = board.0.occupied_bb().num_ones();
         if (ply % 2 == 0) != board.active_player().is_first() {
@@ -730,7 +738,7 @@ impl Board for MNKBoard {
             ply += 1;
         }
         board.set_ply_since_start(ply)?;
-        board = read_single_move_number::<MNKBoard>(words, board, strictness)?;
+        read_single_move_number::<MNKBoard>(words, &mut board, strictness)?;
 
         board.0.last_move = None;
 
@@ -1163,10 +1171,8 @@ mod test {
         assert!(MNKBoard::from_fen("4 3 2 3/3/3/3", Relaxed).is_err());
         assert!(MNKBoard::from_fen("4 3 2 3/3/3/3 w", Relaxed).is_err());
         assert!(MNKBoard::from_fen("4 3 2 3/3/3/3 wx", Relaxed).is_err());
-        assert!(
-            MNKBoard::from_fen("4 3 2 3/4/3/3 o", Relaxed)
-                .is_err_and(|e| e.to_string().contains("Line '4' has incorrect width"))
-        );
+        let e = MNKBoard::from_fen("4 3 2 3/4/3/3 o", Relaxed);
+        assert!(e.as_ref().is_err_and(|e| e.to_string().contains("Line '4' has incorrect width")), "{e:?}");
         _ = MNKBoard::from_fen("4 3 2 3//3/3 o", Relaxed).unwrap_err();
         assert!(MNKBoard::from_fen("4 3 2 x", Relaxed).is_err());
         assert!(MNKBoard::from_fen("4 0 2 /// x", Relaxed).is_err());

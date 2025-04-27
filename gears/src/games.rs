@@ -1,16 +1,11 @@
-use crate::PlayerResult;
 use crate::games::CharType::{Ascii, Unicode};
-use crate::games::PlayerResult::Lose;
 use crate::general::board::Board;
-use crate::general::common::{EntityList, Res, StaticallyNamedEntity, Tokens, parse_int};
-use crate::general::move_list::MoveList;
-use crate::general::squares::{RectangularCoordinates, SquareColor};
+use crate::general::common::{EntityList, Res, Tokens};
 use crate::output::OutputBuilder;
 use anyhow::bail;
 use arbitrary::Arbitrary;
 use colored::Colorize;
 use derive_more::{BitXor, BitXorAssign};
-use rand::Rng;
 use std::cmp::min;
 use std::fmt;
 use std::fmt::{Debug, Display, Formatter};
@@ -38,6 +33,8 @@ pub enum CharType {
     Ascii,
     Unicode,
 }
+
+pub const NUM_COLORS: usize = 2;
 
 pub trait Color: Debug + Default + Copy + Clone + PartialEq + Eq + Send + Hash + Not {
     type Board: Board<Color = Self>;

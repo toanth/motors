@@ -280,6 +280,14 @@ impl<const H: usize, const W: usize, const INTERNAL_WIDTH: usize> RectangularSiz
     fn internal_width(self) -> usize {
         INTERNAL_WIDTH
     }
+
+    fn idx_to_coordinates(&self, idx: DimT) -> SmallGridSquare<H, W, INTERNAL_WIDTH> {
+        if W == INTERNAL_WIDTH {
+            SmallGridSquare { idx }
+        } else {
+            SmallGridSquare::from_rank_file(idx / W as u8, idx % W as u8)
+        }
+    }
 }
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
@@ -368,6 +376,10 @@ impl<const H: usize, const W: usize, const INTERNAL_WIDTH: usize> SmallGridSquar
 
     pub fn flip_if(self, flip: bool) -> Self {
         if flip { self.flip() } else { self }
+    }
+
+    pub fn flip_horizontal_if(self, flip: bool) -> Self {
+        if flip { self.flip_left_right(SmallGridSize::default()) } else { self }
     }
 
     pub fn north_unchecked(self) -> Self {

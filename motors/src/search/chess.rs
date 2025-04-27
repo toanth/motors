@@ -53,7 +53,6 @@ mod tests {
     }
 
     #[test]
-    #[cfg(feature = "random_mover")]
     fn random_mover_test() {
         game_over_test(&mut RandomMover::<Chessboard, StdRng>::default());
     }
@@ -278,13 +277,15 @@ mod tests {
         let pos = Chessboard::from_name("mate_in_1").unwrap();
         let limit = SearchLimit::depth_(4);
 
-        let engines: [Box<dyn Engine<Chessboard>>; 6] = [
+        let engines: [Box<dyn Engine<Chessboard>>; 8] = [
             Box::new(Caps::for_eval::<LiTEval>()),
             Box::new(Caps::for_eval::<MaterialOnlyEval>()),
             Box::new(Caps::for_eval::<KingGambot>()),
+            Box::new(Caps::for_eval::<RandEval>()),
             Box::new(Gaps::<Chessboard>::for_eval::<LiTEval>()),
             Box::new(Gaps::<Chessboard>::for_eval::<MaterialOnlyEval>()),
             Box::new(Gaps::<Chessboard>::for_eval::<KingGambot>()),
+            Box::new(Gaps::<Chessboard>::for_eval::<RandEval>()),
         ];
 
         for mut engine in engines.into_iter() {
@@ -361,12 +362,22 @@ mod tests {
                 let res = engine.search_with_tt(pos, SearchLimit::nodes_(500), tt.clone());
                 assert!(res.score >= Score(1000), "{}", res.score);
                 assert!(pos.is_move_legal(res.chosen_move));
+
+                let fen = "qqqqqqqq/qqqqqqqq/qqqqqqqq/qqqqqqqq/qqqqrbnq/qqqqbKQn/qqqqrb1b/qqqqqrbk b - - 0 1";
+                let pos = Chessboard::from_fen(fen, Relaxed).unwrap();
+                let res = engine.search_with_tt(pos, SearchLimit::nodes_(500), tt.clone());
+                assert_eq!(res.score.plies_until_game_won(), Some(1));
+                let pos = pos.make_nullmove().unwrap();
+                let res = engine.search_with_tt(pos, SearchLimit::nodes_(500), tt.clone());
+                assert_eq!(res.score.plies_until_game_won(), Some(1));
+                assert_eq!(res.chosen_move, ChessMove::from_text("Qg2", &pos).unwrap());
             }
         }
     }
 
     #[test]
     fn hash_collision() {
+        // these two positions have the exact same zobrist hash
         let pos1 = "2n5/1Rp1K1pn/q6Q/1rrr4/k3Br2/7B/1n1N2Q1/1Nn2R2 w - - 0 1";
         let pos1 = Chessboard::from_fen(pos1, Strict).unwrap();
         let pos2 = "1K1NQ3/q2RqR2/3rp3/Qr3rn1/1Q1bB3/1Q1b1PN1/pRp3P1/k1q1Bn1q w - - 0 1";

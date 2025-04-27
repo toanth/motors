@@ -1,9 +1,9 @@
 use crate::games::chess::ChessColor::Black;
+use crate::games::chess::pieces::ChessPieceType;
 use crate::games::chess::pieces::ChessPieceType::Pawn;
-use crate::games::chess::pieces::{ChessPieceType, NUM_COLORS};
 use crate::games::chess::squares::{ChessSquare, NUM_COLUMNS};
 use crate::games::chess::{ChessColor, Chessboard, Hashes};
-use crate::games::{Color, PosHash};
+use crate::games::{Color, NUM_COLORS, PosHash};
 use crate::general::bitboards::Bitboard;
 use crate::general::board::BitboardBoard;
 use crate::general::squares::RectangularCoordinates;

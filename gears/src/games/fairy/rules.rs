@@ -15,24 +15,23 @@
  *  You should have received a copy of the GNU General Public License
  *  along with Gears. If not, see <https://www.gnu.org/licenses/>.
  */
-use crate::games::chess::pieces::NUM_COLORS;
+use crate::PlayerResult;
 use crate::games::fairy::attacks::EffectRules;
 use crate::games::fairy::moves::FairyMove;
 use crate::games::fairy::pieces::{Piece, PieceId};
 use crate::games::fairy::rules::GameLoss::InRowAtLeast;
 use crate::games::fairy::rules::NumRoyals::Exactly;
 use crate::games::fairy::{
-    ColorInfo, FairyBitboard, FairyBoard, FairyCastleInfo, FairyColor, FairySize, RawFairyBitboard,
-    UnverifiedFairyBoard, MAX_NUM_PIECE_TYPES,
+    ColorInfo, FairyBitboard, FairyBoard, FairyCastleInfo, FairyColor, FairySize, MAX_NUM_PIECE_TYPES,
+    RawFairyBitboard, UnverifiedFairyBoard,
 };
 use crate::games::mnk::{MNKBoard, MnkSettings};
-use crate::games::{chess, n_fold_repetition, BoardHistory, DimT, PosHash, Settings};
+use crate::games::{BoardHistory, DimT, NUM_COLORS, PosHash, Settings, chess, n_fold_repetition};
 use crate::general::bitboards::{Bitboard, RawBitboard};
 use crate::general::board::{BitboardBoard, Board, BoardHelpers};
 use crate::general::common::{Res, Tokens};
 use crate::general::moves::Move;
 use crate::general::squares::GridSize;
-use crate::PlayerResult;
 use arbitrary::Arbitrary;
 use std::fmt;
 use std::fmt::{Debug, Formatter};
@@ -103,11 +102,7 @@ impl GameLoss {
                 }
             }
         };
-        if loss {
-            Some(PlayerResult::Lose)
-        } else {
-            None
-        }
+        if loss { Some(PlayerResult::Lose) } else { None }
     }
 }
 
@@ -238,17 +233,14 @@ impl Rules {
     pub fn pieces(&self) -> impl Iterator<Item = (PieceId, &Piece)> {
         self.pieces.iter().enumerate().map(|(id, piece)| (PieceId::new(id), piece))
     }
-    pub fn matching_piece_ids<Pred: Fn(&Piece) -> bool + Copy>(
-        &self,
-        pred: Pred,
-    ) -> impl Iterator<Item = PieceId> + use<'_, Pred> {
+    pub fn matching_piece_ids<Pred: Fn(&Piece) -> bool + Copy>(&self, pred: Pred) -> impl Iterator<Item = PieceId> {
         self.pieces().filter(move |(_id, p)| pred(p)).map(|(id, _)| id)
     }
-    pub fn royals(&self) -> impl Iterator<Item = PieceId> + use<'_> {
+    pub fn royals(&self) -> impl Iterator<Item = PieceId> {
         self.matching_piece_ids(|p| p.royal)
     }
 
-    pub fn castling(&self) -> impl Iterator<Item = PieceId> + use<'_> {
+    pub fn castling(&self) -> impl Iterator<Item = PieceId> {
         self.matching_piece_ids(|p| p.can_castle)
     }
 

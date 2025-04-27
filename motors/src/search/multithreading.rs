@@ -9,7 +9,7 @@ use gears::colored::Colorize;
 use gears::dyn_clone::clone_box;
 use gears::games::ZobristHistory;
 use gears::general::board::Board;
-use gears::general::common::anyhow::{anyhow, bail};
+use gears::general::common::anyhow::{anyhow, bail, ensure};
 use gears::general::common::{Name, NamedEntity, Res, parse_int_from_str};
 use gears::general::moves::Move;
 use gears::output::Message::*;
@@ -17,12 +17,11 @@ use gears::score::{NO_SCORE_YET, Score};
 use gears::search::{Depth, SearchLimit};
 use gears::ugi::EngineOptionName;
 use gears::ugi::EngineOptionName::{Hash, Threads};
-use portable_atomic::AtomicUsize;
 use std::fmt;
 use std::hint::spin_loop;
 use std::marker::PhantomData;
 use std::sync::atomic::Ordering::{Acquire, Relaxed, Release};
-use std::sync::atomic::{AtomicBool, AtomicI32, AtomicIsize, AtomicU64};
+use std::sync::atomic::{AtomicBool, AtomicI32, AtomicIsize, AtomicU64, AtomicUsize};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::{Duration, Instant};
 
@@ -87,6 +86,17 @@ impl<B: Board> MainThreadData<B> {
     }
 }
 
+fn set_num_threads<B: Board>(count: usize, max_threads: usize, output: &Arc<Mutex<UgiOutput<B>>>) -> Res<usize> {
+    ensure!(count > 0, "The number of threads should be between 1 and {max_threads}, not zero");
+    if count > max_threads {
+        output.lock().unwrap().write_message(Warning, &format_args!(
+            "Setting the number of threads to {count} even though this engine on this machine can only make use of {} parallel thread(s)",
+            max_threads
+        ));
+    }
+    Ok(count.min(1 << 20))
+}
+
 #[derive(Debug, Default)]
 pub enum SearchThreadType<B: Board> {
     Main(MainThreadData<B>),
@@ -137,7 +147,7 @@ pub struct AtomicSearchState<B: Board> {
     should_stop: AtomicBool,
     // True if the engine is currently searching. Note that if an infinite search reaches its internal end condition but
     // hasn't yet been stopped, this is set to false; the thread may still spin until it receives a stop.
-    currently_searching: AtomicBool,
+    pub(super) currently_searching: AtomicBool,
     pub suppress_best_move: AtomicBool,
     nodes: AtomicU64,
     depth: AtomicIsize,
@@ -416,12 +426,8 @@ impl<B: Board> EngineWrapper<B> {
         let threads = match threads {
             None => self.num_threads(),
             Some(t) => {
-                if t == 0 || t > self.get_engine_info().max_threads() {
-                    bail!(
-                        "Invalid number of threads ({t}), must be at least 1 and at most {}",
-                        self.get_engine_info().max_threads
-                    )
-                }
+                let max_threads = self.get_engine_info().max_threads();
+                let t = set_num_threads(t, max_threads, &self.main_thread_data.output)?;
                 let current = self.num_threads();
                 self.overwrite_num_threads = Some(current);
                 if t > current {
@@ -432,11 +438,12 @@ impl<B: Board> EngineWrapper<B> {
         };
         self.main_thread_data.new_search(ponder, &limit)?; // resets the atomic search state
         let thread_data = self.main_thread_data.clone();
+        self.tt_for_next_search.age.increment();
         let tt = tt.unwrap_or(self.tt_for_next_search.clone());
         let params = SearchParams::create(
             pos,
             limit,
-            history.clone(),
+            history,
             tt,
             search_moves.clone(),
             multi_pv.saturating_sub(1),
@@ -481,11 +488,7 @@ impl<B: Board> EngineWrapper<B> {
         if name == Threads {
             let count: usize = parse_int_from_str(&value, "num threads")?;
             let max = self.get_engine_info().max_threads;
-            if count == 0 || count > max {
-                bail!(
-                    "Trying to set the number of threads to {count}. The maximum number of threads for this engine on this machine is {max}."
-                );
-            }
+            let count = set_num_threads(count, max, &self.main_thread_data.output)?;
             self.overwrite_num_threads = None;
             self.resize_threads(count);
             Ok(())
@@ -619,6 +622,22 @@ mod tests {
         ugi.handle_input("go wtime 1 btime 1").unwrap();
         ugi.handle_input("stop").unwrap();
         ugi.quit().unwrap();
+    }
+
+    #[test]
+    #[cfg(feature = "chess")]
+    fn set_options_during_match() {
+        let opts = EngineOpts::for_game(Chess, true);
+        let mut ugi = create_match(opts).unwrap();
+        ugi.handle_input("go").unwrap();
+        ugi.handle_input("random_pos").unwrap();
+        ugi.handle_input("setoption name Hash value 1").unwrap();
+        ugi.handle_input("setoption uci_chEss960 on").unwrap();
+        ugi.handle_input("position startpos moves e2e4").unwrap();
+        ugi.handle_input("setoption name Engine value random").unwrap();
+        ugi.handle_input("stop").unwrap();
+        ugi.handle_input("go").unwrap();
+        ugi.handle_input("stop").unwrap();
     }
 
     #[test]

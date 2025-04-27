@@ -448,7 +448,9 @@ impl Caps {
             let alpha = self.cur_pv_data().alpha;
             let beta = self.cur_pv_data().beta;
             let mut window_radius = self.cur_pv_data().radius;
-            let mut soft_limit = unscaled_soft_limit.mul_f64(soft_limit_fail_low_extension);
+            // limit.fixed time is the min of the fixed time and the remaining time
+            let mut soft_limit =
+                unscaled_soft_limit.mul_f64(soft_limit_fail_low_extension).min(self.params.limit.fixed_time);
             soft_limit_fail_low_extension = 1.0;
             if depth > 8 && self.multi_pvs.len() == 1 {
                 let node_frac = self.root_move_nodes.frac_1024(self.cur_pv_data().pv.list[0], self.uci_nodes());
@@ -610,7 +612,7 @@ impl Caps {
 
             if pos.is_50mr_draw()
                 || pos.has_insufficient_material()
-                || n_fold_repetition(2, &self.params.history, pos.hash_pos(), ply_100_ctr)
+                // no need to check for twofold repetitions as that is already handled by the upcoming repetition detection
                 || n_fold_repetition(3, &self.original_board_hist, pos.hash_pos(), ply_100_ctr.saturating_sub(ply))
             {
                 return Some(Score(0));
@@ -621,6 +623,7 @@ impl Caps {
             }
         }
 
+        let us = pos.active_player();
         let in_check = pos.is_in_check();
         // Check extensions. Increase the depth by 1 if in check.
         // Do this before deciding whether to drop into qsearch.
@@ -709,7 +712,11 @@ impl Caps {
             raw_eval = self.eval(&pos, ply);
             eval = raw_eval;
         };
-        eval = self.corr_hist.correct(&pos, eval);
+        let mut continued_move = ChessMove::default();
+        if ply >= 2 {
+            continued_move = self.search_stack[ply - 2].last_tried_move();
+        }
+        eval = self.corr_hist.correct(&pos, continued_move, eval);
 
         self.record_pos(pos, eval, ply);
 
@@ -717,7 +724,7 @@ impl Caps {
         // However, captures and promos are generally good moves, so if our eval is the static eval instead of adjusted from the TT,
         // a noisy condition would mean we're doing even better than expected. // TODO: Apply noisy for RFP etc only if eval is TT eval?
         // If it's from the TT, however, and the first move didn't produce a beta cutoff, we're probably worse than expected
-        let is_noisy = in_check || (best_move != ChessMove::default() && best_move.is_tactical(&pos));
+        let pos_noisy = in_check || (best_move != ChessMove::default() && best_move.is_tactical(&pos));
 
         // Like the commonly used `improving` and `regressing`, these variables compare the current static eval with
         // the static eval 2 plies ago to recognize blunders. Conceptually, `improving` and `regressing` can be seen as
@@ -746,7 +753,7 @@ impl Caps {
                     margin += margin / 4;
                 }
             }
-            if is_noisy {
+            if pos_noisy {
                 margin *= 2;
             }
 
@@ -779,11 +786,7 @@ impl Caps {
             // If we don't have non-pawn, non-king pieces, we're likely to be in zugzwang, so don't even try NMP.
             let has_nonpawns = (pos.active_player_bb() & !pos.piece_bb(Pawn)).more_than_one_bit_set();
             let nmp_threshold = beta + ScoreT::from(expected_node_type == FailLow) * cc::nmp_fail_low();
-            if depth >= cc::nmp_min_depth()
-                && eval >= nmp_threshold
-                && !*self.nmp_disabled_for(pos.active_player())
-                && has_nonpawns
-            {
+            if depth >= cc::nmp_min_depth() && eval >= nmp_threshold && !*self.nmp_disabled_for(us) && has_nonpawns {
                 // `make_nullmove` resets the 50mr counter, so we don't consider positions after a nullmove as repetitions,
                 // but we can still get TT cutoffs
                 self.params.history.push(pos.hash_pos());
@@ -804,12 +807,12 @@ impl Caps {
                     if depth < cc::nmp_verif_depth() && !score.is_won_or_lost() {
                         return Some(score);
                     }
-                    *self.nmp_disabled_for(pos.active_player()) = true;
+                    *self.nmp_disabled_for(us) = true;
                     // nmp was done with `depth - 1 - reduction`, but we're not doing a null move now, so technically we
                     // should use `depth - reduction`, but using `depth - 1 - reduction` is less expensive and good enough.
                     let verification_score = self.negamax(pos, ply, depth - 1 - reduction, beta - 1, beta, FailHigh);
                     self.search_stack[ply].tried_moves.clear();
-                    *self.nmp_disabled_for(pos.active_player()) = false;
+                    *self.nmp_disabled_for(us) = false;
                     // The verification score is more trustworthy than the nmp score.
                     if verification_score.is_none_or(|score| score >= beta) {
                         return verification_score;
@@ -872,9 +875,11 @@ impl Caps {
                 if (move_score.0 as isize) < -150 * depth && depth <= 3 {
                     break;
                 }
-                // PVS SEE pruning: Don't play moves with bad SEE score at low depth
-                let see_threshold = -50 * depth as i32;
-                if move_score < KILLER_SCORE && depth < 4 && !pos.see_at_least(mov, SeeScore(see_threshold)) {
+                // PVS SEE pruning: Don't play moves with bad SEE scores at low depth.
+                // Be less aggressive with pruning captures to avoid overlooking tactics.
+                let bad_tactical = move_score < MoveScore(-HIST_DIVISOR * 8);
+                let see_threshold = if bad_tactical { (-50 * depth * depth) as i32 } else { -80 * depth as i32 };
+                if move_score < KILLER_SCORE && depth <= 8 && !pos.see_at_least(mov, SeeScore(see_threshold)) {
                     continue;
                 }
             }
@@ -889,7 +894,7 @@ impl Caps {
             let debug_history_len = self.params.history.len();
             self.record_move(mov, pos, ply, MainSearch);
 
-            if root && depth >= 8 && self.start_time.elapsed().as_millis() >= 3000 {
+            if root && depth >= 8 && self.limit().start_time.elapsed().as_millis() >= 3000 {
                 let move_num = self.search_stack[0].tried_moves.len();
                 // `qsearch` would give better results, but would make bench be nondeterministic
                 let score = -self.eval(&new_pos, 0);
@@ -958,8 +963,16 @@ impl Caps {
                     reduction += ((depth + 4) / 4).ilog2() as isize;
                 }
                 // if the TT move is a capture and we didn't already fail high, it's likely that later moves are worse
-                if !in_check && is_noisy {
+                if !in_check && pos_noisy {
                     reduction += 1;
+                }
+                if mov.is_tactical(&pos) {
+                    let hist = self.capt_hist.get(mov, pos.threats(), us);
+                    if hist <= MoveScore(-500) {
+                        reduction += 1;
+                    } else if hist >= MoveScore(250) {
+                        reduction -= 1;
+                    }
                 }
                 // this ensures that check extensions prevent going into qsearch while in check
                 reduction = reduction.clamp(0, depth - 1);
@@ -1007,7 +1020,7 @@ impl Caps {
             if root {
                 self.state.custom.root_move_nodes.update(mov, self.state.uci_nodes() - nodes_before_move);
                 let move_num = self.search_stack[0].tried_moves.len() - 1;
-                if move_num < 5 && self.start_time.elapsed().as_millis() >= 3000 {
+                if move_num < 5 && self.limit().start_time.elapsed().as_millis() >= 3000 {
                     self.send_refutation(mov, score, move_num);
                 }
             }
@@ -1069,7 +1082,8 @@ impl Caps {
         }
 
         let tt_entry: TTEntry<Chessboard> =
-            TTEntry::new(pos.hash_pos(), best_score, raw_eval, best_move, depth, bound_so_far);
+            TTEntry::new(pos.hash_pos(), best_score, raw_eval, best_move, depth, bound_so_far, self.age());
+
         // Store the results in the TT, always replacing the previous entry. Note that the TT move is only overwritten
         // if this node was an exact or fail high node or if there was a collision.
         if !(root && self.current_pv_num > 0) {
@@ -1078,11 +1092,11 @@ impl Caps {
 
         // Corrhist updates
         if !(in_check
-            || best_move.is_tactical(&pos)
+            || (!best_move.is_null() && best_move.is_tactical(&pos))
             || (best_score <= eval && bound_so_far == NodeType::lower_bound())
             || (best_score >= eval && bound_so_far == NodeType::upper_bound()))
         {
-            self.corr_hist.update(&pos, depth, eval, best_score);
+            self.corr_hist.update(&pos, continued_move, depth, eval, best_score);
         }
 
         Some(best_score)
@@ -1111,7 +1125,8 @@ impl Caps {
 
         // Don't do TT cutoffs with alpha already raised by the stand pat check, because that relies on the null move observation.
         // But if there's a TT entry from normal search that's worse than the stand pat score, we should trust that more.
-        if let Some(tt_entry) = self.tt().load::<Chessboard>(pos.hash_pos(), ply) {
+        let old_entry = self.tt().load::<Chessboard>(pos.hash_pos(), ply);
+        if let Some(tt_entry) = old_entry {
             debug_assert_eq!(tt_entry.hash, pos.hash_pos());
             let bound = tt_entry.bound();
             let tt_score = tt_entry.score();
@@ -1150,7 +1165,11 @@ impl Caps {
         }
         let mut best_score = eval;
         if !in_check {
-            best_score = self.corr_hist.correct(&pos, eval);
+            let mut continued_move = ChessMove::default();
+            if ply >= 2 {
+                continued_move = self.search_stack[ply - 2].last_tried_move();
+            }
+            best_score = self.corr_hist.correct(&pos, continued_move, eval);
         }
         // Saving to the TT is probably unnecessary since the score is either from the TT or just the static eval,
         // which is not very valuable. Also, the fact that there's no best move might have unfortunate interactions with
@@ -1203,7 +1222,7 @@ impl Caps {
         self.statistics.count_complete_node(Qsearch, bound_so_far, 0, ply, children_visited);
 
         let tt_entry: TTEntry<Chessboard> =
-            TTEntry::new(pos.hash_pos(), best_score, raw_eval, best_move, 0, bound_so_far);
+            TTEntry::new(pos.hash_pos(), best_score, raw_eval, best_move, 0, bound_so_far, self.age());
         self.tt_mut().store(tt_entry, ply);
         Some(best_score)
     }
@@ -1532,8 +1551,8 @@ mod tests {
         let fen = "7k/8/8/8/p7/1p6/1R1r4/K7 w - - 4 3";
         let pos = Chessboard::from_fen(fen, Relaxed).unwrap();
         let tt_move = ChessMove::from_text("a1b1", &pos).unwrap();
-        let mut tt = TT::default();
-        let entry = TTEntry::new(pos.hash_pos(), Score(0), Score(-12), tt_move, 123, Exact);
+        let tt = TT::default();
+        let entry = TTEntry::new(pos.hash_pos(), Score(0), Score(-12), tt_move, 123, Exact, Age::default());
         tt.store::<Chessboard>(entry, 0);
         let threats = pos.threats();
         let mut caps = Caps::default();
@@ -1601,7 +1620,7 @@ mod tests {
                 res.chosen_move.extended_formatter(&pos, Standard),
                 pos.as_fen(),
                 engine.depth(),
-                engine.start_time.elapsed().as_millis()
+                engine.start_time().elapsed().as_millis()
             );
             assert!(score.is_game_won_score());
             assert_eq!(res.chosen_move.compact_formatter(&pos).to_string(), best_move);

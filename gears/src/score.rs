@@ -26,6 +26,7 @@ use anyhow::anyhow;
 use derive_more::{Add, AddAssign, Neg, Sub, SubAssign};
 use num::ToPrimitive;
 use std::fmt::{Display, Formatter};
+use std::num::Wrapping;
 use std::ops::{Add, Div, DivAssign, Mul, MulAssign, Sub};
 
 /// Valid scores fit into 16 bits, but it's possible to temporarily overflow that range with some operations,
@@ -190,9 +191,11 @@ pub const fn is_valid_score(score: ScoreT) -> bool {
 /// Uses a SWAR (SIMD Within A Register) technique to store and manipulate middlegame and endgame scores
 /// at the same time, by treating them as the lower and upper half of a single value.
 /// This improves performance, which is especially important because the eval of a typical a/b engine is hot.
+// We use wrapping add and neg to not panic on scores that are out of range; these scores will be incorrect but that's
+// not a concern in practice because the eval function should not generate them in any "normal" position.
 #[derive(Debug, Default, Copy, Clone, Eq, PartialEq, Add, AddAssign, Sub, SubAssign, Neg)]
 #[must_use]
-pub struct PhasedScore(ScoreT);
+pub struct PhasedScore(Wrapping<ScoreT>);
 
 impl Display for PhasedScore {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
@@ -207,21 +210,21 @@ const COMPACT_SCORE_BITS: usize = CompactScoreT::BITS as usize;
 impl PhasedScore {
     // `const`, unlike `default`
     pub const fn zero() -> Self {
-        PhasedScore(0)
+        PhasedScore(Wrapping(0))
     }
     pub const fn new(mg: CompactScoreT, eg: CompactScoreT) -> Self {
         debug_assert!(is_valid_score(mg as ScoreT));
         debug_assert!(is_valid_score(eg as ScoreT));
-        Self(((mg as ScoreT) << COMPACT_SCORE_BITS) + eg as ScoreT)
+        Self(Wrapping(((mg as ScoreT) << COMPACT_SCORE_BITS) + eg as ScoreT))
     }
     pub const fn underlying(self) -> ScoreT {
-        self.0
+        self.0.0
     }
 
     pub const fn mg(self) -> Score {
         // The eg score could have overflown into the mg score, so add (1 << 15) to undo that overflow
         // with another potential overflow
-        Score(((self.0 + (1 << (COMPACT_SCORE_BITS - 1))) >> COMPACT_SCORE_BITS) as ScoreT)
+        Score(((self.underlying() + (1 << (COMPACT_SCORE_BITS - 1))) >> COMPACT_SCORE_BITS) as ScoreT)
     }
 
     pub const fn eg(self) -> Score {

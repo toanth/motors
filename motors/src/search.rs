@@ -4,7 +4,7 @@ use crate::search::multithreading::SearchThreadType::*;
 use crate::search::multithreading::SearchType::*;
 use crate::search::multithreading::{AtomicSearchState, EngineReceives, EngineThread, SearchThreadType, Sender};
 use crate::search::statistics::{Statistics, Summary};
-use crate::search::tt::TT;
+use crate::search::tt::{Age, TT};
 use crossbeam_channel::unbounded;
 use derive_more::{Add, Neg, Sub};
 use gears::arrayvec::ArrayVec;
@@ -33,7 +33,7 @@ use std::hint::spin_loop;
 use std::marker::PhantomData;
 use std::num::NonZeroUsize;
 use std::ops::{Deref, DerefMut};
-use std::sync::atomic::Ordering::Acquire;
+use std::sync::atomic::Ordering::{Acquire, SeqCst};
 use std::sync::{Arc, Mutex};
 use std::thread::spawn;
 use std::time::{Duration, Instant};
@@ -499,7 +499,7 @@ pub trait NormalEngine<B: Board>: Engine<B> {
     }
 }
 
-const DEFAULT_CHECK_TIME_INTERVAL: u64 = 2048;
+const DEFAULT_CHECK_TIME_INTERVAL: u64 = 1024;
 
 #[allow(type_alias_bounds)]
 pub type SearchStateFor<B: Board, E: NormalEngine<B>> = SearchState<B, E::SearchStackEntry, E::CustomInfo>;
@@ -627,14 +627,14 @@ impl<B: Board> SearchParams<B> {
             self.atomic.set_searching(false);
             return;
         };
-        if self.atomic.suppress_best_move.load(Acquire) {
-            self.atomic.set_searching(false);
-            return;
-        }
-        if data.search_type == Infinite {
+        if [Infinite, Ponder].contains(&data.search_type) {
             while !self.atomic.stop_flag() {
                 spin_loop();
             }
+        }
+        if self.atomic.suppress_best_move.load(Acquire) {
+            self.atomic.currently_searching.store(false, SeqCst);
+            return;
         }
         let pos = &self.pos;
         let mut output = data.output.lock().unwrap();
@@ -743,6 +743,9 @@ pub trait AbstractSearchState<B: Board> {
             output.write_ugi(message);
         }
     }
+    fn age(&self) -> Age {
+        self.search_params().tt.age
+    }
     /// Engine-specific info, like the contents of history tables.
     fn write_internal_info(&self, pos: &B) -> Option<String>;
 }
@@ -755,10 +758,13 @@ pub struct SearchState<B: Board, E: SearchStackEntry<B>, C: CustomInfo<B>> {
     excluded_moves: Vec<B::Move>,
     multi_pvs: Vec<PVData<B>>,
     current_pv_num: usize,
-    start_time: Instant,
+    // This is the point at which the search actually started.
+    // The `limit` (part of `params`) has the point when the search was requested
+    execution_start_time: Instant,
     last_msg_time: Instant,
     statistics: Statistics,
     aggregated_statistics: Statistics, // statistics aggregated over all searches of the current match
+    age: Age,
 }
 
 impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo<B>> Deref for SearchState<B, E, C> {
@@ -776,8 +782,8 @@ impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo<B>> DerefMut for SearchStat
 
 impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo<B>> AbstractSearchState<B> for SearchState<B, E, C> {
     fn forget(&mut self, hard: bool) {
-        self.start_time = Instant::now();
-        self.last_msg_time = self.start_time;
+        self.last_msg_time = Instant::now();
+        self.execution_start_time = self.last_msg_time;
         for e in &mut self.search_stack {
             e.forget();
         }
@@ -799,6 +805,7 @@ impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo<B>> AbstractSearchState<B> 
         self.forget(false);
         let moves = parameters.pos.legal_moves_slow();
         let num_moves = moves.num_moves();
+        self.age = parameters.tt.age;
         self.current_pv_num = 0;
         if let Some(search_moves) = &parameters.restrict_moves {
             // remove duplicates and invalid moves from the `restrict_move` parameter and invert the set because the usual case is
@@ -837,6 +844,10 @@ impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo<B>> AbstractSearchState<B> 
         &self.params
     }
 
+    fn age(&self) -> Age {
+        self.age
+    }
+
     fn pv_data(&self) -> &[PVData<B>] {
         self.multi_pvs.as_slice()
     }
@@ -865,7 +876,7 @@ impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo<B>> AbstractSearchState<B> 
         let hash = hasher.finish();
         BenchResult {
             nodes: self.uci_nodes(),
-            time: self.start_time().elapsed(),
+            time: self.execution_start_time().elapsed(),
             max_depth: self.depth(),
             depth: None,
             pv_score_hash: hash,
@@ -877,13 +888,13 @@ impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo<B>> AbstractSearchState<B> 
             best_move_of_all_pvs: self.best_move(),
             depth: self.depth(),
             seldepth: self.seldepth(),
-            time: self.start_time().elapsed(),
+            time: self.execution_start_time().elapsed(),
             nodes: NodesLimit::new(self.uci_nodes()).unwrap(),
             pv_num: self.current_pv_num,
             max_num_pvs: self.params.num_multi_pv,
             pv: self.current_mpv_pv(),
             score: self.cur_pv_data().score,
-            hashfull: self.estimate_hashfull(),
+            hashfull: self.estimate_hashfull(self.age()),
             pos: self.params.pos.clone(),
             bound: self.cur_pv_data().bound,
             num_threads: 1,
@@ -919,8 +930,8 @@ impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo<B>> SearchState<B, E, C> {
         self.search_params().atomic.stop_flag()
     }
 
-    fn estimate_hashfull(&self) -> usize {
-        self.tt().estimate_hashfull::<B>()
+    fn estimate_hashfull(&self, age: Age) -> usize {
+        self.tt().estimate_hashfull::<B>(age)
     }
 
     fn depth(&self) -> Depth {
@@ -1005,12 +1016,11 @@ impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo<B>> SearchState<B, E, C> {
     }
 
     fn new_with(search_stack: Vec<E>, custom: C) -> Self {
-        let start_time = Instant::now();
         let params =
             SearchParams::new_unshared(B::default(), SearchLimit::infinite(), ZobristHistory::default(), TT::minimal());
+        let now = Instant::now();
         Self {
             search_stack,
-            start_time,
             custom,
             statistics: Statistics::default(),
             aggregated_statistics: Statistics::default(),
@@ -1018,7 +1028,9 @@ impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo<B>> SearchState<B, E, C> {
             params,
             excluded_moves: vec![],
             current_pv_num: 0,
-            last_msg_time: start_time,
+            execution_start_time: now,
+            last_msg_time: now,
+            age: Age::default(),
         }
     }
 
@@ -1048,7 +1060,11 @@ impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo<B>> SearchState<B, E, C> {
     }
 
     fn start_time(&self) -> Instant {
-        self.start_time
+        self.params.limit.start_time
+    }
+
+    fn execution_start_time(&self) -> Instant {
+        self.execution_start_time
     }
 
     /// If the 'statistics' feature is enabled, this collects additional statistics.
@@ -1105,11 +1121,13 @@ pub fn run_bench_with<B: Board>(
 ) -> BenchResult {
     let mut hasher = DefaultHasher::new();
     let mut total = BenchResult::default();
-    let tt = tt.unwrap_or_default();
+    let mut tt = tt.unwrap_or_default();
     for position in bench_positions {
-        // engine.forget();
+        // don't reset the engine state between searches to make `bench` reflect how aging etc affect search.
+        tt.age.increment();
         single_bench(position, engine, limit, tt.clone(), 0, &mut total, &mut hasher);
         if let Some(limit) = second_limit {
+            tt.age.increment();
             single_bench(position, engine, limit, tt.clone(), 1, &mut total, &mut hasher);
         }
     }
@@ -1156,9 +1174,9 @@ mod tests {
         let tt = TT::default();
         for p in B::bench_positions() {
             let res = engine.bench(p.clone(), SearchLimit::nodes_(1), tt.clone(), 0);
-            assert!(res.depth.is_none());
-            assert!(res.max_depth.get() <= 1 + 1); // possible extensions
-            assert!(res.nodes <= 100); // TODO: Assert exactly 1
+            assert!(res.depth.is_none(), "{res}");
+            assert!(res.max_depth.get() <= 1 + 1, "{res}"); // possible extensions
+            assert!(res.nodes <= 100, "{res}"); // TODO: Assert exactly 1
             let params =
                 SearchParams::new_unshared(p.clone(), SearchLimit::depth_(1), ZobristHistory::default(), tt.clone());
             let res = engine.search(params);
@@ -1200,6 +1218,7 @@ mod tests {
             engine.forget();
             let params = SearchParams::for_pos(p, limit);
             let res2 = engine.search(params);
+            // make sure all info got reset on `forget()`
             assert_eq!(res, res2);
         }
     }

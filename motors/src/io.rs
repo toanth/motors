@@ -43,7 +43,7 @@ use gears::Quitting::QuitProgram;
 use gears::cli::select_game;
 use gears::colored::Color::Red;
 use gears::colored::Colorize;
-use gears::games::{CharType, Color, ColoredPiece, ColoredPieceType, OutputList, ZobristHistory};
+use gears::games::{CharType, Color, ColoredPiece, ColoredPieceType, OutputList};
 use gears::general::board::Strictness::{Relaxed, Strict};
 use gears::general::board::{Board, BoardHelpers, ColPieceTypeOf, Strictness, Symmetry, UnverifiedBoard};
 use gears::general::common::Description::{NoDescription, WithDescription};
@@ -412,9 +412,16 @@ impl<B: Board> EngineUGI<B> {
                     break;
                 }
             };
+            // Set the start time as early as possible so that we don't overestimate the remaining time
+            self.state.go_state.generic.limit.start_time = Instant::now();
             self.failed_cmd = None;
             let res = handle_ugi_input(self, tokens(&input), &game_name);
             match res {
+                Ok(()) => {
+                    if let Quit(quitting) = &self.state.status {
+                        return *quitting;
+                    }
+                }
                 Err(err) => {
                     self.write_message(Error, &format_args!("{err}"));
                     if !self.continue_on_error() {
@@ -431,11 +438,6 @@ impl<B: Board> EngineUGI<B> {
                         continue;
                     }
                     return QuitProgram;
-                }
-                Ok(()) => {
-                    if let Quit(quitting) = &self.state.status {
-                        return *quitting;
-                    }
                 }
             }
         }
@@ -604,7 +606,7 @@ impl<B: Board> EngineUGI<B> {
     }
 
     fn handle_go_impl(&mut self, initial_search_type: SearchType, words: &mut Tokens) -> Res<()> {
-        self.state.go_state = GoState::new(self, initial_search_type);
+        self.state.go_state = GoState::new(self, initial_search_type, self.state.go_state.start_time());
 
         if matches!(initial_search_type, Perft | SplitPerft | Bench) {
             accept_depth(self.go_state_mut().limit_mut(), words)?;
@@ -622,7 +624,7 @@ impl<B: Board> EngineUGI<B> {
         let opts = &mut self.state.go_state;
         let limit = &mut opts.generic.limit;
         let remaining = &mut limit.tc.remaining;
-        *remaining = remaining.saturating_sub(opts.generic.move_overhead).max(Duration::from_millis(1));
+        *remaining = remaining.saturating_sub(opts.generic.move_overhead).max(Duration::from_micros(100));
 
         if cfg!(feature = "fuzzing") {
             limit.fixed_time = limit.fixed_time.max(Duration::from_secs(1));
@@ -645,7 +647,7 @@ impl<B: Board> EngineUGI<B> {
         }
 
         let opts = &self.state.go_state.generic;
-        let limit = self.state.go_state.generic.limit;
+        let limit = opts.limit;
         let board = self.state.go_state.pos.clone();
         match opts.search_type {
             Auto => {
@@ -692,12 +694,12 @@ impl<B: Board> EngineUGI<B> {
                 }
                 self.write_ugi(&format_args!("{}", split_perft(limit.depth, board, threads != 1)));
             }
-            _ => return self.start_search(self.state.board_hist.clone()),
+            _ => return self.start_search(),
         }
         Ok(())
     }
 
-    fn start_search(&mut self, hist: ZobristHistory) -> Res<()> {
+    fn start_search(&mut self) -> Res<()> {
         let opts = self.state.go_state.generic.clone();
         let tt = opts.override_hash_size.map(TT::new_with_mib);
         self.write_message(Debug, &format_args!("Starting {0} search with limit {1}", opts.search_type, opts.limit));
@@ -715,6 +717,7 @@ impl<B: Board> EngineUGI<B> {
             );
         }
         self.state.set_status(Run(Ongoing));
+        let hist = self.state.board_hist.clone();
         let search_moves = self.state.go_state.search_moves.take();
         // Stop the temporary search, if it exists. This could take some time, but that's fine since there won't be a temporary engine
         // unless the user specifically requested it.
@@ -734,10 +737,9 @@ impl<B: Board> EngineUGI<B> {
         };
         match opts.search_type {
             // this keeps the current history even if we're searching a different position, but that's probably not a problem
-            // and doing a normal search from a custom position isn't even implemented at the moment -- TODO: implement?
             Normal => {
                 // It doesn't matter if we got a ponderhit or a miss, we simply abort the ponder search and start a new search.
-                if opts.engine_name.is_none() && self.state.ponder_limit.is_some() {
+                if self.state.ponder_limit.is_some() && opts.engine_name.is_none() {
                     self.state.ponder_limit = None;
                     engine.send_stop(true); // aborts the pondering without printing a search result
                 }
@@ -1341,12 +1343,14 @@ impl<B: Board> AbstractEngineUgiState for EngineUGI<B> {
     }
 
     fn handle_ponderhit(&mut self) -> Res<()> {
-        self.state.go_state = GoState::new(self, Normal);
+        let start_time = self.state.go_state.start_time();
+        self.state.go_state = GoState::new(self, Normal, start_time);
         self.state.go_state.generic.limit = self
             .state
             .ponder_limit
             .ok_or_else(|| anyhow!("The engine received a '{}' command but wasn't pondering", "ponderhit".bold()))?;
-        self.start_search(self.state.board_hist.clone())
+        self.state.go_state.generic.limit.start_time = start_time;
+        self.start_search()
     }
 
     fn handle_setoption(&mut self, words: &mut Tokens) -> Res<()> {
@@ -1823,11 +1827,12 @@ fn format_tt_entry<B: Board>(state: MatchState<B>, entry: TTEntry<B>) -> String 
     let score = Score::from_compact(entry.score);
     write!(
         &mut res,
-        "\nHash: {5}\nScore: {bound_str}{0} ({1}), Raw Eval: {2}, Depth: {3}, Best Move: {4}",
+        "\nHash: {6}\nScore: {bound_str}{0} ({1}), Raw Eval: {2}, Depth: {3}, Age Ctr: {4}, Best Move: {5}",
         pretty_score(score, None, None, &score_gradient(), true, false),
         entry.bound(),
         pretty_score(entry.raw_eval(), None, None, &score_gradient(), true, false),
         entry.depth.to_string().bold(),
+        entry.age(),
         move_string,
         pos.hash_pos()
     )
@@ -1891,4 +1896,81 @@ fn handle_play_impl(ugi: &mut dyn AbstractEngineUgi, words: &mut Tokens) -> Res<
         ugi.print_board(OutputOpts::default());
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{list_chess_evals, list_chess_outputs, list_chess_searchers};
+    use gears::cli::Game::Chess;
+    use gears::create_selected_output_builders;
+    use gears::games::BoardHistory;
+    use gears::games::chess::ChessColor::Black;
+    use gears::games::chess::Chessboard;
+    use gears::rand::prelude::SliceRandom;
+    use gears::rand::rngs::StdRng;
+    use gears::rand::{Rng, SeedableRng};
+
+    fn create_chess_game() -> Box<EngineUGI<Chessboard>> {
+        let outputs = list_chess_outputs();
+        let searchers = list_chess_searchers();
+        let evals = list_chess_evals();
+        let opts = EngineOpts::for_game(Chess, true);
+        Box::new(
+            EngineUGI::create(
+                opts.clone(),
+                create_selected_output_builders(&opts.outputs, &outputs).unwrap(),
+                outputs,
+                searchers,
+                evals,
+            )
+            .unwrap(),
+        )
+    }
+
+    #[test]
+    #[cfg(feature = "chess")]
+    fn chess_test() {
+        let mut ugi = create_chess_game();
+        ugi.handle_input("idk").unwrap();
+        let state = ugi.state.match_state.clone();
+        assert_eq!(state.pos_before_moves, Chessboard::default());
+        assert_eq!(state.pos().active_player(), Black);
+        assert_eq!(state.mov_hist.len(), 1);
+        assert_eq!(state.board_hist.len(), 1);
+        assert_eq!(state.status, Run(NotStarted));
+        ugi.handle_input("undo").unwrap();
+        assert_eq!(*ugi.state.pos(), Chessboard::default());
+        assert_eq!(ugi.state.mov_hist.len(), 0);
+        ugi.handle_input("position startpos e2e4").unwrap();
+        ugi.handle_input("randomize").unwrap();
+        ugi.handle_input("gb").unwrap();
+        assert_eq!(ugi.state.pos().active_player(), Black);
+        // There are actual fuzz tests for the UGI interface, but they aren't run regularly.
+        // So this is a very small part of what fuzz testing would do, but run regularly
+        let mut cmds = vec![
+            "e5",
+            "show engine_state",
+            "tt startpos moves e2e4",
+            "query engine",
+            "ugi",
+            "flip",
+            "gb",
+            "place black knight a4",
+            "remove a1",
+            "move_piece b2 b3",
+            "help",
+            "eval",
+        ];
+        let seed = rng().random::<u64>();
+        eprintln!("Seed: {seed}");
+        let mut rng = StdRng::seed_from_u64(seed);
+        cmds.shuffle(&mut rng);
+        for c in cmds {
+            ugi.handle_input(c).unwrap();
+        }
+        sleep(Duration::from_millis(5000));
+        ugi.quit().unwrap(); // can't use handle_input("quit") because that gets ignored in fuzzing mode
+        assert_eq!(ugi.state.status, Quit(QuitProgram));
+    }
 }

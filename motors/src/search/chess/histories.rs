@@ -19,14 +19,15 @@ use crate::io::ugi_output::{color_for_score, score_gradient};
 use crate::search::MoveScore;
 use derive_more::{Deref, DerefMut, Index, IndexMut};
 use gears::colored::Colorize;
-use gears::games::Color;
 use gears::games::chess::moves::{ChessMove, ChessMoveFlags};
-use gears::games::chess::pieces::NUM_COLORS;
-use gears::games::chess::squares::ChessSquare;
+use gears::games::chess::pieces::NUM_CHESS_PIECES;
+use gears::games::chess::squares::{ChessSquare, NUM_SQUARES};
 use gears::games::chess::{ChessColor, Chessboard};
+use gears::games::{Color, NUM_COLORS};
 use gears::general::bitboards::chessboard::ChessBitboard;
 use gears::general::bitboards::{KnownSizeBitboard, RawBitboard};
 use gears::general::board::Board;
+use gears::general::moves::Move;
 use gears::itertools::Itertools;
 use gears::output::OutputOpts;
 use gears::output::text_output::AdaptFormatter;
@@ -141,6 +142,7 @@ pub(super) struct CorrHist {
     pawns: Box<[[ScoreT; CORRHIST_SIZE]; NUM_COLORS]>,
     // the outer color index is the active player, the inner color is the color we're looking at
     nonpawns: Box<[[[ScoreT; NUM_COLORS]; CORRHIST_SIZE]; NUM_COLORS]>,
+    continuation: Box<[[[ScoreT; NUM_CHESS_PIECES]; NUM_SQUARES]; NUM_COLORS]>,
 }
 
 impl Default for CorrHist {
@@ -148,6 +150,7 @@ impl Default for CorrHist {
         CorrHist {
             pawns: Box::new([[0; CORRHIST_SIZE]; NUM_COLORS]),
             nonpawns: Box::new([[[0; NUM_COLORS]; CORRHIST_SIZE]; NUM_COLORS]),
+            continuation: Box::new([[[0; NUM_CHESS_PIECES]; NUM_SQUARES]; NUM_COLORS]),
         }
     }
 }
@@ -169,9 +172,19 @@ impl CorrHist {
         for value in self.nonpawns.iter_mut().flatten().flatten() {
             *value = 0;
         }
+        for value in self.continuation.iter_mut().flatten().flatten() {
+            *value = 0;
+        }
     }
 
-    pub(super) fn update(&mut self, pos: &Chessboard, depth: isize, eval: Score, score: Score) {
+    pub(super) fn update(
+        &mut self,
+        pos: &Chessboard,
+        continued_move: ChessMove,
+        depth: isize,
+        eval: Score,
+        score: Score,
+    ) {
         let color = pos.active_player();
         let weight = (1 + depth).min(16);
         let bonus = (score - eval).0 as isize * CORRHIST_SCALE;
@@ -181,9 +194,14 @@ impl CorrHist {
             let nonpawn_idx = pos.nonpawn_key(c).0 as usize % CORRHIST_SIZE;
             Self::update_entry(&mut self.nonpawns[color][nonpawn_idx][c], weight, bonus);
         }
+        if !continued_move.is_null() {
+            let mov = continued_move;
+            let entry = &mut self.continuation[color][mov.dest_square().bb_idx()][mov.piece_type() as usize];
+            Self::update_entry(entry, weight, bonus);
+        }
     }
 
-    pub(super) fn correct(&mut self, pos: &Chessboard, raw: Score) -> Score {
+    pub(super) fn correct(&mut self, pos: &Chessboard, continued_move: ChessMove, raw: Score) -> Score {
         if raw.is_won_or_lost() {
             return raw;
         }
@@ -193,6 +211,10 @@ impl CorrHist {
         for c in ChessColor::iter() {
             let nonpawn_idx = pos.nonpawn_key(c).0 as usize % CORRHIST_SIZE;
             correction += self.nonpawns[color][nonpawn_idx][c] as isize / 2;
+        }
+        if !continued_move.is_null() {
+            let mov = continued_move;
+            correction += self.continuation[color][mov.dest_square().bb_idx()][mov.piece_type() as usize] as isize;
         }
         let score = raw.0 as isize + correction / CORRHIST_SCALE;
         Score(score.clamp(MIN_NORMAL_SCORE.0 as isize, MAX_NORMAL_SCORE.0 as isize) as ScoreT)
