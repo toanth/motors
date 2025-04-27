@@ -913,7 +913,7 @@ impl Caps {
             let mut child_alpha = -beta;
             let mut child_beta = -alpha;
             if first_child {
-                let mut child_node_type = expected_node_type.inverse();
+                let child_node_type = expected_node_type.inverse();
                 // Idea from Nalwald
                 if let Some(tt_entry) = old_entry {
                     if tt_entry.bound() != FailLow
@@ -924,8 +924,6 @@ impl Caps {
                     {
                         // this only has an effect in pv nodes
                         child_beta = -(beta - 1);
-                        // this can truncate the PV
-                        child_node_type = FailLow;
                     }
                 }
                 score = -self.negamax(new_pos, ply + 1, depth - 1, child_alpha, child_beta, child_node_type)?;
