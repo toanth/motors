@@ -20,8 +20,8 @@ use crate::spsa_params;
 spsa_params![
     cc,
     start_depth: usize = 128; 0..=512; step=16;
-    min_depth_incremenet: usize = 120; 32..=256; step=2;
-    max_depth_incremenet: usize = 150; 32..=512; step=2;
+    min_depth_step: isize = 120; 32..=256; step=2;
+    max_depth_step: isize = 150; 32..=512; step=2;
     soft_limit_div: u32 = 30; 5..=60; step=1;
     inv_soft_limit_div_clamp: u32 = 256; 1..=750; step=10;
     inv_hard_limit_div: usize = 512; 1..=750; step=10;
@@ -71,7 +71,7 @@ spsa_params![
     max_move_loop_pruning_depth: isize = 6 * 128; 1..=16_384; step=64;
     hist_pruning_max_depth: isize = 3 * 128; 128..=2048; step=32;
     max_see_pruning_depth: isize = 1024; 128..=2048; step=64;
-    first_child_reduction: isize = 128; 64..=256; step=2;
+    first_child_reduction: isize = 0; -64..=128; step=2;
     lmr_min_uninteresting: isize = 3; 0..=16; step=1;
     lmr_depth_div: isize = 8; 2..=16; step=1;
     lmr_moves_mult: isize = 128; 32..=256; step=4;
@@ -94,12 +94,12 @@ spsa_params![
     lmr_good_capthist: i16 = 250; 0..=900; step=16;
     lmr_good_capthist_reduction: isize = 128; 32..=256; step=8;
     min_reduction_research: isize = 1; 0..=256; step=8;
-    retry_base_reduction: isize = 128; 16..=256; step=16;
+    retry_base_reduction: isize = 0; -64..=128; step=16;
     do_deeper_base: ScoreT = 50; 8..=256; step=4;
     do_deeper_reduction: isize = 128; 32..=256; step=8;
     do_shallower_base: ScoreT = 10; 2..=128; step=4;
     do_shallower_reduction: isize = 128; 32..=256; step=8;
-    third_search_reduction: isize = 128; 32..=256; step=2;
+    third_search_reduction: isize = 0; -64..=128; step=2;
     hist_depth_bonus: isize = 128; 4..=512; step=32;
     hist_bonus_offset: isize = 0; -256..=256; step=8;
     hist_depth_malue: isize = 128; 4..=512; step=32;

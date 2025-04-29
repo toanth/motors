@@ -44,6 +44,8 @@ use gears::ugi::{EngineOption, EngineOptionName, EngineOptionType, UgiCheck};
 /// The maximum value of the uci `depth` parameter, i.e. the maximum number of Iterative Deepening iterations
 const ID_ITERS_SOFT_LIMIT: DepthPly = DepthPly::new(225);
 
+const DEPTH_INCREMENT: usize = 128;
+
 /// The maximum value of the `ply` parameter in main search, i.e. the maximum depth (in plies) before qsearch is reached
 const PLY_HARD_LIMIT: usize = 255;
 
@@ -379,8 +381,6 @@ impl Caps {
     /// The low-depth searches fill the TT and various heuristics, which improves move ordering and therefore results in
     /// better moves within the same time or nodes budget because the lower-depth searches are comparatively cheap.
     fn iterative_deepening(&mut self, pos: Chessboard, soft_limit: Duration) -> bool {
-        let phase = pos.phase().clamp(0, 24) as usize;
-        let increment = (cc::min_depth_incremenet() * phase + cc::max_depth_incremenet() * (24 - phase)) / 24;
         let max_iter = self.limit().depth.get();
         let multi_pv = self.multi_pv();
         let mut soft_limit_scale = 1.0;
@@ -389,7 +389,7 @@ impl Caps {
         let mut chosen_at_iter = EagerNonAllocMoveList::<Chessboard, { ID_ITERS_SOFT_LIMIT.get() }>::default();
 
         for (iter, budget) in
-            (cc::start_depth()..=(ID_ITERS_SOFT_LIMIT.get() * increment)).step_by(increment).enumerate()
+            (cc::start_depth()..=(ID_ITERS_SOFT_LIMIT.get() * DEPTH_INCREMENT)).step_by(DEPTH_INCREMENT).enumerate()
         {
             if iter >= max_iter {
                 break;
@@ -864,6 +864,9 @@ impl Caps {
         let mut num_uninteresting_visited = 0;
         debug_assert!(self.search_stack[ply].tried_moves.is_empty());
 
+        let phase = pos.phase().clamp(0, 24);
+        let step = (cc::min_depth_step() * phase + cc::max_depth_step() * (24 - phase)) / 24;
+
         // *************************
         // ***** The move loop *****
         // *************************
@@ -949,7 +952,7 @@ impl Caps {
                 score = -self.negamax(
                     new_pos,
                     ply + 1,
-                    depth - cc::first_child_reduction(),
+                    depth - step - cc::first_child_reduction(),
                     child_alpha,
                     child_beta,
                     child_node_type,
@@ -1012,12 +1015,12 @@ impl Caps {
                 // this ensures that check extensions prevent going into qsearch while in check
                 reduction = reduction.min(depth - 128).max(0);
 
-                score = -self.negamax(new_pos, ply + 1, depth - reduction - 128, child_alpha, child_beta, FailHigh)?;
+                score = -self.negamax(new_pos, ply + 1, depth - reduction - step, child_alpha, child_beta, FailHigh)?;
                 // If the score turned out to be better than expected (at least `alpha`), this might just be because
                 // of the reduced depth. So do a full-depth search first, but don't use the full window quite yet.
                 if alpha < score && reduction >= cc::min_reduction_research() {
                     // do deeper / shallower: Adjust the first re-search depth based on the result of the first search
-                    let mut retry_depth = depth - cc::retry_base_reduction();
+                    let mut retry_depth = depth - step - cc::retry_base_reduction();
                     // TODO: Constants (changes bench)
                     if score > alpha + cc::do_deeper_base() + (depth * 4 / 128) as ScoreT {
                         retry_depth += cc::do_deeper_reduction();
@@ -1036,8 +1039,14 @@ impl Caps {
                 // the PV that were not searched as PV nodes. So we make sure we're researching in PV nodes with beta == alpha + 1.
                 if is_pv_node && child_beta - child_alpha == Score(1) && score > alpha {
                     self.statistics.lmr_second_retry();
-                    score =
-                        -self.negamax(new_pos, ply + 1, depth - cc::third_search_reduction(), -beta, -alpha, Exact)?;
+                    score = -self.negamax(
+                        new_pos,
+                        ply + 1,
+                        depth - step - cc::third_search_reduction(),
+                        -beta,
+                        -alpha,
+                        Exact,
+                    )?;
                 }
             }
 
