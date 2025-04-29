@@ -992,7 +992,7 @@ impl Caps {
                 // This is only relevant for PV nodes, because all other nodes are searched with a null window anyway.
                 // This is also necessary to ensure that the PV doesn't get truncated, because otherwise there could be nodes in
                 // the PV that were not searched as PV nodes. So we make sure we're researching in PV nodes with beta == alpha + 1.
-                if is_pv_node && child_beta - child_alpha == Score(1) && score > alpha {
+                if is_pv_node && child_beta - child_alpha == Score(1) && score > alpha && (root || depth > 1) {
                     self.statistics.lmr_second_retry();
                     score = -self.negamax(new_pos, ply + 1, depth - 1, -beta, -alpha, Exact)?;
                 }
