@@ -380,7 +380,7 @@ impl Caps {
     /// better moves within the same time or nodes budget because the lower-depth searches are comparatively cheap.
     fn iterative_deepening(&mut self, pos: Chessboard, soft_limit: Duration) -> bool {
         let phase = pos.phase().clamp(0, 24) as usize;
-        let increment = (cc::max_depth_incremenet() * phase + cc::min_depth_incremenet() * (24 - phase)) / 24;
+        let increment = (cc::min_depth_incremenet() * phase + cc::max_depth_incremenet() * (24 - phase)) / 24;
         let max_iter = self.limit().depth.get();
         let multi_pv = self.multi_pv();
         let mut soft_limit_scale = 1.0;
