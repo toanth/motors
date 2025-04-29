@@ -1348,11 +1348,15 @@ impl MoveScorer<Chessboard, Caps> for CapsMoveScorer {
     fn score_move_eager_part(&self, mov: ChessMove, state: &CapsState) -> MoveScore {
         // The move list is iterated backwards, which is why better moves get higher scores
         // No need to check against the TT move because that's already handled by the move picker
+
+        // idea from the readme of aku chess engine
+        let rand = (state.uci_nodes() as usize ^ mov.from_to_square()) as i16 % 4;
+
         if mov.is_tactical(&self.board) {
             let captured = mov.captured(&self.board);
             let base_val = MoveScore(HIST_DIVISOR * 10);
             let hist_val = state.capt_hist.get(mov, self.board.threats(), self.board.active_player());
-            base_val + MoveScore(captured as i16 * HIST_DIVISOR) + hist_val
+            base_val + MoveScore(captured as i16 * HIST_DIVISOR + rand) + hist_val
         } else if mov == state.search_stack[self.ply].killer {
             // `else` ensures that tactical moves can't be killers
             KILLER_SCORE
@@ -1369,7 +1373,7 @@ impl MoveScorer<Chessboard, Caps> for CapsMoveScorer {
             } else {
                 0
             };
-            MoveScore(state.history.get(mov, self.board.threats()) + countermove_score + follow_up_score / 2)
+            MoveScore(state.history.get(mov, self.board.threats()) + countermove_score + follow_up_score / 2 + rand)
         }
     }
 
