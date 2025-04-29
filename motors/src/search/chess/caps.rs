@@ -141,6 +141,7 @@ pub struct CapsSearchStackEntry {
     tried_moves: ArrayVec<ChessMove, MAX_CHESS_MOVES_IN_POS>,
     pos: Chessboard,
     eval: Score,
+    pv_node: bool,
 }
 
 impl SearchStackEntry<Chessboard> for CapsSearchStackEntry {
@@ -580,6 +581,7 @@ impl Caps {
 
         let root = ply == 0;
         let is_pv_node = expected_node_type == Exact; // TODO: Make this a generic argument of search?
+        self.search_stack[ply].pv_node = is_pv_node;
         debug_assert!(!root || is_pv_node); // root implies pv node
         debug_assert!(alpha + 1 == beta || is_pv_node); // alpha + 1 < beta implies Exact node
         if is_pv_node {
@@ -1031,9 +1033,12 @@ impl Caps {
 
             // Update the PV. We only need to do this for PV nodes (we could even only do this for non-fail highs,
             // if we didn't have to worry about aw fail high).
-            if is_pv_node {
+            if self.search_stack[ply + 1].pv_node {
                 let ([.., current], [child, ..]) = self.search_stack.split_at_mut(ply + 1) else { unreachable!() };
                 current.pv.extend(best_move, &child.pv);
+                if cfg!(debug_assertions) {
+                    current.pv.assert_legal(pos);
+                }
                 if cfg!(debug_assertions)
                     && depth > 1
                     && self.params.thread_type.num_threads() == Some(1)

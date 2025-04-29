@@ -189,6 +189,13 @@ impl<B: Board, const LIMIT: usize> Pv<B, LIMIT> {
         self.list.try_extend_from_slice(child_pv.list.as_slice()).unwrap();
     }
 
+    pub fn assert_legal(&self, mut pos: B) {
+        for &m in &self.list {
+            assert!(pos.is_move_legal(m));
+            pos = pos.make_move(m).unwrap();
+        }
+    }
+
     pub fn len(&self) -> usize {
         self.list.len()
     }

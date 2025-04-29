@@ -127,8 +127,8 @@ impl ChessMove {
 
     pub fn piece(self, board: &Chessboard) -> ChessPiece {
         let source = self.src_square();
-        debug_assert!(board.is_occupied(source), "{}", self.compact_formatter(board));
-        debug_assert!(board.active_player_bb().is_bit_set(source), "{}", self.compact_formatter(board));
+        debug_assert!(board.is_occupied(source), "{} {board}", self.compact_formatter(board));
+        debug_assert!(board.active_player_bb().is_bit_set(source), "{} {board}", self.compact_formatter(board));
         ChessPiece::new(ColoredChessPieceType::new(board.active_player, self.flags().piece_type()), source)
     }
 
