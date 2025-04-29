@@ -230,7 +230,7 @@ const _: () = assert!(size_of::<TTEntry<Chessboard>>() == size_of::<AtomicTTEntr
 pub const DEFAULT_HASH_SIZE_MB: usize = 16;
 
 spsa_params![ttc,
-age_diff_mult: isize = 4; 0..=128; step=4;
+age_diff_mult: isize = 512; 0..=8192; step=256;
 ];
 
 /// Resizing the TT during search will wait until the search is finished (all threads will receive a new arc)
@@ -326,7 +326,7 @@ impl TT {
             isize::MIN
         } else {
             let age_diff = (to_insert.age().0.wrapping_sub(candidate.age().0).wrapping_add(1 << 6)) & 0b11_1111;
-            candidate.depth as isize / 128 - age_diff as isize * ttc::age_diff_mult()
+            candidate.depth as isize - age_diff as isize * ttc::age_diff_mult()
         }
     }
 
