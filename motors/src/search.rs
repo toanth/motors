@@ -12,7 +12,8 @@ use gears::colored::Color::Red;
 use gears::colored::Colorize;
 use gears::dyn_clone::DynClone;
 use gears::games::ZobristHistory;
-use gears::general::board::Board;
+use gears::general::board::Strictness::Relaxed;
+use gears::general::board::{Board, BoardHelpers};
 use gears::general::common::anyhow::bail;
 use gears::general::common::{EntityList, Name, NamedEntity, Res, StaticallyNamedEntity};
 use gears::general::move_list::MoveList;
@@ -187,6 +188,14 @@ impl<B: Board, const LIMIT: usize> Pv<B, LIMIT> {
     pub fn extend(&mut self, mov: B::Move, child_pv: &Pv<B, LIMIT>) {
         self.reset_to_move(mov);
         self.list.try_extend_from_slice(child_pv.list.as_slice()).unwrap();
+    }
+
+    pub fn assert_valid(&self, mut pos: B) {
+        for &m in &self.list {
+            assert!(pos.is_move_legal(m));
+            pos = pos.make_move(m).unwrap();
+        }
+        assert!(pos.debug_verify_invariants(Relaxed).is_ok());
     }
 
     pub fn len(&self) -> usize {

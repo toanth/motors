@@ -1034,13 +1034,16 @@ impl Caps {
             if is_pv_node {
                 let ([.., current], [child, ..]) = self.search_stack.split_at_mut(ply + 1) else { unreachable!() };
                 current.pv.extend(best_move, &child.pv);
-                if cfg!(debug_assertions)
-                    && depth > 1
-                    && self.params.thread_type.num_threads() == Some(1)
-                    && score < beta
-                    && !score.is_won_lost_or_draw_score()
-                {
-                    debug_assert_eq!(self.tt().load::<Chessboard>(new_pos.hash_pos(), ply + 1).unwrap().bound(), Exact);
+                if cfg!(debug_assertions) {
+                    current.pv.assert_valid(pos);
+                    if depth > 1
+                        && self.params.thread_type.num_threads() == Some(1)
+                        && score < beta
+                        && !score.is_won_lost_or_draw_score()
+                    {
+                        let bound = self.tt().load::<Chessboard>(new_pos.hash_pos(), ply + 1).unwrap().bound();
+                        debug_assert_eq!(bound, Exact);
+                    }
                 }
             }
 
