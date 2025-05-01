@@ -471,7 +471,7 @@ impl Caps {
                 return (false, Some(depth - 1), None);
             }
             let asp_start_time = Instant::now();
-            let Some(pv_score) = self.negamax(pos, 0, aw_depth, alpha, beta, Exact) else {
+            let Some(pv_score) = self.negamax(pos, 0, aw_depth, alpha, beta, Exact, true) else {
                 return (false, Some(depth), None);
             };
 
@@ -571,6 +571,7 @@ impl Caps {
         mut alpha: Score,
         mut beta: Score,
         mut expected_node_type: NodeType,
+        mut allow_rfr: bool,
     ) -> Option<Score> {
         debug_assert!(alpha < beta, "{alpha} {beta} {pos} {ply} {depth}");
         debug_assert!(ply <= DEPTH_HARD_LIMIT.get(), "{ply} {depth} {pos}");
@@ -762,8 +763,9 @@ impl Caps {
             }
 
             // Reverse Futility Reductions: A similar idea to RFP, but done at higher depths.
-            if depth >= 10 && eval >= beta + Score(margin) {
-                depth -= 1;
+            if depth >= 6 && eval >= beta + Score(margin / 4) && allow_rfr {
+                depth -= 2;
+                allow_rfr = false;
             }
 
             // Razoring. If the position appears hopeless, drop into qsearch immediately.
@@ -800,7 +802,8 @@ impl Caps {
                 self.search_stack[ply].tried_moves.push(ChessMove::default());
                 let reduction = cc::nmp_base() + depth / cc::nmp_depth_div() + isize::from(they_blundered);
                 // the child node is expected to fail low, leading to a fail high in this node
-                let nmp_res = self.negamax(new_pos, ply + 1, depth - 1 - reduction, -beta, -beta + 1, FailLow);
+                let nmp_res =
+                    self.negamax(new_pos, ply + 1, depth - 1 - reduction, -beta, -beta + 1, FailLow, allow_rfr);
                 _ = self.search_stack[ply].tried_moves.pop();
                 self.params.history.pop();
                 let score = -nmp_res?;
@@ -815,7 +818,8 @@ impl Caps {
                     *self.nmp_disabled_for(us) = true;
                     // nmp was done with `depth - 1 - reduction`, but we're not doing a null move now, so technically we
                     // should use `depth - reduction`, but using `depth - 1 - reduction` is less expensive and good enough.
-                    let verification_score = self.negamax(pos, ply, depth - 1 - reduction, beta - 1, beta, FailHigh);
+                    let verification_score =
+                        self.negamax(pos, ply, depth - 1 - reduction, beta - 1, beta, FailHigh, allow_rfr);
                     self.search_stack[ply].tried_moves.clear();
                     *self.nmp_disabled_for(us) = false;
                     // The verification score is more trustworthy than the nmp score.
@@ -919,7 +923,8 @@ impl Caps {
             let child_beta = -alpha;
             if first_child {
                 let child_node_type = expected_node_type.inverse();
-                score = -self.negamax(new_pos, ply + 1, depth - 1, child_alpha, child_beta, child_node_type)?;
+                score =
+                    -self.negamax(new_pos, ply + 1, depth - 1, child_alpha, child_beta, child_node_type, allow_rfr)?;
             } else {
                 child_alpha = -(alpha + 1);
                 // LMR (Late Move Reductions): Trust the move ordering (quiet history, continuation history and capture history heuristics)
@@ -976,7 +981,15 @@ impl Caps {
                 // this ensures that check extensions prevent going into qsearch while in check
                 reduction = reduction.clamp(0, depth - 1);
 
-                score = -self.negamax(new_pos, ply + 1, depth - 1 - reduction, child_alpha, child_beta, FailHigh)?;
+                score = -self.negamax(
+                    new_pos,
+                    ply + 1,
+                    depth - 1 - reduction,
+                    child_alpha,
+                    child_beta,
+                    FailHigh,
+                    allow_rfr,
+                )?;
                 // If the score turned out to be better than expected (at least `alpha`), this might just be because
                 // of the reduced depth. So do a full-depth search first, but don't use the full window quite yet.
                 if alpha < score && reduction > 0 {
@@ -989,7 +1002,8 @@ impl Caps {
                     }
                     self.statistics.lmr_first_retry();
                     // we still expect the child to fail high here
-                    score = -self.negamax(new_pos, ply + 1, retry_depth, child_alpha, child_beta, FailHigh)?;
+                    score =
+                        -self.negamax(new_pos, ply + 1, retry_depth, child_alpha, child_beta, FailHigh, allow_rfr)?;
                 }
 
                 // If the full-depth null-window search performed better than expected, do a full-depth search with the
@@ -999,7 +1013,7 @@ impl Caps {
                 // the PV that were not searched as PV nodes. So we make sure we're researching in PV nodes with beta == alpha + 1.
                 if is_pv_node && child_beta - child_alpha == Score(1) && score > alpha {
                     self.statistics.lmr_second_retry();
-                    score = -self.negamax(new_pos, ply + 1, depth - 1, -beta, -alpha, Exact)?;
+                    score = -self.negamax(new_pos, ply + 1, depth - 1, -beta, -alpha, Exact, allow_rfr)?;
                 }
             }
 
