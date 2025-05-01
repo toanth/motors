@@ -1193,6 +1193,11 @@ impl Caps {
                 // If the move has a negative SEE score or if we've already looked at enough moves, don't even bother playing it in qsearch.
                 break;
             }
+            let hist_score = self.capt_hist.get(mov, pos.threats(), pos.active_player());
+            // qsearch history pruning
+            if hist_score < MoveScore(-500) {
+                break;
+            }
             let Some(new_pos) = pos.make_move(mov) else {
                 continue;
             };
