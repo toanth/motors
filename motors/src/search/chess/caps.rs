@@ -761,6 +761,11 @@ impl Caps {
                 return Some(eval);
             }
 
+            // Reverse Futility Reductions: A similar idea to RFP, but done at higher depths.
+            if depth >= 10 && eval >= beta + Score(margin) {
+                depth -= 1;
+            }
+
             // Razoring. If the position appears hopeless, drop into qsearch immediately.
             // This obviously has the potential to miss quite a few tactics, so only do this at low depths and when the
             // difference between the static eval and alpha is really large, and also not when we could miss a mate from the TT.
