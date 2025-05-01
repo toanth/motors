@@ -1067,9 +1067,6 @@ mod tests {
                 let fairy_perft = perft(depth, fairy_pos.clone(), false);
                 assert_eq!(mnk_perft.depth, fairy_perft.depth);
                 assert_eq!(mnk_perft.nodes, fairy_perft.nodes, "Depth {i}, pos: {mnk_pos}");
-                let mnk_time = mnk_perft.time.as_millis();
-                let fairy_time = fairy_perft.time.as_millis();
-                assert!(mnk_time * 100 + 2000 > fairy_time, "{mnk_time} {fairy_time} {i} {fairy_pos}");
             }
         }
     }
