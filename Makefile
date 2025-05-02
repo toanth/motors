@@ -30,9 +30,10 @@ bench: release
 	./caps bench
 
 caps-pgo:
-	cargo pgo instrument build -- --package motors --bin motors --no-default-features --features=caps
+	cargo pgo build
+	echo "position startpos moves e2e4 g8f6\ngo wtime 500 btime 500 winc 5 binc 5\nwait\nquit" | cargo pgo run
 	cargo pgo run -- bench
-	cargo pgo optimize build -- --package motors --bin motors --no-default-features --features=caps
+	cargo pgo optimize
 	mv "target/$(TARGET_TUPLE)/release/motors" "$(EXE)"
 
 release:
