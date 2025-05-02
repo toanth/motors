@@ -736,6 +736,7 @@ impl Caps {
         // ***** Pre-move loop pruning (other than TT cutoffs) *****
         // *********************************************************
 
+        let mut nmp_verif_score = None;
         if can_prune {
             // RFP (Reverse Futility Pruning): If eval is far above beta, it's likely that our opponent
             // blundered in a previous move of the search, so if the depth is low, don't even bother searching further.
@@ -810,15 +811,27 @@ impl Caps {
                     *self.nmp_disabled_for(us) = true;
                     // nmp was done with `depth - 1 - reduction`, but we're not doing a null move now, so technically we
                     // should use `depth - reduction`, but using `depth - 1 - reduction` is less expensive and good enough.
-                    let verification_score = self.negamax(pos, ply, depth - 1 - reduction, beta - 1, beta, FailHigh);
+                    nmp_verif_score = self.negamax(pos, ply, depth - 1 - reduction, beta - 1, beta, FailHigh);
                     self.search_stack[ply].tried_moves.clear();
                     *self.nmp_disabled_for(us) = false;
                     // The verification score is more trustworthy than the nmp score.
-                    if verification_score.is_none_or(|score| score >= beta) {
-                        return verification_score;
+                    if nmp_verif_score.is_none_or(|score| score >= beta) {
+                        return nmp_verif_score;
                     }
                 }
             }
+        }
+
+        // Reverse Futility Reductions: A similar idea to RFP, but done at higher depths.
+        // Here, NMP has failed but our eval is still looking great, so do a verification search and if that succeeds,
+        // reduce the depth.
+        if depth >= 6 && eval >= beta + Score(32 * depth as ScoreT) && !in_check && !root && nmp_verif_score.is_none() {
+            let reduction = depth / 2;
+            let score = self.negamax(pos, ply, depth - 1 - reduction, beta - 1, beta, FailHigh)?;
+            if score >= beta {
+                depth -= 2;
+            }
+            self.search_stack[ply].tried_moves.clear();
         }
 
         // IIR (Internal Iterative Reductions): If we don't have a TT move, this node will likely take a long time
