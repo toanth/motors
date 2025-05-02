@@ -6,11 +6,12 @@ EXE = caps
 CC = cargo
 export EXE
 export CC
+TARGET_TUPLE := $(shell rustc --print host-tuple)
 
 .PHONY: caps release debug all clean
 
 #the first target is the default target and only builds `caps`, because that's all that is necessary for openbench
-default: caps
+default: caps-pgo
 
 all: motors monitors pliers
 
@@ -27,6 +28,12 @@ caps:
 
 bench: release
 	./caps bench
+
+caps-pgo:
+	cargo pgo instrument build -- --package motors --bin motors --no-default-features --features=caps
+	cargo pgo run -- bench
+	cargo pgo optimize build -- --package motors --bin motors --no-default-features --features=caps
+	ln -s "target/$(TARGET_TUPLE)/release/motors" "$(EXE)"
 
 release:
 	cargo build --release --package motors --bin motors
