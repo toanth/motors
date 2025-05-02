@@ -33,7 +33,7 @@ caps-pgo:
 	cargo pgo instrument build -- --package motors --bin motors --no-default-features --features=caps
 	cargo pgo run -- bench
 	cargo pgo optimize build -- --package motors --bin motors --no-default-features --features=caps
-	ln -s "target/$(TARGET_TUPLE)/release/motors" "$(EXE)"
+	mv "target/$(TARGET_TUPLE)/release/motors" "$(EXE)"
 
 release:
 	cargo build --release --package motors --bin motors
