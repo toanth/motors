@@ -303,9 +303,9 @@ impl Engine<Chessboard> for Caps {
         // and would still require synchronization because debug mode might be turned on while the engine is searching.
         // Fortunately, `format_args!` avoids heap allocations.
         self.state.send_non_ugi(Debug, &format_args!(
-            "Starting search with limit {time}ms, {incr}ms increment, max {fixed}ms, mate in {mate} plies, max depth {depth}, \
+            "Starting search with limit {time} microseconds, {incr}ms increment, max {fixed}ms, mate in {mate} plies, max depth {depth}, \
             max {nodes} nodes, soft limit {soft}ms, {ignored} ignored moves",
-            time = limit.tc.remaining.as_millis(),
+            time = limit.tc.remaining.as_micros(),
             incr = limit.tc.increment.as_millis(),
             mate = limit.mate.get(),
             depth = limit.depth.get(),
@@ -343,9 +343,8 @@ impl NormalEngine<Chessboard> for Caps {
         &mut self.state
     }
 
-    fn time_up(&self, tc: TimeControl, fixed_time: Duration, start_time: Instant) -> bool {
-        debug_assert!(self.uci_nodes() % DEFAULT_CHECK_TIME_INTERVAL == 0);
-        let elapsed = start_time.elapsed();
+    fn time_up(&self, tc: TimeControl, fixed_time: Duration, elapsed: Duration) -> bool {
+        debug_assert_eq!(self.uci_nodes() % DEFAULT_CHECK_TIME_INTERVAL, 0);
         // TODO: Compute at the start of the search instead of every time:
         // Instead of storing a SearchLimit, store a different struct that contains soft and hard bounds
         let hard = (tc.remaining.saturating_sub(tc.increment)) * cc::inv_hard_limit_div() as u32 / 1024 + tc.increment;
@@ -462,7 +461,10 @@ impl Caps {
                 (limit.remaining.saturating_sub(limit.increment)) * cc::inv_soft_limit_div_clamp() / 1024
                     + limit.increment,
             );
-            if self.should_not_start_negamax(soft_limit, self.limit().soft_nodes.get(), max_depth, self.limit().mate) {
+            if
+            /*depth > 1
+            &&*/
+            self.should_not_start_negamax(soft_limit, self.limit().soft_nodes.get(), max_depth, self.limit().mate) {
                 self.statistics.soft_limit_stop();
                 return (false, None, None);
             }
@@ -618,7 +620,7 @@ impl Caps {
                 return Some(Score(0));
             }
 
-            if self.should_stop() {
+            if self.should_stop(self.uci_nodes()) {
                 return None;
             }
         }
@@ -1118,7 +1120,7 @@ impl Caps {
         self.atomic().update_seldepth(ply);
 
         // check nodes in qsearch to allow `go nodes n` to go exactly `n` nodes
-        if self.should_stop() {
+        if self.should_stop(self.uci_nodes()) {
             return None;
         }
         let in_check = pos.is_in_check();

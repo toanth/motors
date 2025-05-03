@@ -460,21 +460,18 @@ pub trait NormalEngine<B: Board>: Engine<B> {
     where
         Self: Sized;
 
-    fn time_up(&self, tc: TimeControl, hard_limit: Duration, start_time: Instant) -> bool {
-        let elapsed = start_time.elapsed();
+    fn time_up(&self, tc: TimeControl, hard_limit: Duration, elapsed: Duration) -> bool {
         elapsed >= hard_limit.min(tc.remaining / 32 + tc.increment / 2)
     }
 
-    // Sensible default values, but engines may choose to check more/less frequently than every 4096 nodes
-    fn should_stop(&self) -> bool
+    // Sensible default values, but engines may choose to check more/less frequently than every n nodes
+    fn should_stop(&self, nodes: u64) -> bool
     where
         Self: Sized,
     {
         let state = self.search_state();
         let limit = self.limit();
         // Do the less expensive checks first to avoid querying the time in each node
-        // loads an atomic, so calling this function twice probably won't be optimized
-        let nodes = state.uci_nodes();
         if nodes >= limit.nodes.get() || state.stop_flag() {
             self.search_state().stop_search();
             return true;
@@ -482,7 +479,8 @@ pub trait NormalEngine<B: Board>: Engine<B> {
         if nodes % DEFAULT_CHECK_TIME_INTERVAL != 0 {
             return false;
         }
-        if self.time_up(limit.tc, limit.fixed_time, self.search_state().start_time()) {
+        let elapsed = self.search_state().start_time().elapsed();
+        if self.time_up(limit.tc, limit.fixed_time, elapsed) {
             self.search_state().stop_search();
             return true;
         }
@@ -844,6 +842,14 @@ impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo<B>> AbstractSearchState<B> 
         self.statistics_mut().end_search();
         self.send_statistics();
         self.aggregate_match_statistics();
+        self.send_non_ugi(
+            Message::Debug,
+            &format_args!(
+                "Ending a search that took {0} microseconds, ({1} microseconds since starting the search)",
+                self.start_time().elapsed().as_micros(),
+                self.execution_start_time.elapsed().as_micros()
+            ),
+        );
         // might block, see method. Do this as the last step so that we're not using compute after sending
         // the search result and so that we avoid race conditions.
         self.params.end_and_send(res);

@@ -183,7 +183,7 @@ impl<B: Board> Gaps<B> {
 
             self.state.params.history.pop();
 
-            if self.should_stop() {
+            if self.should_stop(self.state.uci_nodes()) {
                 return SCORE_TIME_UP;
             }
 

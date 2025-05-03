@@ -206,7 +206,7 @@ impl TypeErasedUgiOutput {
             time /= 60.0;
             in_seconds = false;
         }
-        let time = format!("{time:5.1}").color(TrueColor { r, g, b });
+        let time = format!("{time:6.2}").color(TrueColor { r, g, b });
         let nodes = format!("{nodes:12}");
 
         let mut multipv =

@@ -362,7 +362,7 @@ impl<B: Board> EngineUGI<B> {
         for builder in &mut selected_output_builders {
             output.lock().unwrap().additional_outputs.push(builder.for_engine(&state)?);
         }
-        Ok(Self {
+        let mut res = Self {
             state,
             commands: AllCommands { ugi: ugi_commands(), go: go_options::<B>(None), query: query_options::<B>() },
             output,
@@ -375,7 +375,11 @@ impl<B: Board> EngineUGI<B> {
             allow_ponder: false,
             respond_to_move: true,
             failed_cmd: None,
-        })
+        };
+        if res.debug_mode() {
+            res.handle_debug(&mut tokens(""))?;
+        }
+        Ok(res)
     }
 
     fn output(&self) -> MutexGuard<UgiOutput<B>> {
