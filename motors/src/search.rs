@@ -491,6 +491,7 @@ pub trait NormalEngine<B: Board>: Engine<B> {
         &self,
         soft_limit: Duration,
         soft_nodes: u64,
+        depth: isize,
         max_soft_depth: isize,
         mate_depth: Depth,
     ) -> bool
@@ -498,11 +499,12 @@ pub trait NormalEngine<B: Board>: Engine<B> {
         Self: Sized,
     {
         let state = self.search_state();
-        state.start_time().elapsed() >= soft_limit
-            || state.uci_nodes() >= soft_nodes
-            || state.depth().get() as isize > max_soft_depth
+        depth > 1
+            && (state.start_time().elapsed() >= soft_limit
             // even in a multipv search, we stop as soon as a single mate is found
-            || state.best_score() >= Score(SCORE_WON.0 - mate_depth.get() as ScoreT)
+            || state.best_score() >= Score(SCORE_WON.0 - mate_depth.get() as ScoreT))
+            || state.uci_nodes() >= soft_nodes
+            || depth > max_soft_depth
     }
 }
 

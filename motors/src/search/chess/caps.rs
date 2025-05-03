@@ -461,10 +461,13 @@ impl Caps {
                 (limit.remaining.saturating_sub(limit.increment)) * cc::inv_soft_limit_div_clamp() / 1024
                     + limit.increment,
             );
-            if
-            /*depth > 1
-            &&*/
-            self.should_not_start_negamax(soft_limit, self.limit().soft_nodes.get(), max_depth, self.limit().mate) {
+            if self.should_not_start_negamax(
+                soft_limit,
+                self.limit().soft_nodes.get(),
+                depth,
+                max_depth,
+                self.limit().mate,
+            ) {
                 self.statistics.soft_limit_stop();
                 return (false, None, None);
             }

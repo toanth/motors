@@ -562,7 +562,7 @@ mod test {
         let hashfull = tt.estimate_hashfull::<Chessboard>(age);
         assert!(hashfull > 0, "{hashfull}");
         let hashfull = tt.estimate_hashfull::<Chessboard>(Age(0));
-        assert!(hashfull == 0, "{hashfull}");
+        assert_eq!(hashfull, 0, "{hashfull}");
         let entry = tt.load::<Chessboard>(pos.hash_pos(), 0).unwrap();
         let entry2 = tt.load::<Chessboard>(pos2.hash_pos(), 0).unwrap();
         assert_eq!(entry.hash, pos.hash_pos());
