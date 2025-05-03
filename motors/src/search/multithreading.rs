@@ -242,7 +242,7 @@ impl<B: Board> AtomicSearchState<B> {
     pub(super) fn count_node(&self) -> u64 {
         // TODO: Test if using a relaxed load, non-atomic add, and relaxed store is faster
         // (should compile to `add` instead of `lock add` on x86)
-        self.nodes.fetch_add(1, Relaxed)
+        self.nodes.fetch_add(1, Relaxed) + 1
     }
 
     pub(super) fn set_depth(&self, depth: isize) {
