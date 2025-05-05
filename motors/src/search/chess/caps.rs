@@ -147,7 +147,6 @@ impl SearchStackEntry<Chessboard> for CapsSearchStackEntry {
     fn forget(&mut self) {
         self.killer = ChessMove::default();
         self.pv.list.clear();
-        self.tried_moves.clear();
         self.pos = Chessboard::default();
         self.eval = Score::default();
     }
@@ -651,6 +650,7 @@ impl Caps {
         if depth <= 0 || ply >= self.depth_hard_limit {
             return self.qsearch(pos, alpha, beta, ply);
         }
+        self.search_stack[ply].tried_moves.clear();
         let can_prune = !is_pv_node && !in_check;
 
         let mut bound_so_far = FailLow;
@@ -1207,6 +1207,7 @@ impl Caps {
             bound_so_far = Exact;
             alpha = best_score;
         }
+        self.search_stack[ply].tried_moves.clear();
         self.record_pos(pos, best_score, ply);
 
         self.maybe_send_currline(&pos, alpha, beta, ply, Some(best_score));
@@ -1342,7 +1343,6 @@ impl Caps {
     fn record_pos(&mut self, pos: Chessboard, eval: Score, ply: usize) {
         self.search_stack[ply].pos = pos;
         self.search_stack[ply].eval = eval;
-        self.search_stack[ply].tried_moves.clear();
     }
 
     fn record_move(&mut self, mov: ChessMove, old_pos: Chessboard, ply: usize, typ: SearchType) {
