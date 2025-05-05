@@ -104,8 +104,15 @@ impl<B: Board> Engine<B> for Gaps<B> {
 
         'id: for depth in 1..=max_depth {
             for pv_num in 0..self.state.multi_pv() {
-                if self.should_not_start_negamax(limit.fixed_time, limit.soft_nodes.get(), depth, max_depth, limit.mate)
-                {
+                let elapsed = self.state.start_time().elapsed();
+                if self.should_not_start_negamax(
+                    elapsed,
+                    limit.fixed_time,
+                    limit.soft_nodes.get(),
+                    depth,
+                    max_depth,
+                    limit.mate,
+                ) {
                     break 'id;
                 }
 

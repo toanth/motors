@@ -11,7 +11,7 @@ use gears::arrayvec::ArrayVec;
 use gears::colored::Color::Red;
 use gears::colored::Colorize;
 use gears::dyn_clone::DynClone;
-use gears::games::ZobristHistory;
+use gears::games::{BoardHistory, ZobristHistory};
 use gears::general::board::Strictness::Relaxed;
 use gears::general::board::{Board, BoardHelpers};
 use gears::general::common::anyhow::bail;
@@ -47,6 +47,16 @@ pub mod multithreading;
 pub(crate) mod spsa_param;
 pub mod statistics;
 pub(super) mod tt;
+
+// only evaluate the debug message if debug mode is actually enabled
+#[macro_export]
+macro_rules! send_debug_msg {
+    ($state: expr, $($args: tt)*) => {
+        if $state.should_show_debug_msg() {
+            $state.send_non_ugi(Message::Debug, &format_args!($($args)*))
+        }
+    };
+}
 
 #[derive(Debug, Clone)]
 #[must_use]
@@ -439,7 +449,16 @@ pub trait Engine<B: Board>: StaticallyNamedEntity + Send + 'static {
     /// Start a new search and return the best move and score.
     /// 'parameters' contains information like the board history and allows the search to output intermediary results.
     fn search(&mut self, search_params: SearchParams<B>) -> SearchResult<B> {
+        let before = Instant::now();
         self.search_state_mut_dyn().new_search(search_params);
+        let after = Instant::now();
+        let total_elapsed = after.duration_since(self.search_state_dyn().search_params().limit.start_time).as_micros();
+        send_debug_msg!(
+            self.search_state_mut_dyn(),
+            "Preparing the search state for a new search took {0} microseconds, {1} have elapsed since the search request",
+            after.duration_since(before).as_micros(),
+            total_elapsed
+        );
         let res = self.do_search();
         self.search_state_mut_dyn().end_search(&res);
         res
@@ -489,6 +508,7 @@ pub trait NormalEngine<B: Board>: Engine<B> {
 
     fn should_not_start_negamax(
         &self,
+        elapsed: Duration,
         soft_limit: Duration,
         soft_nodes: u64,
         depth: isize,
@@ -500,7 +520,7 @@ pub trait NormalEngine<B: Board>: Engine<B> {
     {
         let state = self.search_state();
         depth > 1
-            && (state.start_time().elapsed() >= soft_limit
+            && (elapsed >= soft_limit
             // even in a multipv search, we stop as soon as a single mate is found
             || state.best_score() >= Score(SCORE_WON.0 - mate_depth.get() as ScoreT))
             || state.uci_nodes() >= soft_nodes
@@ -672,7 +692,7 @@ impl<B: Board> SearchParams<B> {
 
 pub trait SearchStackEntry<B: Board>: Default + Clone + Debug {
     fn forget(&mut self) {
-        *self = Self::default();
+        self.clone_from(&Self::default());
     }
     fn pv(&self) -> Option<&[B::Move]>;
     fn last_played_move(&self) -> Option<B::Move>;
@@ -732,6 +752,17 @@ impl<B: Board> Default for PVData<B> {
     }
 }
 
+impl<B: Board> PVData<B> {
+    pub fn reset(&mut self) {
+        self.alpha = MIN_ALPHA;
+        self.beta = MAX_BETA;
+        self.radius = Score(20);
+        self.pv.clear();
+        self.score = NO_SCORE_YET;
+        self.bound = None;
+    }
+}
+
 pub trait AbstractSearchState<B: Board> {
     fn forget(&mut self, hard: bool);
     fn new_search(&mut self, params: SearchParams<B>);
@@ -742,6 +773,9 @@ pub trait AbstractSearchState<B: Board> {
     fn to_search_info(&self) -> SearchInfo<B>;
     fn aggregated_statistics(&self) -> Statistics;
     fn send_search_info(&self);
+    fn should_show_debug_msg(&self) -> bool {
+        self.search_params().thread_type.output().is_some_and(|o| o.show_debug_output)
+    }
     fn send_non_ugi(&mut self, typ: Message, message: &fmt::Arguments) {
         if let Some(mut output) = self.search_params().thread_type.output() {
             output.write_message(typ, message);
@@ -793,6 +827,7 @@ impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo<B>> AbstractSearchState<B> 
     fn forget(&mut self, hard: bool) {
         self.last_msg_time = Instant::now();
         self.execution_start_time = self.last_msg_time;
+        // TODO: Remove or at least only do if `hard` is true
         for e in &mut self.search_stack {
             e.forget();
         }
@@ -800,12 +835,15 @@ impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo<B>> AbstractSearchState<B> 
             self.custom.hard_forget_except_tt();
             self.params.atomic.reset(false);
         } else {
+            if let Some(e) = self.search_stack.get_mut(0) {
+                e.forget();
+            }
             self.custom.new_search();
         }
-        self.params.history = ZobristHistory::default(); // will get overwritten later
-        self.statistics = Statistics::default();
+        self.params.history.clear(); // will get overwritten later
+        self.statistics.clone_from(&Statistics::default());
         for pv in &mut self.multi_pvs {
-            *pv = PVData::default();
+            pv.reset();
         }
     }
 
@@ -827,7 +865,7 @@ impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo<B>> AbstractSearchState<B> 
         // this can set num_multi_pv to 0
         parameters.num_multi_pv = parameters.num_multi_pv.min(num_moves);
         // it's possible that there are no legal moves to search; such as when the game is over or if restrict_moves
-        // contains only invalid moves. Search must be able to deal with this, but we set still add an empty multipv entry
+        // contains only invalid moves. Search must be able to deal with this, but we still add an empty multipv entry
         self.multi_pvs.resize_with(parameters.num_multi_pv.max(1), PVData::default);
         // If only one move can be played, immediately return it without doing a real search to make the engine appear
         // smarter, and perform better on lichess when it's up against an opponent with pondering enabled.
@@ -844,25 +882,24 @@ impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo<B>> AbstractSearchState<B> 
         self.statistics_mut().end_search();
         self.send_statistics();
         self.aggregate_match_statistics();
-        self.send_non_ugi(
-            Message::Debug,
-            &format_args!(
-                "Ending a search that took {0} microseconds, ({1} microseconds since starting the search)",
-                self.start_time().elapsed().as_micros(),
-                self.execution_start_time.elapsed().as_micros()
-            ),
+        send_debug_msg!(
+            self,
+            "Ending a search that took {0} microseconds ({1} microseconds since starting searching in this thread)",
+            self.start_time().elapsed().as_micros(),
+            self.execution_start_time.elapsed().as_micros()
         );
         // might block, see method. Do this as the last step so that we're not using compute after sending
         // the search result and so that we avoid race conditions.
         self.params.end_and_send(res);
+        send_debug_msg!(
+            self,
+            "Finished writing the search res {0} microseconds after getting a search command",
+            self.start_time().elapsed().as_micros(),
+        );
     }
 
     fn search_params(&self) -> &SearchParams<B> {
         &self.params
-    }
-
-    fn age(&self) -> Age {
-        self.age
     }
 
     fn pv_data(&self) -> &[PVData<B>] {
@@ -934,6 +971,10 @@ impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo<B>> AbstractSearchState<B> 
         if let Some(mut output) = self.search_params().thread_type.output() {
             output.write_search_info(self.to_search_info());
         }
+    }
+
+    fn age(&self) -> Age {
+        self.age
     }
 
     fn write_internal_info(&self, pos: &B) -> Option<String> {

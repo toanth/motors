@@ -14,6 +14,7 @@ use crate::search::statistics::SearchType;
 use crate::search::statistics::SearchType::{MainSearch, Qsearch};
 use crate::search::tt::TTEntry;
 use crate::search::*;
+use crate::send_debug_msg;
 use gears::PlayerResult::{Lose, Win};
 use gears::arrayvec::ArrayVec;
 use gears::games::chess::moves::ChessMove;
@@ -30,7 +31,6 @@ use gears::general::common::{Res, StaticallyNamedEntity, parse_bool_from_str, pa
 use gears::general::move_list::EagerNonAllocMoveList;
 use gears::general::moves::Move;
 use gears::itertools::Itertools;
-use gears::output::Message::Debug;
 use gears::score::{
     MAX_BETA, MAX_NORMAL_SCORE, MAX_SCORE_LOST, MIN_ALPHA, MIN_NORMAL_SCORE, NO_SCORE_YET, SCORE_LOST, ScoreT,
     game_result_to_score,
@@ -144,6 +144,14 @@ pub struct CapsSearchStackEntry {
 }
 
 impl SearchStackEntry<Chessboard> for CapsSearchStackEntry {
+    fn forget(&mut self) {
+        self.killer = ChessMove::default();
+        self.pv.list.clear();
+        self.tried_moves.clear();
+        self.pos = Chessboard::default();
+        self.eval = Score::default();
+    }
+
     fn pv(&self) -> Option<&[ChessMove]> {
         Some(self.pv.list.as_slice())
     }
@@ -299,12 +307,10 @@ impl Engine<Chessboard> for Caps {
             limit.tc.remaining.saturating_sub(limit.tc.increment) / cc::soft_limit_div() + limit.tc.increment;
         self.params.limit = limit;
 
-        // Ideally, this would only evaluate the arguments if debug is on, but that's annoying to implement
-        // and would still require synchronization because debug mode might be turned on while the engine is searching.
-        // Fortunately, `format_args!` avoids heap allocations.
-        self.state.send_non_ugi(Debug, &format_args!(
+        send_debug_msg!(
+            self.state,
             "Starting search with limit {time} microseconds, {incr}ms increment, max {fixed}ms, mate in {mate} plies, max depth {depth}, \
-            max {nodes} nodes, soft limit {soft}ms, {ignored} ignored moves",
+            max {nodes} nodes, soft limit {soft}ms, {ignored} ignored moves. {elapsed} microseconds have already elapsed ({e2} since starting the search in this thread)",
             time = limit.tc.remaining.as_micros(),
             incr = limit.tc.increment.as_millis(),
             mate = limit.mate.get(),
@@ -313,7 +319,9 @@ impl Engine<Chessboard> for Caps {
             fixed = limit.fixed_time.as_millis(),
             soft = soft_limit.as_millis(),
             ignored = self.excluded_moves.len(),
-        ));
+            elapsed = limit.start_time.elapsed().as_micros(),
+            e2 = self.execution_start_time.elapsed().as_micros()
+        );
         // Use 3fold repetition detection for positions before and including the root node and 2fold for positions during search.
         self.original_board_hist = take(&mut self.search_params_mut().history);
         self.original_board_hist.push(pos.hash_pos());
@@ -461,7 +469,9 @@ impl Caps {
                 (limit.remaining.saturating_sub(limit.increment)) * cc::inv_soft_limit_div_clamp() / 1024
                     + limit.increment,
             );
+            let elapsed = self.start_time().elapsed();
             if self.should_not_start_negamax(
+                elapsed,
                 soft_limit,
                 self.limit().soft_nodes.get(),
                 depth,
@@ -469,8 +479,10 @@ impl Caps {
                 self.limit().mate,
             ) {
                 self.statistics.soft_limit_stop();
+                send_debug_msg!(self, "Not starting negamax after {} microseconds", elapsed.as_micros());
                 return (false, None, None);
             }
+            send_debug_msg!(self, "Starting new aspiration window search after {} microseconds", elapsed.as_micros());
             self.atomic().set_depth(depth); // set depth now so that an immediate stop doesn't increment the depth
             if self.atomic().count_node() >= self.limit().nodes.get() {
                 return (false, Some(depth - 1), None);
@@ -480,16 +492,15 @@ impl Caps {
                 return (false, Some(depth), None);
             };
 
-            self.state.send_non_ugi(
-                Debug,
-                &format_args!(
-                    "depth {depth}, score {0}, radius {1}, interval ({2}, {3}) nodes {4}",
-                    pv_score.0,
-                    window_radius.0,
-                    alpha.0,
-                    beta.0,
-                    self.uci_nodes()
-                ),
+            send_debug_msg!(
+                self.state,
+                "depth {depth}, score {0}, radius {1}, interval ({2}, {3}) nodes {4}, elapsed microseconds: {5}",
+                pv_score.0,
+                window_radius.0,
+                alpha.0,
+                beta.0,
+                self.uci_nodes(),
+                self.start_time().elapsed().as_micros()
             );
 
             let node_type = pv_score.node_type(alpha, beta);

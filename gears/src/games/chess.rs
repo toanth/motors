@@ -56,6 +56,36 @@ pub mod zobrist;
 
 pub const START_FEN: &str = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
 
+static STARTPOS: Chessboard = {
+    let piece_bbs = [
+        ChessBitboard::new(0x00ff_0000_0000_ff00),
+        ChessBitboard::new(0x4200_0000_0000_0042),
+        ChessBitboard::new(0x2400_0000_0000_0024),
+        ChessBitboard::new(0x8100_0000_0000_0081),
+        ChessBitboard::new(0x0800_0000_0000_0008),
+        ChessBitboard::new(0x1000_0000_0000_0010),
+    ];
+    let color_bbs = [ChessBitboard::new(0xffff), ChessBitboard::new(0xffff << (8 * 6))];
+    let threats = ChessBitboard::new(0x7effff0000000000);
+    Chessboard {
+        piece_bbs,
+        color_bbs,
+        threats,
+        checkers: ChessBitboard::new(0),
+        pinned: ChessBitboard::new(0),
+        ply: 0,
+        ply_100_ctr: 0,
+        active_player: White,
+        castling: CastlingFlags::for_startpos(),
+        ep_square: None,
+        hashes: Hashes {
+            pawns: PosHash(2269071747976134835),
+            nonpawns: [PosHash(14501238155361420356), PosHash(16424626985112491456)],
+            total: PosHash(15430246029285706692),
+        },
+    }
+};
+
 #[derive(Eq, PartialEq, Copy, Clone, Debug, Default)]
 pub struct ChessSettings {}
 
@@ -216,7 +246,11 @@ impl Board for Chessboard {
     }
 
     fn startpos_for_settings(_: Self::Settings) -> Self {
-        Self::from_fen(START_FEN, Strict).expect("Internal error: Couldn't parse startpos fen")
+        debug_assert_eq!(
+            STARTPOS,
+            Self::from_fen(START_FEN, Strict).expect("Internal error: Couldn't parse startpos fen")
+        );
+        STARTPOS
     }
 
     fn from_name(name: &str) -> Res<Self> {

@@ -327,7 +327,7 @@ impl<B: Board> EngineUGI<B> {
         all_searchers: SearcherList<B>,
         all_evals: EvalList<B>,
     ) -> Res<Self> {
-        let output = Arc::new(Mutex::new(UgiOutput::new(opts.interactive)));
+        let output = Arc::new(Mutex::new(UgiOutput::new(opts.interactive, opts.debug)));
         let board = match opts.pos_name {
             None => B::default(),
             Some(name) => load_ugi_pos_simple(&name, Relaxed, &B::default())?,
@@ -628,7 +628,7 @@ impl<B: Board> EngineUGI<B> {
         let opts = &mut self.state.go_state;
         let limit = &mut opts.generic.limit;
         let remaining = &mut limit.tc.remaining;
-        *remaining = remaining.saturating_sub(opts.generic.move_overhead).max(Duration::from_micros(100));
+        *remaining = remaining.saturating_sub(opts.generic.move_overhead).max(Duration::from_micros(500));
 
         if cfg!(feature = "fuzzing") {
             limit.fixed_time = limit.fixed_time.max(Duration::from_secs(1));
@@ -934,6 +934,7 @@ impl<B: Board> EngineUGI<B> {
                 self.handle_output(&mut tokens("error"))?;
                 self.handle_output(&mut tokens("debug"))?;
                 self.handle_output(&mut tokens("info"))?;
+                self.output().set_debug(true);
                 self.write_message(Debug, &format_args!("Debug mode enabled"));
                 // don't change the log stream if it's already set
                 if self.output().additional_outputs.iter().any(|o| o.is_logger()) {
@@ -950,6 +951,7 @@ impl<B: Board> EngineUGI<B> {
                 _ = self.handle_output(&mut tokens("remove debug"));
                 _ = self.handle_output(&mut tokens("remove info"));
                 self.write_message(Debug, &format_args!("Debug mode disabled"));
+                self.output().set_debug(true);
                 // don't remove the error output, as there is basically no reason to do so
                 self.handle_log(&mut tokens("none"))
             }
