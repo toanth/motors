@@ -690,9 +690,9 @@ impl Caps {
                     {
                         self.statistics.tt_cutoff(MainSearch, tt_bound);
                         // Idea from stormphrax
-                        // if tt_score >= beta && !best_move.is_null() && !best_move.is_tactical(&pos) {
-                        //     self.update_histories_and_killer(&pos, best_move, depth, ply);
-                        // }
+                        if tt_score >= beta && !best_move.is_null() && !best_move.is_tactical(&pos) {
+                            self.update_histories_and_killer(&pos, best_move, depth, ply);
+                        }
                         return Some(tt_score);
                     } else if depth <= 6 {
                         // also from stormphrax
@@ -1301,16 +1301,19 @@ impl Caps {
         let (before, [entry, ..]) = self.state.search_stack.split_at_mut(ply) else { unreachable!() };
         let bonus = (depth * cc::hist_depth_bonus()) as HistScoreT;
         let threats = pos.threats();
+        debug_assert!(pos.is_move_legal(mov));
         if mov.is_tactical(pos) {
-            for disappointing in entry.tried_moves.iter().dropping_back(1).filter(|m| m.is_tactical(pos)) {
-                self.state.custom.capt_hist.update(*disappointing, threats, color, -bonus);
+            for &disappointing in entry.tried_moves.iter().dropping_back(1).filter(|m| m.is_tactical(pos)) {
+                debug_assert!(pos.is_move_legal(disappointing));
+                self.state.custom.capt_hist.update(disappointing, threats, color, -bonus);
             }
             self.state.custom.capt_hist.update(mov, threats, color, bonus);
             return;
         }
         entry.killer = mov;
-        for disappointing in entry.tried_moves.iter().dropping_back(1).filter(|m| !m.is_tactical(pos)) {
-            self.state.custom.history.update(*disappointing, threats, -bonus);
+        for &disappointing in entry.tried_moves.iter().dropping_back(1).filter(|m| !m.is_tactical(pos)) {
+            debug_assert!(pos.is_move_legal(disappointing));
+            self.state.custom.history.update(disappointing, threats, -bonus);
         }
         self.state.custom.history.update(mov, threats, bonus);
         if ply > 0 {
