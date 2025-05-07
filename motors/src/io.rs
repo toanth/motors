@@ -951,7 +951,7 @@ impl<B: Board> EngineUGI<B> {
                 _ = self.handle_output(&mut tokens("remove debug"));
                 _ = self.handle_output(&mut tokens("remove info"));
                 self.write_message(Debug, &format_args!("Debug mode disabled"));
-                self.output().set_debug(true);
+                self.output().set_debug(false);
                 // don't remove the error output, as there is basically no reason to do so
                 self.handle_log(&mut tokens("none"))
             }
