@@ -18,15 +18,16 @@
 
 //! Anything related to search that is also used by `monitors`, and therefore doesn't belong in `motors`.
 
+use crate::PlayerResult;
 use crate::general::common::Res;
 use crate::search::NodeType;
 use crate::search::NodeType::{Exact, FailHigh, FailLow};
-use crate::PlayerResult;
 use anyhow::anyhow;
-use derive_more::{Add, AddAssign, Mul, MulAssign, Neg, Sub, SubAssign};
+use derive_more::{Add, AddAssign, Neg, Sub, SubAssign};
 use num::ToPrimitive;
 use std::fmt::{Display, Formatter};
-use std::ops::{Div, DivAssign};
+use std::num::Wrapping;
+use std::ops::{Add, Div, DivAssign, Mul, MulAssign, Sub};
 
 /// Valid scores fit into 16 bits, but it's possible to temporarily overflow that range with some operations,
 /// e.g. when computing `score - previous_score`. So in order to avoid bugs related to that, simply use 32 bits.
@@ -35,22 +36,7 @@ pub type ScoreT = i32;
 /// In some places, it's important to save space by using only the necessary 16 bits for a score.
 pub type CompactScoreT = i16;
 
-#[derive(
-    Default,
-    Debug,
-    Eq,
-    PartialEq,
-    Ord,
-    PartialOrd,
-    Copy,
-    Clone,
-    Hash,
-    Add,
-    Sub,
-    Neg,
-    AddAssign,
-    SubAssign,
-)]
+#[derive(Default, Debug, Eq, PartialEq, Ord, PartialOrd, Copy, Clone, Hash, Add, Sub, Neg, AddAssign, SubAssign)]
 #[must_use]
 pub struct Score(pub ScoreT);
 
@@ -101,9 +87,7 @@ impl TryFrom<isize> for Score {
 
     fn try_from(value: isize) -> Res<Self> {
         let score = ScoreT::try_from(value)?;
-        Score(score)
-            .verify_valid()
-            .ok_or_else(|| anyhow!("{score} is outside of the valid values for a Score"))
+        Score(score).verify_valid().ok_or_else(|| anyhow!("{score} is outside of the valid values for a Score"))
     }
 }
 
@@ -136,8 +120,7 @@ impl Score {
     }
     /// Returns a negative number if the game is lost
     pub fn moves_until_game_won(self) -> Option<isize> {
-        self.plies_until_game_won()
-            .map(|n| (n as f32 / 2f32).ceil() as isize)
+        self.plies_until_game_won().map(|n| (n as f32 / 2f32).ceil() as isize)
     }
 
     pub fn plies_until_game_over(self) -> Option<isize> {
@@ -149,10 +132,7 @@ impl Score {
     }
 
     pub fn verify_valid(self) -> Option<Self> {
-        if (self <= SCORE_WON && self >= SCORE_LOST)
-            || self == SCORE_TIME_UP
-            || self == NO_SCORE_YET
-        {
+        if (self <= SCORE_WON && self >= SCORE_LOST) || self == SCORE_TIME_UP || self == NO_SCORE_YET {
             Some(self)
         } else {
             None
@@ -164,11 +144,7 @@ impl Score {
     }
 
     pub fn flip_if(self, flip: bool) -> Self {
-        if flip {
-            -self
-        } else {
-            self
-        }
+        if flip { -self } else { self }
     }
 
     pub fn node_type(self, alpha: Score, beta: Score) -> NodeType {
@@ -215,9 +191,11 @@ pub const fn is_valid_score(score: ScoreT) -> bool {
 /// Uses a SWAR (SIMD Within A Register) technique to store and manipulate middlegame and endgame scores
 /// at the same time, by treating them as the lower and upper half of a single value.
 /// This improves performance, which is especially important because the eval of a typical a/b engine is hot.
+// We use wrapping add and neg to not panic on scores that are out of range; these scores will be incorrect but that's
+// not a concern in practice because the eval function should not generate them in any "normal" position.
 #[derive(Debug, Default, Copy, Clone, Eq, PartialEq, Add, AddAssign, Sub, SubAssign, Neg)]
 #[must_use]
-pub struct PhasedScore(ScoreT);
+pub struct PhasedScore(Wrapping<ScoreT>);
 
 impl Display for PhasedScore {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
@@ -232,21 +210,21 @@ const COMPACT_SCORE_BITS: usize = CompactScoreT::BITS as usize;
 impl PhasedScore {
     // `const`, unlike `default`
     pub const fn zero() -> Self {
-        PhasedScore(0)
+        PhasedScore(Wrapping(0))
     }
     pub const fn new(mg: CompactScoreT, eg: CompactScoreT) -> Self {
         debug_assert!(is_valid_score(mg as ScoreT));
         debug_assert!(is_valid_score(eg as ScoreT));
-        Self(((mg as ScoreT) << COMPACT_SCORE_BITS) + eg as ScoreT)
+        Self(Wrapping(((mg as ScoreT) << COMPACT_SCORE_BITS) + eg as ScoreT))
     }
     pub const fn underlying(self) -> ScoreT {
-        self.0
+        self.0.0
     }
 
     pub const fn mg(self) -> Score {
         // The eg score could have overflown into the mg score, so add (1 << 15) to undo that overflow
         // with another potential overflow
-        Score(((self.0 + (1 << (COMPACT_SCORE_BITS - 1))) >> COMPACT_SCORE_BITS) as ScoreT)
+        Score(((self.underlying() + (1 << (COMPACT_SCORE_BITS - 1))) >> COMPACT_SCORE_BITS) as ScoreT)
     }
 
     pub const fn eg(self) -> Score {
@@ -255,8 +233,7 @@ impl PhasedScore {
 
     pub fn taper(self, phase: PhaseType, max_phase: PhaseType) -> Score {
         Score(
-            ((self.mg().0 as PhaseType * phase + self.eg().0 as PhaseType * (max_phase - phase))
-                / max_phase) as ScoreT,
+            ((self.mg().0 as PhaseType * phase + self.eg().0 as PhaseType * (max_phase - phase)) / max_phase) as ScoreT,
         )
     }
 }
@@ -280,13 +257,9 @@ impl MulAssign<usize> for PhasedScore {
         if cfg!(debug_assertions) {
             let mg = self.mg();
             let eg = self.eg();
-            let mg_res = (mg.0 as isize * rhs.to_isize().unwrap())
-                .try_into()
-                .unwrap();
+            let mg_res = (mg.0 as isize * rhs.to_isize().unwrap()).try_into().unwrap();
             debug_assert!(is_valid_score(mg_res));
-            let eg_res = (eg.0 as isize * rhs.to_isize().unwrap())
-                .try_into()
-                .unwrap();
+            let eg_res = (eg.0 as isize * rhs.to_isize().unwrap()).try_into().unwrap();
             debug_assert!(is_valid_score(eg_res));
         }
         self.0 *= rhs as ScoreT;
@@ -372,21 +345,8 @@ mod tests {
                     _ => a / d as ScoreT,
                 };
                 let res = func(taper_a, taper_b);
-                assert_eq!(
-                    res.mg(),
-                    f2(mg_a, mg_b),
-                    "{0} {mg_a} {mg_b} -- {1}, op `{2}`",
-                    res.mg(),
-                    res.0,
-                    op
-                );
-                assert_eq!(
-                    res.eg(),
-                    f2(eg_a, eg_b),
-                    "{0} {eg_a} {eg_b} -- {1}",
-                    res.eg(),
-                    res.0
-                );
+                assert_eq!(res.mg(), f2(mg_a, mg_b), "{0} {mg_a} {mg_b} -- {1}, op `{2}`", res.mg(), res.0, op);
+                assert_eq!(res.eg(), f2(eg_a, eg_b), "{0} {eg_a} {eg_b} -- {1}", res.eg(), res.0);
             }
             let op = taper_a * 3 / 2 - taper_b * 7;
             assert_eq!(op.mg(), mg_a * 3 / 2 - mg_b * 7);

@@ -1,13 +1,13 @@
 use crate::games::ataxx::common::AtaxxMoveType::{Cloning, Leaping};
 use crate::games::ataxx::common::AtaxxPieceType::{Blocked, Empty, Occupied};
 use crate::games::ataxx::AtaxxColor::{O, X};
-use crate::games::ataxx::{AtaxxBoard, AtaxxColor, AtaxxSquare};
-use crate::games::{AbstractPieceType, ColoredPieceType, Coordinates, DimT, PieceType};
-use crate::general::board::Board;
+use crate::games::ataxx::{AtaxxBoard, AtaxxColor, AtaxxSettings, AtaxxSquare};
+use crate::games::{AbstractPieceType, CharType, ColoredPieceType, DimT, PieceType};
+use crate::general::board::{Board, BoardHelpers};
 use crate::general::common::Res;
 use crate::general::moves::Legality::Legal;
-use crate::general::moves::{Legality, Move, NoMoveFlags, UntrustedMove};
-use anyhow::bail;
+use crate::general::moves::{Legality, Move, UntrustedMove};
+use anyhow::{bail, ensure};
 use arbitrary::Arbitrary;
 use colored::Colorize;
 use std::fmt;
@@ -44,17 +44,21 @@ pub enum AtaxxPieceType {
 }
 
 impl Display for AtaxxPieceType {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.to_utf8_char())
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.to_char(CharType::Unicode, &AtaxxSettings::default()))
     }
 }
 
-impl AbstractPieceType for AtaxxPieceType {
+impl AbstractPieceType<AtaxxBoard> for AtaxxPieceType {
     fn empty() -> Self {
         Empty
     }
 
-    fn to_ascii_char(self) -> char {
+    fn non_empty(_settings: &AtaxxSettings) -> impl Iterator<Item = Self> {
+        [Blocked, Occupied].into_iter()
+    }
+
+    fn to_char(self, _typ: CharType, _setting: &AtaxxSettings) -> char {
         match self {
             Empty => '.',
             Blocked => '-',
@@ -62,12 +66,20 @@ impl AbstractPieceType for AtaxxPieceType {
         }
     }
 
-    fn from_utf8_char(c: char) -> Option<Self> {
+    fn from_char(c: char, _pos: &AtaxxSettings) -> Option<Self> {
         match c {
             '.' => Some(Empty),
             '-' => Some(Blocked),
             'o' | 'x' => Some(Occupied),
             _ => None,
+        }
+    }
+
+    fn name(&self, _settings: &AtaxxSettings) -> impl AsRef<str> {
+        match self {
+            Empty => "empty",
+            Blocked => "gap",
+            Occupied => "stone",
         }
     }
 
@@ -94,17 +106,21 @@ pub enum ColoredAtaxxPieceType {
 }
 
 impl Display for ColoredAtaxxPieceType {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.to_utf8_char())
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.to_char(CharType::Unicode, &AtaxxSettings::default()))
     }
 }
 
-impl AbstractPieceType for ColoredAtaxxPieceType {
+impl AbstractPieceType<AtaxxBoard> for ColoredAtaxxPieceType {
     fn empty() -> Self {
         Self::Empty
     }
 
-    fn to_ascii_char(self) -> char {
+    fn non_empty(_settings: &AtaxxSettings) -> impl Iterator<Item = Self> {
+        [Self::Blocked, XPiece, OPiece].into_iter()
+    }
+
+    fn to_char(self, _typ: CharType, _settings: &AtaxxSettings) -> char {
         match self {
             ColoredAtaxxPieceType::Empty => '.',
             ColoredAtaxxPieceType::Blocked => '-',
@@ -113,13 +129,26 @@ impl AbstractPieceType for ColoredAtaxxPieceType {
         }
     }
 
-    fn from_utf8_char(c: char) -> Option<Self> {
+    fn to_display_char(self, typ: CharType, settings: &AtaxxSettings) -> char {
+        self.to_char(typ, settings).to_ascii_uppercase()
+    }
+
+    fn from_char(c: char, _settings: &AtaxxSettings) -> Option<Self> {
         match c {
             '.' => Some(Self::Empty),
             '-' => Some(Self::Blocked),
             'x' => Some(XPiece),
             'o' => Some(OPiece),
             _ => None,
+        }
+    }
+
+    fn name(&self, _settings: &AtaxxSettings) -> impl AsRef<str> {
+        match self {
+            ColoredAtaxxPieceType::Empty => "empty",
+            ColoredAtaxxPieceType::Blocked => "gap",
+            XPiece => "x",
+            OPiece => "o",
         }
     }
 
@@ -161,52 +190,49 @@ pub const MAX_ATAXX_MOVES_IN_POS: usize =
 #[derive(Debug, Default, Copy, Clone, Eq, PartialEq, Hash, Arbitrary)]
 #[repr(C)]
 pub struct AtaxxMove {
-    source: AtaxxSquare,
-    target: AtaxxSquare,
+    pub(super) source: u8,
+    pub(super) target: AtaxxSquare,
 }
 
 impl Display for AtaxxMove {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        self.format_compact(f)
+        match self.typ() {
+            Leaping => write!(f, "{0}{1}", self.source, self.target),
+            Cloning => write!(f, "{}", self.target),
+        }
     }
 }
 
 impl Move<AtaxxBoard> for AtaxxMove {
-    type Flags = NoMoveFlags;
     type Underlying = u16;
 
     fn legality() -> Legality {
         Legal
     }
 
-    fn src_square(self) -> AtaxxSquare {
-        self.source
+    fn src_square_in(self, _pos: &AtaxxBoard) -> Option<AtaxxSquare> {
+        if self.source == u8::MAX {
+            None
+        } else {
+            Some(AtaxxSquare::unchecked(self.source as usize))
+        }
     }
 
-    fn dest_square(self) -> AtaxxSquare {
+    fn dest_square_in(self, _pos: &AtaxxBoard) -> AtaxxSquare {
         self.target
-    }
-
-    fn flags(self) -> Self::Flags {
-        NoMoveFlags::default()
     }
 
     fn is_tactical(self, _board: &AtaxxBoard) -> bool {
         false
     }
 
-    fn format_compact(self, f: &mut Formatter<'_>) -> fmt::Result {
-        match self.typ() {
-            Leaping => write!(f, "{0}{1}", self.source, self.target),
-            Cloning => write!(f, "{}", self.target),
-        }
+    fn format_compact(self, f: &mut Formatter<'_>, _board: &AtaxxBoard) -> fmt::Result {
+        write!(f, "{self}")
     }
 
     fn parse_compact_text<'a>(s: &'a str, board: &AtaxxBoard) -> Res<(&'a str, AtaxxMove)> {
         let s = s.trim();
-        if s.is_empty() {
-            bail!("Empty input");
-        }
+        ensure!(!s.is_empty(), "Empty input");
         if let Some(rest) = s.strip_prefix("0000") {
             return Ok((rest, Self::default()));
         }
@@ -215,23 +241,20 @@ impl Move<AtaxxBoard> for AtaxxMove {
         };
         let first_square = AtaxxSquare::from_str(first_square)?;
         let second_square = s.get(2..4).and_then(|s| AtaxxSquare::from_str(s).ok());
-        let (remaining, from_square, to_square) = if let Some(sq) = second_square {
-            (&s[4..], first_square, sq)
+        let (remaining, from, to_square) = if let Some(sq) = second_square {
+            (&s[4..], first_square.to_u8(), sq)
         } else {
-            (&s[2..], AtaxxSquare::no_coordinates(), first_square)
+            (&s[2..], u8::MAX, first_square)
         };
 
-        let res = Self {
-            source: from_square,
-            target: to_square,
-        };
+        let res = Self { source: from, target: to_square };
         if !board.is_move_pseudolegal(res) {
-            if !board.is_empty(to_square) {
+            if board.is_occupied(to_square) {
                 bail!("The square {} is not empty", to_square.to_string().bold())
-            } else if from_square != AtaxxSquare::no_coordinates() {
-                bail!("The")
+            } else if let Some(from_square) = res.src_square_in(board) {
+                bail!("There is no legal move from {from_square} to {to_square}");
             }
-            bail!("No piece can move to {}", to_square.to_string().red())
+            bail!("No piece can create a clone of itself on {}", to_square.to_string().red())
         }
 
         Ok((remaining, res))
@@ -241,14 +264,14 @@ impl Move<AtaxxBoard> for AtaxxMove {
         Self::parse_compact_text(s, board)
     }
 
-    fn from_usize_unchecked(val: usize) -> UntrustedMove<AtaxxBoard> {
-        let source = AtaxxSquare::unchecked((val >> 8) & 0xff);
-        let target = AtaxxSquare::unchecked(val & 0xff);
+    fn from_u64_unchecked(val: u64) -> UntrustedMove<AtaxxBoard> {
+        let source = (val >> 8) as u8;
+        let target = AtaxxSquare::unchecked(val as usize & 0xff);
         UntrustedMove::from_move(Self { source, target })
     }
 
     fn to_underlying(self) -> Self::Underlying {
-        (u16::from(self.source.to_u8()) << 8) | u16::from(self.target.to_u8())
+        (u16::from(self.source) << 8) | u16::from(self.target.to_u8())
     }
 }
 
@@ -259,19 +282,20 @@ pub enum AtaxxMoveType {
 }
 
 impl AtaxxMove {
+    pub fn dest_square(self) -> AtaxxSquare {
+        self.target
+    }
+
     pub fn cloning(square: AtaxxSquare) -> Self {
-        Self {
-            target: square,
-            source: AtaxxSquare::no_coordinates(),
-        }
+        Self { target: square, source: u8::MAX }
     }
 
     pub fn leaping(source: AtaxxSquare, target: AtaxxSquare) -> Self {
-        Self { source, target }
+        Self { source: source.to_u8(), target }
     }
 
     pub fn typ(self) -> AtaxxMoveType {
-        if self.source == AtaxxSquare::no_coordinates() {
+        if self.source == u8::MAX {
             Cloning
         } else {
             Leaping

@@ -1,3 +1,4 @@
+use std::fmt;
 use std::fmt::Debug;
 use std::mem::swap;
 use std::num::NonZeroUsize;
@@ -5,33 +6,31 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use crossbeam_utils::sync::{Parker, Unparker};
-use strum::IntoEnumIterator;
 
 use crate::cli::CommandLineArgs;
 use crate::play::adjudication::{Adjudication, Adjudicator};
 use crate::play::player::Player::{Engine, Human};
-use crate::play::player::{
-    limit_to_ugi, EnginePlayer, HumanPlayerStatus, Player, PlayerBuilder, Protocol,
-};
-use crate::play::ugi_input::BestMoveAction;
+use crate::play::player::{limit_to_ugi, EnginePlayer, HumanPlayerStatus, Player, PlayerBuilder, Protocol};
 use crate::play::ugi_input::BestMoveAction::Ignore;
 use crate::play::ugi_input::EngineStatus::*;
+use crate::play::ugi_input::{BestMoveAction, OwnedSearchInfo};
 use crate::ui::Input;
+use gears::colored::Colorize;
 use gears::games::{BoardHistory, Color, ZobristHistory};
-use gears::general::board::Board;
 use gears::general::board::Strictness::Relaxed;
+use gears::general::board::{Board, BoardHelpers};
 use gears::general::common::anyhow::bail;
 use gears::general::common::Res;
+use gears::general::moves::Move;
 use gears::output::Message::*;
 use gears::output::{Message, OutputBox, OutputBuilder, OutputOpts};
-use gears::search::{SearchInfo, TimeControl};
+use gears::search::TimeControl;
 use gears::MatchStatus::*;
 use gears::Quitting::*;
 use gears::{
-    output_builder_from_str, player_res_to_match_res, AbstractRun, AdjudicationReason, GameOver,
-    GameOverReason, GameResult, GameState, MatchResult, MatchStatus, PlayerResult, Quitting,
+    output_builder_from_str, player_res_to_match_res, AbstractRun, AdjudicationReason, GameOver, GameOverReason,
+    GameResult, GameState, MatchResult, MatchStatus, PlayerResult, Quitting,
 };
-
 // TODO: Use tokio? Probably more efficient and it has non-blocking reads.
 
 pub type PlayerId = usize;
@@ -46,7 +45,7 @@ pub struct UgiMatchState<B: Board> {
     /// Current board state (does not include history), should be cheap to copy
     pub board: B,
     /// Needed for repetition detection
-    pub board_history: ZobristHistory<B>,
+    pub board_history: ZobristHistory,
     /// Needed to reconstruct the match, such as for the PGN export.
     pub move_history: Vec<B::Move>,
     /// useful for gui matches to allow a "restart" option
@@ -65,7 +64,7 @@ impl<B: Board> UgiMatchState<B> {
     fn new(initial_pos: B, event: String, site: String) -> Self {
         Self {
             status: NotStarted,
-            board: initial_pos,
+            board: initial_pos.clone(),
             board_history: ZobristHistory::default(),
             move_history: vec![],
             initial_pos,
@@ -77,10 +76,10 @@ impl<B: Board> UgiMatchState<B> {
     }
 
     fn reset(&mut self) {
-        self.board = self.initial_pos;
+        self.board = self.initial_pos.clone();
         self.move_history.clear();
         self.board_history.clear();
-        self.board_history.push(&self.board);
+        self.board_history.push(self.board.hash_pos());
         self.status = NotStarted;
     }
 
@@ -163,8 +162,7 @@ impl<B: Board> ClientState<B> {
     }
 
     pub fn contains_human(&self) -> bool {
-        !(self.get_player(B::Color::first()).is_engine()
-            && self.get_player(B::Color::second()).is_engine())
+        !(self.get_player(B::Color::first()).is_engine() && self.get_player(B::Color::second()).is_engine())
     }
 
     pub fn num_players(&self) -> usize {
@@ -173,12 +171,12 @@ impl<B: Board> ClientState<B> {
 }
 
 impl<B: Board> GameState<B> for ClientState<B> {
-    fn initial_pos(&self) -> B {
-        self.the_match.initial_pos
+    fn initial_pos(&self) -> &B {
+        &self.the_match.initial_pos
     }
 
-    fn get_board(&self) -> B {
-        self.the_match.board
+    fn get_board(&self) -> &B {
+        &self.the_match.board
     }
 
     fn game_name(&self) -> &str {
@@ -250,14 +248,8 @@ impl<B: Board> Client<B> {
             None => B::default(),
             Some(fen) => B::from_fen(fen, Relaxed)?,
         };
-        let event = args
-            .event
-            .clone()
-            .unwrap_or_else(|| format!("Monitors - {} match", B::game_name()));
-        let site = args
-            .site
-            .clone()
-            .unwrap_or_else(|| "github.com/toanth/motors".to_string());
+        let event = args.event.clone().unwrap_or_else(|| format!("Monitors - {} match", B::game_name()));
+        let site = args.site.clone().unwrap_or_else(|| "github.com/toanth/motors".to_string());
 
         let adjudicator = Adjudicator::new(
             args.resign_adjudication,
@@ -275,9 +267,8 @@ impl<B: Board> Client<B> {
             recover: args.recover,
             debug: false,
         };
-        let ugi_output = output_builder_from_str("ugi", &all_outputs)
-            .expect("Couldn't create 'ugi' output")
-            .for_client(&state)?;
+        let ugi_output =
+            output_builder_from_str("ugi", &all_outputs).expect("Couldn't create 'ugi' output").for_client(&state)?;
         Ok(Arc::new(Mutex::new(Self {
             state,
             outputs: vec![],
@@ -375,8 +366,9 @@ impl<B: Board> Client<B> {
         let time = self.state.get_player_mut(color).get_original_tc();
         self.show_message(
             Warning,
-            &format!(
-                "The {color} player ran out of time (the time control was {start}ms + {inc}ms)",
+            &format_args!(
+                "The {} player ran out of time (the time control was {start}ms + {inc}ms)",
+                color.name(&self.state.the_match.board.settings()).as_ref(),
                 start = time.remaining.as_millis(),
                 inc = time.increment.as_millis()
             ),
@@ -392,10 +384,7 @@ impl<B: Board> Client<B> {
             } else {
                 PlayerResult::Lose
             };
-            let res = GameOver {
-                result,
-                reason: GameOverReason::Adjudication(AdjudicationReason::TimeUp),
-            };
+            let res = GameOver { result, reason: GameOverReason::Adjudication(AdjudicationReason::TimeUp) };
             self.game_over(player_res_to_match_res(res, color));
         }
     }
@@ -407,10 +396,10 @@ impl<B: Board> Client<B> {
         }
     }
 
-    pub fn update_info(&mut self, id: PlayerId, info: SearchInfo<B>) -> Res<()> {
+    pub fn update_info(&mut self, id: PlayerId, info: OwnedSearchInfo<B>) -> Res<()> {
         let engine = self.state.get_engine_from_id_mut(id);
         for output in &mut self.outputs {
-            output.update_engine_info(&engine.display_name, &info);
+            output.update_engine_info(&engine.display_name, &info.to_search_info());
         }
         let Some(current_match) = engine.current_match.as_mut() else {
             bail!("The engine sent info ('{info}') while it wasn't playing in match")
@@ -420,13 +409,8 @@ impl<B: Board> Client<B> {
     }
 
     pub fn show_ugi_info_string(&mut self, id: PlayerId, info: &str) {
-        self.show_message(
-            Info,
-            &format!(
-                "Engine {}: '{info}'",
-                self.state.get_engine_from_id(id).display_name
-            ),
-        );
+        let name = self.state.get_engine_from_id(id).display_name.clone();
+        self.show_message(Info, &format_args!("Engine {name}: '{info}'",));
     }
 
     /// Plays a move without assuming that it comes from the current player, so this can be used to set up a position.
@@ -435,22 +419,23 @@ impl<B: Board> Client<B> {
     pub fn play_move_internal(&mut self, mov: B::Move) -> Res<()> {
         if !self.board().is_move_pseudolegal(mov) {
             // can't use to_extended_text because that assumes pseudolegality internally
-            bail!("The move '{mov}' is not pseudolegal in the current position",)
+            bail!(
+                "The move '{}' is not pseudolegal in the current position",
+                mov.compact_formatter(self.board()).to_string().red()
+            )
         }
-        let Some(board) = self.board().make_move(mov) else {
+        let Some(board) = self.board().clone().make_move(mov) else {
             let player_res = GameOver {
                 result: PlayerResult::Lose,
                 reason: GameOverReason::Adjudication(AdjudicationReason::InvalidMove),
             };
-            self.game_over(player_res_to_match_res(
-                player_res,
-                self.active_player().unwrap(),
-            ));
-            bail!("Invalid move '{mov}' in position {}", self.board().as_fen(),)
+            self.game_over(player_res_to_match_res(player_res, self.active_player().unwrap()));
+            let pos = self.board();
+            bail!("Invalid move '{0}' in position {pos}", mov.compact_formatter(pos).to_string().red())
         };
 
-        *self.board() = board;
-        self.match_state().board_history.push(&board);
+        *self.board() = board.clone();
+        self.match_state().board_history.push(board.hash_pos());
         self.match_state().move_history.push(mov);
         Ok(())
     }
@@ -488,11 +473,11 @@ impl<B: Board> Client<B> {
         }
     }
 
-    pub fn show_error(&mut self, message: &str) {
+    pub fn show_error(&mut self, message: &fmt::Arguments) {
         self.show_message(Error, message);
     }
 
-    pub fn show_message(&mut self, typ: Message, message: &str) {
+    pub fn show_message(&mut self, typ: Message, message: &fmt::Arguments) {
         for output in &mut self.outputs {
             output.display_message_with_state(&self.state, typ, message);
         }
@@ -504,13 +489,11 @@ impl<B: Board> Client<B> {
         let engine = self.state.get_engine_from_id_mut(engine);
         let name = engine.display_name.clone();
         for output in &mut self.outputs {
-            output.write_ugi_output(message, Some(&name));
+            output.write_ugi_output(&format_args!("{message}"), Some(&name));
         }
 
         if let Err(err) = engine.write_ugi_impl(message) {
-            self.show_error(&format!(
-                "Couldn't send message '{message}' to engine '{name}': {err}"
-            ));
+            self.show_error(&format_args!("Couldn't send message '{message}' to engine '{name}': {err}"));
         }
     }
 
@@ -539,12 +522,7 @@ impl<B: Board> Client<B> {
     }
 
     fn send_position(&mut self, color: B::Color) {
-        self.send_ugi_message(
-            color,
-            &self
-                .ugi_output
-                .as_string(&self.state, OutputOpts::default()),
-        );
+        self.send_ugi_message(color, &self.ugi_output.as_string(&self.state, OutputOpts::default()));
     }
 
     /// This function does no validation at all. This allows for greater flexibility when the user knows that
@@ -558,11 +536,7 @@ impl<B: Board> Client<B> {
 
     fn send_go(&mut self, color: B::Color) {
         let p1_time = self.state.get_player(B::Color::first()).get_time().unwrap();
-        let p2_time = self
-            .state
-            .get_player(B::Color::second())
-            .get_time()
-            .unwrap();
+        let p2_time = self.state.get_player(B::Color::second()).get_time().unwrap();
         let engine = self.state.get_engine_mut(color);
         let msg = limit_to_ugi(engine.current_match().limit, p1_time, p2_time).unwrap();
         self.send_ugi_message(color, &msg);
@@ -619,8 +593,11 @@ impl<B: Board> Client<B> {
     pub fn undo_halfmoves(&mut self, num_plies_to_undo: usize) -> Res<()> {
         let plies_played = self.match_state().move_history.len();
         if plies_played < num_plies_to_undo {
-            bail!("Couldn't undo the last {num_plies_to_undo} half moves because only {plies_played} half moves \
-                have been played so far (this is the initial position: '{}')", self.board().as_fen())
+            bail!(
+                "Couldn't undo the last {num_plies_to_undo} half moves because only {plies_played} half moves \
+                have been played so far (this is the initial position: '{}')",
+                self.board().as_fen()
+            )
         }
         let prev_ply = plies_played - num_plies_to_undo;
         self.rewind_to_ply(prev_ply)
@@ -628,10 +605,8 @@ impl<B: Board> Client<B> {
 
     pub fn rewind_to_ply(&mut self, ply: usize) -> Res<()> {
         assert!(ply <= self.match_state().move_history.len());
-        debug_assert!(
-            self.match_state().board_history.len() == self.match_state().move_history.len() + 1
-        );
-        let initial_pos = self.match_state().initial_pos;
+        debug_assert!(self.match_state().board_history.len() == self.match_state().move_history.len() + 1);
+        let initial_pos = self.match_state().initial_pos.clone();
         let mut moves = self.match_state().move_history.clone();
         moves.truncate(ply);
         self.change_position_to(initial_pos, &moves)?;
@@ -767,11 +742,7 @@ impl<B: Board> RunClient<B> {
     ) -> Res<Self> {
         let should_quit = Parker::new();
         let client = Client::create(should_quit.unparker().clone(), all_outputs, args)?;
-        Ok(Self {
-            client,
-            should_quit,
-            input,
-        })
+        Ok(Self { client, should_quit, input })
     }
 }
 

@@ -15,17 +15,18 @@
  *  You should have received a copy of the GNU General Public License
  *  along with Motors. If not, see <https://www.gnu.org/licenses/>.
  */
-use crate::io::command::{ugi_commands, CommandAutocomplete};
+use crate::io::autocomplete::CommandAutocomplete;
 use crate::io::input::InputEnum::{Interactive, NonInteractive};
-use crate::io::EngineUGI;
+use crate::io::{AbstractEngineUgi, AbstractEngineUgiState, EngineUGI};
 use gears::colored::Colorize;
 use gears::games::Color;
 use gears::general::board::Board;
-use gears::general::common::anyhow::{anyhow, bail};
 use gears::general::common::Res;
+use gears::general::common::anyhow::{anyhow, bail};
 use gears::output::OutputOpts;
 use inquire::Text;
-use std::io::{stdin, stdout, IsTerminal};
+use std::io::{IsTerminal, stdin, stdout};
+use std::rc::Rc;
 
 trait GetLine<B: Board> {
     fn get_line(&mut self, ugi: &mut EngineUGI<B>) -> Res<String>;
@@ -41,49 +42,42 @@ impl<B: Board> GetLine<B> for InteractiveInput<B> {
         // If reading the input failed, always terminate. This probably means that the pipe is broken or similar,
         // so there's no point in continuing.
         // Since Inquire doesn't seem to have an option to do anything about this (like re-drawing the prompt after each line of output),
-        // we just disable it while a `go` command is running?
+        // we just disable it while a `go` command is running
 
-        self.autocompletion.state.pos = ugi.state.board;
-        if ugi
-            .state
-            .engine
-            .main_atomic_search_data()
-            .currently_searching()
-        {
-            ugi.write_ugi(&format!(
-                " [{0} Type '{1}' to cancel]",
-                "Searching...".bold(),
-                "stop".bold()
-            ));
-            let pv_spacer = if ugi.state.board.active_player().is_first() {
-                ""
-            } else {
-                "    "
-            };
-            ugi.write_ugi(
-                &format!(
-                    "\nIter    Seldepth    Score      Time    Nodes   (New)     NPS      TT     {pv_spacer}PV"
+        self.autocompletion.state.go_state = ugi.state.go_state.clone();
+        if ugi.state.is_currently_searching() {
+            ugi.write_ugi(&format_args!(" [{0} Type '{1}' to cancel]", "Searching...".bold(), "stop".bold()));
+            let pv_spacer = if ugi.state.pos().active_player().is_first() { "" } else { "    " };
+            ugi.write_ugi(&format_args!(
+                "{}",
+                format!(
+                    "\nIter    Seldepth    Score        Time       Nodes   (New)     NPS  Branch     TT     {pv_spacer}PV"
                 )
-                .bold()
-                .to_string(),
-            );
+                .bold(),
+            ));
             NonInteractiveInput::default().get_line(ugi)
         } else {
+            // not very efficient, but that doesn't really matter here
+            let options = ugi.get_options();
+            self.autocompletion.state.options = Rc::new(options);
             let help = "Type 'help' for a list of commands, '?' for a list of moves";
-            let string = Text::new(&"Enter a command or move:".bold().to_string())
-                .with_help_message(help)
-                .with_autocomplete(self.autocompletion.clone())
-                .prompt()?;
-            Ok(string)
+            let prompt = "Enter a command, move, variation, FEN or PGN:".bold().to_string();
+            Ok(if let Some(failed) = &ugi.failed_cmd {
+                Text::new(&"Please retry (press Ctrl+C to discard input)".bold().to_string())
+                    .with_help_message(help)
+                    .with_autocomplete(self.autocompletion.clone())
+                    .with_initial_value(failed)
+                    .prompt()?
+            } else {
+                Text::new(&prompt).with_help_message(help).with_autocomplete(self.autocompletion.clone()).prompt()?
+            })
         }
     }
 }
 
 impl<B: Board> InteractiveInput<B> {
     fn new(ugi: &mut EngineUGI<B>) -> Self {
-        let res = Self {
-            autocompletion: CommandAutocomplete::new(ugi_commands(), ugi),
-        };
+        let res = Self { autocompletion: CommandAutocomplete::new(ugi) };
         // technically, we could also use an inquire formatter, but that doesn't seem to handle multi-line messages well
         ugi.print_board(OutputOpts::default());
         res
@@ -117,7 +111,7 @@ pub struct Input<B: Board> {
 
 impl<B: Board> Input<B> {
     pub fn new(mut interactive: bool, ugi: &mut EngineUGI<B>) -> (Self, bool) {
-        if interactive && !stdout().is_terminal() {
+        if !stdout().is_terminal() {
             interactive = false;
         }
         let typ = if interactive {
@@ -145,13 +139,12 @@ impl<B: Board> Input<B> {
                 Ok(res) => Ok(res),
                 Err(err) => {
                     self.set_interactive(false, ugi);
-                    self.get_line(ugi)
-                        .map_err(|err2| anyhow!("{err}. After falling back to non-interactive backend, another error occurred: {err2}"))
+                    self.get_line(ugi).map_err(|err2| {
+                        anyhow!("{err}. After falling back to non-interactive backend, another error occurred: {err2}")
+                    })
                 }
             },
-            NonInteractive(n) => n
-                .get_line(ugi)
-                .map_err(|err| anyhow!("Couldn't read input: {err}")),
+            NonInteractive(n) => n.get_line(ugi).map_err(|err| anyhow!("Couldn't read input: {err}")),
         }
     }
 }

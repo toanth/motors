@@ -17,9 +17,9 @@
  */
 
 use crate::eval::Eval;
-use gears::games::uttt::{UtttBoard, UtttSubSquare};
+use gears::games::uttt::{UtttBoard, UtttColor, UtttSubSquare};
 use gears::general::bitboards::RawBitboard;
-use gears::general::board::Board;
+use gears::general::board::{Board, BoardHelpers};
 use gears::general::common::StaticallyNamedEntity;
 use gears::score::Score;
 use std::fmt::Display;
@@ -46,25 +46,15 @@ impl StaticallyNamedEntity for Lute {
     where
         Self: Sized,
     {
-        "A simple, classical eval function for Ultimate Tic-Tac-Toe, which uses Piece Square Tables"
-            .to_string()
+        "A simple, classical eval function for Ultimate Tic-Tac-Toe, which uses Piece Square Tables".to_string()
     }
 }
 
-const PSQT: [Score; 9] = [
-    Score(20),
-    Score(10),
-    Score(20),
-    Score(10),
-    Score(30),
-    Score(10),
-    Score(20),
-    Score(10),
-    Score(20),
-];
+const PSQT: [Score; 9] =
+    [Score(20), Score(10), Score(20), Score(10), Score(30), Score(10), Score(20), Score(10), Score(20)];
 
 impl Eval<UtttBoard> for Lute {
-    fn eval(&mut self, pos: &UtttBoard, _ply: usize) -> Score {
+    fn eval(&mut self, pos: &UtttBoard, _ply: usize, _engine: UtttColor) -> Score {
         let mut score = Score::default();
         for color in [pos.active_player(), pos.inactive_player()] {
             for sub_board in UtttSubSquare::iter() {

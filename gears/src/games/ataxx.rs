@@ -2,40 +2,40 @@ mod board_impl;
 mod common;
 mod perft_test;
 
+use crate::PlayerResult;
+use crate::PlayerResult::{Draw, Lose, Win};
+use crate::games::ataxx::AtaxxColor::{O, X};
+use crate::games::ataxx::common::AtaxxPieceType::Occupied;
 use crate::games::ataxx::common::ColoredAtaxxPieceType::{Blocked, Empty, OPiece, XPiece};
 use crate::games::ataxx::common::{AtaxxMove, ColoredAtaxxPieceType, MAX_ATAXX_MOVES_IN_POS};
-use crate::games::ataxx::AtaxxColor::{O, X};
-use crate::games::chess::pieces::NUM_COLORS;
 use crate::games::{
-    Board, BoardHistory, Color, ColoredPiece, GenericPiece, NoHistory, Settings, ZobristHash,
+    Board, BoardHistory, CharType, Color, ColoredPiece, ColoredPieceType, Coordinates, GenericPiece, NUM_COLORS,
+    NoHistory, PosHash, Settings, Size,
 };
-use crate::general::bitboards::ataxx::{AtaxxBitboard, INVALID_EDGE_MASK};
-use crate::general::bitboards::{Bitboard, RawBitboard, RawStandardBitboard};
+use crate::general::bitboards::{Bitboard, KnownSizeBitboard, RawBitboard, RawStandardBitboard, SmallGridBitboard};
 use crate::general::board::SelfChecks::{Assertion, CheckFen};
 use crate::general::board::Strictness::Strict;
 use crate::general::board::{
-    board_from_name, common_fen_part, SelfChecks, Strictness, UnverifiedBoard,
+    BitboardBoard, BoardHelpers, PieceTypeOf, SelfChecks, Strictness, Symmetry, UnverifiedBoard, simple_fen,
 };
-use crate::general::common::{Res, StaticallyNamedEntity, Tokens};
+use crate::general::common::{Res, StaticallyNamedEntity, Tokens, ith_one_u64};
 use crate::general::move_list::{EagerNonAllocMoveList, MoveList};
+use crate::general::moves::Move;
 use crate::general::squares::SquareColor::White;
 use crate::general::squares::{SmallGridSize, SmallGridSquare, SquareColor};
-use crate::output::text_output::{
-    board_to_string, display_board_pretty, BoardFormatter, DefaultBoardFormatter, PieceToChar,
-};
 use crate::output::OutputOpts;
-use crate::PlayerResult;
-use crate::PlayerResult::{Draw, Lose, Win};
-use anyhow::bail;
+use crate::output::text_output::{BoardFormatter, DefaultBoardFormatter, board_to_string, display_board_pretty};
+use crate::search::Depth;
+use anyhow::{bail, ensure};
 use arbitrary::Arbitrary;
 use itertools::Itertools;
-use rand::prelude::IndexedRandom;
 use rand::Rng;
+use rand::prelude::IndexedRandom;
 use std::cmp::Ordering;
 use std::fmt::{Display, Formatter};
 use std::ops::Not;
-use strum::IntoEnumIterator;
-use strum_macros::EnumIter;
+
+type AtaxxBitboard = SmallGridBitboard<7, 7>;
 
 #[derive(Debug, Default, Copy, Clone, Eq, PartialEq)]
 pub struct AtaxxSettings {
@@ -48,9 +48,8 @@ pub type AtaxxSize = SmallGridSize<7, 7>;
 
 pub type AtaxxSquare = SmallGridSquare<7, 7, 8>;
 
-#[derive(
-    Debug, Default, Copy, Clone, Eq, PartialEq, Hash, derive_more::Display, EnumIter, Arbitrary,
-)]
+#[derive(Debug, Default, Copy, Clone, Eq, PartialEq, Hash, derive_more::Display, Arbitrary)]
+#[must_use]
 pub enum AtaxxColor {
     #[default]
     X,
@@ -65,26 +64,39 @@ impl Not for AtaxxColor {
     }
 }
 
+impl Into<usize> for AtaxxColor {
+    fn into(self) -> usize {
+        self as usize
+    }
+}
+
 impl Color for AtaxxColor {
-    fn other(self) -> Self {
-        match self {
-            X => O,
-            O => X,
-        }
+    type Board = AtaxxBoard;
+
+    fn second() -> Self {
+        O
     }
 
-    fn ascii_color_char(self) -> char {
+    fn to_char(self, _settings: &AtaxxSettings) -> char {
         match self {
             X => 'x',
             O => 'o',
         }
     }
+
+    fn name(self, _settings: &<Self::Board as Board>::Settings) -> impl AsRef<str> {
+        match self {
+            X => "X",
+            O => "O",
+        }
+    }
 }
 
 #[derive(Debug, Eq, PartialEq, Copy, Clone, Arbitrary)]
+#[must_use]
 pub struct AtaxxBoard {
-    colors: [RawStandardBitboard; NUM_COLORS],
-    empty: RawStandardBitboard,
+    colors: [AtaxxBitboard; NUM_COLORS],
+    empty: AtaxxBitboard,
     active_player: AtaxxColor,
     ply_100_ctr: usize,
     ply: usize,
@@ -92,7 +104,7 @@ pub struct AtaxxBoard {
 
 impl Default for AtaxxBoard {
     fn default() -> Self {
-        let x_bb = AtaxxBitboard::from_u64(0x41);
+        let x_bb = AtaxxBitboard::new(0x41);
         let o_bb = x_bb << ((7 - 1) * 8);
         Self::create(AtaxxBitboard::default(), x_bb, o_bb).unwrap()
     }
@@ -100,7 +112,7 @@ impl Default for AtaxxBoard {
 
 impl Display for AtaxxBoard {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.as_fen())
+        simple_fen(f, self, true, true)
     }
 }
 
@@ -133,6 +145,7 @@ type AtaxxPiece = GenericPiece<AtaxxBoard, ColoredAtaxxPieceType>;
 pub type AtaxxMoveList = EagerNonAllocMoveList<AtaxxBoard, MAX_ATAXX_MOVES_IN_POS>;
 
 impl Board for AtaxxBoard {
+    // TODO: This is not a useful board state since neither player can make any moves
     type EmptyRes = AtaxxBoard;
     type Settings = AtaxxSettings;
     type Coordinates = AtaxxSquare;
@@ -150,10 +163,6 @@ impl Board for AtaxxBoard {
 
     fn startpos_for_settings(_settings: Self::Settings) -> Self {
         Self::default()
-    }
-
-    fn from_name(name: &str) -> Res<Self> {
-        board_from_name(name)
     }
 
     fn bench_positions() -> Vec<Self> {
@@ -208,16 +217,75 @@ impl Board for AtaxxBoard {
             "x5o/1x4o/7/7/7/7/o3x2 o 0 2",
             "xx4o/7/7/7/7/6x/oo4x o 0 2",
             "x6/7/4x2/3x3/7/7/o5x o 2 2",
+            "oxx3o/xxx4/xxx4/5x1/7/7/x5x x 0 1",
         ];
-        fens.iter()
-            .map(|fen| Self::from_fen(fen, Strict).unwrap())
-            .collect_vec()
+        fens.iter().map(|fen| Self::from_fen(fen, Strict).unwrap()).collect_vec()
+    }
+
+    fn random_pos(rng: &mut impl Rng, strictness: Strictness, symmetry: Option<Symmetry>) -> Res<Self> {
+        loop {
+            let mut pos = Self::Unverified::new(Self::empty());
+            let mask = if let Some(symmetry) = symmetry {
+                match symmetry {
+                    Symmetry::Material => pos.0.empty_bb(),
+                    Symmetry::Horizontal => AtaxxBitboard::file(0) | AtaxxBitboard::file(1) | AtaxxBitboard::file(2),
+                    Symmetry::Vertical => AtaxxBitboard::rank(0) | AtaxxBitboard::rank(1) | AtaxxBitboard::rank(2),
+                    Symmetry::Rotation180 => {
+                        let files = AtaxxBitboard::file(0)
+                            | AtaxxBitboard::file(1)
+                            | AtaxxBitboard::file(2)
+                            | AtaxxBitboard::file(4);
+                        let ranks = AtaxxBitboard::rank(0) | AtaxxBitboard::rank(1) | AtaxxBitboard::rank(2);
+                        files & ranks
+                    }
+                }
+            } else {
+                pos.0.empty_bb()
+            };
+            let mut pieces = rng.random_range(2..(mask.num_ones() - 1));
+            if symmetry == Some(Symmetry::Material) {
+                pieces /= 2;
+            }
+            for _ in 0..pieces {
+                let empty = (pos.0.empty_bb() & mask).raw();
+                let sq = rng.random_range(0..empty.num_ones());
+                // even though an ataxx bitboard is 7x7, the empty bitboard only has ones on valid squares
+                let sq = ith_one_u64(sq, empty);
+                let sq = AtaxxSquare::from_bb_idx(sq);
+                let color = AtaxxColor::iter().nth(rng.random_range(0..2)).unwrap();
+                // doesn't currently generate gaps (doing so would need to ensure the board is connected)
+                let piece = ColoredAtaxxPieceType::new(color, Occupied);
+                pos.place_piece(sq, piece);
+                if let Some(symmetry) = symmetry {
+                    let sq = match symmetry {
+                        Symmetry::Material => {
+                            let empty = pos.0.empty_bb().raw();
+                            AtaxxSquare::from_bb_idx(ith_one_u64(rng.random_range(0..empty.num_ones()), empty))
+                        }
+                        Symmetry::Horizontal => sq.flip_left_right(AtaxxSize::default()),
+                        Symmetry::Vertical => sq.flip_up_down(AtaxxSize::default()),
+                        Symmetry::Rotation180 => {
+                            sq.flip_left_right(AtaxxSize::default()).flip_up_down(AtaxxSize::default())
+                        }
+                    };
+                    let piece = ColoredAtaxxPieceType::new(!color, Occupied);
+                    pos.place_piece(sq, piece);
+                }
+            }
+            if rng.random_bool(0.5) {
+                pos.0.colors.swap(0, 1);
+            }
+            if rng.random_bool(0.5) {
+                pos.0.active_player = !pos.0.active_player;
+            }
+            if let Ok(pos) = pos.verify(strictness) {
+                return Ok(pos);
+            }
+        }
     }
 
     fn settings(&self) -> Self::Settings {
-        AtaxxSettings {
-            blocked: self.blocked_bb(),
-        }
+        AtaxxSettings { blocked: self.blocked_bb() }
     }
 
     fn active_player(&self) -> AtaxxColor {
@@ -228,7 +296,7 @@ impl Board for AtaxxBoard {
         self.ply
     }
 
-    fn halfmove_repetition_clock(&self) -> usize {
+    fn ply_draw_clock(&self) -> usize {
         self.ply_100_ctr
     }
 
@@ -237,7 +305,8 @@ impl Board for AtaxxBoard {
     }
 
     fn is_empty(&self, coords: Self::Coordinates) -> bool {
-        self.empty_bb().is_bit_set_at(coords.bb_idx())
+        // more efficient than empty_bb() unless the compiler manages to optimize the bitand away (unlikely)
+        !self.occupied_bb().is_bit_set_at(coords.bb_idx())
     }
 
     fn is_piece_on(&self, sq: AtaxxSquare, piece: ColoredAtaxxPieceType) -> bool {
@@ -264,6 +333,10 @@ impl Board for AtaxxBoard {
         Self::Piece::new(typ, coordinates)
     }
 
+    fn default_perft_depth(&self) -> Depth {
+        Depth::new(5)
+    }
+
     fn gen_pseudolegal<T: MoveList<Self>>(&self, moves: &mut T) {
         self.gen_legal(moves)
     }
@@ -272,13 +345,12 @@ impl Board for AtaxxBoard {
         // currently, no moves are considered tactical
     }
 
+    fn num_pseudolegal_moves(&self) -> usize {
+        self.num_moves()
+    }
+
     fn random_legal_move<R: Rng>(&self, rng: &mut R) -> Option<Self::Move> {
-        let moves = self.pseudolegal_moves();
-        if moves.is_empty() {
-            None
-        } else {
-            moves.choose(rng).copied()
-        }
+        self.pseudolegal_moves().choose(rng).copied()
     }
 
     fn random_pseudolegal_move<R: Rng>(&self, rng: &mut R) -> Option<Self::Move> {
@@ -297,13 +369,12 @@ impl Board for AtaxxBoard {
     }
 
     fn is_move_pseudolegal(&self, mov: Self::Move) -> bool {
-        self.is_move_legal_impl(mov)
+        self.size().coordinates_valid(mov.target)
+            && mov.src_square_in(self).is_none_or(|c| self.size().coordinates_valid(c))
+            && self.is_move_legal_impl(mov)
     }
 
-    fn player_result_no_movegen<H: BoardHistory<Self>>(
-        &self,
-        _history: &H,
-    ) -> Option<PlayerResult> {
+    fn player_result_no_movegen<H: BoardHistory>(&self, _history: &H) -> Option<PlayerResult> {
         let color = self.active_player;
         if self.color_bb(color).is_zero() {
             return Some(Lose);
@@ -323,7 +394,7 @@ impl Board for AtaxxBoard {
         })
     }
 
-    fn player_result_slow<H: BoardHistory<Self>>(&self, history: &H) -> Option<PlayerResult> {
+    fn player_result_slow<H: BoardHistory>(&self, history: &H) -> Option<PlayerResult> {
         self.player_result_no_movegen(history)
     }
 
@@ -337,12 +408,8 @@ impl Board for AtaxxBoard {
         true
     }
 
-    fn zobrist_hash(&self) -> ZobristHash {
+    fn hash_pos(&self) -> PosHash {
         self.hash_impl()
-    }
-
-    fn as_fen(&self) -> String {
-        common_fen_part(self, true, true)
     }
 
     fn read_fen_and_advance_input(string: &mut Tokens, strictness: Strictness) -> Res<Self> {
@@ -353,12 +420,8 @@ impl Board for AtaxxBoard {
         true
     }
 
-    fn as_ascii_diagram(&self, flip: bool) -> String {
-        board_to_string(self, AtaxxPiece::to_ascii_char, flip)
-    }
-
-    fn as_unicode_diagram(&self, flip: bool) -> String {
-        board_to_string(self, AtaxxPiece::to_utf8_char, flip)
+    fn as_diagram(&self, typ: CharType, flip: bool) -> String {
+        board_to_string(self, AtaxxPiece::to_char, typ, flip)
     }
 
     fn display_pretty(&self, fmt: &mut dyn BoardFormatter<Self>) -> String {
@@ -367,21 +430,33 @@ impl Board for AtaxxBoard {
 
     fn pretty_formatter(
         &self,
-        piece_to_char: Option<PieceToChar>,
+        piece_to_char: Option<CharType>,
         last_move: Option<Self::Move>,
         opts: OutputOpts,
     ) -> Box<dyn BoardFormatter<Self>> {
-        Box::new(DefaultBoardFormatter::new(
-            *self,
-            piece_to_char,
-            last_move,
-            opts,
-        ))
+        Box::new(DefaultBoardFormatter::new(*self, piece_to_char, last_move, opts))
     }
 
     fn background_color(&self, _coords: Self::Coordinates) -> SquareColor {
-        // Don't pay a checkerboard pattern, just make everything white
+        // Don't paint a checkerboard pattern, just make everything white
         White
+    }
+}
+
+impl BitboardBoard for AtaxxBoard {
+    type RawBitboard = RawStandardBitboard;
+    type Bitboard = AtaxxBitboard;
+
+    fn piece_bb(&self, _piece: PieceTypeOf<Self>) -> Self::Bitboard {
+        self.colors[0] | self.colors[1]
+    }
+
+    fn player_bb(&self, color: Self::Color) -> Self::Bitboard {
+        self.colors[color as usize]
+    }
+
+    fn mask_bb(&self) -> Self::Bitboard {
+        !AtaxxBitboard::INVALID_EDGE_MASK
     }
 }
 
@@ -399,21 +474,18 @@ impl UnverifiedBoard<AtaxxBoard> for UnverifiedAtaxxBoard {
     fn verify_with_level(self, level: SelfChecks, _strictness: Strictness) -> Res<AtaxxBoard> {
         let this = self.0;
         let blocked = this.blocked_bb();
-        if blocked & INVALID_EDGE_MASK != INVALID_EDGE_MASK {
+        if blocked & AtaxxBitboard::INVALID_EDGE_MASK != AtaxxBitboard::INVALID_EDGE_MASK {
             bail!(
-                "A squares outside of the board is being used ({})",
-                AtaxxSquare::unchecked((!blocked & INVALID_EDGE_MASK).pop_lsb())
+                "A square outside of the board is being used ({})",
+                AtaxxSquare::unchecked((!blocked & AtaxxBitboard::INVALID_EDGE_MASK).pop_lsb())
             );
         }
-        if this.ply_100_ctr > 100 {
-            bail!(
-                "The halfmove clock is too large: It must be a number between 0 and 100, not {}",
-                this.ply_100_ctr
-            );
-        }
-        if this.ply > 10_000 {
-            bail!("Ridiculously large ply number ({})", this.ply);
-        }
+        ensure!(
+            this.ply_100_ctr <= 100,
+            "The halfmove clock is too large: It must be a number between 0 and 100, not {}",
+            this.ply_100_ctr
+        );
+        ensure!(this.ply <= 10_000, "Ridiculously large ply number ({})", this.ply);
 
         if level == CheckFen {
             return Ok(this);
@@ -422,30 +494,32 @@ impl UnverifiedBoard<AtaxxBoard> for UnverifiedAtaxxBoard {
             assert_eq!(this.num_squares(), 49);
         }
         let mut overlap = this.colors[0] & this.colors[1];
-        if overlap.has_set_bit() {
-            bail!(
-                "Both players have a piece on the same square ('{}')",
-                AtaxxSquare::from_bb_index(overlap.pop_lsb())
-            );
-        }
+        ensure!(
+            overlap.is_zero(),
+            "Both players have a piece on the same square ('{}')",
+            AtaxxSquare::from_bb_idx(overlap.pop_lsb())
+        );
         for color in AtaxxColor::iter() {
             let mut overlap = this.empty & this.colors[color as usize];
-            if overlap.has_set_bit() {
-                bail!(
-                    "The square '{}' is both empty and occupied by a player",
-                    AtaxxSquare::from_bb_index(overlap.pop_lsb())
-                );
-            }
+            ensure!(
+                overlap.is_zero(),
+                "The square '{}' is both empty and occupied by a player",
+                AtaxxSquare::from_bb_idx(overlap.pop_lsb())
+            );
         }
         Ok(this)
+    }
+
+    fn settings(&self) -> AtaxxSettings {
+        self.0.settings()
     }
 
     fn size(&self) -> AtaxxSize {
         self.0.size()
     }
 
-    fn place_piece_unchecked(mut self, square: AtaxxSquare, piece: ColoredAtaxxPieceType) -> Self {
-        let bb = RawStandardBitboard::single_piece(square.bb_idx());
+    fn place_piece(&mut self, square: AtaxxSquare, piece: ColoredAtaxxPieceType) {
+        let bb = AtaxxBitboard::single_piece(square);
         self.0.colors[0] &= !bb;
         self.0.colors[1] &= !bb;
         self.0.empty &= !bb;
@@ -455,29 +529,39 @@ impl UnverifiedBoard<AtaxxBoard> for UnverifiedAtaxxBoard {
             XPiece => self.0.colors[X as usize] |= bb,
             OPiece => self.0.colors[O as usize] |= bb,
         }
-        self
     }
 
-    fn remove_piece_unchecked(mut self, square: AtaxxSquare) -> Self {
-        let bb = RawStandardBitboard::single_piece(square.bb_idx());
+    fn remove_piece(&mut self, square: AtaxxSquare) {
+        let bb = AtaxxBitboard::single_piece(square);
         self.0.colors[0] &= !bb;
         self.0.colors[1] &= !bb;
         self.0.empty |= bb;
-        self
     }
 
-    fn piece_on(&self, coords: AtaxxSquare) -> Res<AtaxxPiece> {
-        Ok(self.0.colored_piece_on(self.check_coordinates(coords)?))
+    fn piece_on(&self, coords: AtaxxSquare) -> AtaxxPiece {
+        self.0.colored_piece_on(coords)
     }
 
-    fn set_active_player(mut self, player: AtaxxColor) -> Self {
+    fn is_empty(&self, square: AtaxxSquare) -> bool {
+        self.0.is_empty(square)
+    }
+
+    fn active_player(&self) -> AtaxxColor {
+        self.0.active_player
+    }
+
+    fn set_active_player(&mut self, player: AtaxxColor) {
         self.0.active_player = player;
-        self
     }
 
-    fn set_ply_since_start(mut self, ply: usize) -> Res<Self> {
+    fn set_ply_since_start(&mut self, ply: usize) -> Res<()> {
         self.0.ply = ply;
-        Ok(self)
+        Ok(())
+    }
+
+    fn set_halfmove_repetition_clock(&mut self, ply: usize) -> Res<()> {
+        self.0.ply_100_ctr = ply;
+        Ok(())
     }
 }
 
@@ -487,8 +571,8 @@ impl UnverifiedAtaxxBoard {
         self
     }
 
-    pub fn set_blockers_bb(mut self, blockers_bb: RawStandardBitboard) -> Self {
-        self.0.empty = self.0.empty ^ self.0.blocked_bb().raw() ^ blockers_bb;
+    pub fn set_blockers_bb(mut self, blockers_bb: AtaxxBitboard) -> Self {
+        self.0.empty = self.0.empty ^ self.0.blocked_bb() ^ blockers_bb;
         self
     }
 }
@@ -505,14 +589,14 @@ mod tests {
         assert!(pos.debug_verify_invariants(Strict).is_ok());
         assert_eq!(pos.color_bb(O).num_ones(), 2);
         assert_eq!(pos.color_bb(X).num_ones(), 2);
-        assert!((pos.blocked_bb() & !INVALID_EDGE_MASK).is_zero());
+        assert!((pos.blocked_bb() & !AtaxxBitboard::INVALID_EDGE_MASK).is_zero());
         let moves = pos.pseudolegal_moves();
         for mov in pos.pseudolegal_moves() {
             assert!(pos.is_move_legal(mov));
             let child = pos.make_move(mov).unwrap();
             assert_ne!(child, pos);
             assert_eq!(child.active_player.other(), pos.active_player);
-            assert_ne!(child.zobrist_hash(), pos.zobrist_hash());
+            assert_ne!(child.hash_pos(), pos.hash_pos());
         }
         assert_eq!(moves.len(), 16);
     }
