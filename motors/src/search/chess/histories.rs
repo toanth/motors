@@ -228,6 +228,24 @@ impl CorrHist {
         let score = raw.0 as isize + correction / CORRHIST_SCALE;
         Score(score.clamp(MIN_NORMAL_SCORE.0 as isize, MAX_NORMAL_SCORE.0 as isize) as ScoreT)
     }
+
+    pub(super) fn abs_sum(&self, pos: &Chessboard, continued_move: ChessMove) -> i32 {
+        let mut res = 0;
+        let color = pos.active_player();
+        let pawn_idx = pos.pawn_key().0 as usize % CORRHIST_SIZE;
+        res += self.pawns[color][pawn_idx].abs();
+        let minor_idx = pos.minor_key().0 as usize % CORRHIST_SIZE;
+        res += self.minor[color][minor_idx].abs();
+        for c in ChessColor::iter() {
+            let nonpawn_idx = pos.nonpawn_key(c).0 as usize % CORRHIST_SIZE;
+            res += (self.nonpawns[color][nonpawn_idx][c] / 2).abs();
+        }
+        if !continued_move.is_null() {
+            let mov = continued_move;
+            res += self.continuation[color][mov.dest_square().bb_idx()][mov.piece_type() as usize].abs();
+        }
+        res
+    }
 }
 
 pub(super) fn write_single_hist_table(table: &HistoryHeuristic, pos: &Chessboard, flip: bool) -> String {

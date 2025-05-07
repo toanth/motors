@@ -975,12 +975,6 @@ impl Caps {
                     if in_check {
                         reduction -= 1;
                     }
-                    // Idea from Pawnocchio: If the raw static eval is very different from the adjusted eval, the position is
-                    // tactical, so reduce more
-                    let correction = raw_eval.0.abs_diff(eval.0);
-                    if correction > 300 {
-                        reduction -= 1;
-                    }
                 }
                 // Futility Reduction: If this move is not a TT move, good SEE capture or killer, and our eval is significantly
                 // less than alpha, reduce.
@@ -994,6 +988,12 @@ impl Caps {
                 // if the TT move is a capture and we didn't already fail high, it's likely that later moves are worse
                 if !in_check && pos_noisy {
                     reduction += 1;
+                }
+                // Idea from Pawnocchio: If the raw static eval is very different from the adjusted eval, the position is
+                // tactical, so reduce less
+                let correction = self.corr_hist.abs_sum(&pos, continued_move);
+                if correction > 200 {
+                    reduction -= 1;
                 }
                 if mov.is_tactical(&pos) {
                     let hist = self.capt_hist.get(mov, pos.threats(), us);
