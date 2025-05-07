@@ -81,6 +81,7 @@ static STARTPOS: Chessboard = {
         hashes: Hashes {
             pawns: PosHash(2269071747976134835),
             nonpawns: [PosHash(14501238155361420356), PosHash(16424626985112491456)],
+            knb: PosHash(10966777955972345920),
             total: PosHash(15430246029285706692),
         },
     }
@@ -168,6 +169,7 @@ impl Color for ChessColor {
 struct Hashes {
     pawns: PosHash,
     nonpawns: [PosHash; NUM_COLORS],
+    knb: PosHash,
     total: PosHash,
 }
 
@@ -188,7 +190,7 @@ pub struct Chessboard {
 }
 
 // TODO: It might be worth it to use u32s for te non-main hashes so that the size can shrink down to 128 bytes
-const _: () = assert!(size_of::<Chessboard>() == 136);
+const _: () = assert!(size_of::<Chessboard>() == 144);
 
 impl Default for Chessboard {
     fn default() -> Self {
@@ -711,6 +713,10 @@ impl Chessboard {
 
     pub fn pawn_key(&self) -> PosHash {
         self.hashes.pawns
+    }
+
+    pub fn minor_key(&self) -> PosHash {
+        self.hashes.knb
     }
 
     pub fn nonpawn_key(&self, color: ChessColor) -> PosHash {
