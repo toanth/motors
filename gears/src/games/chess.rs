@@ -81,7 +81,7 @@ static STARTPOS: Chessboard = {
         hashes: Hashes {
             pawns: PosHash(2269071747976134835),
             nonpawns: [PosHash(14501238155361420356), PosHash(16424626985112491456)],
-            major: PosHash(15210614877976928594),
+            knb: PosHash(10966777955972345920),
             total: PosHash(15430246029285706692),
         },
     }
@@ -169,7 +169,7 @@ impl Color for ChessColor {
 struct Hashes {
     pawns: PosHash,
     nonpawns: [PosHash; NUM_COLORS],
-    major: PosHash,
+    knb: PosHash,
     total: PosHash,
 }
 
@@ -715,8 +715,8 @@ impl Chessboard {
         self.hashes.pawns
     }
 
-    pub fn major_key(&self) -> PosHash {
-        self.hashes.major
+    pub fn minor_key(&self) -> PosHash {
+        self.hashes.knb
     }
 
     pub fn nonpawn_key(&self, color: ChessColor) -> PosHash {

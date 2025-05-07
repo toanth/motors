@@ -448,8 +448,8 @@ impl Chessboard {
             self.hashes.pawns ^= hash_delta;
         } else {
             self.hashes.nonpawns[us] ^= hash_delta;
-            if piece.is_major() {
-                self.hashes.major ^= hash_delta;
+            if piece.is_knb() {
+                self.hashes.knb ^= hash_delta;
             }
         }
         // remove old castling flags and ep square, they'll later be set again
@@ -476,8 +476,8 @@ impl Chessboard {
             } else {
                 let removed = ZOBRIST_KEYS.piece_key(captured, them, to);
                 self.hashes.nonpawns[them] ^= ZOBRIST_KEYS.piece_key(captured, them, to);
-                if captured.is_major() {
-                    self.hashes.major ^= removed;
+                if captured.is_knb() {
+                    self.hashes.knb ^= removed;
                 }
             }
             self.ply_100_ctr = 0;
@@ -512,8 +512,8 @@ impl Chessboard {
             let new_piece = mov.flags().promo_piece();
             let new = ZOBRIST_KEYS.piece_key(mov.flags().promo_piece(), us, to);
             self.hashes.nonpawns[us] ^= new;
-            if new_piece.is_major() {
-                self.hashes.major ^= new;
+            if new_piece.is_knb() {
+                self.hashes.knb ^= new;
             }
         }
         self.ply += 1;
@@ -566,13 +566,13 @@ impl Chessboard {
         debug_assert!(self.colored_piece_on(rook_from).symbol == ColoredChessPieceType::new(color, Rook));
         self.move_piece(rook_from, rook_to, Rook);
         let mut delta = PosHash(0);
-        delta ^= ZOBRIST_KEYS.piece_key(Rook, color, rook_to);
-        delta ^= ZOBRIST_KEYS.piece_key(Rook, color, rook_from);
         delta ^= ZOBRIST_KEYS.piece_key(King, color, *to);
         *to = ChessSquare::from_rank_file(from.rank(), to_file);
         delta ^= ZOBRIST_KEYS.piece_key(King, color, *to);
+        self.hashes.knb ^= delta;
+        delta ^= ZOBRIST_KEYS.piece_key(Rook, color, rook_to);
+        delta ^= ZOBRIST_KEYS.piece_key(Rook, color, rook_from);
         self.hashes.nonpawns[color] ^= delta;
-        self.hashes.major ^= delta;
         debug_assert!(!self.is_in_check_on_square(
             self.active_player,
             ChessSquare::from_rank_file(from.rank(), to_file),

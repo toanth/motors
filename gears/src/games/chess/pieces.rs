@@ -64,8 +64,8 @@ impl ChessPieceType {
         Self::pieces().dropping(1)
     }
 
-    pub fn is_major(self) -> bool {
-        [Rook, Queen, King].contains(&self)
+    pub fn is_knb(self) -> bool {
+        [King, Knight, Bishop].contains(&self)
     }
 
     pub fn to_name(self) -> &'static str {
