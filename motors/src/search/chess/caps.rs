@@ -975,6 +975,12 @@ impl Caps {
                     if in_check {
                         reduction -= 1;
                     }
+                    // Idea from Pawnocchio: If the raw static eval is very different from the adjusted eval, the position is
+                    // tactical, so reduce more
+                    let correction = raw_eval.0.abs_diff(eval.0);
+                    if correction > 300 {
+                        reduction -= 1;
+                    }
                 }
                 // Futility Reduction: If this move is not a TT move, good SEE capture or killer, and our eval is significantly
                 // less than alpha, reduce.
