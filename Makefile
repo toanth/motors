@@ -23,7 +23,7 @@ pliers:
 motors: release
 
 caps:
-	cargo rustc --release --package motors --bin motors --no-default-features --features=caps -- --emit link=${EXE}
+	cargo rustc --release --package motors --bin motors --no-default-features --features=caps --features=unsafe -- --emit link=${EXE}
 
 bench: release
 	./caps bench
