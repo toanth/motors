@@ -690,10 +690,11 @@ impl Caps {
                     {
                         self.statistics.tt_cutoff(MainSearch, tt_bound);
                         // Idea from stormphrax
-                        // if tt_score >= beta && !best_move.is_null() && !best_move.is_tactical(&pos) {
-                        //     debug_assert!(self.search_stack[ply].tried_moves.is_empty());
-                        //     self.update_histories_and_killer(&pos, best_move, depth, ply);
-                        // }
+                        if tt_score >= beta && !best_move.is_null() && !best_move.is_tactical(&pos) {
+                            debug_assert!(self.search_stack[ply].tried_moves.is_empty());
+                            let bonus = (depth * cc::hist_depth_bonus()) as HistScoreT;
+                            self.state.custom.history.update(best_move, pos.threats(), bonus);
+                        }
                         return Some(tt_score);
                     } else if depth <= 6 {
                         // also from stormphrax
