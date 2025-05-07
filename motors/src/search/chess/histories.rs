@@ -142,6 +142,7 @@ pub(super) struct CorrHist {
     pawns: Box<[[ScoreT; CORRHIST_SIZE]; NUM_COLORS]>,
     // the outer color index is the active player, the inner color is the color we're looking at
     nonpawns: Box<[[[ScoreT; NUM_COLORS]; CORRHIST_SIZE]; NUM_COLORS]>,
+    minor: Box<[[ScoreT; CORRHIST_SIZE]; NUM_COLORS]>,
     continuation: Box<[[[ScoreT; NUM_CHESS_PIECES]; NUM_SQUARES]; NUM_COLORS]>,
 }
 
@@ -150,6 +151,7 @@ impl Default for CorrHist {
         CorrHist {
             pawns: Box::new([[0; CORRHIST_SIZE]; NUM_COLORS]),
             nonpawns: Box::new([[[0; NUM_COLORS]; CORRHIST_SIZE]; NUM_COLORS]),
+            minor: Box::new([[0; CORRHIST_SIZE]; NUM_COLORS]),
             continuation: Box::new([[[0; NUM_CHESS_PIECES]; NUM_SQUARES]; NUM_COLORS]),
         }
     }
@@ -175,6 +177,9 @@ impl CorrHist {
         for value in self.continuation.iter_mut().flatten().flatten() {
             *value = 0;
         }
+        for value in self.minor.iter_mut().flatten() {
+            *value = 0;
+        }
     }
 
     pub(super) fn update(
@@ -190,6 +195,8 @@ impl CorrHist {
         let bonus = (score - eval).0 as isize * CORRHIST_SCALE;
         let pawn_idx = pos.pawn_key().0 as usize % CORRHIST_SIZE;
         Self::update_entry(&mut self.pawns[color][pawn_idx], weight, bonus);
+        let minor_idx = pos.minor_key().0 as usize % CORRHIST_SIZE;
+        Self::update_entry(&mut self.minor[color][minor_idx], weight, bonus);
         for c in ChessColor::iter() {
             let nonpawn_idx = pos.nonpawn_key(c).0 as usize % CORRHIST_SIZE;
             Self::update_entry(&mut self.nonpawns[color][nonpawn_idx][c], weight, bonus);
@@ -208,6 +215,8 @@ impl CorrHist {
         let color = pos.active_player();
         let pawn_idx = pos.pawn_key().0 as usize % CORRHIST_SIZE;
         let mut correction = self.pawns[color][pawn_idx] as isize;
+        let minor_idx = pos.minor_key().0 as usize % CORRHIST_SIZE;
+        correction += self.minor[color][minor_idx] as isize;
         for c in ChessColor::iter() {
             let nonpawn_idx = pos.nonpawn_key(c).0 as usize % CORRHIST_SIZE;
             correction += self.nonpawns[color][nonpawn_idx][c] as isize / 2;
