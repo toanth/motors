@@ -963,6 +963,7 @@ impl<'a> MoveParser<'a> {
     }
 
     fn error_msg(&self, board: &Chessboard, original_piece: ChessPieceType) -> Res<ChessMove> {
+        let us = board.active_player;
         // invalid move, try to print a helpful error message
         let f = |file: Option<DimT>, rank: Option<DimT>| {
             if let Some(file) = file {
@@ -979,16 +980,27 @@ impl<'a> MoveParser<'a> {
                 ("any square".to_string(), !ChessBitboard::default())
             }
         };
+        let pinned = if self.target_rank.is_some() && self.target_file.is_some() {
+            board.all_attacking(
+                ChessSquare::from_rank_file(self.target_rank.unwrap(), self.target_file.unwrap()),
+                &board.slider_generator(),
+            ) & board.pinned
+                & board.col_piece_bb(us, self.piece)
+        } else {
+            ChessBitboard::default()
+        };
         let (from, from_bb) = f(self.start_file, self.start_rank);
         let to = f(self.target_file, self.target_rank).0;
         let (from, to) = (from.bold(), to.bold());
         let mut additional = String::new();
         if board.is_game_lost_slow() {
-            additional = format!(" ({} has been checkmated)", board.active_player);
+            additional = format!(" ({us} has been checkmated)");
         } else if board.is_in_check() {
-            additional = format!(" ({} is in check)", board.active_player);
+            additional = format!(" ({us} is in check)");
+        } else if let Some(sq) = pinned.ones().next() {
+            additional = format!(" (the {0} on {sq} is pinned)", self.piece);
         } else if board.pseudolegal_moves().iter().any(|m| self.is_matching_pseudolegal(m)) {
-            additional = format!(" (it leaves the {} king in check)", board.active_player)
+            additional = format!(" (it leaves the {us} king in check)")
         } else if self.piece == King {
             // rank and file have already been checked to exist in the move description (only pawns can omit rank)
             let dest = ChessSquare::from_rank_file(self.target_rank.unwrap(), self.target_file.unwrap());
@@ -998,7 +1010,6 @@ impl<'a> MoveParser<'a> {
         }
         let additional = additional.bold();
 
-        // TODO: else, if piece is pinned, update message
         // moves without a piece but source and dest square have probably been meant as UCI moves, and not as pawn moves
         if original_piece == Empty && from_bb.is_single_piece() {
             let piece = board.colored_piece_on(from_bb.to_square().unwrap());
@@ -1009,7 +1020,7 @@ impl<'a> MoveParser<'a> {
                     self.consumed().bold(),
                     additional
                 )
-            } else if piece.color().unwrap() != board.active_player {
+            } else if piece.color().unwrap() != us {
                 bail!(
                     "There is a {0} on {from}, but it's {1}'s turn to move, so the move '{2}' is invalid{3}",
                     piece.symbol.name().bold(),
