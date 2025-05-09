@@ -691,7 +691,7 @@ impl Caps {
                         self.statistics.tt_cutoff(MainSearch, tt_bound);
                         // Idea from stormphrax
                         if tt_score >= beta && !best_move.is_null() && !best_move.is_tactical(&pos) {
-                            self.update_histories_and_killer(&pos, best_move, depth, ply);
+                            self.update_histories_and_killer(&pos, best_move, depth, ply, tt_score - beta);
                         }
                         return Some(tt_score);
                     } else if depth <= 6 {
@@ -1084,7 +1084,7 @@ impl Caps {
             }
             // Beta cutoff. Update history and killer for quiet moves, then break out of the move loop.
             bound_so_far = FailHigh;
-            self.update_histories_and_killer(&pos, mov, depth, ply);
+            self.update_histories_and_killer(&pos, mov, depth, ply, score - beta);
             break;
         }
 
@@ -1295,10 +1295,17 @@ impl Caps {
         }
     }
 
-    fn update_histories_and_killer(&mut self, pos: &Chessboard, mov: ChessMove, depth: isize, ply: usize) {
+    fn update_histories_and_killer(
+        &mut self,
+        pos: &Chessboard,
+        mov: ChessMove,
+        depth: isize,
+        ply: usize,
+        score_diff: Score,
+    ) {
         let color = pos.active_player();
         let (before, [entry, ..]) = self.state.search_stack.split_at_mut(ply) else { unreachable!() };
-        let bonus = (depth * cc::hist_depth_bonus()) as HistScoreT;
+        let bonus = (depth * cc::hist_depth_bonus()) as HistScoreT + (score_diff.0 + 1).ilog2() as HistScoreT * 8;
         let threats = pos.threats();
         if mov.is_tactical(pos) {
             for disappointing in entry.tried_moves.iter().dropping_back(1).filter(|m| m.is_tactical(pos)) {
