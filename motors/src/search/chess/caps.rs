@@ -773,6 +773,8 @@ impl Caps {
             if pos_noisy {
                 margin *= 2;
             }
+            let num_parent_moves = if ply > 0 { self.search_stack[ply - 1].tried_moves.len() } else { 0 };
+            margin -= (num_parent_moves as ScoreT * 8).max(margin / 2);
 
             if depth <= cc::rfp_max_depth() && eval >= beta + Score(margin) {
                 return Some(eval);
