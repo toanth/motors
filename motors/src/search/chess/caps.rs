@@ -693,7 +693,8 @@ impl Caps {
                         self.statistics.tt_cutoff(MainSearch, tt_bound);
                         // Idea from stormphrax
                         if tt_score >= beta && !best_move.is_null() && !best_move.is_tactical(&pos) {
-                            self.update_histories_and_killer(&pos, best_move, depth, ply, tt_score - beta);
+                            self.search_stack[ply].killer = best_move;
+                            self.update_histories(best_move, depth, ply, tt_score - beta);
                         }
                         return Some(tt_score);
                     } else if depth <= 6 {
@@ -1096,7 +1097,8 @@ impl Caps {
             }
             // Beta cutoff. Update history and killer for quiet moves, then break out of the move loop.
             bound_so_far = FailHigh;
-            self.update_histories_and_killer(&pos, mov, depth, ply, score - beta);
+            self.search_stack[ply].killer = best_move;
+            self.update_histories(mov, depth, ply, score - beta);
             break;
         }
 
@@ -1133,6 +1135,15 @@ impl Caps {
             || (best_score >= eval && bound_so_far == NodeType::upper_bound()))
         {
             self.corr_hist.update(&pos, continued_move, depth, eval, best_score);
+        }
+        if ply > 0 && bound_so_far == FailLow {
+            // give a smaller bonus to the parent's move if we fail low. This rewards PVS researches that don't cause a fail high in the parent.
+            self.update_histories(
+                self.search_stack[ply - 1].last_tried_move(),
+                depth / 2,
+                ply - 1,
+                (alpha - best_score) / 2,
+            );
         }
 
         Some(best_score)
@@ -1307,17 +1318,12 @@ impl Caps {
         }
     }
 
-    fn update_histories_and_killer(
-        &mut self,
-        pos: &Chessboard,
-        mov: ChessMove,
-        depth: isize,
-        ply: usize,
-        score_diff: Score,
-    ) {
-        let color = pos.active_player();
+    fn update_histories(&mut self, mov: ChessMove, depth: isize, ply: usize, score_diff: Score) {
+        debug_assert!(score_diff >= Score(0));
         let (before, [entry, ..]) = self.state.search_stack.split_at_mut(ply) else { unreachable!() };
         let bonus = (depth * cc::hist_depth_bonus()) as HistScoreT + (score_diff.0 + 1).ilog2() as HistScoreT * 8;
+        let pos = &entry.pos;
+        let color = pos.active_player();
         let threats = pos.threats();
         if mov.is_tactical(pos) {
             for disappointing in entry.tried_moves.iter().dropping_back(1).filter(|m| m.is_tactical(pos)) {
@@ -1326,7 +1332,6 @@ impl Caps {
             self.state.custom.capt_hist.update(mov, threats, color, bonus);
             return;
         }
-        entry.killer = mov;
         for disappointing in entry.tried_moves.iter().dropping_back(1).filter(|m| !m.is_tactical(pos)) {
             self.state.custom.history.update(*disappointing, threats, -bonus);
         }
