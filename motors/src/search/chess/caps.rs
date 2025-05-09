@@ -139,6 +139,7 @@ pub struct CapsSearchStackEntry {
     killer: ChessMove,
     pv: Pv<Chessboard, SEARCH_STACK_LEN>,
     tried_moves: ArrayVec<ChessMove, MAX_CHESS_MOVES_IN_POS>,
+    move_score: MoveScore,
     pos: Chessboard,
     eval: Score,
 }
@@ -148,6 +149,7 @@ impl SearchStackEntry<Chessboard> for CapsSearchStackEntry {
         self.killer = ChessMove::default();
         self.pv.list.clear();
         self.tried_moves.clear();
+        self.move_score = MoveScore(0);
         self.pos = Chessboard::default();
         self.eval = Score::default();
     }
@@ -773,8 +775,11 @@ impl Caps {
             if pos_noisy {
                 margin *= 2;
             }
-            let num_parent_moves = if ply > 0 { self.search_stack[ply - 1].tried_moves.len() } else { 0 };
-            margin -= (num_parent_moves as ScoreT * 8).max(margin / 2);
+            debug_assert_ne!(ply, 0);
+            let parent_move_score = self.search_stack[ply - 1].move_score;
+            if parent_move_score < MoveScore(0) {
+                margin -= margin / 4;
+            }
 
             if depth <= cc::rfp_max_depth() && eval >= beta + Score(margin) {
                 return Some(eval);
@@ -923,7 +928,7 @@ impl Caps {
             };
             #[cfg(debug_assertions)]
             let debug_history_len = self.params.history.len();
-            self.record_move(mov, pos, ply, MainSearch);
+            self.record_move(mov, pos, ply, MainSearch, move_score);
 
             if root && depth >= 8 && self.limit().start_time.elapsed().as_millis() >= 3000 {
                 let move_num = self.search_stack[0].tried_moves.len();
@@ -1217,9 +1222,9 @@ impl Caps {
             MovePicker::new(pos, best_move, !in_check);
         let move_scorer = CapsMoveScorer { board: pos, ply };
         let mut children_visited = 0;
-        while let Some((mov, score)) = move_picker.next(&move_scorer, &self.state) {
+        while let Some((mov, move_score)) = move_picker.next(&move_scorer, &self.state) {
             debug_assert!(mov.is_tactical(&pos) || pos.is_in_check());
-            if !eval.is_game_lost_score() && score < MoveScore(0) || children_visited >= 3 {
+            if !eval.is_game_lost_score() && move_score < MoveScore(0) || children_visited >= 3 {
                 // qsearch see pruning and qsearch late move  pruning (lmp):
                 // If the move has a negative SEE score or if we've already looked at enough moves, don't even bother playing it in qsearch.
                 break;
@@ -1232,7 +1237,7 @@ impl Caps {
             let Some(new_pos) = pos.make_move(mov) else {
                 continue;
             };
-            self.record_move(mov, pos, ply, Qsearch);
+            self.record_move(mov, pos, ply, Qsearch, move_score);
             children_visited += 1;
             let score = -self.qsearch(new_pos, -beta, -alpha, ply + 1)?;
             self.undo_move();
@@ -1347,10 +1352,11 @@ impl Caps {
         self.search_stack[ply].tried_moves.clear();
     }
 
-    fn record_move(&mut self, mov: ChessMove, old_pos: Chessboard, ply: usize, typ: SearchType) {
+    fn record_move(&mut self, mov: ChessMove, old_pos: Chessboard, ply: usize, typ: SearchType, move_score: MoveScore) {
         _ = self.atomic().count_node();
         self.params.history.push(old_pos.hash_pos());
         self.search_stack[ply].tried_moves.push(mov);
+        self.search_stack[ply].move_score = move_score;
         self.statistics.count_legal_make_move(typ);
     }
 
