@@ -1304,6 +1304,7 @@ impl Caps {
         mov: ChessMove,
         prev_move: ChessMove,
         bonus: HistScoreT,
+        malus: HistScoreT,
         color: ChessColor,
         pos: &Chessboard,
         hist: &mut ContHist,
@@ -1314,7 +1315,7 @@ impl Caps {
         }
         hist.update(mov, prev_move, bonus, color);
         for disappointing in failed.iter().dropping_back(1).filter(|m| !m.is_tactical(pos)) {
-            hist.update(*disappointing, prev_move, -bonus, color);
+            hist.update(*disappointing, prev_move, malus, color);
         }
     }
 
@@ -1322,7 +1323,7 @@ impl Caps {
         debug_assert!(score_diff >= Score(0));
         let (before, [entry, ..]) = self.state.search_stack.split_at_mut(ply) else { unreachable!() };
         let bonus = (depth * cc::hist_depth_bonus()) as HistScoreT + (score_diff.0 + 1).ilog2() as HistScoreT * 8;
-        let malus = -(bonus - (entry.tried_moves.len() - 1) as HistScoreT * 2);
+        let malus = -(bonus - entry.tried_moves.len() as HistScoreT * 1);
         let pos = &entry.pos;
         let color = pos.active_player();
         let threats = pos.threats();
@@ -1343,6 +1344,7 @@ impl Caps {
                 mov,
                 parent.last_tried_move(),
                 bonus,
+                malus,
                 color,
                 pos,
                 &mut self.state.custom.countermove_hist,
@@ -1355,6 +1357,7 @@ impl Caps {
                     mov,
                     grandparent.last_tried_move(),
                     bonus,
+                    malus,
                     color,
                     pos,
                     fmh,
