@@ -1322,18 +1322,19 @@ impl Caps {
         debug_assert!(score_diff >= Score(0));
         let (before, [entry, ..]) = self.state.search_stack.split_at_mut(ply) else { unreachable!() };
         let bonus = (depth * cc::hist_depth_bonus()) as HistScoreT + (score_diff.0 + 1).ilog2() as HistScoreT * 8;
+        let malus = -(bonus - (entry.tried_moves.len() - 1) as HistScoreT * 2);
         let pos = &entry.pos;
         let color = pos.active_player();
         let threats = pos.threats();
         if mov.is_tactical(pos) {
             for disappointing in entry.tried_moves.iter().dropping_back(1).filter(|m| m.is_tactical(pos)) {
-                self.state.custom.capt_hist.update(*disappointing, threats, color, -bonus);
+                self.state.custom.capt_hist.update(*disappointing, threats, color, malus);
             }
             self.state.custom.capt_hist.update(mov, threats, color, bonus);
             return;
         }
         for disappointing in entry.tried_moves.iter().dropping_back(1).filter(|m| !m.is_tactical(pos)) {
-            self.state.custom.history.update(*disappointing, threats, -bonus);
+            self.state.custom.history.update(*disappointing, threats, malus);
         }
         self.state.custom.history.update(mov, threats, bonus);
         if ply > 0 {
