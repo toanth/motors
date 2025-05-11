@@ -45,7 +45,7 @@ use gears::ugi::{EngineOption, EngineOptionName, EngineOptionType, UgiCheck};
 /// The maximum value of the `depth` parameter, i.e. the maximum number of Iterative Deepening iterations.
 const DEPTH_SOFT_LIMIT: Depth = Depth::new(225);
 /// The maximum value of the `ply` parameter in main search, i.e. the maximum depth (in plies) before qsearch is reached
-const DEPTH_HARD_LIMIT: Depth = Depth::new(255);
+pub(super) const DEPTH_HARD_LIMIT: Depth = Depth::new(255);
 
 /// Qsearch can go more than 30 plies deeper than the depth hard limit if ther's more material on the board; in that case we simply
 /// return the static eval.
@@ -112,7 +112,7 @@ impl CustomInfo<Chessboard> for CapsCustomInfo {
     }
 
     fn hard_forget_except_tt(&mut self) {
-        for value in self.history.iter_mut().flatten() {
+        for value in self.history.iter_mut().flatten().flatten() {
             *value = 0;
         }
         self.capt_hist.reset();
@@ -261,7 +261,7 @@ impl Engine<Chessboard> for Caps {
         let (descr, hist_score) = if mov.is_tactical(&pos) {
             ("Capture History Score", self.capt_hist.get(mov, pos.threats(), pos.active_player()).0)
         } else {
-            ("Main History Score", self.history.get(mov, pos.threats()))
+            ("Main History Score", self.history.get(mov, pos.threats(), 0))
         };
         let color = color_for_score(Score(hist_score as ScoreT), &score_gradient());
         let hist_score = format!("{}", hist_score).color(color);
@@ -1371,10 +1371,11 @@ impl Caps {
             self.state.custom.capt_hist.update(mov, threats, color, bonus);
             return;
         }
+        let main_bucket = (ply + 1).ilog2() as usize;
         for disappointing in entry.tried_moves.iter().dropping_back(1).filter(|m| !m.is_tactical(pos)) {
-            self.state.custom.history.update(*disappointing, threats, -bonus);
+            self.state.custom.history.update(*disappointing, threats, -bonus, main_bucket);
         }
-        self.state.custom.history.update(mov, threats, bonus);
+        self.state.custom.history.update(mov, threats, bonus, main_bucket);
         if ply > 0 {
             let parent = before.last_mut().unwrap();
             Self::update_continuation_hist(
@@ -1470,7 +1471,10 @@ impl MoveScorer<Chessboard, Caps> for CapsMoveScorer {
             } else {
                 0
             };
-            MoveScore(state.history.get(mov, self.board.threats()) + countermove_score + follow_up_score / 2)
+            let main_bucket = (self.ply + 1).ilog2() as usize;
+            MoveScore(
+                state.history.get(mov, self.board.threats(), main_bucket) + countermove_score + follow_up_score / 2,
+            )
         }
     }
 
@@ -1652,9 +1656,9 @@ mod tests {
         let killer = ChessMove::from_text("b2c2", &pos).unwrap();
         caps.search_stack[0].killer = killer;
         let hist_move = ChessMove::from_text("b2b1", &pos).unwrap();
-        caps.history.update(hist_move, threats, 1000);
+        caps.history.update(hist_move, threats, 1000, 0);
         let bad_quiet = ChessMove::from_text("b2a2", &pos).unwrap();
-        caps.history.update(bad_quiet, threats, -1);
+        caps.history.update(bad_quiet, threats, -1, 0);
         let bad_capture = ChessMove::from_text("b2b3", &pos).unwrap();
         caps.capt_hist.update(bad_capture, threats, White, 100);
 

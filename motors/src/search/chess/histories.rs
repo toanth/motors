@@ -17,6 +17,7 @@
  */
 use crate::io::ugi_output::{color_for_score, score_gradient};
 use crate::search::MoveScore;
+use crate::search::chess::caps::DEPTH_HARD_LIMIT;
 use derive_more::{Deref, DerefMut, Index, IndexMut};
 use gears::colored::Colorize;
 use gears::games::chess::moves::{ChessMove, ChessMoveFlags};
@@ -48,28 +49,30 @@ fn update_history_score(entry: &mut HistScoreT, bonus: HistScoreT) {
     *entry += bonus;
 }
 
+const NUM_HIST_PLY_BUCKETS: usize = DEPTH_HARD_LIMIT.get().ilog2() as usize;
+
 /// Quiet History Heuristic: Give bonuses to quiet moves that causes a beta cutoff a maluses to quiet moves that were tried
 /// but didn't cause a beta cutoff. Order all non-TT non-killer moves based on that (as well as based on the continuation
 /// history)
 #[derive(Debug, Clone, Deref, DerefMut, Index, IndexMut)]
-pub(super) struct HistoryHeuristic(Box<[[HistScoreT; 64 * 64]; 4]>);
+pub(super) struct HistoryHeuristic(Box<[[[HistScoreT; 64 * 64]; 4]; NUM_HIST_PLY_BUCKETS]>);
 
 impl HistoryHeuristic {
-    pub(super) fn update(&mut self, mov: ChessMove, threats: ChessBitboard, bonus: HistScoreT) {
+    pub(super) fn update(&mut self, mov: ChessMove, threats: ChessBitboard, bonus: HistScoreT, bucket: usize) {
         let mut threats_idx = threats.is_bit_set(mov.src_square()) as usize;
         threats_idx = threats_idx * 2 + threats.is_bit_set(mov.dest_square()) as usize;
-        update_history_score(&mut self[threats_idx][mov.from_to_square()], bonus);
+        update_history_score(&mut self[bucket][threats_idx][mov.from_to_square()], bonus);
     }
-    pub(super) fn get(&self, mov: ChessMove, threats: ChessBitboard) -> HistScoreT {
+    pub(super) fn get(&self, mov: ChessMove, threats: ChessBitboard, bucket: usize) -> HistScoreT {
         let mut threats_idx = threats.is_bit_set(mov.src_square()) as usize;
         threats_idx = threats_idx * 2 + threats.is_bit_set(mov.dest_square()) as usize;
-        self[threats_idx][mov.from_to_square()]
+        self[bucket][threats_idx][mov.from_to_square()]
     }
 }
 
 impl Default for HistoryHeuristic {
     fn default() -> Self {
-        HistoryHeuristic(Box::new([[0; 64 * 64]; 4]))
+        HistoryHeuristic(Box::new([[[0; 64 * 64]; 4]; NUM_HIST_PLY_BUCKETS]))
     }
 }
 
@@ -239,7 +242,7 @@ pub(super) fn write_single_hist_table(table: &HistoryHeuristic, pos: &Chessboard
                 } else {
                     ChessMove::new(from, to, ChessMoveFlags::QueenMove)
                 };
-                table.get(mov, pos.threats()) as i32
+                table.get(mov, pos.threats(), 0) as i32
             })
             .sum();
         sum as f64 / 64.0
