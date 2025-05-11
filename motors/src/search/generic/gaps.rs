@@ -119,7 +119,6 @@ impl<B: Board> Engine<B> for Gaps<B> {
                 self.state.current_pv_num = pv_num;
                 self.state.atomic().set_depth(depth);
                 self.state.atomic().update_seldepth(depth as usize);
-                _ = self.state.atomic().count_node();
                 let iteration_score = self.negamax(pos.clone(), 0, depth, SCORE_LOST, SCORE_WON);
                 self.state.cur_pv_data_mut().score = iteration_score;
                 if self.state.stop_flag() {
@@ -138,6 +137,10 @@ impl<B: Board> Engine<B> for Gaps<B> {
             }
             self.state.excluded_moves.truncate(self.state.excluded_moves.len() - self.state.multi_pv());
             self.state.statistics.next_id_iteration();
+        }
+        if !self.state.stop_flag() {
+            // count an additional node to ensure the game remains reproducible
+            _ = self.state.atomic().count_node();
         }
 
         SearchResult::move_and_score(self.state.atomic().best_move(), self.state.atomic().score(), pos)
@@ -162,6 +165,10 @@ impl<B: Board> Gaps<B> {
         debug_assert!(depth <= MAX_DEPTH.isize());
         self.state.statistics.count_node_started(MainSearch);
 
+        if self.count_node_and_test_stop() {
+            return SCORE_TIME_UP;
+        }
+
         if let Some(res) = pos.player_result_no_movegen(&self.state.params.history) {
             return game_result_to_score(res, ply);
         }
@@ -183,7 +190,6 @@ impl<B: Board> Gaps<B> {
                 continue;
             }
             self.state.statistics.count_legal_make_move(MainSearch);
-            _ = self.state.atomic().count_node();
 
             self.state.params.history.push(pos.hash_pos());
 
@@ -191,7 +197,7 @@ impl<B: Board> Gaps<B> {
 
             self.state.params.history.pop();
 
-            if self.should_stop(self.state.uci_nodes()) {
+            if self.state.stop_flag() {
                 return SCORE_TIME_UP;
             }
 

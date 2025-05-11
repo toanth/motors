@@ -14,7 +14,7 @@ mod tests {
     use crate::search::generic::random_mover::RandomMover;
     use crate::search::multithreading::AtomicSearchState;
     use crate::search::tt::TT;
-    use crate::search::{Engine, SearchParams};
+    use crate::search::{AbstractSearchState, Engine, SearchParams};
     use crate::{list_chess_evals, list_chess_searchers};
     use gears::PlayerResult::{Draw, Win};
     use gears::games::chess::Chessboard;
@@ -335,7 +335,7 @@ mod tests {
         let input = "fen 3k4/2p4R/8/3P4/8/7B/3Q4/3KR3 b - - 0 1 moves c7c5";
         let pos = load_ugi_pos_simple(input, Strict, &Chessboard::default()).unwrap();
         let mut engine = Caps::for_eval::<PistonEval>();
-        let res = engine.search_with_new_tt(pos, SearchLimit::nodes_(3));
+        let res = engine.search_with_new_tt(pos, SearchLimit::nodes_(200));
         assert!(res.score.is_game_won_score());
         assert_eq!(res.score.plies_until_game_won(), Some(1));
         assert_eq!(res.chosen_move, ChessMove::from_text(":c ep", &pos).unwrap());
@@ -400,5 +400,21 @@ mod tests {
         assert_ne!(res1.chosen_move, res2.chosen_move);
         assert!(pos1.is_move_legal(res1.chosen_move));
         assert_ne!(engine.uci_nodes(), 2222);
+    }
+
+    #[test]
+    fn depth_one_startpos() {
+        let mut engine = Caps::for_eval::<LiTEval>();
+        let res = engine.search(SearchParams::for_pos(Chessboard::default(), SearchLimit::depth_(1)));
+        assert_eq!(engine.depth().get(), 1);
+        assert!(Chessboard::default().is_move_legal(res.chosen_move));
+        assert!(!res.score.is_won_lost_or_draw_score());
+        assert_eq!(res.pos, Chessboard::default());
+        let nodes = engine.uci_nodes();
+        assert!(nodes >= 22, "{nodes}");
+        assert!(nodes <= 42, "{nodes}");
+        engine.forget();
+        let res2 = engine.search(SearchParams::for_pos(Chessboard::default(), SearchLimit::nodes_(nodes)));
+        assert_eq!(res, res2);
     }
 }
