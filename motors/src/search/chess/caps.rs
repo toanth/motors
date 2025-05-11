@@ -920,6 +920,7 @@ impl Caps {
 
         let mut move_picker = MovePicker::<Chessboard, MAX_CHESS_MOVES_IN_POS>::new(pos, best_move, false);
         let move_scorer = CapsMoveScorer { board: pos, ply };
+        let mut child_depth = depth - 1;
         while let Some((mov, move_score)) = move_picker.next(&move_scorer, self) {
             if can_prune && best_score > MAX_SCORE_LOST {
                 // LMP (Late Move Pruning): Trust the move ordering and assume that moves ordered late aren't very interesting,
@@ -990,7 +991,7 @@ impl Caps {
             let child_beta = -alpha;
             if first_child {
                 let child_node_type = expected_node_type.inverse();
-                score = -self.negamax(new_pos, ply + 1, depth - 1, child_alpha, child_beta, child_node_type)?;
+                score = -self.negamax(new_pos, ply + 1, child_depth, child_alpha, child_beta, child_node_type)?;
             } else {
                 child_alpha = -(alpha + 1);
                 // LMR (Late Move Reductions): Trust the move ordering (quiet history, continuation history and capture history heuristics)
@@ -1045,14 +1046,14 @@ impl Caps {
                     }
                 }
                 // this ensures that check extensions prevent going into qsearch while in check
-                reduction = reduction.clamp(0, depth - 1);
+                reduction = reduction.clamp(0, child_depth);
 
-                score = -self.negamax(new_pos, ply + 1, depth - 1 - reduction, child_alpha, child_beta, FailHigh)?;
+                score = -self.negamax(new_pos, ply + 1, child_depth - reduction, child_alpha, child_beta, FailHigh)?;
                 // If the score turned out to be better than expected (at least `alpha`), this might just be because
                 // of the reduced depth. So do a full-depth search first, but don't use the full window quite yet.
                 if alpha < score && reduction > 0 {
                     // do deeper / shallower: Adjust the first re-search depth based on the result of the first search
-                    let mut retry_depth = depth - 1;
+                    let mut retry_depth = child_depth;
                     if score > alpha + 50 + 4 * depth as ScoreT {
                         retry_depth += 1;
                     } else if score < alpha + 10 {
@@ -1070,7 +1071,7 @@ impl Caps {
                 // the PV that were not searched as PV nodes. So we make sure we're researching in PV nodes with beta == alpha + 1.
                 if is_pv_node && child_beta - child_alpha == Score(1) && score > alpha {
                     self.statistics.lmr_second_retry();
-                    score = -self.negamax(new_pos, ply + 1, depth - 1, -beta, -alpha, Exact)?;
+                    score = -self.negamax(new_pos, ply + 1, child_depth, -beta, -alpha, Exact)?;
                 }
             }
 
@@ -1127,6 +1128,10 @@ impl Caps {
                 // We're in a PVS PV node and this move raised alpha but didn't cause a fail high, so look at the other moves.
                 // PVS PV nodes are rare
                 bound_so_far = Exact;
+                // idea from calvin: We don't expect another move to raise alpha, so we reduce
+                if child_depth >= 2 && !score.is_game_lost_score() {
+                    child_depth -= 1;
+                }
                 continue;
             }
             // Beta cutoff. Update history and killer for quiet moves, then break out of the move loop.
