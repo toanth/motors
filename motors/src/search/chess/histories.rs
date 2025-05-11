@@ -49,7 +49,7 @@ fn update_history_score(entry: &mut HistScoreT, bonus: HistScoreT) {
     *entry += bonus;
 }
 
-const NUM_HIST_PLY_BUCKETS: usize = DEPTH_HARD_LIMIT.get().ilog2() as usize;
+const NUM_HIST_PLY_BUCKETS: usize = DEPTH_HARD_LIMIT.get().ilog2() as usize + 1;
 
 /// Quiet History Heuristic: Give bonuses to quiet moves that causes a beta cutoff a maluses to quiet moves that were tried
 /// but didn't cause a beta cutoff. Order all non-TT non-killer moves based on that (as well as based on the continuation
