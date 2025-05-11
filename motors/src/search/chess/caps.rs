@@ -362,8 +362,8 @@ impl Engine<Chessboard> for Caps {
         self.original_board_hist = take(&mut self.search_params_mut().history);
         self.original_board_hist.push(pos.hash_pos());
 
-        let depth = self.iterative_deepening(pos, soft_limit);
-        if depth.is_some() {
+        let incomplete = self.iterative_deepening(pos, soft_limit);
+        if incomplete {
             // send one final search info, but don't send empty PVs
             let mut pv = self.current_mpv_pv();
             if pv.is_empty() {
@@ -408,7 +408,8 @@ impl Caps {
     /// This has two advantages: It allows the search to be stopped at any time, and it actually improves strength:
     /// The low-depth searches fill the TT and various heuristics, which improves move ordering and therefore results in
     /// better moves within the same time or nodes budget because the lower-depth searches are comparatively cheap.
-    fn iterative_deepening(&mut self, pos: Chessboard, soft_limit: Duration) -> Option<isize> {
+    /// Rrturns true if the last iteration was incomplete
+    fn iterative_deepening(&mut self, pos: Chessboard, soft_limit: Duration) -> bool {
         let max_depth = DEPTH_SOFT_LIMIT.min(self.limit().depth).isize();
         let multi_pv = self.multi_pv();
         let mut soft_limit_scale = 1.0;
@@ -422,7 +423,7 @@ impl Caps {
                 self.current_pv_num = pv_num;
                 self.cur_pv_data_mut().bound = None;
                 let scaled_soft_limit = soft_limit.mul_f64(soft_limit_scale);
-                let (keep_searching, depth, score) = self.aspiration(pos, scaled_soft_limit, depth, max_depth);
+                let (keep_searching, incomplete, score) = self.aspiration(pos, scaled_soft_limit, depth, max_depth);
 
                 let atomic = &self.state.params.atomic;
                 let pv = &self.state.search_stack[0].pv;
@@ -448,7 +449,7 @@ impl Caps {
                 }
 
                 if !keep_searching {
-                    return depth;
+                    return incomplete;
                 }
                 if let Some(chosen_move) = self.search_stack[0].pv.get(0) {
                     self.excluded_moves.push(chosen_move);
@@ -469,7 +470,9 @@ impl Caps {
                 soft_limit_scale = 1.0;
             }
         }
-        None
+        // count an additional node to keep the game reproducible
+        _ = self.atomic().count_node();
+        false
     }
 
     /// Aspiration Windows (AW): Assume that the score will be close to the score from the previous iteration
@@ -484,7 +487,7 @@ impl Caps {
         unscaled_soft_limit: Duration,
         depth: isize,
         max_depth: isize,
-    ) -> (bool, Option<isize>, Option<Score>) {
+    ) -> (bool, bool, Option<Score>) {
         let mut soft_limit_fail_low_extension = 1.0;
         let mut aw_depth = depth;
         loop {
@@ -515,17 +518,22 @@ impl Caps {
                 self.limit().mate,
             ) {
                 self.statistics.soft_limit_stop();
+                // increase the node counter by one to ensure the game is reproducible
+                _ = self.atomic().count_node();
                 send_debug_msg!(self, "Not starting negamax after {} microseconds", elapsed.as_micros());
-                return (false, None, None);
+                return (false, false, None);
             }
             send_debug_msg!(self, "Starting new aspiration window search after {} microseconds", elapsed.as_micros());
             self.atomic().set_depth(depth); // set depth now so that an immediate stop doesn't increment the depth
-            if self.atomic().count_node() >= self.limit().nodes.get() {
-                return (false, Some(depth - 1), None);
-            }
+
             let asp_start_time = Instant::now();
             let Some(pv_score) = self.negamax(pos, 0, aw_depth, alpha, beta, Exact) else {
-                return (false, Some(depth), None);
+                send_debug_msg!(
+                    self.state,
+                    "Exiting aw window after reaching a stop condition in negamax, after {} microseconds",
+                    self.start_time().elapsed().as_micros()
+                );
+                return (false, true, None);
             };
 
             send_debug_msg!(
@@ -600,7 +608,7 @@ impl Caps {
 
             if node_type == Exact {
                 self.send_search_info();
-                return (true, Some(depth), Some(pv_score));
+                return (true, true, Some(pv_score));
             } else if asp_start_time.elapsed().as_millis() >= 1000 {
                 self.send_search_info();
             }
@@ -629,6 +637,12 @@ impl Caps {
         debug_assert!(depth <= DEPTH_SOFT_LIMIT.isize(), "{ply} {depth} {pos}");
         debug_assert!(self.params.history.len() >= ply, "{ply} {depth} {pos}, {:?}", self.params.history);
         self.statistics.count_node_started(MainSearch);
+
+        // We have to increment the node counter as we're checking all other stop conditions in order to ensure games are reproducible
+        // by their node counts
+        if self.count_node_and_test_stop() {
+            return None;
+        }
 
         let root = ply == 0;
         let is_pv_node = expected_node_type == Exact; // TODO: Make this a generic argument of search?
@@ -669,10 +683,6 @@ impl Caps {
             {
                 return Some(Score(0));
             }
-
-            if self.should_stop(self.uci_nodes()) {
-                return None;
-            }
         }
 
         let us = pos.active_player();
@@ -687,6 +697,7 @@ impl Caps {
         if depth <= 0 || ply >= self.depth_hard_limit {
             return self.qsearch(pos, alpha, beta, ply);
         }
+
         let can_prune = !is_pv_node && !in_check;
 
         let mut bound_so_far = FailLow;
@@ -1195,10 +1206,6 @@ impl Caps {
         // TODO: That's weird, retest
         self.atomic().update_seldepth(ply);
 
-        // check nodes in qsearch to allow `go nodes n` to go exactly `n` nodes
-        if self.should_stop(self.uci_nodes()) {
-            return None;
-        }
         let in_check = pos.is_in_check();
         // The stand pat check. Since we're not looking at all moves, it's very likely that there's a move we didn't
         // look at that doesn't make our position worse, so we don't want to assume that we have to play a capture.
@@ -1292,6 +1299,11 @@ impl Caps {
             let Some(new_pos) = pos.make_move(mov) else {
                 continue;
             };
+            // check nodes in qsearch to allow `go nodes n` to go exactly `n` nodes. Do this check here to avoid counting
+            // falling into qsearch as two nodes
+            if self.count_node_and_test_stop() {
+                return None;
+            }
             self.record_move(mov, pos, ply, Qsearch, move_score);
             children_visited += 1;
             let score = -self.qsearch(new_pos, -beta, -alpha, ply + 1)?;
@@ -1409,7 +1421,6 @@ impl Caps {
     }
 
     fn record_move(&mut self, mov: ChessMove, old_pos: Chessboard, ply: usize, typ: SearchType, move_score: MoveScore) {
-        _ = self.atomic().count_node();
         self.params.history.push(old_pos.hash_pos());
         self.search_stack[ply].tried_moves.push(mov);
         self.search_stack[ply].move_score = move_score;
@@ -1496,6 +1507,7 @@ mod tests {
     use crate::eval::chess::material_only::MaterialOnlyEval;
     use crate::eval::chess::piston::PistonEval;
     use crate::eval::rand_eval::RandEval;
+    use crate::search::generic::gaps::Gaps;
     use crate::search::tests::generic_engine_test;
 
     use super::*;
@@ -1566,34 +1578,41 @@ mod tests {
         generic_engine_test(Caps::for_eval::<LiTEval>());
         generic_engine_test(Caps::for_eval::<RandEval>());
         let tt = TT::default();
-        depth_1_nodes_test(Caps::for_eval::<RandEval>(), tt.clone());
-        depth_1_nodes_test(Caps::for_eval::<MaterialOnlyEval>(), tt.clone());
-        depth_1_nodes_test(Caps::for_eval::<PistonEval>(), tt.clone());
-        depth_1_nodes_test(Caps::for_eval::<KingGambot>(), tt.clone());
-        depth_1_nodes_test(Caps::for_eval::<LiTEval>(), tt.clone());
+        depth_1_nodes_test(&mut Caps::for_eval::<RandEval>(), Some(tt.clone()));
+        depth_1_nodes_test(&mut Caps::for_eval::<MaterialOnlyEval>(), Some(tt.clone()));
+        depth_1_nodes_test(&mut Caps::for_eval::<PistonEval>(), Some(tt.clone()));
+        depth_1_nodes_test(&mut Caps::for_eval::<KingGambot>(), Some(tt.clone()));
+        depth_1_nodes_test(&mut Caps::for_eval::<LiTEval>(), Some(tt.clone()));
+        depth_1_nodes_test(&mut Gaps::for_eval::<RandEval>(), None);
     }
 
-    // TODO: Eventually, make sure that GAPS also passed this
-    fn depth_1_nodes_test(mut engine: Caps, tt: TT) {
+    fn depth_1_nodes_test(engine: &mut dyn Engine<Chessboard>, tt: Option<TT>) {
         for pos in Chessboard::bench_positions() {
-            let _ = engine.search_with_tt(pos, SearchLimit::depth_(1), tt.clone());
+            let _ = engine.search_with_tt(pos, SearchLimit::depth_(1), tt.clone().unwrap_or_default());
             if pos.legal_moves_slow().is_empty() {
                 continue;
             }
-            let root_entry = tt.load(pos.hash_pos(), 0).unwrap();
-            assert!(root_entry.depth <= 2); // possible extensions
-            assert_eq!(root_entry.bound(), Exact);
-            assert!(root_entry.mov.check_legal(&pos).is_some());
+            let mut root_entry = TTEntry::<Chessboard>::default();
+            if let Some(tt) = tt.clone() {
+                root_entry = tt.load(pos.hash_pos(), 0).unwrap();
+                assert!(root_entry.depth <= 2); // possible extensions
+                assert_eq!(root_entry.bound(), Exact);
+                assert!(root_entry.mov.check_legal(&pos).is_some());
+            }
             let moves = pos.legal_moves_slow();
-            assert!(engine.uci_nodes() as usize >= moves.len()); // >= because of extensions
-            for m in moves {
-                let new_pos = pos.make_move(m).unwrap();
-                let entry = tt.load::<Chessboard>(new_pos.hash_pos(), 1);
-                let Some(entry) = entry else {
-                    continue; // it's possible that a position is not in the TT because qsearch didn't save it
-                };
-                assert!(entry.depth <= 2, "{entry:?} {new_pos}");
-                assert!(-entry.score <= root_entry.score, "{entry:?}\n{root_entry:?}\n{new_pos}");
+            let nodes = engine.search_state_dyn().uci_nodes() as usize;
+            let num_moves = moves.len();
+            assert!(nodes >= num_moves + 1, "{nodes} {num_moves} {pos}"); // >= because of extensions and re-searches
+            if let Some(tt) = tt.clone() {
+                for m in moves {
+                    let new_pos = pos.make_move(m).unwrap();
+                    let entry = tt.load::<Chessboard>(new_pos.hash_pos(), 1);
+                    let Some(entry) = entry else {
+                        continue; // it's possible that a position is not in the TT because qsearch didn't save it
+                    };
+                    assert!(entry.depth <= 2, "{entry:?} {new_pos}");
+                    assert!(-entry.score <= root_entry.score, "{entry:?}\n{root_entry:?}\n{new_pos}");
+                }
             }
         }
     }
