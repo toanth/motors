@@ -5,6 +5,7 @@ use std::time::{Duration, Instant};
 
 use crate::eval::Eval;
 use crate::eval::chess::lite::LiTEval;
+use crate::io::ugi_output::{color_for_score, score_gradient};
 use crate::search::chess::caps_values::cc;
 use crate::search::chess::histories::{
     CaptHist, ContHist, CorrHist, HIST_DIVISOR, HistScoreT, HistoryHeuristic, write_single_hist_table,
@@ -29,7 +30,7 @@ use gears::general::board::{BitboardBoard, UnverifiedBoard};
 use gears::general::common::Description::NoDescription;
 use gears::general::common::{Res, StaticallyNamedEntity, parse_bool_from_str, parse_int_from_str, select_name_static};
 use gears::general::move_list::EagerNonAllocMoveList;
-use gears::general::moves::Move;
+use gears::general::moves::{Move, UntrustedMove};
 use gears::itertools::Itertools;
 use gears::score::{
     MAX_BETA, MAX_NORMAL_SCORE, MAX_SCORE_LOST, MIN_ALPHA, MIN_NORMAL_SCORE, NO_SCORE_YET, SCORE_LOST, ScoreT,
@@ -254,6 +255,35 @@ impl Engine<Chessboard> for Caps {
         &mut self.state
     }
 
+    fn eval_move(&self, pos: &Chessboard, mov: ChessMove) -> Option<String> {
+        debug_assert!(pos.is_move_pseudolegal(mov));
+        let scorer = CapsMoveScorer { board: *pos, ply: 0 };
+        let (descr, hist_score) = if mov.is_tactical(&pos) {
+            ("Capture History Score", self.capt_hist.get(mov, pos.threats(), pos.active_player()).0)
+        } else {
+            ("Main History Score", self.history.get(mov, pos.threats()))
+        };
+        let color = color_for_score(Score(hist_score as ScoreT), &score_gradient());
+        let hist_score = format!("{}", hist_score).color(color);
+        let move_score = scorer.complete_move_score(mov, &self.state);
+        let move_type = if self
+            .tt()
+            .load::<Chessboard>(pos.hash_pos(), 0)
+            .is_some_and(|e| e.mov == UntrustedMove::from_move(mov))
+        {
+            "TT move"
+        } else if move_score == KILLER_SCORE {
+            "Killer move"
+        } else if mov.is_tactical(&pos) {
+            if move_score < MoveScore(0) { "Losing Tactical Move" } else { "Winning Tactical Move" }
+        } else {
+            "Quiet Move"
+        };
+        let color = color_for_score(Score(move_score.0 as ScoreT), &score_gradient());
+        let move_score = format!("{}", move_score.0).color(color);
+        Some(format!("{move_type}\nTotal Move Score: {move_score}\n{descr}: {hist_score}"))
+    }
+
     fn engine_info(&self) -> EngineInfo {
         let mut options = vec![EngineOption {
             name: Other("UCI_Chess960".to_string()),
@@ -298,6 +328,10 @@ impl Engine<Chessboard> for Caps {
 
     fn set_eval(&mut self, eval: Box<dyn Eval<Chessboard>>) {
         self.eval = eval;
+    }
+
+    fn get_eval(&mut self) -> Option<&dyn Eval<Chessboard>> {
+        Some(self.eval.as_ref())
     }
 
     fn do_search(&mut self) -> SearchResult<Chessboard> {

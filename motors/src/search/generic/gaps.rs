@@ -93,6 +93,10 @@ impl<B: Board> Engine<B> for Gaps<B> {
         self.eval = eval;
     }
 
+    fn get_eval(&mut self) -> Option<&dyn Eval<B>> {
+        Some(self.eval.as_ref())
+    }
+
     fn do_search(&mut self) -> SearchResult<B> {
         let mut limit = self.state.params.limit;
         let max_depth = MAX_DEPTH.min(limit.depth).isize();
