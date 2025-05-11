@@ -400,6 +400,11 @@ pub trait Engine<B: Board>: StaticallyNamedEntity + Send + 'static {
 
     fn search_state_mut_dyn(&mut self) -> &mut dyn AbstractSearchState<B>;
 
+    /// Returns an optional description of what the engine thinks about this move, such as history values.
+    fn eval_move(&self, _pos: &B, _mov: B::Move) -> Option<String> {
+        None
+    }
+
     /// Reset the engine into a fresh state, e.g. by clearing the TT and various heuristics.
     fn forget(&mut self) {
         self.search_state_mut_dyn().forget(true);
@@ -435,6 +440,8 @@ pub trait Engine<B: Board>: StaticallyNamedEntity + Send + 'static {
     }
 
     fn set_eval(&mut self, eval: Box<dyn Eval<B>>);
+
+    fn get_eval(&mut self) -> Option<&dyn Eval<B>>;
 
     /// The simplest version of the search function, ignores history-related rules like repetitions of positions that happened before
     /// starting the search.
@@ -550,6 +557,11 @@ pub trait MoveScorer<B: Board, E: Engine<B>>: Debug {
     /// where this returned `true` have been tried. This results in a bucketed sort, where this function determines the bucket.
     /// Because most nodes never look at most moves, this lazy computation can be a speedup.
     fn defer_playing_move(&self, mov: B::Move) -> bool;
+
+    fn complete_move_score(&self, mov: B::Move, state: &SearchStateFor<B, E>) -> MoveScore {
+        let eager = self.score_move_eager_part(mov, state);
+        if self.defer_playing_move(mov) { eager + Self::DEFERRED_OFFSET } else { eager }
+    }
 
     /// Negative value that gets added to the score of deferred moves
     const DEFERRED_OFFSET: MoveScore;

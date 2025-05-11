@@ -1,5 +1,5 @@
 use crate::eval::Eval;
-use crate::io::ugi_output::UgiOutput;
+use crate::io::ugi_output::{UgiOutput, pretty_score, score_gradient};
 use crate::search::multithreading::EngineReceives::*;
 use crate::search::multithreading::SearchThreadType::{Auxiliary, Main};
 use crate::search::multithreading::SearchType::{Infinite, Normal, Ponder};
@@ -11,6 +11,7 @@ use gears::games::ZobristHistory;
 use gears::general::board::Board;
 use gears::general::common::anyhow::{anyhow, bail, ensure};
 use gears::general::common::{Name, NamedEntity, Res, parse_int_from_str};
+use gears::general::moves::ExtendedFormat::Standard;
 use gears::general::moves::Move;
 use gears::output::Message::*;
 use gears::score::{NO_SCORE_YET, Score};
@@ -37,6 +38,7 @@ pub enum EngineReceives<B: Board> {
     Search(SearchParams<B>),
     SetEval(Box<dyn Eval<B>>),
     Print(Arc<Mutex<EngineInfo>>, B),
+    PrintMove(Arc<Mutex<EngineInfo>>, B, B::Move),
 }
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
@@ -283,6 +285,7 @@ impl<B: Board> EngineThread<B> {
 
     fn write_error(&mut self, msg: &fmt::Arguments) {
         self.engine.search_state_mut_dyn().send_non_ugi(Error, msg);
+        // the above only prints if this is the main search thread, but this prints always (but doesn't get logged)
         eprintln!("Engine thread encountered an error: '{msg}'");
     }
 
@@ -317,11 +320,37 @@ impl<B: Board> EngineThread<B> {
                 let state_info = self.engine.search_state_dyn().write_internal_info(&pos);
                 let info = state_info.unwrap_or_else(|| {
                     format!(
-                        "The engine {} doesn't support printing internal engine information.",
+                        "The engine '{}' doesn't support printing internal engine information.",
                         self.engine.short_name()
                     )
                 });
                 engine_info.lock().unwrap().internal_state_description = Some(info);
+            }
+            PrintMove(engine_info, pos, mov) => {
+                let name = self.engine.long_name();
+                let Some(eval) = self.engine.get_eval() else {
+                    self.engine
+                        .search_state_mut_dyn()
+                        .send_ugi(&format_args!("The engine {name} does not support evaluating moves",));
+                    return Ok(false);
+                };
+                let mut eval = clone_box(eval);
+                let us = pos.active_player();
+                let new_pos = pos.clone().make_move(mov).expect("Pseudolegal but not a legal move");
+                let new_score = eval.eval(&new_pos, 0, us);
+                let old_score = eval.eval(&pos, 0, us);
+                let gradient = score_gradient();
+                let old_score_str = pretty_score(old_score, None, None, &gradient, true, false);
+                let new_score_str = pretty_score(new_score, None, Some(old_score), &gradient, true, false);
+                let move_str = mov.extended_formatter(&pos, Standard);
+                let mut res = format!(
+                    "Static Eval before '{move_str}': {old_score_str}\nStatic Eval after '{move_str}': {new_score_str}"
+                );
+                if let Some(str) = self.engine.eval_move(&pos, mov) {
+                    res += "\n";
+                    res += &str;
+                }
+                engine_info.lock().unwrap().internal_state_description = Some(res);
             }
         };
         Ok(false)
@@ -523,6 +552,10 @@ impl<B: Board> EngineWrapper<B> {
 
     pub fn send_print(&self, pos: B) -> Res<()> {
         self.main.send(Print(self.get_engine_info_arc(), pos)).map_err(|err| anyhow!(err.to_string()))
+    }
+
+    pub fn send_print_move(&self, pos: B, mov: B::Move) -> Res<()> {
+        self.main.send(PrintMove(self.get_engine_info_arc(), pos, mov)).map_err(|err| anyhow!(err.to_string()))
     }
 
     pub fn send_stop(&mut self, suppress_best_move: bool) {
