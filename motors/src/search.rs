@@ -491,13 +491,15 @@ pub trait NormalEngine<B: Board>: Engine<B> {
     }
 
     // Sensible default values, but engines may choose to check more/less frequently than every n nodes
-    fn should_stop(&self, nodes: u64) -> bool
+    fn count_node_and_test_stop(&mut self) -> bool
     where
         Self: Sized,
     {
+        let nodes = self.search_state_mut().atomic().count_node();
         let state = self.search_state();
         let limit = self.limit();
-        // Do the less expensive checks first to avoid querying the time in each node
+        // Do the less expensive checks first to avoid querying the time in each node, but also
+        // to ensure the game is reproducible
         if nodes >= limit.nodes.get() || state.stop_flag() {
             self.search_state().stop_search();
             return true;
@@ -780,6 +782,12 @@ pub trait AbstractSearchState<B: Board> {
     fn new_search(&mut self, params: SearchParams<B>);
     fn end_search(&mut self, res: &SearchResult<B>);
     fn search_params(&self) -> &SearchParams<B>;
+    /// Returns the number of nodes looked at so far, including normal search and quiescent search.
+    /// Can be called during search.
+    /// For smp, this only returns the number of nodes looked at in the current thread.
+    fn uci_nodes(&self) -> u64 {
+        self.search_params().atomic.nodes()
+    }
     fn pv_data(&self) -> &[PVData<B>];
     fn to_bench_res(&self) -> BenchResult;
     fn to_search_info(&self) -> SearchInfo<B>;
@@ -1032,13 +1040,6 @@ impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo<B>> SearchState<B, E, C> {
         self.search_params().atomic.set_stop(true);
     }
 
-    /// Returns the number of nodes looked at so far, including normal search and quiescent search.
-    /// Can be called during search.
-    /// For smp, this only returns the number of nodes looked at in the current thread.
-    fn uci_nodes(&self) -> u64 {
-        self.search_params().atomic.nodes()
-    }
-
     fn tt(&self) -> &TT {
         &self.search_params().tt
     }
@@ -1273,7 +1274,6 @@ mod tests {
                 .restrict_moves(search_moves.clone());
             let res = engine.search(params);
             assert!(search_moves.contains(&res.chosen_move));
-            // assert_eq!(engine.search_state().internal_node_count(), 1_234); // TODO: Assert exact match
         }
         determinism_test(&mut engine);
     }
@@ -1286,10 +1286,24 @@ mod tests {
             let params = SearchParams::for_pos(p.clone(), limit);
             let res = engine.search(params);
             engine.forget();
-            let params = SearchParams::for_pos(p, limit);
+            let params = SearchParams::for_pos(p.clone(), limit);
             let res2 = engine.search(params);
             // make sure all info got reset on `forget()`
             assert_eq!(res, res2);
+            // now, do the same test again, but the first search uses a time limit,
+            // using the reported nodes for the second search
+            engine.forget();
+            let time_limit = SearchLimit::per_move(Duration::from_millis(12));
+            let params = SearchParams::for_pos(p.clone(), time_limit);
+            let res = engine.search(params);
+            let nodes = engine.search_state_dyn().uci_nodes();
+            let limit = SearchLimit::nodes_(nodes);
+            engine.forget();
+            let params = SearchParams::for_pos(p.clone(), limit);
+            let res2 = engine.search(params);
+            let nodes2 = engine.search_state_dyn().uci_nodes();
+            assert_eq!(nodes, nodes2, "{p}");
+            assert_eq!(res, res2, "{p}");
         }
     }
 }
