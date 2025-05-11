@@ -1361,6 +1361,7 @@ impl Caps {
         debug_assert!(score_diff >= Score(0));
         let (before, [entry, ..]) = self.state.search_stack.split_at_mut(ply) else { unreachable!() };
         let bonus = (depth * cc::hist_depth_bonus()) as HistScoreT + (score_diff.0 + 1).ilog2() as HistScoreT * 8;
+        let bonus = bonus.min(HIST_DIVISOR / 4);
         let pos = &entry.pos;
         let color = pos.active_player();
         let threats = pos.threats();
