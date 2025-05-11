@@ -200,7 +200,10 @@ impl<B: Board> GameState<B> for EngineGameState<B> {
         None
     }
 
-    fn engine_state(&self) -> Res<String> {
+    // The reason for doing this weird loop instead of just letting the engine thread print
+    // the engine state is that printing multiple lines while waiting for input
+    // from enquire (used in the interactive ui) causes weird formatting issues
+    fn print_engine_state(&self) -> Res<String> {
         self.engine.get_engine_info().internal_state_description = None;
         self.engine.send_print(self.go_state.pos.clone())?;
         let start = Instant::now();
@@ -212,6 +215,24 @@ impl<B: Board> GameState<B> for EngineGameState<B> {
             sleep(Duration::from_millis(10));
             if start.elapsed().as_millis() > 200 {
                 bail!("Failed to show internal engine state (can't be used when the engine is currently searching)");
+            }
+        }
+    }
+
+    fn print_engine_state_for_move(&self, pos: &B, mov: B::Move) -> Res<String> {
+        self.engine.get_engine_info().internal_state_description = None;
+        self.engine.send_print_move(pos.clone(), mov)?;
+        let start = Instant::now();
+        loop {
+            let description = self.engine.get_engine_info().internal_state_description.take();
+            if let Some(description) = description {
+                return Ok(description);
+            }
+            sleep(Duration::from_millis(10));
+            if start.elapsed().as_millis() > 200 {
+                bail!(
+                    "Failed to show internal engine state for move (can't be used when the engine is currently searching)"
+                );
             }
         }
     }
@@ -513,13 +534,6 @@ impl<B: Board> EngineUGI<B> {
             self.state.game_name(),
             info.long_name(),
         )
-    }
-
-    #[cold]
-    fn handle_engine_print_impl(&mut self) -> Res<()> {
-        let string = self.state.engine_state()?;
-        self.write_ugi(&format_args!("{string}"));
-        Ok(())
     }
 
     fn set_option(&mut self, name: EngineOptionName, value: String) -> Res<()> {
@@ -1227,6 +1241,8 @@ trait AbstractEngineUgiState: Debug {
 
     fn handle_engine_print(&mut self) -> Res<()>;
 
+    fn handle_move_eval(&mut self, words: &mut Tokens) -> Res<()>;
+
     fn handle_eval_or_tt(&mut self, eval: bool, words: &mut Tokens) -> Res<()>;
 
     fn handle_engine(&mut self, words: &mut Tokens) -> Res<()>;
@@ -1386,8 +1402,25 @@ impl<B: Board> AbstractEngineUgiState for EngineUGI<B> {
         self.handle_print_impl(words, opts)
     }
 
+    #[cold]
     fn handle_engine_print(&mut self) -> Res<()> {
-        self.handle_engine_print_impl()
+        let string = self.state.print_engine_state()?;
+        self.write_ugi(&format_args!("{string}"));
+        Ok(())
+    }
+
+    fn handle_move_eval(&mut self, words: &mut Tokens) -> Res<()> {
+        let Some(mov) = words.next() else { bail!("Expected move after '{}' command", "move_eval".bold()) };
+        let pos = self.state.pos();
+        let mov = B::Move::from_text(mov, pos)?;
+        ensure!(
+            pos.is_pseudolegal_move_legal(mov),
+            "The move '{0}' is pseudolegal but not legal in the current position ('{pos}')",
+            mov.compact_formatter(pos).to_string().bold()
+        );
+        let string = self.state.print_engine_state_for_move(pos, mov)?;
+        self.write_ugi(&format_args!("{string}"));
+        Ok(())
     }
 
     fn handle_eval_or_tt(&mut self, eval: bool, words: &mut Tokens) -> Res<()> {

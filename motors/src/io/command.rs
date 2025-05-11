@@ -280,6 +280,11 @@ pub fn ugi_commands() -> CommandList {
             "Prints information about the internal engine state, if supported",
             |ugi, _, _| ugi.handle_engine_print()
         ),
+        command!(move_eval | me, Custom, "How the internal engine state considers this move, if supported",
+            |ugi, words, _| {
+                ugi.handle_move_eval(words)
+            },
+        --> |state| state.moves_subcmds(false, false)),
         command!(
             output | o,
             Custom,

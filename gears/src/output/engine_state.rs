@@ -15,12 +15,12 @@
  *  You should have received a copy of the GNU General Public License
  *  along with Gears. If not, see <https://www.gnu.org/licenses/>.
  */
+use crate::GameState;
 use crate::general::board::Board;
 use crate::general::common::{NamedEntity, Res, StaticallyNamedEntity};
-use crate::output::text_output::{TextStream, TextWriter};
 use crate::output::Message::Info;
+use crate::output::text_output::{TextStream, TextWriter};
 use crate::output::{AbstractOutput, Message, Output, OutputBox, OutputBuilder, OutputOpts};
-use crate::GameState;
 use anyhow::bail;
 use std::fmt;
 use std::fmt::Display;
@@ -63,7 +63,7 @@ impl AbstractOutput for EngineStateOutput {
 
 impl<B: Board> Output<B> for EngineStateOutput {
     fn as_string(&self, m: &dyn GameState<B>, _opts: OutputOpts) -> String {
-        m.engine_state().unwrap_or_else(|e| e.to_string())
+        m.print_engine_state().unwrap_or_else(|e| e.to_string())
     }
 }
 
