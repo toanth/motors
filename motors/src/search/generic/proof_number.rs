@@ -356,6 +356,10 @@ impl<B: Board> Engine<B> for ProofNumberSearcher<B> {
         // TODO: Don't ignore the eval
     }
 
+    fn get_eval(&mut self) -> Option<&dyn Eval<B>> {
+        None
+    }
+
     fn do_search(&mut self) -> SearchResult<B> {
         let root = self.params.pos.clone();
         // TODO: Replace by having the TT type depend on the engine
