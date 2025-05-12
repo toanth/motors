@@ -17,7 +17,6 @@
  */
 use crate::io::ugi_output::{color_for_score, score_gradient};
 use crate::search::MoveScore;
-use crate::search::chess::caps::DEPTH_HARD_LIMIT;
 use derive_more::{Deref, DerefMut, Index, IndexMut};
 use gears::colored::Colorize;
 use gears::games::chess::moves::{ChessMove, ChessMoveFlags};
@@ -49,7 +48,7 @@ fn update_history_score(entry: &mut HistScoreT, bonus: HistScoreT) {
     *entry += bonus;
 }
 
-const NUM_HIST_PLY_BUCKETS: usize = DEPTH_HARD_LIMIT.get().ilog2() as usize + 1;
+const NUM_HIST_PLY_BUCKETS: usize = 9;
 
 /// Quiet History Heuristic: Give bonuses to quiet moves that causes a beta cutoff a maluses to quiet moves that were tried
 /// but didn't cause a beta cutoff. Order all non-TT non-killer moves based on that (as well as based on the continuation
