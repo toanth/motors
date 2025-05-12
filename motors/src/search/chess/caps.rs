@@ -941,10 +941,9 @@ impl Caps {
                 // so cut our losses and return. This has the potential of missing sacrificing mate combinations, though.
                 let fp_margin = if we_blundered {
                     cc::fp_blunder_base() + cc::fp_blunder_scale() * depth
-                        - (num_uninteresting_visited * (1 << 16) + 1).ilog2() as isize
+                        - (num_uninteresting_visited * (1 << 8) + 1).ilog2() as isize
                 } else {
-                    cc::fp_base() + cc::fp_scale() * depth
-                        - (num_uninteresting_visited * (1 << 16) + 1).ilog2() as isize
+                    cc::fp_base() + cc::fp_scale() * depth - (num_uninteresting_visited * (1 << 8) + 1).ilog2() as isize
                 };
                 let mut lmp_threshold = if we_blundered {
                     cc::lmp_blunder_base() + cc::lmp_blunder_scale() * depth
