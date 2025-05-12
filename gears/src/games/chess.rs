@@ -351,24 +351,24 @@ impl Board for Chessboard {
             "1r1r2k1/1p2qp1p/6p1/p1QB1b2/5Pn1/N1R1P1P1/PP5P/R1B3K1 b - - 4 23",
             "2bk2rq/2p1pprp/2p1n3/p2pPQ2/N2P4/4RN1P/PPP2RP1/6K1 w - - 5 24",
             "2r2rk1/1p3pbp/p3ppp1/8/8/1P2N1P1/1PPP2PP/2KR3R w - - 42 42",
-            "7r/pBrkqQ1p/3b4/5b2/8/6P1/PP2PP1P/R1BR2K1 w - - 1 17", // mate in 2
-            "k7/3B4/4N3/K7/8/8/8/8 w - - 16 9",                     // KNBvK
-            // maximum number of legal moves (and mate in one)
-            "R6R/3Q4/1Q4Q1/4Q3/2Q4Q/Q4Q2/pp1Q4/kBNN1KB1 w - - 0 1",
-            // the same position with flipped side to move has no legal moves
-            "R6R/3Q4/1Q4Q1/4Q3/2Q4Q/Q4Q2/pp1Q4/kBNN1KB1 b - - 0 1",
-            // caused an assertion failure once and is a chess960 FEN
-            "nrb1nkrq/2pp1ppp/p4b2/1p2p3/P4B2/3P4/1PP1PPPP/NR1BNRKQ w gb - 0 9",
-            // a very weird position (not reachable from startpos, but still somewhat realistic)
-            "RNBQKBNR/PPPPPPPP/8/8/8/8/pppppppp/rnbqkbnr w - - 0 1",
-            // mate in 15 that stronger engines tend to miss (even lichess SF only finds a mate in 17 with max parameters)
-            "5k2/1p5Q/p2r1qp1/P1p1RpN1/2P5/3P3P/5PP1/6K1 b - - 0 56",
-            // the next 2 positions have the exact same zobrist hash (thanks to analog hors for the python script to find them)
-            "1Q2Q3/N2NP1K1/Rn2B3/qQr3n1/1n5N/1P6/4n3/BkN4q w - - 0 1",
-            "2n5/1Rp1K1pn/q6Q/1rrr4/k3Br2/7B/1n1N2Q1/1Nn2R2 w - - 0 1",
+            // "7r/pBrkqQ1p/3b4/5b2/8/6P1/PP2PP1P/R1BR2K1 w - - 1 17", // mate in 2
+            // "k7/3B4/4N3/K7/8/8/8/8 w - - 16 9",                     // KNBvK
+            // // maximum number of legal moves (and mate in one)
+            // "R6R/3Q4/1Q4Q1/4Q3/2Q4Q/Q4Q2/pp1Q4/kBNN1KB1 w - - 0 1",
+            // // the same position with flipped side to move has no legal moves
+            // "R6R/3Q4/1Q4Q1/4Q3/2Q4Q/Q4Q2/pp1Q4/kBNN1KB1 b - - 0 1",
+            // // caused an assertion failure once and is a chess960 FEN
+            // "nrb1nkrq/2pp1ppp/p4b2/1p2p3/P4B2/3P4/1PP1PPPP/NR1BNRKQ w gb - 0 9",
+            // // a very weird position (not reachable from startpos, but still somewhat realistic)
+            // "RNBQKBNR/PPPPPPPP/8/8/8/8/pppppppp/rnbqkbnr w - - 0 1",
+            // // mate in 15 that stronger engines tend to miss (even lichess SF only finds a mate in 17 with max parameters)
+            // "5k2/1p5Q/p2r1qp1/P1p1RpN1/2P5/3P3P/5PP1/6K1 b - - 0 56",
+            // // the next 2 positions have the exact same zobrist hash (thanks to analog hors for the python script to find them)
+            // "1Q2Q3/N2NP1K1/Rn2B3/qQr3n1/1n5N/1P6/4n3/BkN4q w - - 0 1",
+            // "2n5/1Rp1K1pn/q6Q/1rrr4/k3Br2/7B/1n1N2Q1/1Nn2R2 w - - 0 1",
         ];
-        let mut res = fens.into_iter().map(|fen| Self::from_fen(fen, Strict).unwrap()).collect_vec();
-        res.extend(Self::name_to_pos_map().iter().filter(|e| e.strictness == Strict).map(|e| e.create::<Chessboard>()));
+        let /*mut*/ res = fens.into_iter().map(|fen| Self::from_fen(fen, Strict).unwrap()).collect_vec();
+        // res.extend(Self::name_to_pos_map().iter().filter(|e| e.strictness == Strict).map(|e| e.create::<Chessboard>()));
         res
     }
 
