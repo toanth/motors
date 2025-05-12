@@ -922,7 +922,7 @@ impl Caps {
         // An uninteresting move is a quiet move or bad capture unless it's the TT or killer move
         // (i.e. it's every move that gets ordered after the killer). The name is a bit dramatic, the first few of those
         // can still be good candidates to explore.
-        let mut num_uninteresting_visited = 0;
+        let mut num_uninteresting_visited: isize = 0;
         debug_assert!(self.search_stack[ply].tried_moves.is_empty());
 
         // *************************
@@ -941,8 +941,10 @@ impl Caps {
                 // so cut our losses and return. This has the potential of missing sacrificing mate combinations, though.
                 let fp_margin = if we_blundered {
                     cc::fp_blunder_base() + cc::fp_blunder_scale() * depth
+                        - (num_uninteresting_visited * (1 << 16) + 1).ilog2() as isize
                 } else {
                     cc::fp_base() + cc::fp_scale() * depth
+                        - (num_uninteresting_visited * (1 << 16) + 1).ilog2() as isize
                 };
                 let mut lmp_threshold = if we_blundered {
                     cc::lmp_blunder_base() + cc::lmp_blunder_scale() * depth
