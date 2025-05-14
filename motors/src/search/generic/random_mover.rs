@@ -143,4 +143,8 @@ impl<B: Board, R: SeedRng + Clone + Send + 'static> Engine<B> for RandomMover<B,
     fn search_state_mut_dyn(&mut self) -> &mut dyn AbstractSearchState<B> {
         &mut self.state
     }
+
+    fn get_eval(&mut self) -> Option<&dyn Eval<B>> {
+        None
+    }
 }

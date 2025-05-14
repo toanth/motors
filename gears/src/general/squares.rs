@@ -378,6 +378,10 @@ impl<const H: usize, const W: usize, const INTERNAL_WIDTH: usize> SmallGridSquar
         if flip { self.flip() } else { self }
     }
 
+    pub fn flip_horizontal_if(self, flip: bool) -> Self {
+        if flip { self.flip_left_right(SmallGridSize::default()) } else { self }
+    }
+
     pub fn north_unchecked(self) -> Self {
         debug_assert_ne!(self.rank() as usize, H - 1);
         Self::unchecked(self.bb_idx() + INTERNAL_WIDTH)

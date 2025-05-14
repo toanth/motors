@@ -70,6 +70,16 @@ const X_FEN_FLAG_SHIFT: usize = 16;
 const COMPACT_CASTLING_MOVE_SHIFT: usize = 17;
 
 impl CastlingFlags {
+    pub(super) const fn for_startpos() -> Self {
+        let mut res = Self(0);
+        res.set_castle_right_impl(White, Queenside, 0);
+        res.set_castle_right_impl(Black, Queenside, 0);
+        res.set_castle_right_impl(White, Kingside, 7);
+        res.set_castle_right_impl(Black, Kingside, 7);
+        res.0 |= 1 << X_FEN_FLAG_SHIFT;
+        res
+    }
+
     #[must_use]
     pub fn allowed_castling_directions(self) -> usize {
         (self.0 >> CASTLE_RIGHTS_SHIFT) as usize
@@ -86,7 +96,7 @@ impl CastlingFlags {
         (self.0 >> COMPACT_CASTLING_MOVE_SHIFT) & 1 == 1
     }
 
-    fn shift(color: ChessColor, castle_right: CastleRight) -> usize {
+    const fn shift(color: ChessColor, castle_right: CastleRight) -> usize {
         color as usize * 6 + castle_right as usize * 3
     }
 
@@ -103,16 +113,20 @@ impl CastlingFlags {
         1 == 1 & (self.0 >> (CASTLE_RIGHTS_SHIFT + color as usize * 2 + castle_right as usize))
     }
 
+    const fn set_castle_right_impl(&mut self, color: ChessColor, castle_right: CastleRight, file: u32) {
+        self.0 |= file << Self::shift(color, castle_right);
+        self.0 |= 1 << (CASTLE_RIGHTS_SHIFT + color as usize * 2 + castle_right as usize);
+        if file != 0 && file != 7 {
+            self.0 &= !(1 << COMPACT_CASTLING_MOVE_SHIFT);
+        }
+    }
+
     pub fn set_castle_right(&mut self, color: ChessColor, castle_right: CastleRight, file: DimT) -> Res<()> {
         debug_assert!((file as usize) < NUM_COLUMNS);
         if self.can_castle(color, castle_right) {
             bail!("Trying to set the {color} {castle_right} castle right twice");
         }
-        self.0 |= u32::from(file) << Self::shift(color, castle_right);
-        self.0 |= 1 << (CASTLE_RIGHTS_SHIFT + color as usize * 2 + castle_right as usize);
-        if file != 0 && file != 7 {
-            self.0 &= !(1 << COMPACT_CASTLING_MOVE_SHIFT);
-        }
+        self.set_castle_right_impl(color, castle_right, u32::from(file));
         Ok(())
     }
 

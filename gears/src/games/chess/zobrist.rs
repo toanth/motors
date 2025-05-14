@@ -80,11 +80,16 @@ impl Chessboard {
         let mut pawns = PosHash(0);
         let mut nonpawns = [PosHash(0); NUM_COLORS];
         let mut special = PosHash(0);
+        let mut knb = PosHash(0);
         for color in ChessColor::iter() {
             for piece in ChessPieceType::non_pawn_pieces() {
                 let pieces = self.col_piece_bb(color, piece);
                 for square in pieces.ones() {
-                    nonpawns[color] ^= ZOBRIST_KEYS.piece_key(piece, color, square);
+                    let key = ZOBRIST_KEYS.piece_key(piece, color, square);
+                    nonpawns[color] ^= key;
+                    if piece.is_knb() {
+                        knb ^= key;
+                    }
                 }
             }
             for square in self.col_piece_bb(color, Pawn).ones() {
@@ -96,7 +101,7 @@ impl Chessboard {
         if self.active_player == Black {
             special ^= ZOBRIST_KEYS.side_to_move_key;
         }
-        Hashes { pawns, nonpawns, total: pawns ^ nonpawns[0] ^ nonpawns[1] ^ special }
+        Hashes { pawns, nonpawns, knb, total: pawns ^ nonpawns[0] ^ nonpawns[1] ^ special }
     }
 
     pub fn zobrist_delta(color: ChessColor, piece: ChessPieceType, from: ChessSquare, to: ChessSquare) -> PosHash {
