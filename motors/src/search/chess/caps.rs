@@ -715,7 +715,7 @@ impl Caps {
         // Don't initialize eval just yet to save work in case we get a TT cutoff
         let raw_eval;
         let mut eval;
-        // the TT entry at the root is useless when doing an actual multipv search
+        // the TT entry at the root is useless when doing a multipv search with pv num > 1
         let ignore_tt_entry = (root && self.multi_pvs.len() > 1) || in_singular_search;
         let old_entry = self.tt().load::<Chessboard>(pos.hash_pos(), ply);
         if let Some(tt_entry) = old_entry {
@@ -1012,7 +1012,7 @@ impl Caps {
             if first_child {
                 // Singular Extensions (SE): If the TT move is far better than all other moves, extend it. To find out whether that is
                 // the case, search all other moves to a low depth.
-                let mut new_depth = depth - 1;
+                let mut first_child_depth = child_depth;
                 if mov == best_move
                     && tt_bound != Some(FailLow)
                     && depth >= 8
@@ -1024,7 +1024,7 @@ impl Caps {
                     self.search_stack[ply].tried_moves.clear();
                     self.params.history.pop();
                     let reduced_depth = (depth - 1) / 2;
-                    let singular_beta = old_entry.unwrap().score() - Score(1 * depth as ScoreT);
+                    let singular_beta = (old_entry.unwrap().score() - Score(2 * depth as ScoreT)).max(MIN_NORMAL_SCORE);
                     let singular_score = self.negamax(
                         pos,
                         ply,
@@ -1035,14 +1035,21 @@ impl Caps {
                         Some(best_move),
                     )?;
                     self.search_stack[ply].tried_moves.clear();
-                    self.search_stack[ply].tried_moves.push(best_move);
-                    self.params.history.push(pos.hash_pos());
+                    self.record_move(mov, pos, ply, MainSearch, move_score);
 
-                    new_depth += (singular_score < singular_beta) as isize;
+                    first_child_depth += (singular_score < singular_beta) as isize;
                 }
 
                 let child_node_type = expected_node_type.inverse();
-                score = -self.negamax(new_pos, ply + 1, new_depth, child_alpha, child_beta, child_node_type, None)?;
+                score = -self.negamax(
+                    new_pos,
+                    ply + 1,
+                    first_child_depth,
+                    child_alpha,
+                    child_beta,
+                    child_node_type,
+                    None,
+                )?;
             } else {
                 child_alpha = -(alpha + 1);
                 // LMR (Late Move Reductions): Trust the move ordering (quiet history, continuation history and capture history heuristics)
