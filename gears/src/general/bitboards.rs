@@ -361,7 +361,7 @@ pub trait Bitboard<R: RawBitboard, C: RectangularCoordinates>:
     fn file_0_for(size: C::Size) -> Self {
         let steps = R::steps_bb(size.internal_width());
         // in theory, the compiler should be smart enough to realize that it can remove this for chess bitboards
-        let bb = steps.remove_ones_above(size.num_squares() - 1);
+        let bb = steps.remove_ones_above(size.internal_width() * size.height().val() - 1);
         Self::new(bb, size)
     }
 
@@ -521,8 +521,8 @@ pub trait Bitboard<R: RawBitboard, C: RectangularCoordinates>:
     /// Includes the bitboard itself
     #[inline]
     fn moore_neighbors(self) -> Self {
-        let line = self | self.south() | self.north();
-        line | line.west() | line.east()
+        let line = self | self.west() | self.east();
+        line | line.north() | line.south()
     }
 
     /// Include the bitboard itself
@@ -980,8 +980,8 @@ macro_rules! precompute_leaper_attacks {
         let file = $square_idx as isize % width;
         let mut attacks: $typ = 0;
         let mut i = 0;
+        // for horizontal_dir in [-1, 1], for vertical_dir in [-1, 1]:
         while i < 4 {
-            // for horizontal_dir in [-1, 1], for vertical_dir in [-1, 1]
             let horizontal_dir = i / 2 * 2 - 1;
             let vertical_dir = i % 2 * 2 - 1;
             let mut horizontal_offset = horizontal_dir;
@@ -1129,7 +1129,7 @@ mod tests {
     use crate::games::mnk::MnkBitboard;
     use crate::games::{Height, Width};
     use crate::general::bitboards::chessboard::{ATAXX_LEAPERS, ChessBitboard, KINGS};
-    use crate::general::squares::GridSize;
+    use crate::general::squares::{GridCoordinates, GridSize};
 
     #[test]
     fn precomputed_test() {
@@ -1142,6 +1142,27 @@ mod tests {
             let leaping = leaping.south() | leaping.north() | leaping;
             assert_eq!(KINGS[i], king ^ bb, "{i}");
             assert_eq!(ATAXX_LEAPERS[i].raw(), leaping.raw() & !king.raw());
+        }
+        let size = GridSize::new(Height::new(11), Width::new(9));
+        for i in 0..99 {
+            let origin = SmallGridSquare::<11, 9, 9>::from_bb_idx(i);
+            let attacks = precompute_leaper_attacks!(i, 1, 2, false, 9, u128)
+                & DynamicallySizedBitboard::<ExtendedRawBitboard, GridCoordinates>::valid_squares_for_size(size).raw();
+            for sq in attacks.one_indices() {
+                let sq = SmallGridSquare::<11, 9, 9>::from_bb_idx(sq);
+                let a = sq.row().abs_diff(origin.row());
+                let b = sq.file().abs_diff(origin.file());
+                let mut s = [a, b];
+                s.sort();
+                assert_eq!(s, [1, 2]);
+            }
+            let neighbors = (precompute_leaper_attacks!(i, 0, 1, false, 9, u128)
+                ^ precompute_leaper_attacks!(i, 1, 1, false, 9, u128))
+                | (1 << i);
+            assert_eq!(
+                neighbors,
+                DynamicallySizedBitboard::<u128, GridCoordinates>::new(1 << i, size).moore_neighbors().raw
+            );
         }
     }
 

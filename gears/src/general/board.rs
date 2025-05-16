@@ -39,6 +39,7 @@ use crate::{GameOver, GameOverReason, MatchResult, PlayerResult, player_res_to_m
 use anyhow::{anyhow, bail, ensure};
 use arbitrary::Arbitrary;
 use colored::Colorize;
+use num::Zero;
 use rand::Rng;
 use std::fmt;
 use std::fmt::{Debug, Display, Formatter};
@@ -814,12 +815,20 @@ pub trait BitboardBoard: Board<Coordinates: RectangularCoordinates> {
         self.player_bb(self.inactive_player())
     }
 
+    /// Bitboard of all squares that contain a "piece" that doesn't belong to any player, like a gap in ataxx.
+    /// Empty squares don't count, so this bitboard is always zero for most games.
+    fn neutral_bb(&self) -> Self::Bitboard {
+        Self::Bitboard::new(Self::RawBitboard::zero(), self.size())
+    }
+
     /// Bitboard of all pieces, i.e. all non-empty squares.
     fn occupied_bb(&self) -> Self::Bitboard {
         let first_bb = self.player_bb(Self::Color::first());
         let second_bb = self.player_bb(Self::Color::second());
+        let neutral_bb = self.neutral_bb();
         debug_assert!((first_bb & second_bb).is_zero());
-        first_bb | second_bb
+        debug_assert!(((first_bb | second_bb) & neutral_bb).is_zero());
+        first_bb | second_bb | self.neutral_bb()
     }
 
     /// Bitboard of all empty squares.

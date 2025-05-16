@@ -456,6 +456,14 @@ impl BitboardBoard for AtaxxBoard {
         self.colors[color as usize]
     }
 
+    fn empty_bb(&self) -> Self::Bitboard {
+        self.empty
+    }
+
+    fn neutral_bb(&self) -> Self::Bitboard {
+        !(self.empty | self.colors[0] | self.colors[1])
+    }
+
     fn mask_bb(&self) -> Self::Bitboard {
         !AtaxxBitboard::INVALID_EDGE_MASK
     }

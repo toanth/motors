@@ -216,6 +216,7 @@ pub struct UnverifiedFairyBoard {
     // unfortunately, ArrayVec isn't `Copy`
     piece_bitboards: [RawFairyBitboard; MAX_NUM_PIECE_TYPES],
     color_bitboards: [RawFairyBitboard; NUM_COLORS],
+    neutral_bb: RawFairyBitboard,
     // bb of all valid squares
     mask_bb: RawFairyBitboard,
     // for each piece type, how many the player has available to drop
@@ -242,7 +243,7 @@ impl Default for UnverifiedFairyBoard {
 
 impl UnverifiedFairyBoard {
     fn occupied_bb(&self) -> FairyBitboard {
-        FairyBitboard::new(self.color_bitboards[0] | self.color_bitboards[1], self.size())
+        FairyBitboard::new(self.color_bitboards[0] | self.color_bitboards[1] | self.neutral_bb, self.size())
     }
 
     fn rules(&self) -> &Arc<Rules> {
@@ -372,6 +373,8 @@ impl UnverifiedBoard<FairyBoard> for UnverifiedFairyBoard {
         self.piece_bitboards[piece.to_uncolored_idx()] |= bb;
         if let Some(color) = piece.color() {
             self.color_bitboards[color.idx()] |= bb;
+        } else {
+            self.neutral_bb |= bb;
         }
     }
 
@@ -788,6 +791,10 @@ impl BitboardBoard for FairyBoard {
         self.0.player_bb(color)
     }
 
+    fn neutral_bb(&self) -> Self::Bitboard {
+        self.0.neutral_bb()
+    }
+
     fn mask_bb(&self) -> Self::Bitboard {
         self.0.mask_bb()
     }
@@ -807,6 +814,7 @@ impl FairyBoard {
         vec![
             GenericSelect { name: "chess", val: || RulesRef::new(Rules::chess()) },
             GenericSelect { name: "shatranj", val: || RulesRef::new(Rules::shatranj()) },
+            GenericSelect { name: "ataxx", val: || RulesRef::new(Rules::ataxx()) },
             GenericSelect { name: "tictactoe", val: || RulesRef::new(Rules::tictactoe()) },
             GenericSelect { name: "mnk", val: || RulesRef::new(Rules::mnk(GridSize::connect4(), 4)) },
         ]
@@ -857,6 +865,7 @@ impl Display for NoRulesFenFormatter<'_> {
 mod tests {
     use super::*;
     use crate::PlayerResult::Draw;
+    use crate::games::ataxx::AtaxxBoard;
     use crate::games::chess::Chessboard;
     use crate::games::fairy::attacks::MoveKind;
     use crate::games::fairy::moves::FairyMove;
@@ -1030,6 +1039,29 @@ mod tests {
         assert_eq!(18, capture_bb.num_ones());
         assert_eq!(18, pos.capturing_attack_bb_of(FairyColor::second()).num_ones());
         assert_eq!(pos.legal_moves_slow().len(), 8 + 2 * 2 + 2 * 2);
+    }
+
+    #[test]
+    fn simple_ataxx_test() {
+        for pos in AtaxxBoard::bench_positions() {
+            let fen = pos.as_fen();
+            println!("{fen}");
+            let fairy_pos = FairyBoard::from_fen_for("ataxx", &fen, Strict).unwrap();
+            let fairy_normal_part = fairy_pos.fen_no_rules();
+            assert_eq!(fairy_normal_part, fen);
+            let fairy_fen = fairy_pos.as_fen();
+            assert_eq!(FairyBoard::from_fen(&fairy_fen, Strict).unwrap(), fairy_pos);
+            assert_eq!(fairy_pos.empty_bb().num_ones(), pos.empty_bb().num_ones());
+            assert_eq!(fairy_pos.active_player_bb().num_ones(), pos.active_player_bb().num_ones());
+            assert_eq!(fairy_pos.active_player_bb().num_ones(), pos.active_player_bb().num_ones());
+            assert_eq!(fairy_pos.num_legal_moves(), pos.num_legal_moves());
+            for i in 1..=3 {
+                let perft_res = perft(Depth::new(i), pos, false);
+                let fairy_perft_res = perft(Depth::new(i), fairy_pos.clone(), false);
+                assert_eq!(perft_res.depth, fairy_perft_res.depth, "{i} {pos}");
+                assert_eq!(perft_res.nodes, fairy_perft_res.nodes, "{i} {pos}");
+            }
+        }
     }
 
     #[test]

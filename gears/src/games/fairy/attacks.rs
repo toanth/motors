@@ -247,13 +247,13 @@ impl GenPieceAttackKind {
             capture_condition: CaptureCondition::Always,
         }
     }
-    pub fn piece_drop(filter: AttackBitboardFilter) -> Self {
+    pub fn piece_drop(filter: Vec<AttackBitboardFilter>) -> Self {
         Self {
             required: RequiredForAttack::PieceInHand,
             condition: Always,
             attack_mode: AttackMode::NoCaptures,
             typ: AttackTypes::Drop,
-            bitboard_filter: vec![filter],
+            bitboard_filter: filter,
             kind: AttackKind::Drop,
             capture_condition: CaptureCondition::Never,
         }
@@ -403,33 +403,35 @@ impl PieceAttackBB {
     }
 }
 
-// no pont in making this a trait as I don't want it to be extensible like at compile time
-// restriction: don't use traits or Box<dyn Fn> for "extensibility", just use enums.
 /// Bitand the generated attack bitboard with a bitboard given by this enum
-#[derive(Debug, Copy, Clone, Arbitrary)]
+#[derive(Debug, Clone, Arbitrary)]
 #[must_use]
 pub enum AttackBitboardFilter {
     EmptySquares,
     Them,
-    // Us,
+    Us,
     NotUs,
     // NotThem,
     Rank(DimT),
     // File(DimT),
-    PawnCapture, // Them | {ep_square}
-                 // Custom(RawFairyBitboard),
+    Neighbor(Box<AttackBitboardFilter>), // a piece of the given color must be on an adjacent square
+    PawnCapture,                         // Them | {ep_square}
+                                         // Custom(RawFairyBitboard),
 }
 
 impl AttackBitboardFilter {
-    pub fn bb(self, us: FairyColor, pos: &FairyBoard) -> RawFairyBitboard {
+    pub fn bb(&self, us: FairyColor, pos: &FairyBoard) -> RawFairyBitboard {
         let bb = match self {
             AttackBitboardFilter::EmptySquares => pos.empty_bb(),
             AttackBitboardFilter::Them => pos.player_bb(!us),
-            // AttackBitboardFilter::Us => pos.player_bb(us),
+            AttackBitboardFilter::Us => pos.player_bb(us),
             NotUs => !pos.player_bb(us),
             // AttackBitboardFilter::NotThem => !pos.player_bb(!us),
-            AttackBitboardFilter::Rank(rank) => FairyBitboard::rank_for(rank, pos.size()),
+            AttackBitboardFilter::Rank(rank) => FairyBitboard::rank_for(*rank, pos.size()),
             // AttackBitboardFilter::File(file) => FairyBitboard::file_for(file, pos.size()),
+            AttackBitboardFilter::Neighbor(nested) => {
+                FairyBitboard::new(nested.bb(us, pos), pos.size).moore_neighbors()
+            }
             AttackBitboardFilter::PawnCapture => {
                 let ep_bb =
                     pos.0.ep.map(|sq| FairyBitboard::single_piece_for(sq, pos.size()).raw()).unwrap_or_default();
@@ -519,6 +521,10 @@ impl UnverifiedFairyBoard {
 
     pub(super) fn player_bb(&self, color: FairyColor) -> FairyBitboard {
         FairyBitboard::new(self.color_bitboards[color.idx()], self.size())
+    }
+
+    pub(super) fn neutral_bb(&self) -> FairyBitboard {
+        FairyBitboard::new(self.neutral_bb, self.size())
     }
 
     pub(super) fn mask_bb(&self) -> FairyBitboard {

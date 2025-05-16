@@ -21,15 +21,17 @@ use crate::games::chess::pieces::{
     UNICODE_NEUTRAL_PAWN, UNICODE_NEUTRAL_QUEEN, UNICODE_NEUTRAL_ROOK, UNICODE_WHITE_BISHOP, UNICODE_WHITE_KING,
     UNICODE_WHITE_KNIGHT, UNICODE_WHITE_PAWN, UNICODE_WHITE_QUEEN, UNICODE_WHITE_ROOK,
 };
+use crate::games::fairy::Side::*;
+use crate::games::fairy::attacks::AttackBitboardFilter::EmptySquares;
 use crate::games::fairy::attacks::AttackKind::*;
 use crate::games::fairy::attacks::AttackTypes::*;
 use crate::games::fairy::attacks::GenAttacksCondition::*;
 use crate::games::fairy::attacks::{
-    AttackBitboardFilter, AttackMode, AttackTypes, CaptureCondition, GenPieceAttackKind, LeapingBitboards,
+    AttackBitboardFilter, AttackMode, AttackTypes, CaptureCondition, GenPieceAttackKind, LeapingBitboards, MoveKind,
     RequiredForAttack, SliderDirections,
 };
+use crate::games::fairy::moves::FairyMove;
 use crate::games::fairy::rules::RulesRef;
-use crate::games::fairy::Side::*;
 use crate::games::fairy::{FairyBitboard, FairyBoard, FairyColor, FairySize, RawFairyBitboard};
 use crate::games::{AbstractPieceType, CharType, Color, ColoredPieceType, Height, PieceType, Width};
 use crate::general::bitboards::Bitboard;
@@ -39,6 +41,9 @@ use itertools::Itertools;
 use std::cmp::max;
 use std::collections::HashMap;
 use std::iter::once;
+
+const UNICODE_X: char = '⨉'; // '⨉',
+const UNICODE_O: char = '◯'; // '○'
 
 #[derive(Debug, Default, Copy, Clone, Eq, PartialEq, Hash, Arbitrary)]
 #[must_use]
@@ -216,6 +221,23 @@ impl Promo {
     }
 }
 
+#[derive(Debug, Arbitrary)]
+pub enum DrawCtrReset {
+    Always,
+    Never,
+    MoveKind(Vec<MoveKind>),
+}
+
+impl DrawCtrReset {
+    pub fn reset(&self, mov: FairyMove) -> bool {
+        match self {
+            DrawCtrReset::Always => true,
+            DrawCtrReset::Never => false,
+            DrawCtrReset::MoveKind(vec) => vec.contains(&mov.kind()),
+        }
+    }
+}
+
 /// This struct defines the rules for a single piece.
 #[derive(Debug, Arbitrary)]
 pub struct Piece {
@@ -233,7 +255,7 @@ pub struct Piece {
     /// However, they are not the only way to change piece types; this can also be done through move effects based on the move kind.
     pub(super) promotions: Promo,
     pub(super) can_ep_capture: bool,
-    pub(super) reset_draw_counter: bool,
+    pub(super) resets_draw_counter: DrawCtrReset,
     pub(super) royal: bool,
     // true for kings but not for rooks
     pub(super) can_castle: bool,
@@ -257,11 +279,12 @@ impl Piece {
             attacks,
             promotions: Promo::none(),
             can_ep_capture: false,
-            reset_draw_counter: false,
+            resets_draw_counter: DrawCtrReset::Never,
             royal: false,
             can_castle: false,
         }
     }
+
     pub fn leaper(
         name: &str,
         n: usize,
@@ -274,6 +297,7 @@ impl Piece {
         let attacks = vec![AttackTypes::leaping(n, m, size)];
         Self::new(name, attacks, ascii, unicode)
     }
+
     pub fn pieces(size: FairySize) -> Vec<Self> {
         // order of leapers matters
         let mut leapers = vec![
@@ -347,7 +371,7 @@ impl Piece {
                     ],
                     promotions: Promo::none(),
                     can_ep_capture: false,
-                    reset_draw_counter: false,
+                    resets_draw_counter: DrawCtrReset::Never,
                     royal: true,
                     can_castle: true,
                 }
@@ -421,7 +445,7 @@ impl Piece {
                     // the promotion pieces are set later, once it's known which pieces are available
                     promotions: Promo { pieces: vec![], squares: FairyBitboard::backranks_for(size).raw() },
                     can_ep_capture: true,
-                    reset_draw_counter: true,
+                    resets_draw_counter: DrawCtrReset::Always,
                     royal: false,
                     can_castle: false,
                 }
@@ -466,7 +490,7 @@ impl Piece {
                     // the promotion pieces are set later, once it's known which pieces are available
                     promotions: Promo { pieces: vec![], squares: FairyBitboard::backranks_for(size).raw() },
                     can_ep_capture: false,
-                    reset_draw_counter: true,
+                    resets_draw_counter: DrawCtrReset::Always,
                     royal: false,
                     can_castle: false,
                 }
@@ -543,22 +567,60 @@ impl Piece {
             ),
             Self::new("kirin", vec![AttackTypes::leaping(1, 1, size), AttackTypes::leaping(0, 2, size)], 'f', None),
             Self::new("frog", vec![AttackTypes::leaping(1, 1, size), AttackTypes::leaping(0, 3, size)], 'f', None),
-            Self::new("gnu", vec![AttackTypes::leaping(1, 2, size), AttackTypes::leaping(1, 3, size)], 'f', None),
-            {
-                const UNICODE_X: char = '⨉'; // '⨉',
-                const UNICODE_O: char = '◯'; // '○'
-                Self {
-                    name: "mnk".to_string(),
-                    uncolored: false,
-                    uncolored_symbol: ['x', UNICODE_X],
-                    player_symbol: [['X', UNICODE_X], ['O', UNICODE_O]],
-                    attacks: vec![GenPieceAttackKind::piece_drop(AttackBitboardFilter::EmptySquares)],
-                    promotions: Default::default(),
-                    can_ep_capture: false,
-                    reset_draw_counter: false,
-                    royal: false,
-                    can_castle: false,
-                }
+            Self::new("gnu", vec![AttackTypes::leaping(1, 2, size), AttackTypes::leaping(1, 3, size)], 'g', None),
+            Self {
+                name: "mnk".to_string(),
+                uncolored: false,
+                uncolored_symbol: ['x', UNICODE_X],
+                player_symbol: [['X', UNICODE_X], ['O', UNICODE_O]],
+                attacks: vec![GenPieceAttackKind::piece_drop(vec![EmptySquares])],
+                promotions: Default::default(),
+                can_ep_capture: false,
+                resets_draw_counter: DrawCtrReset::Never,
+                royal: false,
+                can_castle: false,
+            },
+            Self {
+                name: "ataxx".to_string(),
+                uncolored: false,
+                uncolored_symbol: ['x', UNICODE_X],
+                player_symbol: [['x', 'X'], ['o', 'O']],
+                attacks: vec![
+                    GenPieceAttackKind::piece_drop(vec![
+                        EmptySquares,
+                        AttackBitboardFilter::Neighbor(Box::new(AttackBitboardFilter::Us)),
+                    ]),
+                    GenPieceAttackKind {
+                        required: RequiredForAttack::PieceOnBoard,
+                        condition: Always,
+                        attack_mode: AttackMode::All,
+                        typ: Leaping(
+                            LeapingBitboards::fixed(0, 2, size).combine(
+                                LeapingBitboards::fixed(1, 2, size).combine(LeapingBitboards::fixed(2, 2, size)),
+                            ),
+                        ),
+                        bitboard_filter: vec![EmptySquares],
+                        kind: Normal,
+                        capture_condition: CaptureCondition::Never,
+                    },
+                ],
+                promotions: Default::default(),
+                can_ep_capture: false,
+                resets_draw_counter: DrawCtrReset::MoveKind(vec![MoveKind::Drop(0)]),
+                royal: false,
+                can_castle: false,
+            },
+            Self {
+                name: "gap".to_string(),
+                uncolored: true,
+                uncolored_symbol: ['-', '-'],
+                player_symbol: [[' ', ' '], [' ', ' ']],
+                attacks: vec![],
+                promotions: Default::default(),
+                can_ep_capture: false,
+                resets_draw_counter: DrawCtrReset::Never,
+                royal: false,
+                can_castle: false,
             },
         ];
         rest.append(&mut leapers);

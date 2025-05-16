@@ -51,6 +51,7 @@ impl FairyMove {
     pub fn new(from: CompactSquare, to: CompactSquare, kind: MoveKind, is_capture: bool) -> Self {
         Self { from, to, packed: Self::pack(kind, is_capture) }
     }
+
     pub fn drop_move(piece: PieceId, to: FairySquare, size: FairySize) -> Self {
         Self::new(
             CompactSquare::new(FairySquare::no_coordinates(), size),
@@ -59,6 +60,7 @@ impl FairyMove {
             false,
         )
     }
+
     pub(super) fn pack(kind: MoveKind, is_capture: bool) -> u16 {
         let (discriminant, val) = match kind {
             MoveKind::Normal => (0, 1), // ensure that the default value of `FairyMove` is never legal
@@ -71,6 +73,7 @@ impl FairyMove {
         let discriminant = discriminant | ((is_capture as u16) << 7);
         ((val as u16) << 8) | discriminant
     }
+
     pub(super) fn unpack(val: u16) -> (MoveKind, bool) {
         let discriminant = val & ((1 << 7) - 1);
         let is_capture = val & (1 << 7) != 0;
@@ -85,12 +88,15 @@ impl FairyMove {
             _ => unreachable!(),
         }
     }
+
     pub fn dest(self, size: FairySize) -> FairySquare {
         self.to.square(size)
     }
+
     pub fn source(self, size: FairySize) -> FairySquare {
         self.from.square(size)
     }
+
     pub fn piece(self, pos: &FairyBoard) -> ColoredPieceId {
         if let MoveKind::Drop(piece) = self.kind() {
             ColoredPieceId::from_u8(piece)
@@ -98,9 +104,11 @@ impl FairyMove {
             pos.colored_piece_on(self.source(pos.size())).symbol
         }
     }
+
     pub fn kind(self) -> MoveKind {
         Self::unpack(self.packed).0
     }
+
     pub fn is_capture(self) -> bool {
         Self::unpack(self.packed).1
     }
@@ -189,7 +197,7 @@ fn format_move_compact(f: &mut Formatter<'_>, mov: FairyMove, pos: &FairyBoard) 
             write!(f, "{from}{rook_sq}")
         }
         MoveKind::Drop(piece) => {
-            if pos.rules().pieces.len() == 1 {
+            if pos.rules().pieces.iter().filter(|p| !p.uncolored).count() <= 1 {
                 write!(f, "{to}")
             } else {
                 write!(f, "{to}{}", pos.rules().pieces.get(piece as usize)?.uncolored_symbol[0].to_ascii_lowercase())
@@ -308,12 +316,17 @@ fn effects_for(mov: FairyMove, pos: &mut FairyBoard, r: EffectRules) {
             PlaceSinglePiece(to, piece).apply(pos);
             PlaceSinglePiece(castling_info.rook_dest_sq(side).unwrap(), rook).apply(pos);
         }
+        // TODO: Remove
         MoveKind::Conversion => {
             let bb = FairyBitboard::single_piece_for(to, pos.size()).extended_moore_neighbors(r.conversion_radius);
             SetColorTo(bb.raw(), pos.active_player()).apply(pos);
         }
     }
-    if (r.reset_draw_counter_on_capture && mov.is_capture()) || piece_rules.reset_draw_counter {
+    if r.conversion_radius > 0 {
+        let bb = FairyBitboard::single_piece_for(to, pos.size()).extended_moore_neighbors(r.conversion_radius);
+        SetColorTo(bb.raw(), pos.active_player()).apply(pos);
+    }
+    if (r.reset_draw_counter_on_capture && mov.is_capture()) || piece_rules.resets_draw_counter.reset(mov) {
         ResetDrawCtr.apply(pos);
     }
     if let Some(ep) = set_ep {

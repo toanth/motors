@@ -16,11 +16,13 @@
  *  along with Gears. If not, see <https://www.gnu.org/licenses/>.
  */
 use crate::PlayerResult;
+use crate::games::ataxx::AtaxxBoard;
 use crate::games::chess::pieces::NUM_COLORS;
 use crate::games::fairy::attacks::EffectRules;
 use crate::games::fairy::moves::FairyMove;
 use crate::games::fairy::pieces::{Piece, PieceId};
-use crate::games::fairy::rules::GameLoss::InRowAtLeast;
+use crate::games::fairy::rules::Draw::{Counter, Repetition};
+use crate::games::fairy::rules::GameLoss::{InRowAtLeast, NoMoves, NoPieces};
 use crate::games::fairy::rules::NumRoyals::Exactly;
 use crate::games::fairy::{
     ColorInfo, FairyBitboard, FairyBoard, FairyCastleInfo, FairyColor, FairySize, MAX_NUM_PIECE_TYPES,
@@ -150,6 +152,7 @@ impl Arbitrary<'_> for EmptyBoard {
         let board = UnverifiedFairyBoard {
             piece_bitboards: [RawFairyBitboard::arbitrary(u)?; MAX_NUM_PIECE_TYPES],
             color_bitboards: [RawFairyBitboard::arbitrary(u)?; NUM_COLORS],
+            neutral_bb: RawFairyBitboard::arbitrary(u)?,
             mask_bb: RawFairyBitboard::arbitrary(u)?,
             in_hand: [u8::arbitrary(u)?; MAX_NUM_PIECE_TYPES],
             ply_since_start: usize::arbitrary(u)?,
@@ -234,9 +237,11 @@ impl Rules {
     pub fn pieces(&self) -> impl Iterator<Item = (PieceId, &Piece)> {
         self.pieces.iter().enumerate().map(|(id, piece)| (PieceId::new(id), piece))
     }
+
     pub fn matching_piece_ids<Pred: Fn(&Piece) -> bool + Copy>(&self, pred: Pred) -> impl Iterator<Item = PieceId> {
         self.pieces().filter(move |(_id, p)| pred(p)).map(|(id, _)| id)
     }
+
     pub fn royals(&self) -> impl Iterator<Item = PieceId> {
         self.matching_piece_ids(|p| p.royal)
     }
@@ -254,6 +259,7 @@ impl Rules {
         UnverifiedFairyBoard {
             piece_bitboards: Default::default(),
             color_bitboards: Default::default(),
+            neutral_bb: Default::default(),
             mask_bb: FairyBitboard::valid_squares_for_size(size).raw(),
             in_hand: rules.0.starting_pieces_in_hand,
             ply_since_start: 0,
@@ -276,17 +282,17 @@ impl Rules {
 
     // Used for chess and many other variants
     fn chess_colors() -> [ColorInfo; NUM_COLORS] {
-        [ColorInfo { ascii_char: 'w', name: "white".to_string() }, ColorInfo {
-            ascii_char: 'b',
-            name: "black".to_string(),
-        }]
+        [
+            ColorInfo { ascii_char: 'w', name: "white".to_string() },
+            ColorInfo { ascii_char: 'b', name: "black".to_string() },
+        ]
     }
 
     pub fn chess() -> Self {
         let pieces = Piece::chess_pieces();
         let colors = Self::chess_colors();
         let game_loss = vec![GameLoss::Checkmate];
-        let draw = vec![Draw::NoMoves, Draw::Counter(100), Draw::Repetition(3)];
+        let draw = vec![Draw::NoMoves, Counter(100), Repetition(3)];
         let startpos_fen = chess::START_FEN.to_string();
         // let legality = PseudoLegal;
         let effect_rules = EffectRules::default();
@@ -338,6 +344,39 @@ impl Rules {
             name: "shatranj".to_string(),
             fen_part: RulesFenPart::None,
             num_royals: Exactly(1),
+        }
+    }
+
+    pub fn ataxx() -> Self {
+        let size = FairySize::ataxx();
+        let mut map = Piece::complete_piece_map(size);
+        let piece = map.remove("ataxx").unwrap();
+        let gap = map.remove("gap").unwrap();
+        let pieces = vec![piece, gap];
+        let startpos_fen = "ataxx ".to_string() + &AtaxxBoard::startpos().as_fen();
+        Self {
+            pieces,
+            colors: Self::mnk_colors(),
+            starting_pieces_in_hand: [u8::MAX; MAX_NUM_PIECE_TYPES],
+            // TODO: When both sides have no legal moves, count who has more material.
+            // The current solution isn't correct, but happens to give the right answer in non-degenerate cases.
+            // Actually, this is incorrect because if there are no legal moves, you simply have to pass; the game only ends
+            // if the other player also doesn't have a move
+            // A better solution could be to merge `game_loss` and `draw`
+            game_loss: vec![NoPieces, NoMoves],
+            draw: vec![Repetition(3), Counter(100)],
+            startpos_fen,
+            // legality: Legality::Legal,
+            empty_board: EmptyBoard(Box::new(Self::generic_empty_board)),
+            size,
+            has_ep: false,
+            has_castling: false,
+            store_last_move: false,
+            effect_rules: EffectRules { reset_draw_counter_on_capture: true, conversion_radius: 1 },
+            check_rules: CheckRules::default(),
+            name: "ataxx".to_string(),
+            fen_part: RulesFenPart::None,
+            num_royals: Exactly(0),
         }
     }
 

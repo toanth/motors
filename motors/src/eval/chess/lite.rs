@@ -177,6 +177,7 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
         let mut score = Tuned::Score::default();
         score += Self::pawn_shield_for(pos, us);
         let our_king = pos.king_square(us);
+        // Idea from Stockfish
         if (all_pawns & FLANK[our_king.file() as usize]).is_zero() {
             score += Tuned::pawnless_flank();
         }
