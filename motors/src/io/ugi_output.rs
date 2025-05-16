@@ -206,7 +206,7 @@ impl TypeErasedUgiOutput {
             time /= 60.0;
             in_seconds = false;
         }
-        let time = format!("{time:5.1}").color(TrueColor { r, g, b });
+        let time = format!("{time:6.2}").color(TrueColor { r, g, b });
         let nodes = format!("{nodes:12}");
 
         let mut multipv =
@@ -288,6 +288,7 @@ pub struct UgiOutput<B: Board> {
     pub show_refutation: bool,
     pub show_currline: bool,
     pub currline_null_moves: bool,
+    pub show_debug_output: bool,
 }
 
 impl<B: Board> Default for UgiOutput<B> {
@@ -300,14 +301,16 @@ impl<B: Board> Default for UgiOutput<B> {
             show_currline: false,
             currline_null_moves: true,
             top_moves: vec![],
+            show_debug_output: false,
         }
     }
 }
 
 impl<B: Board> UgiOutput<B> {
-    pub fn new(pretty: bool) -> Self {
+    pub fn new(pretty: bool, debug: bool) -> Self {
         let mut res = Self::default();
         res.type_erased.pretty = pretty;
+        res.show_debug_output = debug;
         res
     }
 
@@ -318,6 +321,10 @@ impl<B: Board> UgiOutput<B> {
 
     pub fn set_pretty(&mut self, pretty: bool) {
         self.type_erased.pretty = pretty;
+    }
+
+    pub fn set_debug(&mut self, debug: bool) {
+        self.show_debug_output = debug;
     }
 
     pub fn write_search_res(&mut self, res: &SearchResult<B>) {

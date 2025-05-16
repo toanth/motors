@@ -16,10 +16,10 @@
  *  along with Gears. If not, see <https://www.gnu.org/licenses/>.
  */
 use crate::games::chess::pieces::{
-    NUM_COLORS, UNICODE_BLACK_BISHOP, UNICODE_BLACK_KING, UNICODE_BLACK_KNIGHT, UNICODE_BLACK_PAWN,
-    UNICODE_BLACK_QUEEN, UNICODE_BLACK_ROOK, UNICODE_NEUTRAL_BISHOP, UNICODE_NEUTRAL_KING, UNICODE_NEUTRAL_KNIGHT,
-    UNICODE_NEUTRAL_PAWN, UNICODE_NEUTRAL_QUEEN, UNICODE_NEUTRAL_ROOK, UNICODE_WHITE_BISHOP, UNICODE_WHITE_KING,
-    UNICODE_WHITE_KNIGHT, UNICODE_WHITE_PAWN, UNICODE_WHITE_QUEEN, UNICODE_WHITE_ROOK,
+    UNICODE_BLACK_BISHOP, UNICODE_BLACK_KING, UNICODE_BLACK_KNIGHT, UNICODE_BLACK_PAWN, UNICODE_BLACK_QUEEN,
+    UNICODE_BLACK_ROOK, UNICODE_NEUTRAL_BISHOP, UNICODE_NEUTRAL_KING, UNICODE_NEUTRAL_KNIGHT, UNICODE_NEUTRAL_PAWN,
+    UNICODE_NEUTRAL_QUEEN, UNICODE_NEUTRAL_ROOK, UNICODE_WHITE_BISHOP, UNICODE_WHITE_KING, UNICODE_WHITE_KNIGHT,
+    UNICODE_WHITE_PAWN, UNICODE_WHITE_QUEEN, UNICODE_WHITE_ROOK,
 };
 use crate::games::fairy::Side::*;
 use crate::games::fairy::attacks::AttackBitboardFilter::EmptySquares;
@@ -33,7 +33,7 @@ use crate::games::fairy::attacks::{
 use crate::games::fairy::moves::FairyMove;
 use crate::games::fairy::rules::RulesRef;
 use crate::games::fairy::{FairyBitboard, FairyBoard, FairyColor, FairySize, RawFairyBitboard};
-use crate::games::{AbstractPieceType, CharType, Color, ColoredPieceType, Height, PieceType, Width};
+use crate::games::{AbstractPieceType, CharType, Color, ColoredPieceType, Height, NUM_COLORS, PieceType, Width};
 use crate::general::bitboards::Bitboard;
 use crate::general::squares::RectangularSize;
 use arbitrary::Arbitrary;

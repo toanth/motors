@@ -234,6 +234,9 @@ impl<B: Board> AbstractEngineUgiState for ACState<B> {
     fn handle_engine_print(&mut self) -> Res<()> {
         Ok(())
     }
+    fn handle_move_eval(&mut self, _words: &mut Tokens) -> Res<()> {
+        Ok(())
+    }
     fn handle_eval_or_tt(&mut self, _eval: bool, _words: &mut Tokens) -> Res<()> {
         Ok(())
     }

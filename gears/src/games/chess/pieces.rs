@@ -11,7 +11,6 @@ use crate::games::chess::{ChessColor, ChessSettings, Chessboard};
 use crate::games::{AbstractPieceType, CharType, Color, ColoredPieceType, GenericPiece, PieceType};
 
 pub const NUM_CHESS_PIECES: usize = 6;
-pub const NUM_COLORS: usize = 2;
 pub const BLACK_OFFSET: usize = 8;
 
 // These symbols were introduced in Unicode 12 and aren't widely supported yet
@@ -63,6 +62,10 @@ impl ChessPieceType {
 
     pub fn non_pawn_pieces() -> impl Iterator<Item = ChessPieceType> {
         Self::pieces().dropping(1)
+    }
+
+    pub fn is_knb(self) -> bool {
+        [King, Knight, Bishop].contains(&self)
     }
 
     pub fn to_name(self) -> &'static str {

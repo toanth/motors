@@ -128,7 +128,7 @@ impl ChessMove {
     pub fn piece(self, board: &Chessboard) -> ChessPiece {
         let source = self.src_square();
         debug_assert!(board.is_occupied(source), "{}", self.compact_formatter(board));
-        debug_assert!(board.active_player_bb().is_bit_set_at(source.bb_idx()), "{}", self.compact_formatter(board));
+        debug_assert!(board.active_player_bb().is_bit_set(source), "{}", self.compact_formatter(board));
         ChessPiece::new(ColoredChessPieceType::new(board.active_player, self.flags().piece_type()), source)
     }
 
@@ -162,7 +162,7 @@ impl ChessMove {
     }
 
     pub fn is_non_ep_capture(self, board: &Chessboard) -> bool {
-        board.inactive_player_bb().is_bit_set_at(self.dest_square().bb_idx())
+        board.inactive_player_bb().is_bit_set(self.dest_square())
     }
 
     pub fn captured(self, board: &Chessboard) -> ChessPieceType {
@@ -448,6 +448,9 @@ impl Chessboard {
             self.hashes.pawns ^= hash_delta;
         } else {
             self.hashes.nonpawns[us] ^= hash_delta;
+            if piece.is_knb() {
+                self.hashes.knb ^= hash_delta;
+            }
         }
         // remove old castling flags and ep square, they'll later be set again
         let mut special_hash = PosHash(0);
@@ -471,7 +474,11 @@ impl Chessboard {
             if captured == Pawn {
                 self.hashes.pawns ^= ZOBRIST_KEYS.piece_key(captured, them, to);
             } else {
+                let removed = ZOBRIST_KEYS.piece_key(captured, them, to);
                 self.hashes.nonpawns[them] ^= ZOBRIST_KEYS.piece_key(captured, them, to);
+                if captured.is_knb() {
+                    self.hashes.knb ^= removed;
+                }
             }
             self.ply_100_ctr = 0;
         } else if piece == Pawn {
@@ -502,7 +509,12 @@ impl Chessboard {
             self.piece_bbs[Pawn] ^= bb;
             self.piece_bbs[mov.flags().promo_piece()] ^= bb;
             self.hashes.pawns ^= ZOBRIST_KEYS.piece_key(Pawn, us, to);
-            self.hashes.nonpawns[us] ^= ZOBRIST_KEYS.piece_key(mov.flags().promo_piece(), us, to);
+            let new_piece = mov.flags().promo_piece();
+            let new = ZOBRIST_KEYS.piece_key(mov.flags().promo_piece(), us, to);
+            self.hashes.nonpawns[us] ^= new;
+            if new_piece.is_knb() {
+                self.hashes.knb ^= new;
+            }
         }
         self.ply += 1;
         self.hashes.total = special_hash ^ self.hashes.pawns ^ self.hashes.nonpawns[0] ^ self.hashes.nonpawns[1];
@@ -554,11 +566,12 @@ impl Chessboard {
         debug_assert!(self.colored_piece_on(rook_from).symbol == ColoredChessPieceType::new(color, Rook));
         self.move_piece(rook_from, rook_to, Rook);
         let mut delta = PosHash(0);
-        delta ^= ZOBRIST_KEYS.piece_key(Rook, color, rook_to);
-        delta ^= ZOBRIST_KEYS.piece_key(Rook, color, rook_from);
         delta ^= ZOBRIST_KEYS.piece_key(King, color, *to);
         *to = ChessSquare::from_rank_file(from.rank(), to_file);
         delta ^= ZOBRIST_KEYS.piece_key(King, color, *to);
+        self.hashes.knb ^= delta;
+        delta ^= ZOBRIST_KEYS.piece_key(Rook, color, rook_to);
+        delta ^= ZOBRIST_KEYS.piece_key(Rook, color, rook_from);
         self.hashes.nonpawns[color] ^= delta;
         debug_assert!(!self.is_in_check_on_square(
             self.active_player,
@@ -950,6 +963,7 @@ impl<'a> MoveParser<'a> {
     }
 
     fn error_msg(&self, board: &Chessboard, original_piece: ChessPieceType) -> Res<ChessMove> {
+        let us = board.active_player;
         // invalid move, try to print a helpful error message
         let f = |file: Option<DimT>, rank: Option<DimT>| {
             if let Some(file) = file {
@@ -966,16 +980,27 @@ impl<'a> MoveParser<'a> {
                 ("any square".to_string(), !ChessBitboard::default())
             }
         };
+        let pinned = if self.target_rank.is_some() && self.target_file.is_some() {
+            board.all_attacking(
+                ChessSquare::from_rank_file(self.target_rank.unwrap(), self.target_file.unwrap()),
+                &board.slider_generator(),
+            ) & board.pinned
+                & board.col_piece_bb(us, self.piece)
+        } else {
+            ChessBitboard::default()
+        };
         let (from, from_bb) = f(self.start_file, self.start_rank);
         let to = f(self.target_file, self.target_rank).0;
         let (from, to) = (from.bold(), to.bold());
         let mut additional = String::new();
         if board.is_game_lost_slow() {
-            additional = format!(" ({} has been checkmated)", board.active_player);
+            additional = format!(" ({us} has been checkmated)");
         } else if board.is_in_check() {
-            additional = format!(" ({} is in check)", board.active_player);
+            additional = format!(" ({us} is in check)");
+        } else if let Some(sq) = pinned.ones().next() {
+            additional = format!(" (the {0} on {sq} is pinned)", self.piece);
         } else if board.pseudolegal_moves().iter().any(|m| self.is_matching_pseudolegal(m)) {
-            additional = format!(" (it leaves the {} king in check)", board.active_player)
+            additional = format!(" (it leaves the {us} king in check)")
         } else if self.piece == King {
             // rank and file have already been checked to exist in the move description (only pawns can omit rank)
             let dest = ChessSquare::from_rank_file(self.target_rank.unwrap(), self.target_file.unwrap());
@@ -985,7 +1010,6 @@ impl<'a> MoveParser<'a> {
         }
         let additional = additional.bold();
 
-        // TODO: else, if piece is pinned, update message
         // moves without a piece but source and dest square have probably been meant as UCI moves, and not as pawn moves
         if original_piece == Empty && from_bb.is_single_piece() {
             let piece = board.colored_piece_on(from_bb.to_square().unwrap());
@@ -996,7 +1020,7 @@ impl<'a> MoveParser<'a> {
                     self.consumed().bold(),
                     additional
                 )
-            } else if piece.color().unwrap() != board.active_player {
+            } else if piece.color().unwrap() != us {
                 bail!(
                     "There is a {0} on {from}, but it's {1}'s turn to move, so the move '{2}' is invalid{3}",
                     piece.symbol.name().bold(),

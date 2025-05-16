@@ -18,13 +18,13 @@ use crate::games::chess::castling::CastleRight::*;
 use crate::games::chess::castling::{CastleRight, CastlingFlags};
 use crate::games::chess::moves::ChessMove;
 use crate::games::chess::pieces::ChessPieceType::*;
-use crate::games::chess::pieces::{ChessPiece, ChessPieceType, ColoredChessPieceType, NUM_CHESS_PIECES, NUM_COLORS};
+use crate::games::chess::pieces::{ChessPiece, ChessPieceType, ColoredChessPieceType, NUM_CHESS_PIECES};
 use crate::games::chess::squares::{ChessSquare, ChessboardSize};
 use crate::games::chess::unverified::UnverifiedChessboard;
 use crate::games::chess::zobrist::ZOBRIST_KEYS;
 use crate::games::{
-    AbstractPieceType, Board, BoardHistory, CharType, Color, ColoredPiece, ColoredPieceType, DimT, PieceType, PosHash,
-    Settings, n_fold_repetition,
+    AbstractPieceType, Board, BoardHistory, CharType, Color, ColoredPiece, ColoredPieceType, DimT, NUM_COLORS,
+    PieceType, PosHash, Settings, n_fold_repetition,
 };
 use crate::general::bitboards::chessboard::{ChessBitboard, black_squares, white_squares};
 use crate::general::bitboards::{Bitboard, KnownSizeBitboard, RawBitboard, RawStandardBitboard};
@@ -55,6 +55,37 @@ mod upcomin_repetition;
 pub mod zobrist;
 
 pub const START_FEN: &str = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
+
+static STARTPOS: Chessboard = {
+    let piece_bbs = [
+        ChessBitboard::new(0x00ff_0000_0000_ff00),
+        ChessBitboard::new(0x4200_0000_0000_0042),
+        ChessBitboard::new(0x2400_0000_0000_0024),
+        ChessBitboard::new(0x8100_0000_0000_0081),
+        ChessBitboard::new(0x0800_0000_0000_0008),
+        ChessBitboard::new(0x1000_0000_0000_0010),
+    ];
+    let color_bbs = [ChessBitboard::new(0xffff), ChessBitboard::new(0xffff << (8 * 6))];
+    let threats = ChessBitboard::new(0x7effff0000000000);
+    Chessboard {
+        piece_bbs,
+        color_bbs,
+        threats,
+        checkers: ChessBitboard::new(0),
+        pinned: ChessBitboard::new(0),
+        ply: 0,
+        ply_100_ctr: 0,
+        active_player: White,
+        castling: CastlingFlags::for_startpos(),
+        ep_square: None,
+        hashes: Hashes {
+            pawns: PosHash(2269071747976134835),
+            nonpawns: [PosHash(14501238155361420356), PosHash(16424626985112491456)],
+            knb: PosHash(10966777955972345920),
+            total: PosHash(15430246029285706692),
+        },
+    }
+};
 
 #[derive(Eq, PartialEq, Copy, Clone, Debug, Default)]
 pub struct ChessSettings {}
@@ -138,6 +169,7 @@ impl Color for ChessColor {
 struct Hashes {
     pawns: PosHash,
     nonpawns: [PosHash; NUM_COLORS],
+    knb: PosHash,
     total: PosHash,
 }
 
@@ -158,7 +190,7 @@ pub struct Chessboard {
 }
 
 // TODO: It might be worth it to use u32s for te non-main hashes so that the size can shrink down to 128 bytes
-const _: () = assert!(size_of::<Chessboard>() == 136);
+const _: () = assert!(size_of::<Chessboard>() == 144);
 
 impl Default for Chessboard {
     fn default() -> Self {
@@ -216,7 +248,11 @@ impl Board for Chessboard {
     }
 
     fn startpos_for_settings(_: Self::Settings) -> Self {
-        Self::from_fen(START_FEN, Strict).expect("Internal error: Couldn't parse startpos fen")
+        debug_assert_eq!(
+            STARTPOS,
+            Self::from_fen(START_FEN, Strict).expect("Internal error: Couldn't parse startpos fen")
+        );
+        STARTPOS
     }
 
     fn from_name(name: &str) -> Res<Self> {
@@ -679,6 +715,10 @@ impl Chessboard {
         self.hashes.pawns
     }
 
+    pub fn minor_key(&self) -> PosHash {
+        self.hashes.knb
+    }
+
     pub fn nonpawn_key(&self, color: ChessColor) -> PosHash {
         self.hashes.nonpawns[color]
     }
@@ -947,7 +987,7 @@ mod tests {
     use std::collections::HashSet;
 
     use crate::games::chess::squares::{B_FILE_NO, E_FILE_NO, F_FILE_NO, G_FILE_NO, H_FILE_NO};
-    use crate::games::{Coordinates, NoHistory, RectangularCoordinates, ZobristHistory, char_to_file};
+    use crate::games::{Coordinates, NoHistory, ZobristHistory, char_to_file};
     use crate::general::board::RectangularBoard;
     use crate::general::board::Strictness::Relaxed;
     use crate::general::moves::Move;
@@ -1414,7 +1454,8 @@ mod tests {
         let insufficient = [
             "8/4k3/8/8/8/8/8/2K5 w - - 0 1",
             "8/4k3/8/8/8/8/5N2/2K5 w - - 0 1",
-            "8/8/8/6k1/8/2K5/5b2/6b1 w - - 0 1",
+            "8/8/8/3b2k1/8/2K5/6b1/8 w - - 0 1",
+            "8/8/8/6k1/8/2K5/8/4b1b1 w - - 0 1",
             "8/8/3B4/7k/8/8/1K6/6b1 w - - 0 1",
             "8/6B1/8/6k1/8/2K5/8/6b1 w - - 0 1",
             "3b3B/2B5/1B1B4/B7/3b4/4b2k/5b2/1K6 w - - 0 1",

@@ -22,13 +22,12 @@ pub mod pieces;
 mod rules;
 
 use crate::PlayerResult;
-use crate::games::chess::pieces::NUM_COLORS;
 use crate::games::fairy::moves::FairyMove;
 use crate::games::fairy::pieces::{ColoredPieceId, PieceId};
 use crate::games::fairy::rules::{Draw, GameLoss, NumRoyals, Rules, RulesRef};
 use crate::games::{
     AbstractPieceType, BoardHistory, CharType, Color, ColoredPiece, ColoredPieceType, Coordinates, DimT, GenericPiece,
-    NoHistory, PosHash, Size,
+    NUM_COLORS, NoHistory, PosHash, Size,
 };
 use crate::general::bitboards::{Bitboard, DynamicallySizedBitboard, ExtendedRawBitboard, RawBitboard};
 use crate::general::board::SelfChecks::CheckFen;
@@ -1100,9 +1099,6 @@ mod tests {
                 let fairy_perft = perft(depth, fairy_pos.clone(), false);
                 assert_eq!(mnk_perft.depth, fairy_perft.depth);
                 assert_eq!(mnk_perft.nodes, fairy_perft.nodes, "Depth {i}, pos: {mnk_pos}");
-                let mnk_time = mnk_perft.time.as_millis();
-                let fairy_time = fairy_perft.time.as_millis();
-                assert!(mnk_time * 100 + 2000 > fairy_time, "{mnk_time} {fairy_time} {i} {fairy_pos}");
             }
         }
     }

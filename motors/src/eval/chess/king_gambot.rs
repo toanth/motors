@@ -15,7 +15,6 @@
  *  You should have received a copy of the GNU General Public License
  *  along with Motors. If not, see <https://www.gnu.org/licenses/>.
  */
-use crate::eval::SingleFeatureScore;
 use crate::eval::chess::FileOpenness;
 use crate::eval::chess::lite_values::{Lite, LiteValues};
 use gears::games::DimT;
@@ -196,5 +195,9 @@ impl LiteValues for KingGambotValues {
 
     fn discovered_check_stm() -> PhasedScore {
         Lite::discovered_check_stm()
+    }
+
+    fn check_stm() -> PhasedScore {
+        Lite::check_stm()
     }
 }

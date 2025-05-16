@@ -7,10 +7,10 @@ CC = cargo
 export EXE
 export CC
 
-.PHONY: all clean
+.PHONY: caps release debug all clean
 
-#the first target is the default target and only builds `motors`, because that's all that is necessary for openbench
-default: motors
+#the first target is the default target and only builds `caps`, because that's all that is necessary for openbench
+default: caps
 
 all: motors monitors pliers
 
@@ -22,14 +22,17 @@ pliers:
 
 motors: release
 
+caps:
+	cargo rustc --release --package motors --bin motors --no-default-features --features=caps --features=unsafe -- --emit link=${EXE}
+
 bench: release
 	./caps bench
 
 release:
-	cargo rustc --release --package motors --bin motors -- --emit link=${EXE}
+	cargo build --release --package motors --bin motors
 
 debug:
-	cargo rustc --package motors --bin motors -- --emit link=${EXE}
+	cargo build --package motors --bin motors
 
 clean:
 	rm -rf target/

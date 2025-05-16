@@ -16,7 +16,6 @@ use gears::games::chess::see::SEE_SCORES;
 use gears::games::chess::squares::{ChessSquare, NUM_SQUARES};
 use gears::games::chess::{ChessColor, Chessboard};
 use gears::general::common::StaticallyNamedEntity;
-use motors::eval::SingleFeatureScore;
 use motors::eval::chess::FileOpenness::*;
 use motors::eval::chess::lite::GenericLiTEval;
 use motors::eval::chess::lite_values::{LiteValues, MAX_MOBILITY};
@@ -61,9 +60,10 @@ pub enum LiteFeatureSubset {
     Defense,
     KingZoneAttack,
     CanGiveCheck,
-    Pin,
-    DiscoveredCheck,
+    CheckStm,
     DiscoveredCheckStm,
+    DiscoveredCheck,
+    Pin,
 }
 
 impl FeatureSubSet for LiteFeatureSubset {
@@ -96,9 +96,10 @@ impl FeatureSubSet for LiteFeatureSubset {
             Defense => (NUM_CHESS_PIECES - 1) * NUM_CHESS_PIECES,
             KingZoneAttack => NUM_CHESS_PIECES,
             CanGiveCheck => NUM_CHESS_PIECES - 1,
-            Pin => NUM_CHESS_PIECES - 1,
-            DiscoveredCheck => NUM_CHESS_PIECES,
+            CheckStm => 1,
             DiscoveredCheckStm => 1,
+            DiscoveredCheck => NUM_CHESS_PIECES,
+            Pin => NUM_CHESS_PIECES - 1,
         }
     }
 
@@ -249,14 +250,17 @@ impl FeatureSubSet for LiteFeatureSubset {
             CanGiveCheck => {
                 write!(f, "const CAN_GIVE_CHECK: [PhasedScore; 5] = ")?;
             }
-            Pin => {
-                write!(f, "const PIN: [PhasedScore; NUM_CHESS_PIECES - 1] = ")?;
+            CheckStm => {
+                write!(f, "const CHECK_STM: PhasedScore = ")?;
+            }
+            DiscoveredCheckStm => {
+                write!(f, "const DISCOVERED_CHECK_STM: PhasedScore = ")?;
             }
             DiscoveredCheck => {
                 write!(f, "const DISCOVERED_CHECK: [PhasedScore; NUM_CHESS_PIECES] = ")?;
             }
-            DiscoveredCheckStm => {
-                write!(f, "const DISCOVERED_CHECK_STM: PhasedScore = ")?;
+            Pin => {
+                write!(f, "const PIN: [PhasedScore; NUM_CHESS_PIECES - 1] = ")?;
             }
         }
         write_range_phased(f, weights, self.start_idx(), self.num_features(), special, true)?;
@@ -303,23 +307,23 @@ impl LiteValues for LiTETrace {
         SingleFeature::new(PassedPawn, idx)
     }
 
-    fn stoppable_passer() -> SingleFeatureScore<Self::Score> {
+    fn stoppable_passer() -> SingleFeature {
         SingleFeature::new(StoppablePasser, 0)
     }
 
-    fn close_king_passer() -> SingleFeatureScore<Self::Score> {
+    fn close_king_passer() -> SingleFeature {
         SingleFeature::new(CloseKingPasser, 0)
     }
 
-    fn immobile_passer() -> SingleFeatureScore<Self::Score> {
+    fn immobile_passer() -> SingleFeature {
         SingleFeature::new(ImmobilePasser, 0)
     }
 
-    fn passer_protection() -> SingleFeatureScore<Self::Score> {
+    fn passer_protection() -> SingleFeature {
         SingleFeature::new(ProtectedPasser, 0)
     }
 
-    fn candidate_passer(rank: DimT) -> SingleFeatureScore<Self::Score> {
+    fn candidate_passer(rank: DimT) -> SingleFeature {
         SingleFeature::new(CandidatePasser, rank as usize)
     }
 
@@ -331,7 +335,7 @@ impl LiteValues for LiTETrace {
         SingleFeature::new(DoubledPawn, 0)
     }
 
-    fn phalanx(rank: DimT) -> SingleFeatureScore<Self::Score> {
+    fn phalanx(rank: DimT) -> SingleFeature {
         SingleFeature::new(Phalanx, rank as usize)
     }
 
@@ -339,7 +343,7 @@ impl LiteValues for LiTETrace {
         SingleFeature::new(BishopPair, 0)
     }
 
-    fn bad_bishop(num_pawns: usize) -> SingleFeatureScore<Self::Score> {
+    fn bad_bishop(num_pawns: usize) -> SingleFeature {
         SingleFeature::new(BadBishop, num_pawns)
     }
 
@@ -363,11 +367,11 @@ impl LiteValues for LiTETrace {
         SingleFeature::new(BishopOpenness, idx)
     }
 
-    fn pawn_advanced_center(config: usize) -> SingleFeatureScore<Self::Score> {
+    fn pawn_advanced_center(config: usize) -> SingleFeature {
         SingleFeature::new(PawnAdvancedCenter, config)
     }
 
-    fn pawn_passive_center(config: usize) -> SingleFeatureScore<Self::Score> {
+    fn pawn_passive_center(config: usize) -> SingleFeature {
         SingleFeature::new(PawnPassiveCenter, config)
     }
 
@@ -375,7 +379,7 @@ impl LiteValues for LiTETrace {
         SingleFeature::new(PawnShield, config)
     }
 
-    fn pawnless_flank() -> SingleFeatureScore<Self::Score> {
+    fn pawnless_flank() -> SingleFeature {
         SingleFeature::new(PawnlessFlank, 0)
     }
 
@@ -393,7 +397,7 @@ impl LiteValues for LiTETrace {
         SingleFeature::new(PawnAttacks, piece as usize)
     }
 
-    fn pawn_advance_threat(piece: ChessPieceType) -> SingleFeatureScore<Self::Score> {
+    fn pawn_advance_threat(piece: ChessPieceType) -> SingleFeature {
         SingleFeature::new(PawnAdvanceThreat, piece as usize)
     }
 
@@ -416,20 +420,24 @@ impl LiteValues for LiTETrace {
         SingleFeature::new(KingZoneAttack, attacking as usize)
     }
 
-    fn can_give_check(piece: ChessPieceType) -> SingleFeatureScore<Self::Score> {
+    fn can_give_check(piece: ChessPieceType) -> SingleFeature {
         SingleFeature::new(CanGiveCheck, piece as usize)
     }
 
-    fn pin(piece: ChessPieceType) -> SingleFeatureScore<Self::Score> {
+    fn pin(piece: ChessPieceType) -> SingleFeature {
         SingleFeature::new(Pin, piece as usize)
     }
 
-    fn discovered_check(piece: ChessPieceType) -> SingleFeatureScore<Self::Score> {
+    fn discovered_check(piece: ChessPieceType) -> SingleFeature {
         SingleFeature::new(DiscoveredCheck, piece as usize)
     }
 
-    fn discovered_check_stm() -> SingleFeatureScore<Self::Score> {
+    fn discovered_check_stm() -> SingleFeature {
         SingleFeature::new(DiscoveredCheckStm, 0)
+    }
+
+    fn check_stm() -> SingleFeature {
+        SingleFeature::new(CheckStm, 0)
     }
 }
 

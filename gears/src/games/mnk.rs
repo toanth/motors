@@ -1,13 +1,15 @@
 use anyhow::{anyhow, bail, ensure};
 use colored::Colorize;
 use itertools::Itertools;
+use rand::Rng;
 use std::cmp::min;
 use std::fmt::{self, Debug, Display, Formatter};
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::mem::size_of;
 use strum_macros::EnumIter;
 
-use crate::games::PlayerResult::Draw;
+use crate::PlayerResult;
+use crate::PlayerResult::{Draw, Lose};
 use crate::games::mnk::MnkPieceType::{Empty, O, X};
 use crate::games::*;
 use crate::general::bitboards::{Bitboard, DynamicallySizedBitboard, ExtendedRawBitboard, MAX_WIDTH, RawBitboard};
@@ -19,10 +21,10 @@ use crate::general::board::{
 };
 use crate::general::common::*;
 use crate::general::hq::BitReverseSliderGenerator;
-use crate::general::move_list::EagerNonAllocMoveList;
+use crate::general::move_list::{EagerNonAllocMoveList, MoveList};
 use crate::general::moves::Legality::Legal;
 use crate::general::moves::{Legality, Move, UntrustedMove};
-use crate::general::squares::{GridCoordinates, GridSize};
+use crate::general::squares::{GridCoordinates, GridSize, RectangularCoordinates, SquareColor};
 use crate::output::OutputOpts;
 use crate::output::text_output::{BoardFormatter, DefaultBoardFormatter, board_to_string, display_board_pretty};
 use crate::search::Depth;

@@ -1024,8 +1024,6 @@ macro_rules! precompute_leaper_attacks {
 // TODO: Use Raw bitboards
 pub mod chessboard {
     use super::*;
-    use crate::games::chess::ChessColor::*;
-    use crate::games::chess::squares::NUM_SQUARES;
 
     pub type ChessBitboard = SmallGridBitboard<8, 8>;
 
@@ -1039,7 +1037,7 @@ pub mod chessboard {
         res
     };
 
-    pub const KINGS: [ChessBitboard; NUM_SQUARES] = {
+    pub const KINGS: [ChessBitboard; 64] = {
         let mut res = [ChessBitboard::new(0); 64];
         let mut i = 0;
         while i < 64 {
@@ -1052,7 +1050,7 @@ pub mod chessboard {
     };
 
     // All squares with a sup distance of 2
-    pub const ATAXX_LEAPERS: [ChessBitboard; NUM_SQUARES] = {
+    pub const ATAXX_LEAPERS: [ChessBitboard; 64] = {
         let mut res = [ChessBitboard::new(0); 64];
         let mut i = 0;
         while i < 64 {
@@ -1113,10 +1111,10 @@ pub mod chessboard {
     };
 
     pub const fn white_squares() -> ChessBitboard {
-        COLORED_SQUARES[White as usize]
+        COLORED_SQUARES[0]
     }
     pub const fn black_squares() -> ChessBitboard {
-        COLORED_SQUARES[Black as usize]
+        COLORED_SQUARES[1]
     }
 
     pub const COLORED_SQUARES: [ChessBitboard; 2] =

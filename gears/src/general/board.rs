@@ -1045,6 +1045,7 @@ pub(crate) fn read_two_move_numbers<B: RectangularBoard>(
     Ok(())
 }
 
+#[allow(unused)]
 pub(crate) fn read_single_move_number<B: RectangularBoard>(
     words: &mut Tokens,
     board: &mut B::Unverified,
@@ -1059,13 +1060,4 @@ pub(crate) fn read_single_move_number<B: RectangularBoard>(
     } else {
         bail!("FEN doesn't contain a valid fullmove counter, but that is required in strict mode")
     }
-}
-
-pub(crate) fn read_simple_fen_part<B: RectangularBoard>(
-    words: &mut Tokens,
-    board: &mut B::Unverified,
-    strictness: Strictness,
-) -> Res<()> {
-    read_common_fen_part::<B>(words, board)?;
-    read_two_move_numbers::<B>(words, board, strictness)
 }
