@@ -799,7 +799,10 @@ impl Caps {
 
         // Hindsight LMR, adapted from Reckless: If we reduced the parent's move a lot, but our position turns out to be unexpectedly good
         // for the parent, retroactively reduce the reduction
-        if ply >= 1 && self.search_stack[ply - 1].reduction >= 3 && -eval > self.search_stack[ply - 1].eval {
+        if ply >= 1
+            && self.search_stack[ply - 1].reduction >= 3
+            && -eval > self.search_stack[ply - 1].eval - Score(self.search_stack[ply - 1].reduction as ScoreT * 8)
+        {
             depth += 1;
         }
 
@@ -877,9 +880,7 @@ impl Caps {
                 self.search_stack[ply].tried_moves.push(ChessMove::default());
                 let reduction = cc::nmp_base() + depth / cc::nmp_depth_div() + isize::from(they_blundered);
                 // the child node is expected to fail low, leading to a fail high in this node
-                self.search_stack[ply].reduction = reduction;
                 let nmp_res = self.negamax(new_pos, ply + 1, depth - 1 - reduction, -beta, -beta + 1, FailLow);
-                self.search_stack[ply].reduction = 0;
                 _ = self.search_stack[ply].tried_moves.pop();
                 self.params.history.pop();
                 let score = -nmp_res?;
@@ -892,11 +893,9 @@ impl Caps {
                         return Some(score);
                     }
                     *self.nmp_disabled_for(us) = true;
-                    self.search_stack[ply].reduction = reduction;
                     // nmp was done with `depth - 1 - reduction`, but we're not doing a null move now, so technically we
                     // should use `depth - reduction`, but using `depth - 1 - reduction` is less expensive and good enough.
                     nmp_verif_score = self.negamax(pos, ply, depth - 1 - reduction, beta - 1, beta, FailHigh);
-                    self.search_stack[ply].reduction = 0;
                     self.search_stack[ply].tried_moves.clear();
                     *self.nmp_disabled_for(us) = false;
                     // The verification score is more trustworthy than the nmp score.
@@ -912,12 +911,10 @@ impl Caps {
         // reduce the depth.
         if depth >= 6 && eval >= beta + Score(32 * depth as ScoreT) && !in_check && !root && nmp_verif_score.is_none() {
             let reduction = depth / 2;
-            self.search_stack[ply].reduction = reduction;
             let score = self.negamax(pos, ply, depth - 1 - reduction, beta - 1, beta, FailHigh)?;
             if score >= beta {
                 depth -= 2;
             }
-            self.search_stack[ply].reduction = 0;
             self.search_stack[ply].tried_moves.clear();
         }
 
