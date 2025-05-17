@@ -140,6 +140,7 @@ pub struct CapsSearchStackEntry {
     killer: ChessMove,
     pv: Pv<Chessboard, SEARCH_STACK_LEN>,
     tried_moves: ArrayVec<ChessMove, MAX_CHESS_MOVES_IN_POS>,
+    reduction: isize,
     move_score: MoveScore,
     pos: Chessboard,
     eval: Score,
@@ -796,6 +797,12 @@ impl Caps {
         let they_blundered = ply >= 2 && eval - self.search_stack[ply - 2].eval > Score(cc::they_blundered_threshold());
         let we_blundered = ply >= 2 && eval - self.search_stack[ply - 2].eval < Score(cc::we_blundered_threshold());
 
+        // Hindsight LMR, adapted from Reckless: If we reduced the parent's move a lot, but our position turns out to be unexpectedly good
+        // for the parent, retroactively reduce the reduction
+        if ply >= 1 && self.search_stack[ply - 1].reduction >= 3 && -eval > self.search_stack[ply - 1].eval {
+            depth += 1;
+        }
+
         // *********************************************************
         // ***** Pre-move loop pruning (other than TT cutoffs) *****
         // *********************************************************
@@ -870,7 +877,9 @@ impl Caps {
                 self.search_stack[ply].tried_moves.push(ChessMove::default());
                 let reduction = cc::nmp_base() + depth / cc::nmp_depth_div() + isize::from(they_blundered);
                 // the child node is expected to fail low, leading to a fail high in this node
+                self.search_stack[ply].reduction = reduction;
                 let nmp_res = self.negamax(new_pos, ply + 1, depth - 1 - reduction, -beta, -beta + 1, FailLow);
+                self.search_stack[ply].reduction = 0;
                 _ = self.search_stack[ply].tried_moves.pop();
                 self.params.history.pop();
                 let score = -nmp_res?;
@@ -883,9 +892,11 @@ impl Caps {
                         return Some(score);
                     }
                     *self.nmp_disabled_for(us) = true;
+                    self.search_stack[ply].reduction = reduction;
                     // nmp was done with `depth - 1 - reduction`, but we're not doing a null move now, so technically we
                     // should use `depth - reduction`, but using `depth - 1 - reduction` is less expensive and good enough.
                     nmp_verif_score = self.negamax(pos, ply, depth - 1 - reduction, beta - 1, beta, FailHigh);
+                    self.search_stack[ply].reduction = 0;
                     self.search_stack[ply].tried_moves.clear();
                     *self.nmp_disabled_for(us) = false;
                     // The verification score is more trustworthy than the nmp score.
@@ -901,10 +912,12 @@ impl Caps {
         // reduce the depth.
         if depth >= 6 && eval >= beta + Score(32 * depth as ScoreT) && !in_check && !root && nmp_verif_score.is_none() {
             let reduction = depth / 2;
+            self.search_stack[ply].reduction = reduction;
             let score = self.negamax(pos, ply, depth - 1 - reduction, beta - 1, beta, FailHigh)?;
             if score >= beta {
                 depth -= 2;
             }
+            self.search_stack[ply].reduction = 0;
             self.search_stack[ply].tried_moves.clear();
         }
 
@@ -1059,7 +1072,12 @@ impl Caps {
                 // this ensures that check extensions prevent going into qsearch while in check
                 reduction = reduction.clamp(0, child_depth);
 
+                self.search_stack[ply].reduction = reduction;
+
                 score = -self.negamax(new_pos, ply + 1, child_depth - reduction, child_alpha, child_beta, FailHigh)?;
+
+                self.search_stack[ply].reduction = 0;
+
                 // If the score turned out to be better than expected (at least `alpha`), this might just be because
                 // of the reduced depth. So do a full-depth search first, but don't use the full window quite yet.
                 if alpha < score && reduction > 0 {
@@ -1418,6 +1436,9 @@ impl Caps {
         self.search_stack[ply].pos = pos;
         self.search_stack[ply].eval = eval;
         self.search_stack[ply].tried_moves.clear();
+        // when aborting a search, it's possible that the reduction doesn't get cleared,
+        // so we do this here as well to make sure this is always correct
+        self.search_stack[ply].reduction = 0;
     }
 
     fn record_move(&mut self, mov: ChessMove, old_pos: Chessboard, ply: usize, typ: SearchType, move_score: MoveScore) {
