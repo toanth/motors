@@ -793,8 +793,10 @@ impl Caps {
         // Like the commonly used `improving` and `regressing`, these variables compare the current static eval with
         // the static eval 2 plies ago to recognize blunders. Conceptually, `improving` and `regressing` can be seen as
         // a prediction for how the eval is going to evolve, while these variables are more about cutting early after bad moves.
-        let they_blundered = ply >= 2 && eval - self.search_stack[ply - 2].eval > Score(cc::they_blundered_threshold());
-        let we_blundered = ply >= 2 && eval - self.search_stack[ply - 2].eval < Score(cc::we_blundered_threshold());
+        let they_blundered =
+            !in_check && ply >= 2 && eval - self.search_stack[ply - 2].eval > Score(cc::they_blundered_threshold());
+        let we_blundered =
+            !in_check && ply >= 2 && eval - self.search_stack[ply - 2].eval < Score(cc::we_blundered_threshold());
 
         // *********************************************************
         // ***** Pre-move loop pruning (other than TT cutoffs) *****
