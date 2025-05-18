@@ -154,7 +154,7 @@ impl ChessMove {
 
     #[inline]
     pub fn is_capture(self, board: &Chessboard) -> bool {
-        self.is_ep() || self.is_non_ep_capture(board)
+        self.is_non_ep_capture(board) || self.is_ep()
     }
 
     pub fn is_ep(self) -> bool {

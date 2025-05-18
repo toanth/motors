@@ -991,6 +991,7 @@ impl Caps {
             if move_score < KILLER_SCORE {
                 num_uninteresting_visited += 1;
             }
+            let tactical = mov.is_tactical(&pos);
 
             let nodes_before_move = self.state.uci_nodes();
             // PVS (Principal Variation Search): Assume that the TT move is the best move, so we only need to prove
@@ -1048,7 +1049,7 @@ impl Caps {
                 if !in_check && pos_noisy {
                     reduction += 1;
                 }
-                if mov.is_tactical(&pos) {
+                if tactical {
                     let hist = self.capt_hist.get(mov, pos.threats(), us);
                     if hist <= MoveScore(-500) {
                         reduction += 1;
@@ -1117,6 +1118,10 @@ impl Caps {
             // default move, which is either the TT move (if there was a TT hit) or the null move.
             best_move = mov;
 
+            if !tactical {
+                self.search_stack[ply].killer = best_move;
+            }
+
             // Update the PV. We only need to do this for PV nodes (we could even only do this for non-fail highs,
             // if we didn't have to worry about aw fail high).
             if is_pv_node {
@@ -1147,7 +1152,6 @@ impl Caps {
             }
             // Beta cutoff. Update history and killer for quiet moves, then break out of the move loop.
             bound_so_far = FailHigh;
-            self.search_stack[ply].killer = best_move;
             self.update_histories(mov, depth, ply, score - beta);
             break;
         }
