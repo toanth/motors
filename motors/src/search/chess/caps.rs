@@ -1277,7 +1277,7 @@ impl Caps {
         }
 
         if best_score > alpha {
-            bound_so_far = Exact;
+            bound_so_far = NodeType::lower_bound();
             alpha = best_score;
         }
         self.record_pos(pos, best_score, ply);
@@ -1316,13 +1316,13 @@ impl Caps {
             if score <= alpha {
                 continue;
             }
-            bound_so_far = Exact;
+            // since we don't look at all moves, we treat the score as a lower bound even if lies within `(alpha, beta)`
+            bound_so_far = NodeType::lower_bound();
             alpha = score;
             best_move = mov;
             // even if the child score came from a TT entry with depth > 0, we don't trust this node any more than now
             // because we haven't looked at all nodes
             if score >= beta {
-                bound_so_far = FailHigh;
                 break;
             }
         }
