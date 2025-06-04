@@ -55,7 +55,7 @@ use gears::general::common::{
 use gears::general::common::{Res, Tokens};
 use gears::general::moves::ExtendedFormat::{Alternative, Standard};
 use gears::general::moves::Move;
-use gears::general::perft::{num_unique_positions_at, perft_for, split_perft};
+use gears::general::perft::{num_unique_positions_up_to, perft_for, split_perft};
 use gears::itertools::Itertools;
 use gears::output::Message::*;
 use gears::output::logger::LoggerBuilder;
@@ -695,7 +695,7 @@ impl<B: Board> EngineUGI<B> {
                     if opts.unique {
                         self.output().write_ugi(&format_args!(
                             "# unique positions at depth {i}: {}",
-                            num_unique_positions_at(Depth::new(i), board.clone()).to_string().bold()
+                            num_unique_positions_up_to(Depth::new(i), board.clone()).to_string().bold()
                         ))
                     } else {
                         self.output().write_ugi(&format_args!("{}", perft_for(Depth::new(i), &positions, threads != 1)))

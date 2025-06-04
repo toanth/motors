@@ -206,12 +206,14 @@ fn format_move_compact(f: &mut Formatter<'_>, mov: FairyMove, pos: &FairyBoard) 
     })
 }
 
-/// A MoveEffect is a low-level description of a way that a move can change the game state.
-/// Conceptually, each move kind is associated with a set of properties.
-/// Each property is associated with list of MoveEffects, for example resetting the draw counter on a capture.
-#[derive(Debug, Clone, Copy)]
+/// The rules describe which effects are triggered; triggering an effect can trigger other effects based on the rules
+/// (e.g. the rules could say that the `Capture` effect triggers the `ResetDrawCtr` effect)
+#[derive(Debug, Clone)]
 #[must_use]
 pub enum MoveEffect {
+    Win,
+    Draw,
+    Lose,
     ResetDrawCtr,
     PlaceSinglePiece(FairySquare, ColoredPieceId),
     // if the source square is not valid, this effect will be ignored
@@ -222,6 +224,11 @@ pub enum MoveEffect {
     ResetEp,
     RemoveCastlingRight(FairyColor, Side),
     RemovePieceFromHand(usize),
+    Capture(FairySquare),
+    Promote(ColoredPieceId),
+    ConvertOne(FairySquare),
+    ConvertAll(FairyBitboard),
+    MovesPiece(ColoredPieceId),
 }
 
 impl MoveEffect {
@@ -263,6 +270,14 @@ impl MoveEffect {
             RemovePieceFromHand(piece) => {
                 pos.in_hand[piece] -= 1;
             }
+            MoveEffect::Win => {}
+            MoveEffect::Draw => {}
+            MoveEffect::Lose => {}
+            MoveEffect::Capture(_) => {}
+            MoveEffect::Promote(_) => {}
+            MoveEffect::ConvertOne(_) => {}
+            MoveEffect::ConvertAll(_) => {}
+            MoveEffect::MovesPiece(_) => {}
         }
     }
 }

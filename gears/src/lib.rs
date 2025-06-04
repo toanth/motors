@@ -19,6 +19,7 @@ use crate::output::OutputBuilder;
 use crate::search::TimeControl;
 use crate::ugi::{ParseUgiPosState, parse_ugi_position_and_moves};
 use anyhow::{anyhow, bail};
+use arbitrary::Arbitrary;
 pub use arrayvec;
 pub use colored;
 use colored::Colorize;
@@ -102,7 +103,7 @@ impl MatchStatus {
 }
 
 /// Low-level result of a match from a `MatchManager`'s perspective
-#[derive(Copy, Clone, Eq, PartialEq, Debug)]
+#[derive(Copy, Clone, Eq, PartialEq, Debug, Arbitrary)]
 #[must_use]
 pub enum GameResult {
     P1Win,

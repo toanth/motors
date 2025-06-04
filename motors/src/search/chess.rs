@@ -59,7 +59,7 @@ mod tests {
 
     fn game_over_test<E: Engine<Chessboard>>(engine: &mut E) {
         let mated_pos = load_ugi_pos_simple("mate_in_1 moves h7a7", Strict, &Chessboard::default()).unwrap();
-        assert!(mated_pos.is_game_lost_slow());
+        assert!(mated_pos.is_checkmate_slow());
         for i in (1..123).step_by(11) {
             let res = engine.search_with_new_tt(mated_pos, SearchLimit::depth(Depth::new(i)));
             assert!(res.ponder_move.is_none());

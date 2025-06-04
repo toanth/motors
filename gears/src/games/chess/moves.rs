@@ -19,7 +19,7 @@ use crate::games::chess::squares::{C_FILE_NO, ChessSquare, ChessboardSize, D_FIL
 use crate::games::chess::zobrist::ZOBRIST_KEYS;
 use crate::games::chess::{ChessColor, Chessboard};
 use crate::games::{
-    AbstractPieceType, Board, CharType, Color, ColoredPiece, ColoredPieceType, DimT, PosHash, char_to_file,
+    AbstractPieceType, Board, CharType, Color, ColoredPiece, ColoredPieceType, DimT, NoHistory, PosHash, char_to_file,
     file_to_char,
 };
 use crate::general::bitboards::chessboard::ChessBitboard;
@@ -311,7 +311,7 @@ impl Move<Chessboard> for ChessMove {
             write!(f, "{promo_char}")?;
         }
         let board = board.make_move(self).unwrap();
-        if board.is_game_lost_slow() {
+        if board.is_checkmate_slow() {
             write!(f, "#")?;
         } else if board.is_in_check() {
             write!(f, "+")?;
@@ -993,7 +993,7 @@ impl<'a> MoveParser<'a> {
         let to = f(self.target_file, self.target_rank).0;
         let (from, to) = (from.bold(), to.bold());
         let mut additional = String::new();
-        if board.is_game_lost_slow() {
+        if board.is_checkmate_slow() {
             additional = format!(" ({us} has been checkmated)");
         } else if board.is_in_check() {
             additional = format!(" ({us} is in check)");
@@ -1059,7 +1059,7 @@ impl<'a> MoveParser<'a> {
     // I love this name
     // assumes that the move has already been verified to be pseudolegal. TODO: Encode in type system
     fn check_check_checkmate_captures_and_ep(&self, mov: ChessMove, board: &Chessboard) -> Res<()> {
-        let incorrect_mate = self.gives_mate && !board.is_game_won_after_slow(mov);
+        let incorrect_mate = self.gives_mate && !board.is_game_won_after_slow(mov, NoHistory::default());
         let incorrect_check = self.gives_check && !board.gives_check(mov);
         let incorrect_capture = self.is_capture && !mov.is_capture(board);
         // Missing check / checkmate signs or ep annotations are ok, but incorrect ones aren't

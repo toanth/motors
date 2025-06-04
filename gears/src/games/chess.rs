@@ -508,11 +508,11 @@ impl Board for Chessboard {
             return Some(res);
         }
         let no_moves = self.legal_moves_slow().is_empty();
-        if no_moves { Some(self.no_moves_result()) } else { None }
+        if no_moves { self.no_moves_result() } else { None }
     }
 
-    fn no_moves_result(&self) -> PlayerResult {
-        if self.is_in_check() { Lose } else { Draw }
+    fn no_moves_result(&self) -> Option<PlayerResult> {
+        Some(if self.is_in_check() { Lose } else { Draw })
     }
 
     /// Doesn't quite conform to FIDE rules, but probably mostly agrees with USCF rules (in that it should almost never
@@ -1197,10 +1197,11 @@ mod tests {
                 continue;
             }
             let checkmates = mov.piece_type() == Rook && mov.dest_square() == ChessSquare::from_rank_file(7, G_FILE_NO);
-            assert_eq!(board.is_game_won_after_slow(mov), checkmates);
+            assert_eq!(board.is_game_won_after_slow(mov, NoHistory::default()), checkmates);
             let new_board = board.make_move(mov).unwrap();
-            assert_eq!(new_board.is_game_lost_slow(), checkmates);
-            assert!(!board.is_game_lost_slow());
+            assert_eq!(new_board.is_game_lost_slow(&NoHistory::default()), checkmates);
+            assert_eq!(new_board.is_checkmate_slow(), checkmates);
+            assert!(!board.is_checkmate_slow());
         }
     }
 
@@ -1305,7 +1306,7 @@ mod tests {
         assert!(moves.is_empty()); // we don't even generate moves anymore here
         let moves = pos.legal_moves_slow();
         assert!(moves.is_empty());
-        assert!(pos.is_game_lost_slow());
+        assert!(pos.is_checkmate_slow());
         assert_eq!(pos.player_result_slow(&NoHistory::default()), Some(Lose));
         assert!(!pos.is_stalemate_slow());
         assert!(pos.make_nullmove().is_none());

@@ -15,6 +15,7 @@
  *  You should have received a copy of the GNU General Public License
  *  along with Gears. If not, see <https://www.gnu.org/licenses/>.
  */
+use crate::games::NoHistory;
 use crate::games::uttt::ColoredUtttPieceType::{OStone, XStone};
 use crate::games::uttt::UtttColor::*;
 use crate::games::uttt::uttt_square::UtttSquare;
@@ -80,7 +81,7 @@ fn sub_board_won_test() {
     assert!(!pos.is_sub_board_won(O, sub_board));
     assert!(!pos.is_sub_board_open(sub_board));
     assert!(pos.is_sub_board_open(UtttSubSquare::unchecked(1)));
-    assert!(!pos.is_game_lost_slow());
+    assert!(!pos.is_game_lost_slow(&NoHistory::default()));
     assert_eq!(pos.active, X); // the active player doesn't get updated through place_piece
     assert_eq!(pos.last_move, UtttMove::NULL);
     let pos =

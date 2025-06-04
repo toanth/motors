@@ -378,9 +378,9 @@ impl Board for AtaxxBoard {
         let color = self.active_player;
         if self.color_bb(color).is_zero() {
             return Some(Lose);
-        } else if self.empty.has_set_bit() {
+        } else if (self.color_bb(!color).extended_moore_neighbors(2) & self.empty_bb()).has_set_bit() {
             if self.ply_100_ctr >= 100 {
-                // losing on the 50mr threshold counts as losing
+                // losing on the 50mr threshold counts as losing, so we only test this if we'd otherwise continue playing
                 return Some(Draw);
             }
             return None;
@@ -400,8 +400,8 @@ impl Board for AtaxxBoard {
 
     /// If a player has no legal moves, a null move is generated, so this doesn't require any special handling during search.
     /// But if there are no pieces left, the player loses the game.
-    fn no_moves_result(&self) -> PlayerResult {
-        self.player_result_slow(&NoHistory::default()).unwrap()
+    fn no_moves_result(&self) -> Option<PlayerResult> {
+        self.player_result_slow(&NoHistory::default())
     }
 
     fn can_reasonably_win(&self, _player: AtaxxColor) -> bool {
@@ -615,7 +615,7 @@ mod tests {
         assert!(pos.debug_verify_invariants(Strict).is_ok());
         assert!(pos.color_bb(O).is_zero());
         assert!(pos.color_bb(X).is_zero());
-        assert!(pos.is_game_lost_slow());
+        assert!(pos.is_game_lost_slow(&NoHistory::default()));
         let moves = pos.legal_moves();
         assert!(moves.is_empty());
     }

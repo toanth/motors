@@ -16,15 +16,15 @@
  *  along with Gears. If not, see <https://www.gnu.org/licenses/>.
  */
 mod attacks;
+mod effects;
 pub mod moves;
 mod perft_tests;
 pub mod pieces;
 mod rules;
 
-use crate::PlayerResult;
 use crate::games::fairy::moves::FairyMove;
 use crate::games::fairy::pieces::{ColoredPieceId, PieceId};
-use crate::games::fairy::rules::{Draw, GameLoss, NumRoyals, Rules, RulesRef};
+use crate::games::fairy::rules::{GameEndEager, NumRoyals, Rules, RulesRef};
 use crate::games::{
     AbstractPieceType, BoardHistory, CharType, Color, ColoredPiece, ColoredPieceType, Coordinates, DimT, GenericPiece,
     NUM_COLORS, NoHistory, PosHash, Size,
@@ -45,6 +45,7 @@ use crate::general::squares::{GridCoordinates, GridSize, RectangularCoordinates,
 use crate::output::OutputOpts;
 use crate::output::text_output::{BoardFormatter, DefaultBoardFormatter, board_to_string, display_board_pretty};
 use crate::search::Depth;
+use crate::{GameResult, PlayerResult};
 use anyhow::{bail, ensure};
 use arbitrary::Arbitrary;
 use itertools::Itertools;
@@ -229,8 +230,9 @@ pub struct UnverifiedFairyBoard {
     size: GridSize,
     ep: Option<FairySquare>,
     last_move: FairyMove,
-    rules: RulesRef,
+    game_result: Option<GameResult>,
     hash: PosHash,
+    rules: RulesRef,
 }
 
 impl Default for UnverifiedFairyBoard {
@@ -284,9 +286,9 @@ impl UnverifiedBoard<FairyBoard> for UnverifiedFairyBoard {
         }
         if strictness == Strict {
             let draw = rules
-                .draw
+                .game_end_eager
                 .iter()
-                .find_map(|d| if let Draw::Counter(val) = d { Some(*val) } else { None })
+                .find_map(|(cond, _)| if let GameEndEager::DrawCounter(val) = cond { Some(*val) } else { None })
                 .unwrap_or_default();
             if self.draw_counter > draw {
                 bail!("Progress counter too large: {0} is larger than {draw}", self.draw_counter);
@@ -337,8 +339,8 @@ impl UnverifiedBoard<FairyBoard> for UnverifiedFairyBoard {
             }
         }
         for color in FairyColor::iter() {
-            for loss in &self.rules.0.game_loss {
-                if loss == &GameLoss::Checkmate && self.royal_bb_for(color).is_zero() {
+            for (cond, _) in &self.rules.0.game_end_eager {
+                if cond == &GameEndEager::NoRoyals && self.royal_bb_for(color).is_zero() {
                     bail!(
                         "The {} player has no royal pieces, but the variant counts checkmate as a loss",
                         self.color_name(color)
@@ -614,11 +616,16 @@ impl Board for FairyBoard {
 
     fn cannot_call_movegen(&self) -> bool {
         let mut res = false;
-        // currently, all non-movegenning loss conditions need to be checked in perft too
-        for loss in &self.rules().game_loss {
-            res |= loss.check_no_movegen(self).is_some();
+        for (cond, _) in &self.rules().game_end_eager {
+            res |= match cond {
+                GameEndEager::NoRoyals
+                | GameEndEager::NoPieces
+                | GameEndEager::NoNonRoyals
+                | GameEndEager::NoNonRoyalsExceptRecapture
+                | GameEndEager::InRowAtLeast(_) => cond.satisfied(self, &NoHistory::default()),
+                GameEndEager::DrawCounter(_) | GameEndEager::Repetition(_) => false,
+            };
         }
-        // currently, there are no draw conditions that would need to be checked specially in perft
         res
     }
 
@@ -656,14 +663,9 @@ impl Board for FairyBoard {
     }
 
     fn player_result_no_movegen<H: BoardHistory>(&self, history: &H) -> Option<PlayerResult> {
-        for condition in &self.rules().game_loss {
-            if let Some(r) = condition.check_no_movegen(self) {
-                return Some(r);
-            }
-        }
-        for condition in &self.rules().draw {
-            if let Some(r) = condition.check_no_movegen(self, history) {
-                return Some(r);
+        for (cond, outcome) in &self.rules().game_end_eager {
+            if cond.satisfied(self, history) {
+                return Some(outcome.to_res(self));
             }
         }
         None
@@ -674,45 +676,18 @@ impl Board for FairyBoard {
             return Some(res);
         }
         if self.legal_moves_slow().is_empty() {
-            return Some(self.no_moves_result());
+            return self.no_moves_result();
         }
         None
     }
 
-    fn no_moves_result(&self) -> PlayerResult {
-        for rule in &self.rules().game_loss {
-            if rule == &GameLoss::NoMoves {
-                return PlayerResult::Lose;
-            }
-            if rule == &GameLoss::Checkmate && self.is_in_check() {
-                return PlayerResult::Lose;
+    fn no_moves_result(&self) -> Option<PlayerResult> {
+        for (cond, outcome) in &self.rules().game_end_no_moves {
+            if cond.satisfied(self) {
+                return Some(outcome.to_res(self));
             }
         }
-        for rule in &self.rules().draw {
-            if rule == &Draw::NoMoves {
-                return PlayerResult::Draw;
-            }
-        }
-        unreachable!("The game rules must specify what happens when there are no legal moves")
-    }
-
-    fn is_game_lost_slow(&self) -> bool {
-        let us = self.active_player();
-        for rule in &self.rules().game_loss {
-            let res = match rule {
-                GameLoss::Checkmate => self.is_in_check() && self.legal_moves_slow().is_empty(),
-                GameLoss::NoRoyals => self.royal_bb_for(us).is_zero(),
-                GameLoss::NoPieces => self.player_bb(us).is_zero(),
-                GameLoss::NoMoves => self.legal_moves_slow().is_empty(), // TODO: Special function?
-                GameLoss::NoNonRoyals | GameLoss::NoNonRoyalsExceptRecapture | GameLoss::InRowAtLeast(_) => {
-                    self.player_result_no_movegen(&NoHistory::default()) == Some(PlayerResult::Lose)
-                }
-            };
-            if res {
-                return true;
-            }
-        }
-        false
+        None
     }
 
     fn can_reasonably_win(&self, _player: FairyColor) -> bool {
@@ -1082,7 +1057,7 @@ mod tests {
         assert_eq!(pos.as_fen(), "mnk 3 3 3 3/2O/X2 x 2");
         assert_eq!(pos.last_move, mov);
         let pos = FairyBoard::from_fen_for("mnk", "5 5 4 X4/O4/O2X1/O1X2/OX3 x 5", Strict).unwrap();
-        assert!(pos.is_game_lost_slow());
+        assert!(pos.is_game_lost_slow(&NoHistory::default()));
         assert!(pos.cannot_call_movegen());
         // TODO: panic when starting search in won position
     }

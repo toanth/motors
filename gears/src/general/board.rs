@@ -17,8 +17,8 @@
  */
 use crate::PlayerResult::Lose;
 use crate::games::{
-    AbstractPieceType, BoardHistory, CharType, Color, ColoredPiece, ColoredPieceType, Coordinates, DimT, NoHistory,
-    PosHash, Settings, Size,
+    AbstractPieceType, BoardHistory, CharType, Color, ColoredPiece, ColoredPieceType, Coordinates, DimT, PosHash,
+    Settings, Size,
 };
 use crate::general::bitboards::{Bitboard, RawBitboard};
 use crate::general::board::SelfChecks::{Assertion, Verify};
@@ -27,7 +27,7 @@ use crate::general::common::Description::NoDescription;
 use crate::general::common::{
     EntityList, NamedEntity, Res, StaticallyNamedEntity, Tokens, TokensToString, select_name_static, tokens,
 };
-use crate::general::move_list::MoveList;
+use crate::general::move_list::{MoveIter, MoveList};
 use crate::general::moves::ExtendedFormat::Standard;
 use crate::general::moves::Legality::{Legal, PseudoLegal};
 use crate::general::moves::Move;
@@ -415,6 +415,7 @@ pub trait Board:
 
     /// Generate pseudolegal moves into the supplied move list. Generic over the move list to allow arbitrary code
     /// upon adding moves, such as scoring or filtering the new move.
+    /// This doesn't handle a forced passing move in case of no legal moves.
     fn gen_pseudolegal<T: MoveList<Self>>(&self, moves: &mut T);
 
     /// Generate moves that are considered "tactical" into the supplied move list.
@@ -424,12 +425,20 @@ pub trait Board:
 
     /// Returns a list of legal moves, that is, moves that can be played using `make_move`
     /// and will not return `None`.
+    /// Some variants require a passing move if there are no legal moves and the game isn't over.
+    /// This function honors that requirement by inserting a `Move::default()`,
+    /// unlike `gen_pseudolegal` (which can't know if there are no legal moves).
     fn legal_moves_slow(&self) -> Self::MoveList {
-        let mut pseudo_legal = self.pseudolegal_moves();
+        let mut res = self.pseudolegal_moves();
         if Self::Move::legality() == PseudoLegal {
-            pseudo_legal.filter_moves(|m| self.is_pseudolegal_move_legal(*m));
+            res.filter_moves(|m| self.is_pseudolegal_move_legal(*m));
         }
-        pseudo_legal
+        if res.num_moves() == 0 {
+            if self.no_moves_result().is_none() {
+                res.add_move(Self::Move::default());
+            }
+        }
+        res
     }
 
     /// Returns the number of pseudolegal moves. Can sometimes be implemented more efficiently
@@ -449,7 +458,8 @@ pub trait Board:
     /// `random_pseudolegal_move`
     fn random_legal_move<R: Rng>(&self, rng: &mut R) -> Option<Self::Move>;
 
-    /// Returns a random pseudolegal move
+    /// Returns a random pseudolegal move.
+    /// Like [`Self::gen_pseudolegal`], this doesn't handle forced passing moves.
     fn random_pseudolegal_move<R: Rng>(&self, rng: &mut R) -> Option<Self::Move>;
 
     /// Assumes pseudolegal movegen, returns None in case of an illegal pseudolegal move,
@@ -509,21 +519,25 @@ pub trait Board:
     /// Only called when there are no legal moves.
     /// In that case, the function returns the game state from the current player's perspective.
     /// Note that this doesn't check that there are indeed no legal moves to avoid paying the performance cost of that.
-    /// This assumes that having no legal moves available automatically ends the game. If it is legal to pass,
-    /// the movegen should generate a passing move.
-    fn no_moves_result(&self) -> PlayerResult;
+    /// This assumes that having no legal moves available automatically ends the game.
+    /// If this function returns `None`, the player must pass (with [`Self::make_nullmove`]). This is required to be legal.
+    fn no_moves_result(&self) -> Option<PlayerResult>;
 
     /// Returns true iff the game is lost for the player who can now move, like being checkmated in chess.
     /// Using [`Self::player_result_no_movegen()`] and [`Self::no_moves_result()`] is often the faster option if movegen is needed anyway
-    fn is_game_lost_slow(&self) -> bool {
-        self.player_result_slow(&NoHistory::default()).is_some_and(|x| x == Lose)
+    fn is_game_lost_slow<H: BoardHistory>(&self, history: &H) -> bool {
+        self.player_result_slow(history).is_some_and(|x| x == Lose)
     }
 
     /// Returns true iff the game is won for the current player after making the given move.
     /// This move has to be pseudolegal. If the move will likely be played anyway, it can be faster
     /// to play it and use [`Self::player_result()`] or [`Self::player_result_no_movegen()`] and [`Self::no_moves_result`] instead.
-    fn is_game_won_after_slow(&self, mov: Self::Move) -> bool {
-        self.clone().make_move(mov).map(|new_pos| new_pos.is_game_lost_slow()).unwrap_or_default()
+    fn is_game_won_after_slow<H: BoardHistory>(&self, mov: Self::Move, mut history: H) -> bool {
+        let Some(new_pos) = self.clone().make_move(mov) else {
+            return false;
+        };
+        history.push(new_pos.hash_pos());
+        new_pos.is_game_lost_slow(&history)
     }
 
     /// Returns `false` if it detects that `player` can not win the game except if the opponent runs out of time
@@ -643,10 +657,12 @@ pub trait BoardHelpers: Board {
     }
 
     /// Returns an iterator over all the positions after making a legal move.
-    /// Not very useful for search because it doesn't allow changing the order of generated positions,
-    /// but convenient for some use cases like [`perft`](crate::general::perft::perft).
+    /// Not very useful for search because it doesn't allow changing the order of generated positions and isn't quite as fast as
+    /// a manual loop, but convenient for some use cases like [`perft`](crate::general::perft::perft).
+    /// Like [`Self::legal_moves_slow`], this handles forced passing moves.
     fn children(&self) -> impl Iterator<Item = Self> + Send {
-        self.pseudolegal_moves().into_iter().filter_map(move |m| self.clone().make_move(m))
+        let iter = self.pseudolegal_moves().into_iter();
+        ChildrenIter { pos: self, iter, num_so_far: 0 }
     }
 
     /// Returns an optional [`MatchResult`]. Unlike a [`PlayerResult`], a [`MatchResult`] doesn't contain `Win` or `Lose` variants,
@@ -660,7 +676,7 @@ pub trait BoardHelpers: Board {
     /// Convenience function that computes the player result by calling [`Self::no_moves_result()`] if `no_legal_moves` is true,
     /// else it calls [`Self::player_result_no_movegen()`].
     fn player_result<H: BoardHistory>(&self, history: &H, no_legal_moves: bool) -> Option<PlayerResult> {
-        if no_legal_moves { Some(self.no_moves_result()) } else { self.player_result_no_movegen(history) }
+        if no_legal_moves { self.no_moves_result() } else { self.player_result_no_movegen(history) }
     }
 
     /// Reads in a compact textual description of the board, such that `B::from_fen(board.as_fen()) == b` holds.
@@ -1059,5 +1075,43 @@ pub(crate) fn read_single_move_number<B: RectangularBoard>(
         Ok(())
     } else {
         bail!("FEN doesn't contain a valid fullmove counter, but that is required in strict mode")
+    }
+}
+
+struct ChildrenIter<'a, B: Board> {
+    pos: &'a B,
+    iter: MoveIter<B>,
+    num_so_far: usize,
+}
+
+impl<B: Board> ChildrenIter<'_, B> {
+    fn next_impl(&mut self) -> Option<B> {
+        loop {
+            let mov = self.iter.next()?;
+            if let Some(child) = self.pos.clone().make_move(mov) {
+                self.num_so_far += 1;
+                return Some(child);
+            }
+        }
+    }
+}
+
+impl<B: Board> Iterator for ChildrenIter<'_, B> {
+    type Item = B;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if let Some(res) = self.next_impl() {
+            Some(res)
+        } else if self.num_so_far == 0 && self.pos.no_moves_result().is_none() {
+            self.num_so_far = 1;
+            Some(
+                self.pos
+                    .clone()
+                    .make_nullmove()
+                    .expect("When there are no legal moves and the game isn't over, a passing move must be legal"),
+            )
+        } else {
+            None
+        }
     }
 }

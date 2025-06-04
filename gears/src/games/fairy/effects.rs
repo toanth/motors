@@ -1,0 +1,362 @@
+/*
+ *  Gears, a collection of board games.
+ *  Copyright (C) 2024 ToTheAnd
+ *
+ *  Gears is free software: you can redistribute it and/or modify
+ *  it under the terms of the GNU General Public License as published by
+ *  the Free Software Foundation, either version 3 of the License, or
+ *  (at your option) any later version.
+ *
+ *  Gears is distributed in the hope that it will be useful,
+ *  but WITHOUT ANY WARRANTY; without even the implied warranty of
+ *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+ *  GNU General Public License for more details.
+ *
+ *  You should have received a copy of the GNU General Public License
+ *  along with Gears. If not, see <https://www.gnu.org/licenses/>.
+ */
+use crate::games::fairy::pieces::ColoredPieceId;
+use crate::games::fairy::rules::GameEndEager;
+use crate::games::fairy::{FairyBitboard, FairyBoard, FairyColor, FairySquare, Side};
+use crate::general::bitboards::Bitboard;
+use crate::general::board::UnverifiedBoard;
+use arbitrary::{Arbitrary, Unstructured};
+use std::fmt::Debug;
+
+/// Events are meant to be *fast*, so they are generally low-level and don't check invariants.
+/// For example, `PlacePiece` simply assumes that it's ok to place the given piece at the given square.
+pub trait Event: Copy {
+    fn execute(self, _pos: &mut FairyBoard)
+    where
+        Self: Sized,
+    {
+        // default implementation: Do nothing
+    }
+
+    fn notify(self, observers: &Observers, pos: &mut FairyBoard);
+}
+
+fn notify<T: Event>(observers: &[Box<dyn Fn(T, &mut FairyBoard) -> () + Send + Sync>], event: T, pos: &mut FairyBoard) {
+    for observer in observers {
+        observer(event, pos);
+    }
+}
+
+#[derive(Debug, Copy, Clone)]
+pub struct Win;
+
+#[derive(Debug, Copy, Clone)]
+pub struct Draw;
+
+#[derive(Debug, Copy, Clone)]
+pub struct Lose;
+
+#[derive(Debug, Copy, Clone)]
+pub struct NoMoves;
+
+#[derive(Debug, Copy, Clone)]
+#[allow(dead_code)]
+pub struct GameEndNoMovegenEvent(GameEndEager);
+
+#[derive(Debug, Copy, Clone)]
+pub struct ResetDrawCtr;
+
+#[derive(Debug, Copy, Clone)]
+pub struct PlaceSinglePiece {
+    square: FairySquare,
+    piece: ColoredPieceId,
+}
+
+#[derive(Debug, Copy, Clone)]
+pub struct RemoveSinglePiece {
+    square: FairySquare,
+}
+
+#[derive(Debug, Copy, Clone)]
+pub struct SetEp {
+    square: FairySquare,
+}
+
+#[derive(Debug, Copy, Clone)]
+pub struct ResetEp;
+
+#[derive(Debug, Copy, Clone)]
+pub struct RemoveCastlingRight {
+    color: FairyColor,
+    side: Side,
+}
+
+#[derive(Debug, Copy, Clone)]
+pub struct RemovePieceFromHand {
+    piece: ColoredPieceId,
+}
+
+#[derive(Debug, Copy, Clone)]
+pub struct AddPieceToHand {
+    piece: ColoredPieceId,
+}
+
+#[derive(Debug, Copy, Clone)]
+#[allow(dead_code)]
+pub struct Capture {
+    square: FairySquare,
+}
+
+#[derive(Debug, Copy, Clone)]
+pub struct Promote {
+    piece: ColoredPieceId,
+    square: FairySquare,
+}
+
+#[derive(Debug, Copy, Clone)]
+pub struct ConvertOne {
+    square: FairySquare,
+}
+
+// by default, this doesn't create `ConvertOne` events (though this can be set up though an observer, of course)
+#[derive(Debug, Copy, Clone)]
+pub struct ConvertAll {
+    bb: FairyBitboard,
+}
+
+#[derive(Debug, Copy, Clone)]
+#[allow(dead_code)]
+pub struct MovePiece {
+    piece: ColoredPieceId,
+}
+
+impl Event for Win {
+    fn notify(self, observers: &Observers, pos: &mut FairyBoard) {
+        notify(observers.win.as_slice(), self, pos);
+    }
+}
+
+impl Event for Draw {
+    fn notify(self, observers: &Observers, pos: &mut FairyBoard) {
+        notify(observers.draw.as_slice(), self, pos);
+    }
+}
+
+impl Event for Lose {
+    fn notify(self, observers: &Observers, pos: &mut FairyBoard) {
+        notify(observers.lose.as_slice(), self, pos);
+    }
+}
+
+impl Event for NoMoves {
+    fn notify(self, observers: &Observers, pos: &mut FairyBoard) {
+        notify(observers.no_moves.as_slice(), self, pos);
+    }
+}
+
+impl Event for GameEndNoMovegenEvent {
+    fn notify(self, observers: &Observers, pos: &mut FairyBoard) {
+        notify(observers.game_end_no_movegen.as_slice(), self, pos);
+    }
+}
+
+impl Event for ResetDrawCtr {
+    fn execute(self, pos: &mut FairyBoard) {
+        pos.0.draw_counter = 0;
+    }
+
+    fn notify(self, observers: &Observers, pos: &mut FairyBoard) {
+        notify(observers.reset_draw_ctr.as_slice(), self, pos)
+    }
+}
+
+impl Event for PlaceSinglePiece {
+    fn execute(self, pos: &mut FairyBoard) {
+        pos.0.place_piece(self.square, self.piece);
+    }
+
+    fn notify(self, observers: &Observers, pos: &mut FairyBoard) {
+        notify(observers.place_single_piece.as_slice(), self, pos)
+    }
+}
+
+impl Event for RemoveSinglePiece {
+    fn execute(self, pos: &mut FairyBoard) {
+        pos.0.remove_piece(self.square);
+    }
+
+    fn notify(self, observers: &Observers, pos: &mut FairyBoard) {
+        notify(observers.remove_single_piece.as_slice(), self, pos)
+    }
+}
+
+impl Event for SetEp {
+    fn execute(self, pos: &mut FairyBoard) {
+        pos.0.ep = Some(self.square);
+    }
+
+    fn notify(self, observers: &Observers, pos: &mut FairyBoard) {
+        notify(observers.set_ep.as_slice(), self, pos)
+    }
+}
+
+impl Event for ResetEp {
+    fn execute(self, pos: &mut FairyBoard) {
+        pos.0.ep = None;
+    }
+
+    fn notify(self, observers: &Observers, pos: &mut FairyBoard) {
+        notify(observers.reset_ep.as_slice(), self, pos)
+    }
+}
+
+impl Event for RemoveCastlingRight {
+    fn execute(self, pos: &mut FairyBoard) {
+        pos.0.castling_info.unset(self.color, self.side)
+    }
+
+    fn notify(self, observers: &Observers, pos: &mut FairyBoard) {
+        notify(observers.remove_castling_right.as_slice(), self, pos)
+    }
+}
+
+impl Event for RemovePieceFromHand {
+    fn execute(self, pos: &mut FairyBoard) {
+        debug_assert!(pos.0.in_hand[self.piece.val()] > 0);
+        pos.0.in_hand[self.piece.val()] -= 1;
+    }
+
+    fn notify(self, observers: &Observers, pos: &mut FairyBoard) {
+        notify(observers.remove_piece_from_hand.as_slice(), self, pos)
+    }
+}
+
+impl Event for AddPieceToHand {
+    fn execute(self, pos: &mut FairyBoard) {
+        let val = &mut pos.0.in_hand[self.piece.val()];
+        *val = val.saturating_add(1);
+    }
+
+    fn notify(self, observers: &Observers, pos: &mut FairyBoard) -> () {
+        notify(observers.add_piece_to_hand.as_slice(), self, pos)
+    }
+}
+
+impl Event for Capture {
+    fn notify(self, observers: &Observers, pos: &mut FairyBoard) {
+        notify(observers.capture.as_slice(), self, pos)
+    }
+}
+
+impl Event for Promote {
+    fn execute(self, pos: &mut FairyBoard) {
+        pos.0.try_replace_piece(self.square, self.piece).unwrap();
+    }
+
+    fn notify(self, observers: &Observers, pos: &mut FairyBoard) {
+        notify(observers.promote.as_slice(), self, pos)
+    }
+}
+
+impl Event for ConvertAll {
+    fn execute(self, pos: &mut FairyBoard) {
+        let bb = self.bb.raw();
+        pos.0.color_bitboards[0] ^= bb;
+        pos.0.color_bitboards[1] ^= bb;
+    }
+
+    fn notify(self, observers: &Observers, pos: &mut FairyBoard) {
+        notify(observers.convert_all.as_slice(), self, pos)
+    }
+}
+
+impl Event for ConvertOne {
+    fn execute(self, pos: &mut FairyBoard) {
+        let bb = FairyBitboard::single_piece_for(self.square, pos.size).raw();
+        pos.0.color_bitboards[0] ^= bb;
+        pos.0.color_bitboards[1] ^= bb;
+    }
+
+    fn notify(self, observers: &Observers, pos: &mut FairyBoard) {
+        notify(observers.convert_one.as_slice(), self, pos)
+    }
+}
+
+impl Event for MovePiece {
+    fn notify(self, observers: &Observers, pos: &mut FairyBoard) {
+        notify(observers.move_piece.as_slice(), self, pos)
+    }
+}
+
+#[allow(type_alias_bounds)]
+type ObsList<T: Event> = Vec<Box<dyn Fn(T, &mut FairyBoard) -> () + Sync + Send>>;
+
+/// Observers are meant for custom hooks that trigger additional effects on certain events.
+/// However, since they're comparatively slow and hard to configure at runtime (can't create new functions at runtime),
+/// many of the common effects, such as removing a piece when it is captured, are still hardcoded.
+#[derive(Default)]
+pub struct Observers {
+    win: ObsList<Win>,
+    draw: ObsList<Draw>,
+    lose: ObsList<Lose>,
+    no_moves: ObsList<NoMoves>,
+    game_end_no_movegen: ObsList<GameEndNoMovegenEvent>,
+    reset_draw_ctr: ObsList<ResetDrawCtr>,
+    place_single_piece: ObsList<PlaceSinglePiece>,
+    remove_single_piece: ObsList<RemoveSinglePiece>,
+    set_ep: ObsList<SetEp>,
+    reset_ep: ObsList<ResetEp>,
+    remove_castling_right: ObsList<RemoveCastlingRight>,
+    remove_piece_from_hand: ObsList<RemovePieceFromHand>,
+    add_piece_to_hand: ObsList<AddPieceToHand>,
+    capture: ObsList<Capture>,
+    promote: ObsList<Promote>,
+    convert_one: ObsList<ConvertOne>,
+    convert_all: ObsList<ConvertAll>,
+    move_piece: ObsList<MovePiece>,
+}
+
+impl Debug for Observers {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Observers")
+    }
+}
+
+impl Arbitrary<'_> for Observers {
+    fn arbitrary(_u: &mut Unstructured<'_>) -> arbitrary::Result<Self> {
+        Ok(Observers::default())
+    }
+}
+
+impl Observers {
+    pub fn chess() -> Self {
+        // chess events are hardcoded (in the sense that there's a switch over an enum for whether they apply)
+        // because they're very common
+        Self::default()
+    }
+
+    pub fn shatranj() -> Self {
+        Self::chess()
+    }
+
+    pub fn ataxx() -> Self {
+        let mut res = Self::default();
+        let place_piece_fn = |event: PlaceSinglePiece, pos: &mut FairyBoard| {
+            let bb = FairyBitboard::single_piece_for(event.square, pos.size);
+            // Could use precomputed attacks for this
+            let bb = bb.moore_neighbors();
+            pos.emit(ConvertAll { bb });
+        };
+        res.place_single_piece.push(Box::new(place_piece_fn));
+        res
+    }
+
+    pub fn mnk() -> Self {
+        Self::default() // TODO: Implement
+    }
+}
+
+impl FairyBoard {
+    pub fn emit<E: Event>(&mut self, e: E) {
+        e.execute(self);
+        // unfortunately, this Arc clone is necessary to satisfy the borrow checker -- TODO: maybe find a way to avoid that
+        let rules = self.rules.clone();
+        let observers = &rules.0.observers;
+        e.notify(observers, self);
+    }
+}

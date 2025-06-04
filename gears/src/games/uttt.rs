@@ -902,9 +902,9 @@ impl Board for UtttBoard {
         self.player_result_no_movegen(history)
     }
 
-    fn no_moves_result(&self) -> PlayerResult {
+    fn no_moves_result(&self) -> Option<PlayerResult> {
         debug_assert!(self.open_bb().is_zero());
-        Draw
+        Some(Draw)
     }
 
     fn can_reasonably_win(&self, _player: Self::Color) -> bool {

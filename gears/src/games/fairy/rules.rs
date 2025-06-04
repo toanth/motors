@@ -18,10 +18,13 @@
 use crate::PlayerResult;
 use crate::games::ataxx::AtaxxBoard;
 use crate::games::fairy::attacks::EffectRules;
+use crate::games::fairy::effects::Observers;
 use crate::games::fairy::moves::FairyMove;
 use crate::games::fairy::pieces::{Piece, PieceId};
-use crate::games::fairy::rules::Draw::{Counter, Repetition};
-use crate::games::fairy::rules::GameLoss::{InRowAtLeast, NoMoves, NoPieces};
+use crate::games::fairy::rules::GameEndEager::{DrawCounter, NoNonRoyalsExceptRecapture, Repetition};
+use crate::games::fairy::rules::GameEndEager::{InRowAtLeast, NoPieces};
+use crate::games::fairy::rules::GameEndResult::{ActivePlayerWin, Draw, InactivePlayerWin};
+use crate::games::fairy::rules::NoMovesCondition::{Always, InCheck, NotInCheck};
 use crate::games::fairy::rules::NumRoyals::Exactly;
 use crate::games::fairy::{
     ColorInfo, FairyBitboard, FairyBoard, FairyCastleInfo, FairyColor, FairySize, MAX_NUM_PIECE_TYPES,
@@ -32,9 +35,12 @@ use crate::games::{BoardHistory, DimT, NUM_COLORS, PosHash, Settings, chess, n_f
 use crate::general::bitboards::{Bitboard, RawBitboard};
 use crate::general::board::{BitboardBoard, Board, BoardHelpers};
 use crate::general::common::{Res, Tokens};
+use crate::general::move_list::MoveList;
+use crate::general::moves::Legality::PseudoLegal;
 use crate::general::moves::Move;
 use crate::general::squares::GridSize;
 use arbitrary::Arbitrary;
+use std::cmp::Ordering;
 use std::fmt;
 use std::fmt::{Debug, Formatter};
 use std::hash::{Hash, Hasher};
@@ -50,29 +56,106 @@ pub enum CheckRules {
     AllRoyals,
 }
 
+/// When a game end condition is met (either a [`NoMovesCondition`] or a [`GameEndEager`] condition),
+/// this enum determines who wins.
+/// The [`Rules`] struct contains a `Vec` of `(NoMoveCondition, GameEndResult)` pairs and a `Vec` of `(GameEndEager, GameEndResult)` pairs.
+/// Conditions are checked in order; the first that matches determines the result.
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Arbitrary)]
+#[must_use]
+pub enum GameEndResult {
+    ActivePlayerWin,   // a.k.a. Win
+    InactivePlayerWin, // a.k.a. Lose
+    Draw,
+    MorePieces,
+}
+
+impl GameEndResult {
+    #[allow(unused)]
+    pub fn win() -> Self {
+        ActivePlayerWin
+    }
+
+    pub fn lose() -> Self {
+        InactivePlayerWin
+    }
+}
+
+impl GameEndResult {
+    pub fn to_res(self, pos: &FairyBoard) -> PlayerResult {
+        match self {
+            ActivePlayerWin => PlayerResult::Win,
+            InactivePlayerWin => PlayerResult::Lose,
+            Draw => PlayerResult::Draw,
+            GameEndResult::MorePieces => {
+                match pos.active_player_bb().num_ones().cmp(&pos.inactive_player_bb().num_ones()) {
+                    Ordering::Less => PlayerResult::Lose,
+                    Ordering::Equal => PlayerResult::Draw,
+                    Ordering::Greater => PlayerResult::Win,
+                }
+            }
+        }
+    }
+}
+
+/// When there are no legal moves for the current player, these conditions are checked to see
+/// if the game ends with the associated `[GameEndResult]`.
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Arbitrary)]
+#[must_use]
+pub enum NoMovesCondition {
+    Always,
+    InCheck,
+    NotInCheck,
+    NoOpponentMoves,
+}
+
+impl NoMovesCondition {
+    pub fn satisfied(&self, pos: &FairyBoard) -> bool {
+        match self {
+            Always => true,
+            InCheck => pos.is_in_check(),
+            NotInCheck => !pos.is_in_check(),
+            NoMovesCondition::NoOpponentMoves => {
+                let Some(new_pos) = pos.clone().flip_side_to_move() else {
+                    return false;
+                };
+                // we can't simply use `legal_moves()` here because that already handles no legal moves
+                let mut pseudolegal = new_pos.pseudolegal_moves();
+                if FairyMove::legality() == PseudoLegal {
+                    MoveList::<FairyBoard>::filter_moves(&mut pseudolegal, |m: &mut FairyMove| {
+                        new_pos.is_pseudolegal_move_legal(*m)
+                    });
+                }
+                MoveList::<FairyBoard>::num_moves(&pseudolegal) == 0
+            }
+        }
+    }
+}
+
+/// These conditions are checked first, before attempting to do movegen.
+/// Ideally, they should be inexpensive to compute.
+/// If there are no legal moves, `NoMovesCondition` is used instead.
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Arbitrary)]
 #[must_use]
 #[allow(dead_code)]
-pub enum GameLoss {
-    Checkmate,
+pub enum GameEndEager {
     NoRoyals,
     NoPieces,
     NoNonRoyals,
     NoNonRoyalsExceptRecapture,
-    NoMoves,
+    // The last move caused the now inactive player to have `k` pieces in a row
     InRowAtLeast(usize),
+    DrawCounter(usize),
+    Repetition(usize),
 }
 
-impl GameLoss {
-    // can also return a Some(PlayerResult::Draw)
-    pub(super) fn check_no_movegen(&self, pos: &FairyBoard) -> Option<PlayerResult> {
+impl GameEndEager {
+    pub fn satisfied<H: BoardHistory>(&self, pos: &FairyBoard, history: &H) -> bool {
         let us = pos.active_player();
-        let loss = match self {
-            GameLoss::NoRoyals => pos.royal_bb_for(us).is_zero(),
-            GameLoss::NoPieces => pos.active_player_bb().is_zero(),
-            GameLoss::Checkmate => false,
-            GameLoss::NoNonRoyals => (pos.active_player_bb() & !pos.royal_bb()).is_zero(),
-            GameLoss::NoNonRoyalsExceptRecapture => {
+        match self {
+            GameEndEager::NoRoyals => pos.royal_bb_for(us).is_zero(),
+            GameEndEager::NoPieces => pos.active_player_bb().is_zero(),
+            GameEndEager::NoNonRoyals => (pos.active_player_bb() & !pos.royal_bb()).is_zero(),
+            GameEndEager::NoNonRoyalsExceptRecapture => {
                 let has_nonroyals = (pos.active_player_bb() & !pos.royal_bb()).has_set_bit();
                 if has_nonroyals {
                     false
@@ -82,16 +165,11 @@ impl GameLoss {
                         true
                     } else {
                         let capturable = their_nonroyals & !pos.capturing_attack_bb_of(us);
-                        return if capturable.has_set_bit() {
-                            Some(PlayerResult::Lose)
-                        } else {
-                            Some(PlayerResult::Draw)
-                        };
+                        capturable.has_set_bit()
                     }
                 }
             }
-            GameLoss::NoMoves => false, // will be dealt with in `no_moves_result()`
-            &GameLoss::InRowAtLeast(k) => {
+            &GameEndEager::InRowAtLeast(k) => {
                 let mut res = false;
                 if pos.0.last_move.is_null() {
                     for sq in pos.inactive_player_bb().ones() {
@@ -103,29 +181,8 @@ impl GameLoss {
                     pos.k_in_row_at(k, sq, !us)
                 }
             }
-        };
-        if loss { Some(PlayerResult::Lose) } else { None }
-    }
-}
-
-#[derive(Debug, Copy, Clone, Eq, PartialEq, Arbitrary)]
-#[must_use]
-pub enum Draw {
-    NoMoves,
-    Counter(usize),
-    Repetition(usize),
-}
-
-impl Draw {
-    pub fn check_no_movegen<H: BoardHistory>(self, pos: &FairyBoard, history: &H) -> Option<PlayerResult> {
-        if match self {
-            Draw::Counter(max) => pos.0.draw_counter >= max,
-            Draw::Repetition(max) => n_fold_repetition(max, history, pos.hash_pos(), usize::MAX),
-            Draw::NoMoves => false,
-        } {
-            Some(PlayerResult::Draw)
-        } else {
-            None
+            &GameEndEager::DrawCounter(max) => pos.0.draw_counter >= max,
+            &GameEndEager::Repetition(max) => n_fold_repetition(max, history, pos.hash_pos(), usize::MAX),
         }
     }
 }
@@ -164,6 +221,7 @@ impl Arbitrary<'_> for EmptyBoard {
             last_move: FairyMove::arbitrary(u)?,
             rules: Default::default(),
             hash: PosHash::arbitrary(u)?,
+            game_result: None,
         };
         let func = move |rules: &RulesRef| {
             let mut b = board.clone();
@@ -189,8 +247,8 @@ pub(super) struct Rules {
     pub pieces: Vec<Piece>,
     pub colors: [ColorInfo; NUM_COLORS],
     pub starting_pieces_in_hand: [u8; MAX_NUM_PIECE_TYPES],
-    pub game_loss: Vec<GameLoss>,
-    pub draw: Vec<Draw>,
+    pub game_end_eager: Vec<(GameEndEager, GameEndResult)>,
+    pub game_end_no_moves: Vec<(NoMovesCondition, GameEndResult)>,
     pub startpos_fen: String,
     pub empty_board: EmptyBoard,
     // pub legality: Legality,
@@ -203,6 +261,7 @@ pub(super) struct Rules {
     pub name: String,
     pub fen_part: RulesFenPart,
     pub num_royals: NumRoyals,
+    pub observers: Observers,
 }
 
 impl Rules {
@@ -250,7 +309,7 @@ impl Rules {
     }
 
     pub fn has_halfmove_repetition_clock(&self) -> bool {
-        self.draw.iter().any(|d| matches!(d, &Draw::Repetition(_)))
+        self.game_end_eager.iter().any(|(cond, _)| matches!(cond, &GameEndEager::Repetition(_)))
     }
 
     fn generic_empty_board(rules: &RulesRef) -> UnverifiedFairyBoard {
@@ -271,6 +330,7 @@ impl Rules {
             last_move: Default::default(),
             rules: rules.clone(),
             hash: PosHash::default(),
+            game_result: None,
         }
     }
 
@@ -290,8 +350,8 @@ impl Rules {
     pub fn chess() -> Self {
         let pieces = Piece::chess_pieces();
         let colors = Self::chess_colors();
-        let game_loss = vec![GameLoss::Checkmate];
-        let draw = vec![Draw::NoMoves, Counter(100), Repetition(3)];
+        let game_end_eager = vec![(DrawCounter(100), Draw), (Repetition(3), Draw)];
+        let game_end_no_moves = vec![(NotInCheck, Draw), (InCheck, InactivePlayerWin)];
         let startpos_fen = chess::START_FEN.to_string();
         // let legality = PseudoLegal;
         let effect_rules = EffectRules::default();
@@ -300,8 +360,8 @@ impl Rules {
             pieces,
             colors,
             starting_pieces_in_hand: [0; MAX_NUM_PIECE_TYPES],
-            game_loss,
-            draw,
+            game_end_eager,
+            game_end_no_moves,
             startpos_fen,
             // legality,
             empty_board: EmptyBoard(Box::new(empty_func)),
@@ -314,14 +374,18 @@ impl Rules {
             name: "chess".to_string(),
             fen_part: RulesFenPart::None,
             num_royals: Exactly(1),
+            observers: Observers::chess(),
         }
     }
 
     pub fn shatranj() -> Self {
         let pieces = Piece::shatranj_pieces();
         let colors = Self::chess_colors();
-        let game_loss = vec![GameLoss::Checkmate, GameLoss::NoMoves, GameLoss::NoNonRoyalsExceptRecapture];
-        let draw = vec![Draw::NoMoves, Draw::Counter(100), Draw::Repetition(3)];
+        let game_end_eager =
+            vec![(DrawCounter(100), Draw), (Repetition(3), Draw), (NoNonRoyalsExceptRecapture, GameEndResult::lose())];
+        let game_end_no_moves = vec![(Always, GameEndResult::lose())];
+        // let game_loss = vec![GameEndEager::Checkmate, GameEndEager::NoMoves, GameEndEager::NoNonRoyalsExceptRecapture];
+        // let draw = vec![GameEndEager::Counter(100), GameEndEager::Repetition(3)];
         let startpos_fen = "shatranj rnakfanr/pppppppp/8/8/8/8/PPPPPPPP/RNAKFANR w 0 1".to_string();
         // let legality = PseudoLegal;
         let effect_rules = EffectRules::default();
@@ -329,8 +393,8 @@ impl Rules {
             pieces,
             colors,
             starting_pieces_in_hand: [0; MAX_NUM_PIECE_TYPES],
-            game_loss,
-            draw,
+            game_end_eager,
+            game_end_no_moves,
             startpos_fen,
             // legality,
             empty_board: EmptyBoard(Box::new(Self::generic_empty_board)),
@@ -343,6 +407,7 @@ impl Rules {
             name: "shatranj".to_string(),
             fen_part: RulesFenPart::None,
             num_royals: Exactly(1),
+            observers: Observers::shatranj(),
         }
     }
 
@@ -357,13 +422,8 @@ impl Rules {
             pieces,
             colors: Self::mnk_colors(),
             starting_pieces_in_hand: [u8::MAX; MAX_NUM_PIECE_TYPES],
-            // TODO: When both sides have no legal moves, count who has more material.
-            // The current solution isn't correct, but happens to give the right answer in non-degenerate cases.
-            // Actually, this is incorrect because if there are no legal moves, you simply have to pass; the game only ends
-            // if the other player also doesn't have a move
-            // A better solution could be to merge `game_loss` and `draw`
-            game_loss: vec![NoPieces, NoMoves],
-            draw: vec![Repetition(3), Counter(100)],
+            game_end_eager: vec![(Repetition(3), Draw), (DrawCounter(100), Draw), (NoPieces, GameEndResult::lose())],
+            game_end_no_moves: vec![(NoMovesCondition::NoOpponentMoves, GameEndResult::MorePieces)],
             startpos_fen,
             // legality: Legality::Legal,
             empty_board: EmptyBoard(Box::new(Self::generic_empty_board)),
@@ -376,6 +436,7 @@ impl Rules {
             name: "ataxx".to_string(),
             fen_part: RulesFenPart::None,
             num_royals: Exactly(0),
+            observers: Observers::ataxx(),
         }
     }
 
@@ -392,8 +453,9 @@ impl Rules {
             pieces,
             colors: Self::mnk_colors(),
             starting_pieces_in_hand: [u8::MAX; MAX_NUM_PIECE_TYPES],
-            game_loss: vec![InRowAtLeast(k as usize)],
-            draw: vec![Draw::NoMoves],
+            // lose because the side to move switches after a move, so `InRowAtLeast` checks the last move
+            game_end_eager: vec![(InRowAtLeast(k as usize), GameEndResult::lose())],
+            game_end_no_moves: vec![(Always, Draw)],
             startpos_fen,
             // legality: Legality::Legal,
             empty_board: EmptyBoard(Box::new(Self::generic_empty_board)),
@@ -406,6 +468,7 @@ impl Rules {
             name: "mnk".to_string(),
             fen_part: RulesFenPart::Mnk(settings),
             num_royals: Exactly(0),
+            observers: Observers::mnk(),
         }
     }
 }

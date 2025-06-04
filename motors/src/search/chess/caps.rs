@@ -1166,7 +1166,7 @@ impl Caps {
         );
 
         if self.search_stack[ply].tried_moves.is_empty() {
-            return Some(game_result_to_score(pos.no_moves_result(), ply));
+            return Some(game_result_to_score(pos.no_moves_result().unwrap(), ply));
         }
 
         let tt_entry: TTEntry<Chessboard> =

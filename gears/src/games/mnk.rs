@@ -704,8 +704,8 @@ impl Board for MNKBoard {
         self.player_result_no_movegen(history)
     }
 
-    fn no_moves_result(&self) -> PlayerResult {
-        Draw
+    fn no_moves_result(&self) -> Option<PlayerResult> {
+        Some(Draw)
     }
 
     fn can_reasonably_win(&self, _player: MnkColor) -> bool {
@@ -1192,24 +1192,25 @@ mod test {
     #[test]
     fn test_winning() {
         let board = MNKBoard::from_fen("3 3 3 XX1/3/3 x", Relaxed).unwrap();
+        let h = NoHistory::default();
         assert_eq!(board.active_player(), MnkColor::first());
 
-        assert!(board.is_game_won_after_slow(FillSquare { target: board.idx_to_coordinates(8) }));
-        assert!(!board.is_game_won_after_slow(FillSquare { target: board.idx_to_coordinates(5) }));
+        assert!(board.is_game_won_after_slow(FillSquare { target: board.idx_to_coordinates(8) }, h));
+        assert!(!board.is_game_won_after_slow(FillSquare { target: board.idx_to_coordinates(5) }, h));
 
         let board = MNKBoard::from_fen("4 3 3 XOX/O1O/XOO/1OX o", Relaxed).unwrap();
-        assert!(board.is_game_won_after_slow(FillSquare { target: board.idx_to_coordinates(0) }));
+        assert!(board.is_game_won_after_slow(FillSquare { target: board.idx_to_coordinates(0) }, h));
         let board = MNKBoard::from_fen("3 3 3 XOX/O1O/XOO x", Relaxed).unwrap();
-        assert!(board.is_game_won_after_slow(FillSquare { target: board.idx_to_coordinates(4) }));
+        assert!(board.is_game_won_after_slow(FillSquare { target: board.idx_to_coordinates(4) }, h));
         let board = MNKBoard::from_fen("4 3 3 XOX/OXO/XOO/1OX x", Relaxed).unwrap();
-        assert!(!board.is_game_won_after_slow(FillSquare { target: board.idx_to_coordinates(0) }));
+        assert!(!board.is_game_won_after_slow(FillSquare { target: board.idx_to_coordinates(0) }, h));
     }
 
     #[test]
     fn game_over_test() {
         let pos = MNKBoard::from_fen("3 3 3 XX1/3/3 x", Relaxed).unwrap();
         let mov = FillSquare::new(GridCoordinates::from_rank_file(2, 2));
-        assert!(pos.is_game_won_after_slow(mov));
+        assert!(pos.is_game_won_after_slow(mov, NoHistory::default()));
         let new_pos = pos.make_move(mov).unwrap();
         assert!(new_pos.last_move_won_game());
         assert_eq!(new_pos.last_move, Some(mov));
