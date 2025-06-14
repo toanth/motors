@@ -929,19 +929,41 @@ fn bool_options() -> CommandList {
 }
 
 pub(super) fn position_options<B: Board>(pos: Option<&B>, accept_pos_word: bool) -> CommandList {
-    let mut res = generic_go_options(accept_pos_word);
-    for p in B::name_to_pos_map() {
-        let c = Command {
-            primary_name: p.short_name(),
-            other_names: Default::default(),
-            help_text: Some(p.description().unwrap_or(format!("Load a custom position called '{}'", p.short_name()))),
-            standard: Custom,
-            autocomplete_recurse: false,
-            func: |state, words, name| state.load_go_state_pos(name, words),
-            sub_commands: SubCommandsFn::new(|state| state.moves_subcmds(true, true)),
-        };
-        res.push(c);
-    }
+    let all_names_fn = || {
+        let mut res = vec![];
+        for p in B::name_to_pos_map() {
+            let lambda = || Command {
+                primary_name: p.short_name(),
+                other_names: Default::default(),
+                help_text: Some(
+                    p.description().unwrap_or(format!("Load a custom position called '{}'", p.short_name())),
+                ),
+                standard: Custom,
+                autocomplete_recurse: false,
+                func: |state, words, name| state.load_go_state_pos(name, words),
+                sub_commands: SubCommandsFn::new(|state| state.moves_subcmds(true, true)),
+            };
+            res.push(lambda());
+        }
+        res
+    };
+    let mut res = all_names_fn();
+    let name_cmd = command!(
+        name | pos_name,
+        Custom,
+        "Load a position by its name",
+        |state, words, _| {
+            let Some(name) = words.next() else {
+                bail!(
+                    "The 'name' subcommand must be followed by a position name, such as 'startpos' or 'kiwipete' in chess"
+                )
+            };
+            state.load_go_state_pos(name, words)
+        },
+        --> move |_| all_names_fn()
+    );
+    res.push(name_cmd);
+    res.append(&mut generic_go_options(accept_pos_word));
     res.push(move_command(false));
     if let Some(pos) = pos {
         res.append(&mut moves_options(pos, true))

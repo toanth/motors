@@ -268,6 +268,11 @@ pub fn parse_ugi_position_part_impl<B: Board>(
         "fen" | "f" => B::read_fen_and_advance_input(rest, strictness)?,
         "startpos" | "s" => B::startpos_for_settings(current_pos.settings()),
         "current" | "c" => current_pos.clone(),
+        // this is effectively just ignored, but it's nice to get autocompletion specifically for position names
+        "name" | "pos_name" => {
+            let Some(next) = rest.next() else { bail!("Expected a position name after 'name' subcommand") };
+            parse_ugi_position_part_impl(next, rest, current_pos, strictness)?
+        }
         "" => bail!("Empty position description, expected 'fen', 'startpos', 'current' or a name"),
         name => match B::from_name(name) {
             Ok(res) => res,
