@@ -74,7 +74,6 @@ fn do_perft<B: Board>(depth: usize, pos: B) -> u64 {
 }
 
 pub fn perft<B: Board>(depth: Depth, pos: B, parallelize: bool) -> PerftRes {
-    let depth = depth.min(B::max_perft_depth());
     let start = Instant::now();
     let nodes = if depth.get() == 0 {
         1
@@ -90,7 +89,6 @@ pub fn perft<B: Board>(depth: Depth, pos: B, parallelize: bool) -> PerftRes {
 
 pub fn split_perft<B: Board>(depth: Depth, pos: B, parallelize: bool) -> SplitPerftRes<B> {
     assert!(depth.get() > 0);
-    let depth = depth.min(B::max_perft_depth());
     let mut nodes = 0;
     let start = Instant::now();
     let mut children: Vec<(B::Move, u64)> = vec![];
@@ -124,7 +122,7 @@ pub fn split_perft<B: Board>(depth: Depth, pos: B, parallelize: bool) -> SplitPe
 pub fn perft_for<B: Board>(depth: Depth, positions: &[B], parallelize: bool) -> PerftRes {
     let mut res = PerftRes { time: Duration::default(), nodes: 0, depth };
     for pos in positions {
-        let depth = if depth.get() == 0 || depth >= B::max_perft_depth() { pos.default_perft_depth() } else { depth };
+        let depth = if depth.get() == 0 { pos.default_perft_depth() } else { depth };
         let this_res = perft(depth, pos.clone(), parallelize);
         res.time += this_res.time;
         res.nodes += this_res.nodes;

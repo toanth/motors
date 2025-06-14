@@ -411,7 +411,7 @@ pub fn ugi_commands() -> CommandList {
             recurse = true
         ),
         command!(
-            splitperft | sp,
+            splitperft | sp | split,
             Custom,
             "Internal movegen test on current / bench positions",
             |ugi, words, _| ugi.handle_go(SplitPerft, words),

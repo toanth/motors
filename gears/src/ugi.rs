@@ -524,7 +524,11 @@ pub fn load_ugi_pos_simple<B: Board>(pos: &str, strictness: Strictness, old_boar
     let first = tokens.next().unwrap_or_default();
     let res = only_load_ugi_position(first, &mut tokens, old_board, strictness, false, false)?;
     if let Some(next) = tokens.next() {
-        bail!("Unconsumed input after loading a position: {}", next.red())
+        bail!(
+            "After loading position '{0}', there is unconsumed input starting with the token '{1}'",
+            pos.bold(),
+            next.red()
+        )
     }
     Ok(res)
 }

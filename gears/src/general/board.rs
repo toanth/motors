@@ -401,11 +401,6 @@ pub trait Board:
     /// and the default perft depth can change depending on that (or even depending on the current position)
     fn default_perft_depth(&self) -> Depth;
 
-    /// Returns the maximum perft depth possible, i.e., perft depth will be clamped to this value.
-    fn max_perft_depth() -> Depth {
-        Depth::new(20)
-    }
-
     /// Most games (e.g., chess) don't need any special checks for game-over conditions in perft, but some should explicitly test
     /// if the game is over (e.g. mnk) because movegen wouldn't do this automatically otherwise.
     /// If this function returns `true`, `player_result_no_movegen` must return a `Some`.

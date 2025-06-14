@@ -594,6 +594,7 @@ mod tests {
     use super::*;
     use crate::general::board::Strictness::Relaxed;
     use crate::general::moves::Move;
+    use crate::general::perft::perft;
 
     #[test]
     fn startpos_test() {
@@ -650,5 +651,15 @@ mod tests {
         let pos = pos.make_move(mov).unwrap();
         assert!(AtaxxMove::from_extended_text("a3c5", &pos).is_err());
         assert!(AtaxxMove::from_text("a3b5", &pos).is_ok());
+    }
+
+    #[test]
+    fn perft_test() {
+        let pos = AtaxxBoard::from_fen("7/7/7/7/-------/-------/--x3o x 1 2", Strict).unwrap();
+        let expected = [1, 2, 3, 3, 4, 5, 5, 3, 3, 3, 2, 3, 3, 2, 3, 3, 2, 3, 3, 2, 3, 3, 2, 3, 3, 2, 3, 3, 2, 3, 3];
+        for (i, &nodes) in expected.iter().enumerate() {
+            let res = perft(Depth::new(i), pos, false);
+            assert_eq!(res.nodes, nodes, "Depth {i}: {pos}");
+        }
     }
 }

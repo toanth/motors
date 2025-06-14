@@ -443,7 +443,9 @@ impl Chessboard {
         prefetch(new_hash ^ ZOBRIST_KEYS.side_to_move_key); // TODO: Remove?
         prefetch(new_hash);
         debug_assert_eq!(us, mov.piece(&self).color().unwrap());
-        self.ply_100_ctr += 1;
+        // `perft` doesn't check for draw conditions, so perft(1000) could overflow the counter.
+        // In that case, we don't care about the counter value, and `wrapping_add` is the same speed as `+` in release mode.
+        self.ply_100_ctr = self.ply_100_ctr.wrapping_add(1);
         if piece == Pawn {
             self.hashes.pawns ^= hash_delta;
         } else {

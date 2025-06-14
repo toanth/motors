@@ -57,6 +57,16 @@ mod tests {
             ("mnk 6 7 4", vec![42, 1722, 68_880 /*, 2_686_320*/]),
             ("large_mnk", vec![121, 14_520 /*, 1_727_880*/]),
             ("mnk 6 7 4 7/4O2/X2X1X1/O1XX1O1/OXOOOX1/OOXXOX1 x 11", vec![22, 462, 9240, 175_560 /*, 3_160_080*/]),
+            ("ataxx 7/7/7/7/7/7/7 x 0 1", vec![0, 0, 0, 0]),
+            ("ataxx 7/7/7/7/ooooooo/ooooooo/xxxxxxx o 0 1", vec![75, 249, 14270, 452_980]),
+            ("ataxx o5x/7/2-1-2/7/2-1-2/7/x5o o 0 1", vec![14, 196, 4_184, 86_528 /*, 2_266_352*/]),
+            (
+                "ataxx 7/7/7/7/-------/-------/x5o o 0 1",
+                vec![
+                    2, 4, 13, 30, 73, 174, 342, 669, 1224, 2324, 3873, 6518, 10552, 17620, 26855, 42433, 64058, 99897,
+                    146120, 73, 73, 73, 73,
+                ],
+            ),
         ];
         for (testcase, res) in fens {
             let old = FairyBoard::default();
@@ -66,7 +76,7 @@ mod tests {
                 let depth = Depth::new(i + 1);
                 let res = perft(depth, pos.clone(), true);
                 assert_eq!(res.depth, depth);
-                assert_eq!(res.nodes, expected, "{i} {testcase} ({pos})");
+                assert_eq!(res.nodes, expected, "depth {i}, fen '{testcase}' ({pos})");
             }
         }
     }
