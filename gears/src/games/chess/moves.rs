@@ -15,7 +15,7 @@ use crate::games::chess::castling::CastleRight::*;
 use crate::games::chess::moves::ChessMoveFlags::*;
 use crate::games::chess::pieces::ChessPieceType::*;
 use crate::games::chess::pieces::{ChessPiece, ChessPieceType, ColoredChessPieceType};
-use crate::games::chess::squares::{C_FILE_NO, ChessSquare, ChessboardSize, D_FILE_NO, F_FILE_NO, G_FILE_NO};
+use crate::games::chess::squares::{C_FILE_NUM, ChessSquare, ChessboardSize, D_FILE_NUM, F_FILE_NUM, G_FILE_NUM};
 use crate::games::chess::zobrist::ZOBRIST_KEYS;
 use crate::games::chess::{ChessColor, Chessboard};
 use crate::games::{
@@ -237,9 +237,9 @@ impl Move<Chessboard> for ChessMove {
         if self.is_castle() && board.castling.default_uci_castling_move_fmt() {
             let rank = self.src_square().rank();
             if self.flags() == CastleKingside {
-                to = ChessSquare::from_rank_file(rank, G_FILE_NO);
+                to = ChessSquare::from_rank_file(rank, G_FILE_NUM);
             } else {
-                to = ChessSquare::from_rank_file(rank, C_FILE_NO);
+                to = ChessSquare::from_rank_file(rank, C_FILE_NUM);
             };
         }
         let flag = match self.flags() {
@@ -348,8 +348,8 @@ impl Move<Chessboard> for ChessMove {
                 if !rook_capture {
                     // convert normal chess king-to castling notation to rook capture notation (necessary for chess960/DFRC)
                     let to_file = match to.file() {
-                        C_FILE_NO => board.castling.rook_start_file(color, Queenside),
-                        G_FILE_NO => board.castling.rook_start_file(color, Kingside),
+                        C_FILE_NUM => board.castling.rook_start_file(color, Queenside),
+                        G_FILE_NUM => board.castling.rook_start_file(color, Kingside),
                         _ => bail!(
                             "Invalid king move to square {to}, which is neither a normal king move nor a castling move"
                         ),
@@ -539,9 +539,9 @@ impl Chessboard {
         let color = self.active_player;
         let rook_file = to.file() as isize;
         let (side, to_file, rook_to_file) = if mov.flags() == CastleKingside {
-            (Kingside, G_FILE_NO, F_FILE_NO)
+            (Kingside, G_FILE_NUM, F_FILE_NUM)
         } else {
-            (Queenside, C_FILE_NO, D_FILE_NO)
+            (Queenside, C_FILE_NUM, D_FILE_NUM)
         };
         debug_assert_eq!(self.king_square(self.active_player), from);
         debug_assert_eq!(

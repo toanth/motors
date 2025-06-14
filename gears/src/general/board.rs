@@ -15,7 +15,7 @@
  *  You should have received a copy of the GNU General Public License
  *  along with Gears. If not, see <https://www.gnu.org/licenses/>.
  */
-use crate::PlayerResult::Lose;
+use crate::PlayerResult::{Draw, Lose};
 use crate::games::{
     AbstractPieceType, BoardHistory, CharType, Color, ColoredPiece, ColoredPieceType, Coordinates, DimT, PosHash,
     Settings, Size,
@@ -453,6 +453,12 @@ pub trait Board:
         if Self::Move::legality() == Legal { self.num_pseudolegal_moves() } else { self.legal_moves_slow().num_moves() }
     }
 
+    /// Returns 'true' if there are no legal moves, i.e. if `num_legal_moves()` would return 0.
+    /// Can sometimes be implemented more efficiently
+    fn has_no_legal_moves(&self) -> bool {
+        self.num_legal_moves() == 0
+    }
+
     /// Returns a random legal move, that is, chooses a pseudorandom move from the set of legal moves.
     /// Can be implemented by generating all legal moves and randomly sampling one, so it's potentially
     /// `random_pseudolegal_move`
@@ -527,6 +533,12 @@ pub trait Board:
     /// Using [`Self::player_result_no_movegen()`] and [`Self::no_moves_result()`] is often the faster option if movegen is needed anyway
     fn is_game_lost_slow<H: BoardHistory>(&self, history: &H) -> bool {
         self.player_result_slow(history).is_some_and(|x| x == Lose)
+    }
+
+    /// Returns true iff the game is a draw.
+    /// Similarly to [`Self::is_game_lost_slow`], using [`Self::player_result_no_movegen`] and [`Self::no_moves_result`] is often faster.
+    fn is_draw_slow<H: BoardHistory>(&self, history: &H) -> bool {
+        self.player_result_slow(history).is_some_and(|x| x == Draw)
     }
 
     /// Returns true iff the game is won for the current player after making the given move.

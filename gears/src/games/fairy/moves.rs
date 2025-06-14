@@ -39,7 +39,7 @@ use std::fmt;
 use std::fmt::Formatter;
 use strum::IntoEnumIterator;
 
-#[derive(Debug, Default, Copy, Clone, Eq, PartialEq, Hash, Arbitrary)]
+#[derive(Debug, Default, Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Arbitrary)]
 #[must_use]
 pub struct FairyMove {
     pub(super) from: CompactSquare,

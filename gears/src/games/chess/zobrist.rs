@@ -115,7 +115,7 @@ mod tests {
     use crate::games::chess::ChessColor::White;
     use crate::games::chess::moves::{ChessMove, ChessMoveFlags};
     use crate::games::chess::pieces::ChessPieceType::*;
-    use crate::games::chess::squares::{D_FILE_NO, E_FILE_NO};
+    use crate::games::chess::squares::{D_FILE_NUM, E_FILE_NUM};
     use crate::general::board::Strictness::Strict;
     use crate::general::board::{Board, BoardHelpers};
     use crate::general::moves::Move;
@@ -179,15 +179,15 @@ mod tests {
         let position = Chessboard::from_fen("4r1k1/p4pp1/6bp/2p5/r2p4/P4PPP/1P2P3/2RRB1K1 w - - 1 15", Strict).unwrap();
         assert_eq!(position.hashes, position.compute_zobrist());
         let mov = ChessMove::new(
-            ChessSquare::from_rank_file(1, E_FILE_NO),
-            ChessSquare::from_rank_file(3, E_FILE_NO),
+            ChessSquare::from_rank_file(1, E_FILE_NUM),
+            ChessSquare::from_rank_file(3, E_FILE_NUM),
             ChessMoveFlags::NormalPawnMove,
         );
         let new_pos = position.make_move(mov).unwrap();
         assert_eq!(new_pos.hashes, new_pos.compute_zobrist());
         let ep_move = ChessMove::new(
-            ChessSquare::from_rank_file(3, D_FILE_NO),
-            ChessSquare::from_rank_file(2, E_FILE_NO),
+            ChessSquare::from_rank_file(3, D_FILE_NUM),
+            ChessSquare::from_rank_file(2, E_FILE_NUM),
             ChessMoveFlags::EnPassant,
         );
         let after_ep = new_pos.make_move(ep_move).unwrap();

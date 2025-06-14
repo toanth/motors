@@ -126,7 +126,7 @@ impl GridCoordinates {
     }
 }
 
-#[derive(Debug, Default, Copy, Clone, PartialEq, Eq, Hash, Arbitrary)]
+#[derive(Debug, Default, Copy, Clone, PartialEq, Eq, Ord, PartialOrd, Hash, Arbitrary)]
 pub struct CompactSquare(pub DimT);
 
 impl CompactSquare {

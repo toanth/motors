@@ -10,7 +10,7 @@ use crate::games::chess::castling::CastleRight::*;
 use crate::games::chess::pieces::ChessPieceType::{King, Rook};
 use crate::games::chess::pieces::ColoredChessPieceType;
 use crate::games::chess::squares::{
-    A_FILE_NO, C_FILE_NO, ChessSquare, D_FILE_NO, E_FILE_NO, F_FILE_NO, G_FILE_NO, H_FILE_NO, NUM_COLUMNS,
+    A_FILE_NUM, C_FILE_NUM, ChessSquare, D_FILE_NUM, E_FILE_NUM, F_FILE_NUM, G_FILE_NUM, H_FILE_NUM, NUM_COLUMNS,
 };
 use crate::games::chess::{ChessColor, Chessboard};
 use crate::games::{Board, Color, ColoredPieceType, DimT, char_to_file, file_to_char};
@@ -31,16 +31,16 @@ impl CastleRight {
     #[must_use]
     pub fn king_dest_file(self) -> DimT {
         match self {
-            Queenside => C_FILE_NO,
-            Kingside => G_FILE_NO,
+            Queenside => C_FILE_NUM,
+            Kingside => G_FILE_NUM,
         }
     }
 
     #[must_use]
     pub fn rook_dest_file(self) -> DimT {
         match self {
-            Queenside => D_FILE_NO,
-            Kingside => F_FILE_NO,
+            Queenside => D_FILE_NUM,
+            Kingside => F_FILE_NUM,
         }
     }
 }
@@ -180,14 +180,14 @@ impl CastlingFlags {
             // (`verify_position_legal` will return an error if there is no such rook).
             let mut find_rook = |side: CastleRight| {
                 let strict_file = match side {
-                    Queenside => A_FILE_NO,
-                    Kingside => H_FILE_NO,
+                    Queenside => A_FILE_NUM,
+                    Kingside => H_FILE_NUM,
                 };
                 if strictness == Strict
                     && (!board.is_piece_on(
                         ChessSquare::from_rank_file(rank, strict_file),
                         ColoredChessPieceType::new(color, Rook),
-                    ) || board.king_square(color).file() != E_FILE_NO)
+                    ) || board.king_square(color).file() != E_FILE_NUM)
                 {
                     bail!(
                         "In strict mode, normal chess ('q' and 'k') castle rights can only be used for rooks on the a or h files and a king on the e file"
@@ -196,7 +196,7 @@ impl CastlingFlags {
                 self.0 |= 1 << X_FEN_FLAG_SHIFT;
                 match side {
                     Queenside => {
-                        for file in A_FILE_NO..king_file {
+                        for file in A_FILE_NUM..king_file {
                             if board.is_piece_on(
                                 ChessSquare::from_rank_file(rank, file),
                                 ColoredChessPieceType::new(color, Rook),
@@ -206,7 +206,7 @@ impl CastlingFlags {
                         }
                     }
                     Kingside => {
-                        for file in (king_file..=H_FILE_NO).rev() {
+                        for file in (king_file..=H_FILE_NUM).rev() {
                             if board.is_piece_on(
                                 ChessSquare::from_rank_file(rank, file),
                                 ColoredChessPieceType::new(color, Rook),
@@ -233,7 +233,7 @@ impl CastlingFlags {
         }
         for color in ChessColor::iter() {
             if (self.can_castle(color, Kingside) || self.can_castle(color, Queenside))
-                && board.king_square(color).file() != E_FILE_NO
+                && board.king_square(color).file() != E_FILE_NUM
             {
                 self.0 &= !(1 << COMPACT_CASTLING_MOVE_SHIFT);
             }
@@ -261,14 +261,14 @@ impl CastlingFlags {
                         file_char = if side == Kingside { 'k' } else { 'q' };
                         match side {
                             Queenside => {
-                                for test_file in A_FILE_NO..rook_file {
+                                for test_file in A_FILE_NUM..rook_file {
                                     if found_rook(test_file) {
                                         file_char = file_to_char(rook_file)
                                     }
                                 }
                             }
                             Kingside => {
-                                for test_file in ((rook_file + 1)..=H_FILE_NO).rev() {
+                                for test_file in ((rook_file + 1)..=H_FILE_NUM).rev() {
                                     if found_rook(test_file) {
                                         file_char = file_to_char(rook_file)
                                     }

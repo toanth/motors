@@ -56,7 +56,7 @@ pub struct NoMoves;
 
 #[derive(Debug, Copy, Clone)]
 #[allow(dead_code)]
-pub struct GameEndNoMovegenEvent(GameEndEager);
+pub struct GameEndEagerEvent<'a>(&'a GameEndEager);
 
 #[derive(Debug, Copy, Clone)]
 pub struct ResetDrawCtr;
@@ -149,7 +149,7 @@ impl Event for NoMoves {
     }
 }
 
-impl Event for GameEndNoMovegenEvent {
+impl<'a> Event for GameEndEagerEvent<'a> {
     fn notify(self, observers: &Observers, pos: &mut FairyBoard) {
         notify(observers.game_end_no_movegen.as_slice(), self, pos);
     }
@@ -295,7 +295,7 @@ pub struct Observers {
     draw: ObsList<Draw>,
     lose: ObsList<Lose>,
     no_moves: ObsList<NoMoves>,
-    game_end_no_movegen: ObsList<GameEndNoMovegenEvent>,
+    game_end_no_movegen: Vec<Box<dyn Fn(GameEndEagerEvent<'_>, &mut FairyBoard) -> () + Sync + Send>>,
     reset_draw_ctr: ObsList<ResetDrawCtr>,
     place_single_piece: ObsList<PlaceSinglePiece>,
     remove_single_piece: ObsList<RemoveSinglePiece>,

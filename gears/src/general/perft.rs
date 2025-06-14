@@ -59,18 +59,14 @@ fn do_perft<B: Board>(depth: usize, pos: B) -> u64 {
     let mut nodes = 0;
     // We don't want to check for all game-over conditions, e.g. chess doesn't care about insufficient material, 50mr, or 3fold repetition.
     // However, some conditions do need to be checked in perft, e.g. mnk winning. This is done here.
-    println!("perft {depth} pos {pos}");
     if pos.cannot_call_movegen() {
-        println!("abort");
         return 0;
     }
     if depth == 1 {
         return pos.num_legal_moves() as u64;
     }
     for new_pos in pos.children() {
-        let c = do_perft(depth - 1, new_pos);
-        println!("{c}");
-        nodes += c;
+        nodes += do_perft(depth - 1, new_pos);
     }
     // no need to handle the case of no legal moves, since `children()` and `num_legal_moves()`
     // already take care of forced passing moves.

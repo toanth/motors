@@ -827,6 +827,10 @@ impl Board for UtttBoard {
         self.open_bb().num_ones()
     }
 
+    fn has_no_legal_moves(&self) -> bool {
+        self.open_bb().is_zero()
+    }
+
     fn random_legal_move<R: Rng>(&self, rng: &mut R) -> Option<Self::Move> {
         debug_assert!(!self.last_move_won_game());
         if self.last_move != UtttMove::NULL {

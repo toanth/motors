@@ -16,6 +16,8 @@
  *  along with Gears. If not, see <https://www.gnu.org/licenses/>.
  */
 mod attacks;
+#[cfg(test)]
+mod chess_tests;
 mod effects;
 pub mod moves;
 mod perft_tests;
@@ -41,6 +43,7 @@ use crate::general::common::{
     EntityList, GenericSelect, Res, StaticallyNamedEntity, Tokens, select_name_static, tokens,
 };
 use crate::general::move_list::{EagerNonAllocMoveList, MoveList};
+use crate::general::moves::Move;
 use crate::general::squares::{GridCoordinates, GridSize, RectangularCoordinates, SquareColor};
 use crate::output::OutputOpts;
 use crate::output::text_output::{BoardFormatter, DefaultBoardFormatter, board_to_string, display_board_pretty};
@@ -133,13 +136,29 @@ pub enum Side {
     Queenside,
 }
 
-#[derive(Debug, Copy, Clone, Eq, PartialEq, Hash, Arbitrary)]
+#[derive(Debug, Copy, Clone, Eq, Arbitrary)]
 #[must_use]
 struct CastlingMoveInfo {
     rook_file: DimT,
     king_dest_file: DimT,
     rook_dest_file: DimT,
+    // standard FENs and chess960 FENs use different chars, and we want the FEN char to be preserved during a roundtrip
     fen_char: u8,
+}
+
+impl PartialEq for CastlingMoveInfo {
+    fn eq(&self, other: &Self) -> bool {
+        // don't compare fen_char
+        self.rook_file == other.rook_file
+            && self.king_dest_file == other.king_dest_file
+            && self.rook_dest_file == other.rook_dest_file
+    }
+}
+
+impl Hash for CastlingMoveInfo {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        (self.rook_file, self.rook_dest_file, self.king_dest_file).hash(state);
+    }
 }
 
 impl ColoredFairyCastleInfo {
@@ -623,7 +642,10 @@ impl Board for FairyBoard {
                 | GameEndEager::NoNonRoyals
                 | GameEndEager::NoNonRoyalsExceptRecapture
                 | GameEndEager::InRowAtLeast(_) => cond.satisfied(self, &NoHistory::default()),
-                GameEndEager::DrawCounter(_) | GameEndEager::Repetition(_) => false,
+                // These conditions are ignored in perft
+                GameEndEager::DrawCounter(_) | GameEndEager::Repetition(_) | GameEndEager::InsufficientMaterial(_) => {
+                    false
+                }
             };
         }
         res
@@ -633,8 +655,10 @@ impl Board for FairyBoard {
         self.gen_pseudolegal_impl(moves);
     }
 
-    fn gen_tactical_pseudolegal<T: MoveList<Self>>(&self, _moves: &mut T) {
-        // do nothing for now
+    // Implemented by simply filtering all pseudolegal moves
+    fn gen_tactical_pseudolegal<T: MoveList<Self>>(&self, moves: &mut T) {
+        self.gen_pseudolegal_impl(moves);
+        moves.filter_moves(|m| m.is_tactical(&self));
     }
 
     fn random_legal_move<R: Rng>(&self, rng: &mut R) -> Option<Self::Move> {
@@ -989,7 +1013,7 @@ mod tests {
         assert!(FairyBoard::from_fen_for("chess", fen, Relaxed).is_err());
         let fen = "5B1k/5B2/7K/8/8/8/8/8 b - - 0 1";
         let pos = FairyBoard::from_fen_for("chess", fen, Strict).unwrap();
-        assert_eq!(pos.num_legal_moves(), 0);
+        assert!(pos.has_no_legal_moves());
         assert_eq!(
             pos.match_result_slow(&ZobristHistory::default()),
             Some(MatchResult { result: GameResult::Draw, reason: GameOverReason::Normal })

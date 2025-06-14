@@ -654,6 +654,10 @@ impl Board for MNKBoard {
         self.empty_bb().num_ones()
     }
 
+    fn has_no_legal_moves(&self) -> bool {
+        self.empty_bb().is_zero()
+    }
+
     // Idea for another (faster and easier?) implementation:
     // Create lookup table (bitvector?) that answer "contains k consecutive 1s" for all
     // bits sequences of length 12 (= max m,n), use pext to transform columns and (anti) diagonals

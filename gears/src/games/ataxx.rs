@@ -349,6 +349,10 @@ impl Board for AtaxxBoard {
         self.num_moves()
     }
 
+    fn has_no_legal_moves(&self) -> bool {
+        (self.active_player_bb().extended_moore_neighbors(2) & self.empty_bb()).is_zero()
+    }
+
     fn random_legal_move<R: Rng>(&self, rng: &mut R) -> Option<Self::Move> {
         self.pseudolegal_moves().choose(rng).copied()
     }

@@ -543,6 +543,10 @@ impl UnverifiedFairyBoard {
         self.royal_bb() & self.player_bb(color)
     }
 
+    pub fn king_square(&self, color: FairyColor) -> Option<FairySquare> {
+        self.royal_bb_for(color).to_square()
+    }
+
     /// In normal chess, this is the king bitboard, but not the rook bitboard
     pub fn castling_bb(&self) -> FairyBitboard {
         let mut res = self.zero_bitboard();
@@ -660,12 +664,13 @@ impl UnverifiedFairyBoard {
 
             let color = if c.is_ascii_uppercase() { FairyColor::first() } else { FairyColor::second() };
             let king_bb = self.castling_bb_for(color);
-            ensure!(
-                king_bb.is_single_piece(),
-                "Castling is only legal when there is a single royal piece, but the {0} player has {1}",
-                self.rules().colors[color.idx()].name,
-                king_bb.num_ones()
-            );
+            let Some(king_sq) = king_bb.to_square() else {
+                bail!(
+                    "Castling is only legal when there is a single royal piece, but the {0} player has {1}",
+                    self.rules().colors[color.idx()].name,
+                    king_bb.num_ones()
+                )
+            };
 
             let lowercase_c = c.to_ascii_lowercase();
             let file = if (lowercase_c == 'k' || lowercase_c == 'q') && size.width.val() == 8 {
@@ -673,11 +678,17 @@ impl UnverifiedFairyBoard {
             } else {
                 char_to_file(lowercase_c)
             };
-            let king_sq = king_bb.ones().next().unwrap();
             let side = if file > king_sq.file() { Kingside } else { Queenside };
             let king_dest_file = if side == Kingside { b'g' - b'a' } else { b'c' - b'a' };
             let rook_dest_file = if side == Kingside { king_dest_file - 1 } else { king_dest_file + 1 };
             let move_info = CastlingMoveInfo { rook_file: file, king_dest_file, rook_dest_file, fen_char: c as u8 };
+            let entry = &mut info.players[color.idx()].sides[side as usize];
+            ensure!(
+                entry.is_none(),
+                "Attempting to set the same castle right twice for player {0} and file '{1}' ({side})",
+                color.name(&self.settings()),
+                b'a' + file
+            );
             info.players[color.idx()].sides[side as usize] = Some(move_info);
         }
         Ok(info)
@@ -692,7 +703,13 @@ impl UnverifiedFairyBoard {
         }
         if self.rules().has_ep {
             let Some(ep_square) = words.next() else { bail!("FEN ends before en passant square") };
-            self.ep = if ep_square == "-" { None } else { Some(FairySquare::from_str(ep_square)?) };
+            self.ep = if ep_square == "-" {
+                None
+            } else {
+                let ep = FairySquare::from_str(ep_square)?;
+                ensure!(self.is_empty(ep), "The en passant square ('{ep}') must be empty");
+                Some(ep)
+            };
         }
         Ok(())
     }

@@ -986,7 +986,7 @@ mod tests {
     use rand::rng;
     use std::collections::HashSet;
 
-    use crate::games::chess::squares::{B_FILE_NO, E_FILE_NO, F_FILE_NO, G_FILE_NO, H_FILE_NO};
+    use crate::games::chess::squares::{B_FILE_NUM, E_FILE_NUM, F_FILE_NUM, G_FILE_NUM, H_FILE_NUM};
     use crate::games::{Coordinates, NoHistory, ZobristHistory, char_to_file};
     use crate::general::board::RectangularBoard;
     use crate::general::board::Strictness::Relaxed;
@@ -996,8 +996,8 @@ mod tests {
 
     use super::*;
 
-    const E_1: ChessSquare = ChessSquare::from_rank_file(0, E_FILE_NO);
-    const E_8: ChessSquare = ChessSquare::from_rank_file(7, E_FILE_NO);
+    const E_1: ChessSquare = ChessSquare::from_rank_file(0, E_FILE_NUM);
+    const E_8: ChessSquare = ChessSquare::from_rank_file(7, E_FILE_NUM);
 
     #[test]
     fn empty_test() {
@@ -1039,7 +1039,7 @@ mod tests {
         assert_eq!(board.occupied_bb(), ChessBitboard::from_raw(0xffff_0000_0000_ffff));
         assert_eq!(board.king_square(White), E_1);
         assert_eq!(board.king_square(Black), E_8);
-        let square = ChessSquare::from_rank_file(4, F_FILE_NO);
+        let square = ChessSquare::from_rank_file(4, F_FILE_NUM);
         assert_eq!(board.colored_piece_on(square), ChessPiece::new(ColoredChessPieceType::Empty, square));
         assert_eq!(board.as_fen(), START_FEN);
         let moves = board.pseudolegal_moves();
@@ -1196,7 +1196,8 @@ mod tests {
             if !board.is_pseudolegal_move_legal(mov) {
                 continue;
             }
-            let checkmates = mov.piece_type() == Rook && mov.dest_square() == ChessSquare::from_rank_file(7, G_FILE_NO);
+            let checkmates =
+                mov.piece_type() == Rook && mov.dest_square() == ChessSquare::from_rank_file(7, G_FILE_NUM);
             assert_eq!(board.is_game_won_after_slow(mov, NoHistory::default()), checkmates);
             let new_board = board.make_move(mov).unwrap();
             assert_eq!(new_board.is_game_lost_slow(&NoHistory::default()), checkmates);
@@ -1228,6 +1229,7 @@ mod tests {
         let moves = board.legal_moves_slow();
         assert_eq!(moves.len(), 48);
         let mut mate_ctr = 0;
+        let mut draw_ctr = 0;
         let resetting = ["c7", "a7a8Q", "a8N", "a8B", "a8=R", "a7xb8N", ":b8B", "b8:=R", "xb8Q+", "Rb8:+"]
             .into_iter()
             .map(|str| ChessMove::from_text(str, &board).unwrap())
@@ -1248,10 +1250,12 @@ mod tests {
                     mate_ctr += 1;
                 } else {
                     assert!(new_pos.is_50mr_draw());
+                    draw_ctr += 1;
                 }
             }
         }
         assert_eq!(mate_ctr, 4);
+        assert_eq!(draw_ctr, 37);
     }
 
     #[test]
@@ -1377,8 +1381,8 @@ mod tests {
         let fen = "8/2k5/8/8/8/8/8/RR1K1R1R w KB - 0 1";
         assert!(Chessboard::from_fen(fen, Strict).is_err());
         let board = Chessboard::from_fen(fen, Relaxed).unwrap();
-        assert_eq!(board.castling.rook_start_file(White, Kingside), H_FILE_NO);
-        assert_eq!(board.castling.rook_start_file(White, Queenside), B_FILE_NO);
+        assert_eq!(board.castling.rook_start_file(White, Kingside), H_FILE_NUM);
+        assert_eq!(board.castling.rook_start_file(White, Queenside), B_FILE_NUM);
         assert_eq!(board.as_fen(), "8/2k5/8/8/8/8/8/RR1K1R1R w KB - 0 1");
         // An ep capture is pseudolegal but not legal
         let fen = "1nbqkbnr/ppp1pppp/8/r2pP2K/8/8/PPPP1PPP/RNBQ1BNR w k d6 0 2";

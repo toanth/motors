@@ -5,7 +5,7 @@ use crate::games::chess::moves::ChessMoveFlags::*;
 use crate::games::chess::moves::{ChessMove, ChessMoveFlags};
 use crate::games::chess::pieces::ChessPieceType::*;
 use crate::games::chess::pieces::{ChessPieceType, ColoredChessPieceType};
-use crate::games::chess::squares::{C_FILE_NO, ChessSquare, ChessboardSize, G_FILE_NO};
+use crate::games::chess::squares::{C_FILE_NUM, ChessSquare, ChessboardSize, G_FILE_NUM};
 use crate::games::chess::{ChessBitboardTrait, ChessColor, Chessboard, PAWN_CAPTURES};
 use crate::games::{Board, Color, ColoredPieceType};
 use crate::general::bitboards::chessboard::{ChessBitboard, KINGS, KNIGHTS};
@@ -458,7 +458,7 @@ impl Chessboard {
         let src = mov.src_square();
         let dest = mov.dest_square();
         if mov.is_castle() {
-            let to_file = if mov.flags() == CastleKingside { G_FILE_NO } else { C_FILE_NO };
+            let to_file = if mov.flags() == CastleKingside { G_FILE_NUM } else { C_FILE_NUM };
             let king_ray = ChessBitboard::ray_inclusive(
                 mov.src_square(),
                 ChessSquare::from_rank_file(src.rank(), to_file),

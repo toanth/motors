@@ -21,9 +21,11 @@ use crate::games::fairy::attacks::EffectRules;
 use crate::games::fairy::effects::Observers;
 use crate::games::fairy::moves::FairyMove;
 use crate::games::fairy::pieces::{Piece, PieceId};
-use crate::games::fairy::rules::GameEndEager::{DrawCounter, NoNonRoyalsExceptRecapture, Repetition};
+use crate::games::fairy::rules::GameEndEager::{
+    DrawCounter, InsufficientMaterial, NoNonRoyalsExceptRecapture, Repetition,
+};
 use crate::games::fairy::rules::GameEndEager::{InRowAtLeast, NoPieces};
-use crate::games::fairy::rules::GameEndResult::{ActivePlayerWin, Draw, InactivePlayerWin};
+use crate::games::fairy::rules::GameEndResult::{ActivePlayerWin, Draw, DrawUnlessLossOn, InactivePlayerWin};
 use crate::games::fairy::rules::NoMovesCondition::{Always, InCheck, NotInCheck};
 use crate::games::fairy::rules::NumRoyals::Exactly;
 use crate::games::fairy::{
@@ -60,13 +62,14 @@ pub enum CheckRules {
 /// this enum determines who wins.
 /// The [`Rules`] struct contains a `Vec` of `(NoMoveCondition, GameEndResult)` pairs and a `Vec` of `(GameEndEager, GameEndResult)` pairs.
 /// Conditions are checked in order; the first that matches determines the result.
-#[derive(Debug, Copy, Clone, Eq, PartialEq, Arbitrary)]
+#[derive(Debug, Clone, Eq, PartialEq, Arbitrary)]
 #[must_use]
 pub enum GameEndResult {
     ActivePlayerWin,   // a.k.a. Win
     InactivePlayerWin, // a.k.a. Lose
     Draw,
     MorePieces,
+    DrawUnlessLossOn(NoMovesCondition),
 }
 
 impl GameEndResult {
@@ -81,7 +84,7 @@ impl GameEndResult {
 }
 
 impl GameEndResult {
-    pub fn to_res(self, pos: &FairyBoard) -> PlayerResult {
+    pub fn to_res(&self, pos: &FairyBoard) -> PlayerResult {
         match self {
             ActivePlayerWin => PlayerResult::Win,
             InactivePlayerWin => PlayerResult::Lose,
@@ -91,6 +94,14 @@ impl GameEndResult {
                     Ordering::Less => PlayerResult::Lose,
                     Ordering::Equal => PlayerResult::Draw,
                     Ordering::Greater => PlayerResult::Win,
+                }
+            }
+
+            GameEndResult::DrawUnlessLossOn(no_moves_res) => {
+                if pos.has_no_legal_moves() && no_moves_res.satisfied(pos) {
+                    PlayerResult::Lose
+                } else {
+                    PlayerResult::Draw
                 }
             }
         }
@@ -134,7 +145,7 @@ impl NoMovesCondition {
 /// These conditions are checked first, before attempting to do movegen.
 /// Ideally, they should be inexpensive to compute.
 /// If there are no legal moves, `NoMovesCondition` is used instead.
-#[derive(Debug, Copy, Clone, Eq, PartialEq, Arbitrary)]
+#[derive(Debug, Clone, Eq, PartialEq, Arbitrary)]
 #[must_use]
 #[allow(dead_code)]
 pub enum GameEndEager {
@@ -146,6 +157,7 @@ pub enum GameEndEager {
     InRowAtLeast(usize),
     DrawCounter(usize),
     Repetition(usize),
+    InsufficientMaterial(Vec<(PieceId, usize)>),
 }
 
 impl GameEndEager {
@@ -183,6 +195,14 @@ impl GameEndEager {
             }
             &GameEndEager::DrawCounter(max) => pos.0.draw_counter >= max,
             &GameEndEager::Repetition(max) => n_fold_repetition(max, history, pos.hash_pos(), usize::MAX),
+            GameEndEager::InsufficientMaterial(vec) => {
+                for &(piece, count) in vec {
+                    if pos.piece_bb(piece).num_ones() > count {
+                        return false;
+                    }
+                }
+                true
+            }
         }
     }
 }
@@ -350,7 +370,15 @@ impl Rules {
     pub fn chess() -> Self {
         let pieces = Piece::chess_pieces();
         let colors = Self::chess_colors();
-        let game_end_eager = vec![(DrawCounter(100), Draw), (Repetition(3), Draw)];
+        let p = |id: usize| PieceId::new(id);
+        let knight_draw = vec![(p(0), 0), (p(1), 1), (p(2), 0), (p(3), 0), (p(4), 0)];
+        let bishop_draw = vec![(p(0), 0), (p(1), 0), (p(2), 1), (p(3), 0), (p(4), 0)];
+        let game_end_eager = vec![
+            (DrawCounter(100), DrawUnlessLossOn(InCheck)),
+            (Repetition(3), Draw),
+            (InsufficientMaterial(knight_draw), Draw),
+            (InsufficientMaterial(bishop_draw), Draw),
+        ];
         let game_end_no_moves = vec![(NotInCheck, Draw), (InCheck, InactivePlayerWin)];
         let startpos_fen = chess::START_FEN.to_string();
         // let legality = PseudoLegal;
