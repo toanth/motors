@@ -92,9 +92,9 @@ impl FairyColor {
     }
 }
 
-impl Into<usize> for FairyColor {
-    fn into(self) -> usize {
-        self.idx()
+impl From<FairyColor> for usize {
+    fn from(value: FairyColor) -> Self {
+        value.idx()
     }
 }
 
@@ -658,7 +658,7 @@ impl Board for FairyBoard {
     // Implemented by simply filtering all pseudolegal moves
     fn gen_tactical_pseudolegal<T: MoveList<Self>>(&self, moves: &mut T) {
         self.gen_pseudolegal_impl(moves);
-        moves.filter_moves(|m| m.is_tactical(&self));
+        moves.filter_moves(|m| m.is_tactical(self));
     }
 
     fn random_legal_move<R: Rng>(&self, rng: &mut R) -> Option<Self::Move> {

@@ -72,9 +72,9 @@ impl Not for MnkColor {
     }
 }
 
-impl Into<usize> for MnkColor {
-    fn into(self) -> usize {
-        self as usize
+impl From<MnkColor> for usize {
+    fn from(value: MnkColor) -> usize {
+        value as usize
     }
 }
 
@@ -698,7 +698,7 @@ impl Board for MNKBoard {
         if self.last_move_won_game() {
             Some(Lose)
         } else if self.empty_bb().is_zero() {
-            return Some(Draw);
+            Some(Draw)
         } else {
             None
         }

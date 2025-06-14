@@ -854,8 +854,8 @@ impl<'a> MoveParser<'a> {
                 .map(ColoredChessPieceType::uncolor)
                 .or_else(|| ChessPieceType::parse_from_char(c))
         });
-        if piece.is_some() {
-            self.promotion = piece.unwrap();
+        if let Some(promo) = piece {
+            self.promotion = promo;
             self.advance_char();
         } else if !allow_fail {
             bail!("Missing promotion piece after '='");
@@ -977,7 +977,7 @@ impl<'a> MoveParser<'a> {
                     None => (format!("the {} file", file_to_char(file)), ChessBitboard::file(file)),
                 }
             } else if let Some(rank) = rank {
-                (format!("rank {}", rank), ChessBitboard::rank(rank))
+                (format!("rank {rank}"), ChessBitboard::rank(rank))
             } else {
                 ("any square".to_string(), !ChessBitboard::default())
             }

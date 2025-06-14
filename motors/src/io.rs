@@ -403,7 +403,7 @@ impl<B: Board> EngineUGI<B> {
         Ok(res)
     }
 
-    fn output(&self) -> MutexGuard<UgiOutput<B>> {
+    fn output(&self) -> MutexGuard<'_, UgiOutput<B>> {
         self.output.lock().unwrap()
     }
 
@@ -1678,7 +1678,7 @@ impl<B: Board> AbstractEngineUgi for EngineUGI<B> {
     }
 
     fn game_name(&self) -> &str {
-        &self.state.game_name()
+        self.state.game_name()
     }
 
     fn protocol(&self) -> Protocol {
@@ -1906,7 +1906,7 @@ fn show_eval_pos<B: Board>(pos: &B, last: Option<B::Move>, eval: Box<dyn Eval<B>
                 }
                 Err(_) => " None".dimmed().to_string(),
             };
-            format!("{0}{1}", piece, score)
+            format!("{piece}{score}")
         }),
         horizontal_spacer_interval: None,
         vertical_spacer_interval: None,

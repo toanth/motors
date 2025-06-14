@@ -106,7 +106,7 @@ impl TokensToString for Tokens<'_> {
 
 pub type Tokens<'a> = Peekable<SplitAsciiWhitespace<'a>>;
 
-pub fn tokens(input: &str) -> Tokens {
+pub fn tokens(input: &str) -> Tokens<'_> {
     input.split_ascii_whitespace().peekable()
 }
 

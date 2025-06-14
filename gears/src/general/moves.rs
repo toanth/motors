@@ -92,13 +92,13 @@ where
     }
 
     /// Returns a formatter object that implements `Display` such that it prints the result of `to_compact_text`.
-    fn compact_formatter(self, pos: &B) -> CompactFormatter<B> {
+    fn compact_formatter(self, pos: &B) -> CompactFormatter<'_, B> {
         CompactFormatter { pos, mov: self }
     }
 
     /// Returns a formatter object that implements `Display` such that it prints the result of `to_extended_text`.
     /// Like [`self.format_extended`], an implementation *may* choose to not require pseudolegality.
-    fn extended_formatter(self, pos: &B, format: ExtendedFormat) -> ExtendedFormatter<B> {
+    fn extended_formatter(self, pos: &B, format: ExtendedFormat) -> ExtendedFormatter<'_, B> {
         ExtendedFormatter { pos, mov: self, format }
     }
 

@@ -145,7 +145,7 @@ impl<B: Board> Display for OwnedSearchInfo<B> {
 }
 
 impl<B: Board> OwnedSearchInfo<B> {
-    pub fn to_search_info(&self) -> SearchInfo<B> {
+    pub fn to_search_info(&self) -> SearchInfo<'_, B> {
         SearchInfo {
             best_move_of_all_pvs: self.best_move_of_all_pvs,
             depth: self.depth,

@@ -421,7 +421,7 @@ pub trait Engine<B: Board>: StaticallyNamedEntity + Send + 'static {
 
     /// Returns a [`SearchInfo`] object with information about the search so far.
     /// Can be called during search, only returns the information regarding the current thread.
-    fn search_info(&self) -> SearchInfo<B> {
+    fn search_info(&self) -> SearchInfo<'_, B> {
         self.search_state_dyn().to_search_info()
     }
 
@@ -600,6 +600,7 @@ impl<B: Board> SearchParams<B> {
         Self::create(pos, limit, history, tt, None, 0, atomic, Auxiliary)
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn with_output(
         pos: B,
         limit: SearchLimit,
@@ -957,7 +958,7 @@ impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo<B>> AbstractSearchState<B> 
         }
     }
 
-    fn to_search_info(&self) -> SearchInfo<B> {
+    fn to_search_info(&self) -> SearchInfo<'_, B> {
         let mut res = SearchInfo {
             best_move_of_all_pvs: self.best_move(),
             depth: self.depth(),

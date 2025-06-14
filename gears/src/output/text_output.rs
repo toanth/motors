@@ -386,9 +386,12 @@ trait AbstractPrettyBoardPrinter {
     fn formatter(&self) -> &dyn AbstractBoardFormatter;
 }
 
+#[allow(type_alias_bounds)]
+type SimplePieceFormatter<B: Board> = dyn Fn(B::Piece, CharType, &B::Settings) -> char;
+
 enum PrintType<'a, B: Board> {
     Formatter(&'a dyn BoardFormatter<B>),
-    Simple(&'a dyn Fn(B::Piece, CharType, &B::Settings) -> char, CharType),
+    Simple(&'a SimplePieceFormatter<B>, CharType),
 }
 
 struct PrettyBoardPrinter<'a, B: RectangularBoard> {
@@ -460,7 +463,7 @@ fn board_to_string_impl(printer: &dyn AbstractPrettyBoardPrinter, flip: bool) ->
     res
 }
 
-pub fn board_to_string<B: RectangularBoard, F: Fn(B::Piece, CharType, &B::Settings) -> char>(
+pub fn board_to_string<B: RectangularBoard, F: Fn(B::Piece, CharType, &B::Settings) -> char + 'static>(
     pos: &B,
     piece_to_char: F,
     typ: CharType,

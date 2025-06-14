@@ -137,9 +137,9 @@ impl Not for ChessColor {
     }
 }
 
-impl Into<usize> for ChessColor {
-    fn into(self) -> usize {
-        self as usize
+impl From<ChessColor> for usize {
+    fn from(color: ChessColor) -> Self {
+        color as usize
     }
 }
 

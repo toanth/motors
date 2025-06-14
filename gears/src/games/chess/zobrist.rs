@@ -155,8 +155,7 @@ mod tests {
             for mov in new_board.legal_moves_slow() {
                 let new_board = new_board.make_move(mov).unwrap();
                 let previous = hashes.insert(new_board.hash_pos().0, new_board);
-                if previous.is_some() {
-                    let old_board = previous.unwrap();
+                if let Some(old_board) = previous {
                     println!(
                         "Collision at hash {hash}, boards {0} and {1} (diagrams: \n{old_board} and \n{new_board}",
                         old_board.as_fen(),

@@ -928,7 +928,7 @@ impl<R: RawBitboard, C: RectangularCoordinates> DynamicallySizedBitboard<R, C> {
         } else if a.file().wrapping_sub(a.rank()) == b.rank().wrapping_sub(b.file()) {
             Self::anti_diag_for_sq(a, size)
         } else {
-            return Self::new(R::zero(), size);
+            Self::new(R::zero(), size)
         }
     }
 }

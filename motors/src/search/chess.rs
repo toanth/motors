@@ -303,7 +303,7 @@ mod tests {
             let second_best_move = ChessMove::from_extended_text("e1Q+", &pos).unwrap();
             assert_eq!(pv_data[1].pv.list.first(), Some(&second_best_move));
             assert!(pv_data[2].score >= Score(1000));
-            assert!(pv_data[2].pv.list.first().is_some());
+            assert!(!pv_data[2].pv.list.is_empty());
         }
     }
 

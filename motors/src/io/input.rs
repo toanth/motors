@@ -99,6 +99,7 @@ impl<B: Board> GetLine<B> for NonInteractiveInput {
 }
 
 #[derive(Debug)]
+#[allow(clippy::large_enum_variant)]
 enum InputEnum<B: Board> {
     Interactive(InteractiveInput<B>),
     NonInteractive(NonInteractiveInput),

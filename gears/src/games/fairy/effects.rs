@@ -36,7 +36,7 @@ pub trait Event: Copy {
     fn notify(self, observers: &Observers, pos: &mut FairyBoard);
 }
 
-fn notify<T: Event>(observers: &[Box<dyn Fn(T, &mut FairyBoard) -> () + Send + Sync>], event: T, pos: &mut FairyBoard) {
+fn notify<T: Event>(observers: &[Box<ObsFn<T>>], event: T, pos: &mut FairyBoard) {
     for observer in observers {
         observer(event, pos);
     }
@@ -151,7 +151,7 @@ impl Event for NoMoves {
 
 impl<'a> Event for GameEndEagerEvent<'a> {
     fn notify(self, observers: &Observers, pos: &mut FairyBoard) {
-        notify(observers.game_end_no_movegen.as_slice(), self, pos);
+        notify(observers.game_end_eager.as_slice(), self, pos);
     }
 }
 
@@ -232,7 +232,7 @@ impl Event for AddPieceToHand {
         *val = val.saturating_add(1);
     }
 
-    fn notify(self, observers: &Observers, pos: &mut FairyBoard) -> () {
+    fn notify(self, observers: &Observers, pos: &mut FairyBoard) {
         notify(observers.add_piece_to_hand.as_slice(), self, pos)
     }
 }
@@ -284,7 +284,12 @@ impl Event for MovePiece {
 }
 
 #[allow(type_alias_bounds)]
-type ObsList<T: Event> = Vec<Box<dyn Fn(T, &mut FairyBoard) -> () + Sync + Send>>;
+type ObsFn<T: Event> = dyn Fn(T, &mut FairyBoard) + Sync + Send;
+
+#[allow(type_alias_bounds)]
+type ObsList<T: Event> = Vec<Box<ObsFn<T>>>;
+
+type GameEndEagerObsFn = dyn Fn(GameEndEagerEvent<'_>, &mut FairyBoard) + Sync + Send;
 
 /// Observers are meant for custom hooks that trigger additional effects on certain events.
 /// However, since they're comparatively slow and hard to configure at runtime (can't create new functions at runtime),
@@ -295,7 +300,7 @@ pub struct Observers {
     draw: ObsList<Draw>,
     lose: ObsList<Lose>,
     no_moves: ObsList<NoMoves>,
-    game_end_no_movegen: Vec<Box<dyn Fn(GameEndEagerEvent<'_>, &mut FairyBoard) -> () + Sync + Send>>,
+    game_end_eager: Vec<Box<GameEndEagerObsFn>>,
     reset_draw_ctr: ObsList<ResetDrawCtr>,
     place_single_piece: ObsList<PlaceSinglePiece>,
     remove_single_piece: ObsList<RemoveSinglePiece>,

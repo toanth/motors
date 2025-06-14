@@ -92,8 +92,7 @@ fn set_num_threads<B: Board>(count: usize, max_threads: usize, output: &Arc<Mute
     ensure!(count > 0, "The number of threads should be between 1 and {max_threads}, not zero");
     if count > max_threads {
         output.lock().unwrap().write_message(Warning, &format_args!(
-            "Setting the number of threads to {count} even though this engine on this machine can only make use of {} parallel thread(s)",
-            max_threads
+            "Setting the number of threads to {count} even though this engine on this machine can only make use of {max_threads} parallel thread(s)"
         ));
     }
     Ok(count.min(1 << 20))
@@ -109,7 +108,7 @@ pub enum SearchThreadType<B: Board> {
 }
 
 impl<B: Board> SearchThreadType<B> {
-    pub fn output(&self) -> Option<MutexGuard<UgiOutput<B>>> {
+    pub fn output(&self) -> Option<MutexGuard<'_, UgiOutput<B>>> {
         match self {
             Main(MainThreadData { output, .. }) => Some(output.lock().unwrap()),
             Auxiliary => None,
@@ -596,7 +595,7 @@ impl<B: Board> EngineWrapper<B> {
         self.main.send(Forget).map_err(|err| anyhow!(err.to_string()))
     }
 
-    pub fn get_engine_info(&self) -> MutexGuard<EngineInfo> {
+    pub fn get_engine_info(&self) -> MutexGuard<'_, EngineInfo> {
         self.main_thread_data.engine_info.lock().unwrap()
     }
 

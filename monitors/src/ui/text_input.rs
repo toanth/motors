@@ -450,7 +450,7 @@ impl<B: Board> TextInputThread<B> {
                     .iter()
                     .map(|o| to_name_and_optional_description(o.as_ref(), WithDescription))
                     .join(",");
-                client.show_message(Info, &format_args!("{}", infos));
+                client.show_message(Info, &format_args!("{infos}"));
             }
             Some(mut name) => {
                 let mut replace = true;

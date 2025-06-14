@@ -208,11 +208,11 @@ pub fn list_with_features(batch: Batch, features: Vec<usize>) -> Vec<FeatureAppe
     assert!(features.is_sorted());
     for dp in batch.datapoints.iter() {
         let d = batch.entries_of(dp);
-        debug_assert!(d.into_iter().map(|f| f.idx).is_sorted());
+        debug_assert!(d.iter().map(|f| f.idx).is_sorted());
         for e in d {
             if features.binary_search(&e.idx).is_ok() {
                 let appearance = FeatureAppearance {
-                    entries: d.into_iter().copied().collect_vec(),
+                    entries: d.iter().copied().collect_vec(),
                     weight_idx: e.idx,
                     global_start_idx: dp.start_idx,
                 };

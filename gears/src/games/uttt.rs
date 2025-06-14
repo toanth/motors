@@ -94,9 +94,9 @@ impl Not for UtttColor {
     }
 }
 
-impl Into<usize> for UtttColor {
-    fn into(self) -> usize {
-        self as usize
+impl From<UtttColor> for usize {
+    fn from(color: UtttColor) -> usize {
+        color as usize
     }
 }
 

@@ -428,10 +428,8 @@ pub trait Board:
         if Self::Move::legality() == PseudoLegal {
             res.filter_moves(|m| self.is_pseudolegal_move_legal(*m));
         }
-        if res.num_moves() == 0 {
-            if self.no_moves_result().is_none() {
-                res.add_move(Self::Move::default());
-            }
+        if res.num_moves() == 0 && self.no_moves_result().is_none() {
+            res.add_move(Self::Move::default());
         }
         res
     }
@@ -999,15 +997,14 @@ pub(crate) fn read_position_fen<B: RectangularBoard>(position: &str, board: &mut
             )
         }
         // If parsing the fen failed, the number of lines isn't accurate
-        if res.is_err() {
-            return res;
+        if res.is_ok() {
+            bail!(
+                "The {0} board has a height of {1}, but the FEN contains {2} rows",
+                B::game_name(),
+                height.to_string().bold(),
+                num_lines.to_string().bold()
+            )
         }
-        bail!(
-            "The {0} board has a height of {1}, but the FEN contains {2} rows",
-            B::game_name(),
-            height.to_string().bold(),
-            num_lines.to_string().bold()
-        )
     }
     res
 }
@@ -1110,6 +1107,7 @@ impl<B: Board> Iterator for ChildrenIter<'_, B> {
         if let Some(res) = self.next_impl() {
             Some(res)
         } else if self.num_so_far == 0 && self.pos.no_moves_result().is_none() {
+            // forced passing move
             self.num_so_far = 1;
             Some(
                 self.pos

@@ -120,10 +120,10 @@ const ABORTED: &str = "The game was aborted";
 impl Display for GameResult {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
-            GameResult::P1Win => write!(f, "{}", P1_VICTORY),
-            GameResult::P2Win => write!(f, "{}", P2_VICTORY),
-            GameResult::Draw => write!(f, "{}", DRAW),
-            Aborted => write!(f, "{}", ABORTED),
+            GameResult::P1Win => write!(f, "{P1_VICTORY}"),
+            GameResult::P2Win => write!(f, "{P2_VICTORY}"),
+            GameResult::Draw => write!(f, "{DRAW}"),
+            Aborted => write!(f, "{ABORTED}"),
         }
     }
 }

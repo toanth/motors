@@ -64,9 +64,9 @@ impl Not for AtaxxColor {
     }
 }
 
-impl Into<usize> for AtaxxColor {
-    fn into(self) -> usize {
-        self as usize
+impl From<AtaxxColor> for usize {
+    fn from(value: AtaxxColor) -> Self {
+        value as usize
     }
 }
 

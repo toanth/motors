@@ -152,7 +152,7 @@ impl<B: Board> TTEntry<B> {
         let eval = self.eval as u16;
         let rest = ((score as u64) << (64 - 16))
             | ((eval as u64) << (64 - 32))
-            | ((self.mov.to_underlying().into() as u64) << 16)
+            | (self.mov.to_underlying().into() << 16)
             | ((self.depth as u64) << 8)
             | self.age_and_bound as u64;
 
@@ -477,13 +477,13 @@ mod test {
         let entry4 = TTEntry::<Chessboard>::new(PosHash(0x100000), Score(1234), Score(9876), mov, 12, FailHigh, Age(0));
         assert_eq!(bucket_idx, tt.bucket_index_of(entry4.hash));
         tt.store(entry4, 0);
-        let num_empty = bucket.iter().map(|e| TTEntry::<Chessboard>::unpack(e)).filter(|e| e.is_empty()).count();
+        let num_empty = bucket.iter().map(TTEntry::<Chessboard>::unpack).filter(|e| e.is_empty()).count();
         assert_eq!(num_empty, 0);
 
         let new_entry = TTEntry::<Chessboard>::new(PosHash(0x4200000), Score(100), Score(0), mov, 0, FailLow, Age(0));
         assert_eq!(bucket_idx, tt.bucket_index_of(new_entry.hash));
         tt.store(new_entry, 0);
-        let has = |entry: TTEntry<Chessboard>| bucket.iter().map(|e| TTEntry::<Chessboard>::unpack(e)).contains(&entry);
+        let has = |entry: TTEntry<Chessboard>| bucket.iter().map(TTEntry::<Chessboard>::unpack).contains(&entry);
         let has_entry2 = has(entry2);
         assert!(!has_entry2);
         assert!(has(entry));

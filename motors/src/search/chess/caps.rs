@@ -186,7 +186,7 @@ pub struct Caps {
 impl Default for Caps {
     fn default() -> Self {
         // ensure the cycle detection table is initialized now so that we don't have to wait for that during search.
-        _ = Chessboard::force_init_upcoming_repetition_table();
+        Chessboard::force_init_upcoming_repetition_table();
         Self::with_eval(Box::new(DefaultEval::default()))
     }
 }
@@ -240,7 +240,7 @@ impl Engine<Chessboard> for Caps {
     }
 
     fn static_eval(&mut self, pos: &Chessboard, ply: usize) -> Score {
-        self.eval.eval(&pos, ply, self.params.pos.active_player())
+        self.eval.eval(pos, ply, self.params.pos.active_player())
     }
 
     fn max_bench_depth(&self) -> Depth {
@@ -258,13 +258,13 @@ impl Engine<Chessboard> for Caps {
     fn eval_move(&self, pos: &Chessboard, mov: ChessMove) -> Option<String> {
         debug_assert!(pos.is_move_pseudolegal(mov));
         let scorer = CapsMoveScorer { board: *pos, ply: 0 };
-        let (descr, hist_score) = if mov.is_tactical(&pos) {
+        let (descr, hist_score) = if mov.is_tactical(pos) {
             ("Capture History Score", self.capt_hist.get(mov, pos.threats(), pos.active_player()).0)
         } else {
             ("Main History Score", self.history.get(mov, pos.threats()))
         };
         let color = color_for_score(Score(hist_score as ScoreT), &score_gradient());
-        let hist_score = format!("{}", hist_score).color(color);
+        let hist_score = hist_score.to_string().color(color);
         let move_score = scorer.complete_move_score(mov, &self.state);
         let move_type = if self
             .tt()
@@ -274,7 +274,7 @@ impl Engine<Chessboard> for Caps {
             "TT move"
         } else if move_score == KILLER_SCORE {
             "Killer move"
-        } else if mov.is_tactical(&pos) {
+        } else if mov.is_tactical(pos) {
             if move_score < MoveScore(0) { "Losing Tactical Move" } else { "Winning Tactical Move" }
         } else {
             "Quiet Move"
@@ -311,7 +311,7 @@ impl Engine<Chessboard> for Caps {
                 return Ok(());
             }
             if let Ok(val) = parse_int_from_str(&value, "spsa option value") {
-                if let Ok(()) = cc::set_value(name, val) {
+                if cc::set_value(name, val).is_ok() {
                     return Ok(());
                 }
             }
@@ -1602,7 +1602,7 @@ mod tests {
             let moves = pos.legal_moves_slow();
             let nodes = engine.search_state_dyn().uci_nodes() as usize;
             let num_moves = moves.len();
-            assert!(nodes >= num_moves + 1, "{nodes} {num_moves} {pos}"); // >= because of extensions and re-searches
+            assert!(nodes > num_moves, "{nodes} {num_moves} {pos}"); // > because of extensions and re-searches
             if let Some(tt) = tt.clone() {
                 for m in moves {
                     let new_pos = pos.make_move(m).unwrap();

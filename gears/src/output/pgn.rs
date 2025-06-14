@@ -87,7 +87,7 @@ pub fn match_to_pgn_string<B: Board>(m: &dyn GameState<B>) -> String {
     for (ply, mov) in m.move_history().iter().enumerate() {
         let mov_str = mov.extended_formatter(&board, Standard);
         if ply % 2 == 0 {
-            res += &format!("\n{}. {mov_str}", (ply + 1) / 2 + 1);
+            res += &format!("\n{}. {mov_str}", ply.div_ceil(2) + 1);
         } else {
             if ply == 0 && !m.initial_pos().active_player().is_first() {
                 res += &format!("\n1... {mov_str}");
