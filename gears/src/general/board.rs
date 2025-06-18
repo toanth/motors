@@ -711,9 +711,9 @@ pub trait BoardHelpers: Board {
     /// Verifies that all invariants of this board are satisfied. It should never be possible for this function to
     /// fail for a bug-free program; failure most likely means the `Board` implementation is bugged.
     /// For checking invariants that might be violated, use a `Board::Unverified` and call `verify_with_level`.
-    fn debug_verify_invariants(self, strictness: Strictness) -> Res<Self> {
+    fn debug_verify_invariants(&self, strictness: Strictness) -> Res<Self> {
         let verified = Self::Unverified::new(self.clone()).verify_with_level(Assertion, strictness)?;
-        ensure!(verified == self, "Recalculated data doesn't match: Should be '{verified}' but is '{self}'");
+        ensure!(verified == *self, "Recalculated data doesn't match: Should be \n'{verified:?}' but is \n'{self:?}'");
         Ok(verified)
     }
 

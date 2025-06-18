@@ -15,9 +15,9 @@
  *  You should have received a copy of the GNU General Public License
  *  along with Gears. If not, see <https://www.gnu.org/licenses/>.
  */
-use crate::games::fairy::pieces::ColoredPieceId;
+use crate::games::fairy::pieces::{ColoredPieceId, PieceId};
 use crate::games::fairy::rules::GameEndEager;
-use crate::games::fairy::{FairyBitboard, FairyBoard, FairyColor, FairySquare, Side};
+use crate::games::fairy::{FairyBitboard, FairyBoard, FairyColor, FairySquare, RawFairyBitboard, Side};
 use crate::general::bitboards::Bitboard;
 use crate::general::board::UnverifiedBoard;
 use arbitrary::{Arbitrary, Unstructured};
@@ -63,18 +63,23 @@ pub struct ResetDrawCtr;
 
 #[derive(Debug, Copy, Clone)]
 pub struct PlaceSinglePiece {
-    square: FairySquare,
-    piece: ColoredPieceId,
+    pub square: FairySquare,
+    pub piece: ColoredPieceId,
 }
 
 #[derive(Debug, Copy, Clone)]
 pub struct RemoveSinglePiece {
-    square: FairySquare,
+    pub square: FairySquare,
+}
+
+#[derive(Debug, Copy, Clone)]
+pub struct RemoveAll {
+    pub bb: RawFairyBitboard,
 }
 
 #[derive(Debug, Copy, Clone)]
 pub struct SetEp {
-    square: FairySquare,
+    pub square: FairySquare,
 }
 
 #[derive(Debug, Copy, Clone)]
@@ -82,47 +87,48 @@ pub struct ResetEp;
 
 #[derive(Debug, Copy, Clone)]
 pub struct RemoveCastlingRight {
-    color: FairyColor,
-    side: Side,
+    pub color: FairyColor,
+    pub side: Side,
 }
 
 #[derive(Debug, Copy, Clone)]
 pub struct RemovePieceFromHand {
-    piece: ColoredPieceId,
+    pub piece: ColoredPieceId,
 }
 
 #[derive(Debug, Copy, Clone)]
 pub struct AddPieceToHand {
-    piece: ColoredPieceId,
+    pub piece: ColoredPieceId,
 }
 
 #[derive(Debug, Copy, Clone)]
 #[allow(dead_code)]
 pub struct Capture {
-    square: FairySquare,
+    pub square: FairySquare,
 }
 
 #[derive(Debug, Copy, Clone)]
+#[allow(dead_code)]
 pub struct Promote {
-    piece: ColoredPieceId,
-    square: FairySquare,
+    pub piece: ColoredPieceId,
+    pub square: FairySquare,
 }
 
 #[derive(Debug, Copy, Clone)]
 pub struct ConvertOne {
-    square: FairySquare,
+    pub square: FairySquare,
 }
 
 // by default, this doesn't create `ConvertOne` events (though this can be set up though an observer, of course)
 #[derive(Debug, Copy, Clone)]
 pub struct ConvertAll {
-    bb: FairyBitboard,
+    pub bb: RawFairyBitboard,
 }
 
 #[derive(Debug, Copy, Clone)]
 #[allow(dead_code)]
 pub struct MovePiece {
-    piece: ColoredPieceId,
+    pub piece: ColoredPieceId,
 }
 
 impl Event for Win {
@@ -185,6 +191,16 @@ impl Event for RemoveSinglePiece {
     }
 }
 
+impl Event for RemoveAll {
+    fn execute(self, pos: &mut FairyBoard) {
+        pos.0.remove_all_pieces(self.bb);
+    }
+
+    fn notify(self, observers: &Observers, pos: &mut FairyBoard) {
+        notify(observers.remove_all.as_slice(), self, pos)
+    }
+}
+
 impl Event for SetEp {
     fn execute(self, pos: &mut FairyBoard) {
         pos.0.ep = Some(self.square);
@@ -244,8 +260,10 @@ impl Event for Capture {
 }
 
 impl Event for Promote {
-    fn execute(self, pos: &mut FairyBoard) {
-        pos.0.try_replace_piece(self.square, self.piece).unwrap();
+    fn execute(self, _pos: &mut FairyBoard) {
+        // not all captures replace a piece, e.g. en passant.
+        // because captures are so common and varied, we deal with the actual capturing mechanics explicitly in make_move,
+        // so executing this has no effect
     }
 
     fn notify(self, observers: &Observers, pos: &mut FairyBoard) {
@@ -255,9 +273,8 @@ impl Event for Promote {
 
 impl Event for ConvertAll {
     fn execute(self, pos: &mut FairyBoard) {
-        let bb = self.bb.raw();
-        pos.0.color_bitboards[0] ^= bb;
-        pos.0.color_bitboards[1] ^= bb;
+        pos.0.color_bitboards[0] ^= self.bb;
+        pos.0.color_bitboards[1] ^= self.bb;
     }
 
     fn notify(self, observers: &Observers, pos: &mut FairyBoard) {
@@ -304,6 +321,7 @@ pub struct Observers {
     reset_draw_ctr: ObsList<ResetDrawCtr>,
     place_single_piece: ObsList<PlaceSinglePiece>,
     remove_single_piece: ObsList<RemoveSinglePiece>,
+    remove_all: ObsList<RemoveAll>,
     set_ep: ObsList<SetEp>,
     reset_ep: ObsList<ResetEp>,
     remove_castling_right: ObsList<RemoveCastlingRight>,
@@ -339,12 +357,24 @@ impl Observers {
         Self::chess()
     }
 
+    pub fn atomic(pawn: PieceId) -> Self {
+        let mut res = Self::chess();
+        let explosion = move |event: Capture, pos: &mut FairyBoard| {
+            let bb = FairyBitboard::single_piece_for(event.square, pos.size);
+            // Could use precomputed king attacks for this
+            let bb = (bb | (bb.moore_neighbors() & !pos.piece_bb(pawn))).raw();
+            pos.emit(RemoveAll { bb });
+        };
+        res.capture.push(Box::new(explosion));
+        res
+    }
+
     pub fn ataxx() -> Self {
         let mut res = Self::default();
         let place_piece_fn = |event: PlaceSinglePiece, pos: &mut FairyBoard| {
             let bb = FairyBitboard::single_piece_for(event.square, pos.size);
             // Could use precomputed attacks for this
-            let bb = bb.moore_neighbors();
+            let bb = bb.moore_neighbors().raw();
             pos.emit(ConvertAll { bb });
         };
         res.place_single_piece.push(Box::new(place_piece_fn));

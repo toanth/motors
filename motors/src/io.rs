@@ -579,7 +579,7 @@ impl<B: Board> EngineUGI<B> {
             SetEval => {
                 self.handle_set_eval(&mut tokens(&value))?;
             }
-            Variant => self.handle_variant(&mut tokens(&value))?,
+            Variant => self.set_variant(&mut tokens(&value))?,
             Hash | Threads | UciElo | UCIEngineAbout | Other(_) => {
                 let value = value.trim().to_string();
                 self.state
@@ -1049,7 +1049,7 @@ impl<B: Board> EngineUGI<B> {
         Ok(())
     }
 
-    fn handle_variant(&mut self, words: &mut Tokens) -> Res<()> {
+    fn set_variant(&mut self, words: &mut Tokens) -> Res<()> {
         let first = words.next().unwrap_or_default();
         self.state.match_state.handle_variant(first, words)
     }
@@ -1254,6 +1254,8 @@ trait AbstractEngineUgiState: Debug {
     fn handle_flip(&mut self) -> Res<()>;
 
     fn handle_query(&mut self, words: &mut Tokens) -> Res<()>;
+
+    fn handle_variant(&mut self, words: &mut Tokens) -> Res<()>;
 
     fn handle_wait(&mut self, words: &mut Tokens) -> Res<()>;
 
@@ -1465,6 +1467,12 @@ impl<B: Board> AbstractEngineUgiState for EngineUGI<B> {
 
     fn handle_query(&mut self, words: &mut Tokens) -> Res<()> {
         self.handle_query_impl(words)
+    }
+
+    fn handle_variant(&mut self, words: &mut Tokens) -> Res<()> {
+        self.set_variant(words)?;
+        self.print_board(OutputOpts::default());
+        Ok(())
     }
 
     #[cold]

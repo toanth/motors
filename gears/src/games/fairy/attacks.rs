@@ -23,7 +23,7 @@ use crate::games::fairy::attacks::AttackTypes::{Leaping, Rider};
 use crate::games::fairy::attacks::GenAttacksCondition::Always;
 use crate::games::fairy::moves::FairyMove;
 use crate::games::fairy::pieces::ColoredPieceId;
-use crate::games::fairy::rules::CheckRules;
+use crate::games::fairy::rules::{CheckCount, CheckingAttack};
 use crate::games::fairy::{
     CastlingMoveInfo, FairyBitboard, FairyBoard, FairyCastleInfo, FairyColor, FairyPiece, FairySize, FairySquare,
     RawFairyBitboard, Side, UnverifiedFairyBoard,
@@ -561,22 +561,42 @@ impl UnverifiedFairyBoard {
 }
 
 impl FairyBoard {
-    // only includes capturing attacks, so no pawn pushes
+    /// Only includes capturing attacks, so no pawn pushes.
+    /// All attack bitboards are based on pseudolegality, so they can't be used to determine if a move is legal,
+    /// and (depending on the variant) also not easily for testing if a player is in check.
+    /// This method is public mostly because it's often useful to have a rough approximation, e.g. for mobility.
     pub fn capturing_attack_bb_of(&self, color: FairyColor) -> FairyBitboard {
+        self.capturing_attack_bb_of_if(color, |_, _, _| true)
+    }
+
+    pub fn capturing_attack_bb_of_if<F: FnMut(FairyPiece, &PieceAttackBB, &FairyBoard) -> bool>(
+        &self,
+        color: FairyColor,
+        mut cond: F,
+    ) -> FairyBitboard {
         let mut res = RawFairyBitboard::default();
-        let f = |_piece: FairyPiece, bb: &PieceAttackBB| res |= bb.all_attacks;
+        let f = |piece: FairyPiece, bb: &PieceAttackBB, pos: &FairyBoard| {
+            if cond(piece, bb, pos) {
+                res |= bb.all_attacks
+            }
+        };
         self.gen_attacks_impl(f, color, AttackMode::Captures);
         FairyBitboard::new(res, self.size())
     }
 
     pub(super) fn gen_pseudolegal_impl<T: MoveList<Self>>(&self, moves: &mut T) {
-        let f = |piece: FairyPiece, bb: &PieceAttackBB| {
-            bb.insert_moves(moves, self, piece);
+        let f = |piece: FairyPiece, bb: &PieceAttackBB, pos: &FairyBoard| {
+            bb.insert_moves(moves, pos, piece);
         };
         self.gen_attacks_impl(f, self.active_player(), AttackMode::All);
     }
 
-    fn gen_attacks_impl<F: FnMut(FairyPiece, &PieceAttackBB)>(&self, mut f: F, color: FairyColor, mode: AttackMode) {
+    fn gen_attacks_impl<F: FnMut(FairyPiece, &PieceAttackBB, &FairyBoard)>(
+        &self,
+        mut f: F,
+        color: FairyColor,
+        mode: AttackMode,
+    ) {
         for (id, piece_type) in self.rules().pieces() {
             for attack_kind in &piece_type.attacks {
                 match attack_kind.required {
@@ -585,7 +605,7 @@ impl FairyBoard {
                         for start in bb.ones() {
                             let piece = FairyPiece { symbol: ColoredPieceId::new(color, id), coordinates: start };
                             if let Some(bb) = attack_kind.attacks(piece, self, mode) {
-                                f(piece, &bb);
+                                f(piece, &bb, self);
                             }
                         }
                     }
@@ -596,7 +616,7 @@ impl FairyBoard {
                                 coordinates: FairySquare::no_coordinates(),
                             };
                             if let Some(bb) = attack_kind.attacks(piece, self, mode) {
-                                f(piece, &bb);
+                                f(piece, &bb, self);
                             }
                         }
                     }
@@ -605,24 +625,35 @@ impl FairyBoard {
         }
     }
 
-    // Returns a bitboard of all royal pieces that are in check.
-    // Technically, we should generate all moves and see if one of them removes a royal piece from the board.
-    // However, games where attack bitboards aren't sufficient, like atomic chess, generally don't have forced check-evasion rules
-    // that depend on those effects.
-    // For most games, a superpiece method could work, but that's an optimization for later. For now, just computing all the attacks is simpler,
+    /// Returns a bitboard of all royal pieces that are in check.
+    // For most games, a superpiece method could work, but that's an optimization for later.
+    // For now, just computing all the attacks is simpler,
     // more robust, and good enough
     pub fn in_check_bb(&self, color: FairyColor) -> FairyBitboard {
-        let royals = self.royal_bb_for(color);
-        let their_attacks = self.capturing_attack_bb_of(color.other());
-        royals & their_attacks
+        let them = color.other();
+        let royals = self.royal_bb();
+        let our_royals = royals & self.player_bb(color);
+        let cond = self.rules().check_rules.attack_condition;
+        let their_attacks = match cond {
+            CheckingAttack::None => return self.zero_bitboard(),
+            CheckingAttack::Capture => self.capturing_attack_bb_of(them),
+            CheckingAttack::NoRoyalAdjacent => {
+                let their_royals = royals & self.player_bb(them);
+                if (their_royals & our_royals.moore_neighbors()).has_set_bit() {
+                    return self.zero_bitboard();
+                }
+                self.capturing_attack_bb_of(them)
+            }
+        };
+        our_royals & their_attacks
     }
 
     pub fn is_player_in_check(&self, color: FairyColor) -> bool {
         let rule = self.rules().check_rules;
         let in_check = self.in_check_bb(color);
-        match rule {
-            CheckRules::AllRoyals => in_check == self.royal_bb_for(color),
-            CheckRules::AnyRoyal => in_check.has_set_bit(),
+        match rule.count {
+            CheckCount::AllRoyals => in_check == self.royal_bb_for(color),
+            CheckCount::AnyRoyal => in_check.has_set_bit(),
         }
     }
 

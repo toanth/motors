@@ -28,7 +28,7 @@ use gears::MatchStatus::Ongoing;
 use gears::ProgramStatus::Run;
 use gears::colored::Colorize;
 use gears::games::OutputList;
-use gears::general::board::{Board, Symmetry};
+use gears::general::board::{Board, BoardHelpers, Symmetry};
 use gears::general::common::anyhow::anyhow;
 use gears::general::common::{Name, NamedEntity, Res, Tokens, tokens};
 use gears::general::moves::Move;
@@ -85,6 +85,7 @@ pub(super) trait AutoCompleteState: Debug {
     fn coords_subcmds(&self, ac_coords: bool, only_occupied: bool) -> CommandList;
     fn piece_subcmds(&self) -> CommandList;
     fn randomize_subcmds(&self) -> CommandList;
+    fn variant_subcmds(&self) -> CommandList;
     fn make_move(&mut self, mov: &str);
     fn options(&self) -> &[EngineOption];
     fn dyn_cloned(&self) -> Box<dyn AutoCompleteState>;
@@ -148,6 +149,23 @@ impl<B: Board> AutoCompleteState for ACState<B> {
 
     fn randomize_subcmds(&self) -> CommandList {
         Symmetry::iter().map(|s| named_entity_to_command(&s)).collect()
+    }
+
+    fn variant_subcmds(&self) -> CommandList {
+        if let Some(list) = B::list_variants() {
+            list.iter().map(|v| named_entity_to_command(&Name::from_name(v))).collect()
+        } else {
+            vec![named_entity_to_command(&Name {
+                short: "<No variants>".to_string(),
+                long: "<No variants>".to_string(),
+                description: Some(format!(
+                    "The game '{0}' doesn't have any variants (consider using {1} with '{2}')",
+                    B::game_name().bold(),
+                    "fairy".bold(),
+                    "play fairy".bold()
+                )),
+            })]
+        }
     }
 
     fn make_move(&mut self, mov: &str) {
@@ -254,6 +272,9 @@ impl<B: Board> AbstractEngineUgiState for ACState<B> {
         Ok(())
     }
     fn handle_query(&mut self, _words: &mut Tokens) -> Res<()> {
+        Ok(())
+    }
+    fn handle_variant(&mut self, _swords: &mut Tokens) -> Res<()> {
         Ok(())
     }
     fn handle_wait(&mut self, _words: &mut Tokens) -> Res<()> {

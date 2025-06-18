@@ -275,6 +275,13 @@ pub fn ugi_commands() -> CommandList {
             --> |state| state.option_subcmds(true)
         ),
         command!(
+            variant,
+            Custom,
+            "Sets the variant, if supported by the current game",
+            |ugi, words, _| { ugi.handle_variant(words) },
+            --> |state| state.variant_subcmds()
+        ),
+        command!(
             engine_state,
             Custom,
             "Prints information about the internal engine state, if supported",

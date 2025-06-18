@@ -104,9 +104,9 @@ fn startpos_test() {
     let king_bb = board.piece_bb(board.rules().pieces().find(|(_, p)| p.royal).unwrap().0);
     assert_eq!(white_king_bb, board.player_bb(FairyColor::first()) & king_bb);
     assert!(white_king_bb.is_single_piece());
-    assert_eq!(white_king_bb.to_square().unwrap(), GridCoordinates::algebraic_coordinates('e', 1).unwrap());
+    assert_eq!(white_king_bb.to_square().unwrap(), GridCoordinates::algebraic('e', 1).unwrap());
     let black_king_bb = board.royal_bb_for(FairyColor::second());
-    assert_eq!(black_king_bb.to_square().unwrap(), GridCoordinates::algebraic_coordinates('e', 8).unwrap());
+    assert_eq!(black_king_bb.to_square().unwrap(), GridCoordinates::algebraic('e', 8).unwrap());
     assert_eq!(white_king_bb | black_king_bb, king_bb);
     let square = FairySquare::from_rank_file(4, F_FILE_NUM);
     assert!(board.colored_piece_on(square).is_empty());
@@ -240,6 +240,9 @@ fn simple_perft_test() {
     assert_eq!(perft_res.nodes, 26);
     assert_eq!(perft(Depth::new(3), board, true).nodes, 16790);
 
+    let board =
+        FairyBoard::from_fen("rbbqQ1kr/1p2p1pp/6n1/p1pp1p2/2P4P/P7/BP1PPPP1/R1B1NNKR b KQkq - 0 10", Strict).unwrap();
+    assert_eq!(board.num_legal_moves(), 2);
     let board =
         FairyBoard::from_fen("rbbqn1kr/pp2p1pp/6n1/2pp1p2/2P4P/P7/BP1PPPP1/R1BQNNKR w HAha - 0 9", Strict).unwrap();
     let perft_res = perft(Depth::new(4), board, false);

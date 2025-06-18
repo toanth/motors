@@ -16,13 +16,13 @@
  *  along with Gears. If not, see <https://www.gnu.org/licenses/>.
  */
 mod attacks;
-#[cfg(test)]
-mod chess_tests;
 mod effects;
 pub mod moves;
 mod perft_tests;
 pub mod pieces;
 mod rules;
+#[cfg(test)]
+mod tests;
 
 use crate::games::fairy::moves::FairyMove;
 use crate::games::fairy::pieces::{ColoredPieceId, PieceId};
@@ -189,7 +189,12 @@ struct FairyCastleInfo {
 
 impl Default for FairyCastleInfo {
     fn default() -> Self {
-        Self { players: [ColoredFairyCastleInfo { sides: [None, None], rank: 0 }; 2] }
+        Self {
+            players: [
+                ColoredFairyCastleInfo { sides: [None, None], rank: 0 },
+                ColoredFairyCastleInfo { sides: [None, None], rank: 7 },
+            ],
+        }
     }
 }
 
@@ -210,6 +215,10 @@ impl FairyCastleInfo {
     }
     pub fn unset(&mut self, color: FairyColor, side: Side) {
         self.players[color.idx()].sides[side as usize] = None;
+    }
+    pub fn unset_both_sides(&mut self, color: FairyColor) {
+        self.unset(color, Side::Queenside);
+        self.unset(color, Side::Kingside);
     }
     pub fn write_fen_part(&self, f: &mut Formatter<'_>) -> fmt::Result {
         let mut can_castle = false;
@@ -303,14 +312,31 @@ impl UnverifiedBoard<FairyBoard> for UnverifiedFairyBoard {
             }
             pieces |= bb;
         }
+        ensure!(
+            (self.color_bitboards[0] & self.color_bitboards[1]).is_zero(),
+            "Both players have overlapping bitboards: {0} and {1}",
+            self.color_bitboards[0],
+            self.color_bitboards[1]
+        );
+        ensure!(
+            ((self.color_bitboards[0] | self.color_bitboards[1]) & self.neutral_bb).is_zero(),
+            "Player bitboards and neutral bitboard overlap: {0} and {1}",
+            self.color_bitboards[0] | self.color_bitboards[1],
+            self.neutral_bb
+        );
+        let colors = self.color_bitboards[0] | self.color_bitboards[1] | self.neutral_bb;
+        ensure!(
+            (pieces & !colors).is_zero(),
+            "Internal bitboard mismatch: A piece doesn't have a color and isn't neutral: Pieces: {pieces}, colors and neutral: {colors}",
+        );
         if strictness == Strict {
-            let draw = rules
+            let max_draw_ctr = rules
                 .game_end_eager
                 .iter()
                 .find_map(|(cond, _)| if let GameEndEager::DrawCounter(val) = cond { Some(*val) } else { None })
-                .unwrap_or_default();
-            if self.draw_counter > draw {
-                bail!("Progress counter too large: {0} is larger than {draw}", self.draw_counter);
+                .unwrap_or(usize::MAX);
+            if self.draw_counter > max_draw_ctr {
+                bail!("Progress counter too large: {0} is larger than {max_draw_ctr}", self.draw_counter);
             }
         }
         if self.ply_since_start >= usize::MAX / 2 {
@@ -351,31 +377,27 @@ impl UnverifiedBoard<FairyBoard> for UnverifiedFairyBoard {
                 NumRoyals::AtLeast(n) => {
                     ensure!(
                         num >= n,
-                        "The {0} must have at least {n} royal pieces, but has {num}",
+                        "The {0} player must have at least {n} royal pieces, but has {num}",
                         self.color_name(color)
                     )
                 }
-            }
-        }
-        for color in FairyColor::iter() {
-            for (cond, _) in &self.rules.0.game_end_eager {
-                if cond == &GameEndEager::NoRoyals && self.royal_bb_for(color).is_zero() {
-                    bail!(
-                        "The {} player has no royal pieces, but the variant counts checkmate as a loss",
+                NumRoyals::BetweenInclusive(min, max) => {
+                    ensure!(
+                        (min..=max).contains(&num),
+                        "The {0} player must have between {min} and {max} royal pieces, but has {num}",
                         self.color_name(color)
-                    );
+                    )
                 }
             }
         }
 
         let mut res = FairyBoard(self);
         res.0.hash = res.compute_hash();
-        if res.is_player_in_check(res.inactive_player()) {
-            bail!(
-                "Player {} is in check, but it's not their turn to move",
-                res.rules().colors[res.inactive_player().idx()].name
-            );
-        }
+        ensure!(
+            res.rules().check_rules.inactive_check.satisfied(&res),
+            "Player {} is in check, but it's not their turn to move",
+            res.rules().colors[res.inactive_player().idx()].name
+        );
 
         Ok(res)
     }
@@ -452,15 +474,36 @@ impl UnverifiedFairyBoard {
     fn single_piece(&self, square: FairySquare) -> FairyBitboard {
         FairyBitboard::new(RawFairyBitboard::single_piece_at(self.idx(square)), self.size())
     }
-    fn remove_piece_impl(&mut self, coords: FairySquare) {
-        let idx = self.idx(coords);
-        let bb = self.single_piece(coords).raw();
+    // doesn't affect the neutral bitboard (todo: change?)
+    fn remove_piece_impl(&mut self, square: FairySquare) {
+        let idx = self.idx(square);
+        let bb = self.single_piece(square).raw();
         if let Some(col_bb) = self.color_bitboards.iter_mut().find(|bb| bb.is_bit_set_at(idx)) {
             *col_bb ^= bb;
         }
         if let Some(piece_bb) = self.piece_bitboards.iter_mut().find(|bb| bb.is_bit_set_at(idx)) {
             *piece_bb ^= bb;
         }
+    }
+    // adds or removes a given piece at a given square
+    fn xor_given_piece_at(&mut self, square: FairySquare, piece: PieceId, color: FairyColor) {
+        let idx = self.idx(square);
+        let bb = RawFairyBitboard::single_piece_at(idx);
+        debug_assert_eq!(
+            self.piece_bitboards[piece.val()].is_bit_set_at(idx),
+            self.color_bitboards[color.idx()].is_bit_set_at(idx)
+        );
+        self.color_bitboards[color.idx()] ^= bb;
+        self.piece_bitboards[piece.val()] ^= bb;
+    }
+    // doesn't affect the neutral bitboard
+    fn remove_all_pieces(&mut self, bb: RawFairyBitboard) {
+        let mask = !bb;
+        for bb in self.piece_bitboards.iter_mut() {
+            *bb &= mask;
+        }
+        self.color_bitboards[0] &= mask;
+        self.color_bitboards[1] &= mask;
     }
     fn compute_hash(&self) -> PosHash {
         let mut hasher = DefaultHasher::default();
@@ -553,7 +596,7 @@ impl Board for FairyBoard {
 
     fn bench_positions() -> Vec<Self> {
         // TODO: More positions covering a wide variety of rules
-        vec![Self::startpos()]
+        Self::name_to_pos_map().iter().map(|n| Self::from_name(n.name).unwrap()).collect()
     }
 
     // TODO: We could at least pass settings and do `startpos_for_setting()`, but ideally we'd also randomize the settings.
@@ -812,6 +855,7 @@ impl FairyBoard {
         vec![
             GenericSelect { name: "chess", val: || RulesRef::new(Rules::chess()) },
             GenericSelect { name: "shatranj", val: || RulesRef::new(Rules::shatranj()) },
+            GenericSelect { name: "atomic", val: || RulesRef::new(Rules::atomic()) },
             GenericSelect { name: "ataxx", val: || RulesRef::new(Rules::ataxx()) },
             GenericSelect { name: "tictactoe", val: || RulesRef::new(Rules::tictactoe()) },
             GenericSelect { name: "mnk", val: || RulesRef::new(Rules::mnk(GridSize::connect4(), 4)) },
@@ -856,249 +900,5 @@ impl Display for NoRulesFenFormatter<'_> {
             write!(f, "{} ", pos.ply_draw_clock())?;
         }
         write!(f, "{}", pos.fullmove_ctr_1_based())
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::PlayerResult::Draw;
-    use crate::games::ataxx::AtaxxBoard;
-    use crate::games::chess::Chessboard;
-    use crate::games::fairy::attacks::MoveKind;
-    use crate::games::fairy::moves::FairyMove;
-    use crate::games::mnk::MNKBoard;
-    use crate::games::{Height, Width, ZobristHistory, chess};
-    use crate::general::board::Strictness::{Relaxed, Strict};
-    use crate::general::moves::Move;
-    use crate::general::perft::perft;
-    use crate::{GameOverReason, GameResult, MatchResult};
-    use rand::SeedableRng;
-    use rand::rngs::StdRng;
-    use std::str::FromStr;
-
-    #[test]
-    fn simple_chess_startpos_test() {
-        let fen = chess::START_FEN;
-        let pos = FairyBoard::from_fen(fen, Strict).unwrap();
-        let as_fen = pos.as_fen();
-        assert_eq!("chess ".to_string() + fen, as_fen);
-        let size = pos.size();
-        assert_eq!(size, GridSize::new(Height(8), Width(8)));
-        assert_eq!(pos.royal_bb().num_ones(), 2);
-        assert_eq!(pos.active_player(), FairyColor::first());
-        assert_eq!(pos.occupied_bb().num_ones(), 32);
-        assert_eq!(pos.empty_bb().num_ones(), 32);
-        assert_eq!(pos.player_bb(FairyColor::first()).raw(), 0xffff);
-        let capture_bb = pos.capturing_attack_bb_of(FairyColor::first());
-        assert_eq!(capture_bb.raw(), 0xff_ff_ff - 0x81);
-        assert_eq!(22, capture_bb.num_ones());
-        assert_eq!(22, pos.capturing_attack_bb_of(FairyColor::second()).num_ones());
-        assert_eq!(pos.legal_moves_slow().len(), 20);
-    }
-
-    #[test]
-    fn chess_makemove_test() {
-        let chesspos = Chessboard::from_name("kiwipete").unwrap();
-        let fen = chesspos.as_fen();
-        let pos = FairyBoard::from_fen(&fen, Strict).unwrap();
-        assert_eq!(pos.as_fen(), "chess ".to_string() + &fen);
-        let moves = pos.legal_moves_slow();
-        let chessmoves = chesspos.legal_moves_slow().into_iter().collect_vec();
-        let num_castling = moves.iter().filter(|m| matches!(m.kind(), MoveKind::Castle(_))).count();
-        assert_eq!(num_castling, 2);
-        assert_eq!(moves.len(), chessmoves.len());
-        for mov in moves {
-            let new_pos = pos.clone().make_move(mov).unwrap();
-            println!("{new_pos} | {}", mov.compact_formatter(&pos));
-            let chess_pos = chessmoves
-                .iter()
-                .map(|&m| chesspos.make_move(m).unwrap())
-                .find(|p| p.as_fen() == new_pos.fen_no_rules())
-                .unwrap();
-            let roundtrip = FairyBoard::from_fen(&new_pos.as_fen(), Strict).unwrap();
-            assert_eq!(roundtrip.compute_hash(), new_pos.compute_hash());
-            assert_eq!(new_pos, roundtrip);
-            assert_eq!(chess_pos.num_legal_moves(), new_pos.num_legal_moves());
-        }
-    }
-
-    #[test]
-    fn simple_ep_test() {
-        let pos =
-            FairyBoard::from_fen("r3k2r/p2pqpb1/bn2pnp1/2pPN3/1pB1P3/2N2Q1p/PPPB1PPP/R3K2R w HAha c6 0 2", Strict)
-                .unwrap();
-        let moves = pos.legal_moves_slow();
-        let mov = FairyMove::from_compact_text("d5c6", &pos).unwrap();
-        assert!(moves.into_iter().contains(&mov));
-        let new_pos = pos.make_move(mov).unwrap();
-        assert!(new_pos.0.ep.is_none());
-        assert!(new_pos.is_empty(FairySquare::from_str("c5").unwrap()));
-        let moves = new_pos.legal_moves_slow();
-        let mov = FairyMove::from_compact_text("e7c5", &new_pos).unwrap();
-        assert!(moves.contains(&mov));
-    }
-
-    #[test]
-    fn simple_chess_perft_test() {
-        for chess_pos in Chessboard::bench_positions() {
-            let fairy_pos = FairyBoard::from_fen(&chess_pos.as_fen(), Strict).unwrap();
-            println!("{chess_pos}");
-            let max = if cfg!(debug_assertions) { 3 } else { 5 };
-            for i in 1..max {
-                let depth = Depth::new(i);
-                let chess_perft = perft(depth, chess_pos, false);
-                let fairy_perft = perft(depth, fairy_pos.clone(), false);
-                assert_eq!(chess_perft.depth, fairy_perft.depth);
-                assert_eq!(chess_perft.nodes, fairy_perft.nodes, "{chess_pos} with depth {depth}");
-                assert!(chess_perft.time.as_millis() * 100 + 1000 > fairy_perft.time.as_millis());
-            }
-        }
-    }
-
-    #[test]
-    fn simple_chess960_test() {
-        let fen = "1rqbkrbn/1ppppp1p/1n6/2N3p1/p7/2P4P/PP1PPPPB/1RQBKR1N w FBfb - 0 10";
-        let pos = FairyBoard::from_fen(fen, Strict).unwrap();
-        let chess_pos = Chessboard::from_fen(fen, Strict).unwrap();
-        assert_eq!(pos.as_fen(), "chess ".to_string() + fen);
-        let moves = pos.legal_moves_slow();
-        let mov = FairyMove::from_compact_text("e1f1", &pos).unwrap();
-        assert!(moves.contains(&mov));
-        assert_eq!(moves.len(), chess_pos.legal_moves_slow().len());
-        let fen = "rbbqn1kr/pp2p1pp/6n1/2pp1p2/2P4P/P7/BP1PPPP1/1RBQNNKR b Hha - 1 9";
-        let pos = FairyBoard::from_fen(fen, Strict).unwrap();
-        let mov = FairyMove::from_compact_text("g8h8", &pos).unwrap();
-        let moves = pos.legal_moves_slow();
-        assert!(moves.contains(&mov));
-    }
-
-    #[test]
-    fn chess_game_over_test() {
-        let pos = "chess rnbqkbnr/2pp1ppp/pp6/4p2Q/2B1P3/8/PPPP1PPP/RNB1K1NR w - - 0 4";
-        let pos = FairyBoard::from_fen(pos, Strict).unwrap();
-        assert!(pos.match_result_slow(&ZobristHistory::default()).is_none());
-        let pos = pos.make_move_from_str("h5f7").unwrap();
-        assert_eq!(pos.player_result_slow(&ZobristHistory::default()), Some(PlayerResult::Lose));
-        let mut pos = FairyBoard::from_name("kiwipete").unwrap();
-        let original = pos.clone();
-        let mut hist = ZobristHistory::default();
-        for _ in 0..2 {
-            for mov in ["e1f1", "e8f8", "f1e1", "f8e8"] {
-                hist.push(pos.hash_pos());
-                let mov = FairyMove::from_compact_text(mov, &pos).unwrap();
-                pos = pos.make_move(mov).unwrap();
-                assert!(pos.player_result_slow(&hist).is_none());
-            }
-        }
-        pos = pos.make_move_from_str("e1f1").unwrap();
-        assert_ne!(pos.castling_info, original.castling_info);
-        assert_ne!(pos.hash_pos(), original.hash_pos());
-        assert!(pos.player_result_slow(&hist).is_none());
-        pos = pos.make_move_from_str("e8f8").unwrap();
-        assert_eq!(pos.player_result_slow(&hist), Some(Draw));
-        let fen = "chess 8/3k4/7p/2p3pP/1pPp1pP1/pP1PpP2/P3P3/2K5 w - - 57 1";
-        let mut rng = StdRng::seed_from_u64(42);
-        let mut pos = FairyBoard::from_fen(fen, Strict).unwrap();
-        for i in 0..42 {
-            assert_eq!(pos.draw_counter, 57 + i);
-            let mov = pos.random_legal_move(&mut rng).unwrap();
-            pos = pos.make_move(mov).unwrap();
-            assert!(pos.player_result_slow(&ZobristHistory::default()).is_none());
-        }
-        let mov = pos.random_legal_move(&mut rng).unwrap();
-        pos = pos.make_move(mov).unwrap();
-        assert_eq!(pos.player_result_slow(&ZobristHistory::default()), Some(Draw));
-        let fen = "5B1k/5B2/7K/8/8/8/3K4/8 b - - 0 1";
-        assert!(FairyBoard::from_fen_for("chess", fen, Relaxed).is_err());
-        let fen = "5B1k/5B2/7K/8/8/8/8/8 b - - 0 1";
-        let pos = FairyBoard::from_fen_for("chess", fen, Strict).unwrap();
-        assert!(pos.has_no_legal_moves());
-        assert_eq!(
-            pos.match_result_slow(&ZobristHistory::default()),
-            Some(MatchResult { result: GameResult::Draw, reason: GameOverReason::Normal })
-        );
-    }
-
-    #[test]
-    fn simple_shatranj_startpos_test() {
-        let pos = FairyBoard::variant_simple("shatranj").unwrap();
-        let as_fen = pos.as_fen();
-        assert_eq!(as_fen, pos.rules().startpos_fen);
-        let size = pos.size();
-        assert_eq!(size, GridSize::new(Height(8), Width(8)));
-        assert_eq!(pos.royal_bb().num_ones(), 2);
-        assert_eq!(pos.active_player(), FairyColor::first());
-        assert_eq!(pos.occupied_bb().num_ones(), 32);
-        assert_eq!(pos.empty_bb().num_ones(), 32);
-        assert_eq!(pos.player_bb(FairyColor::first()).raw(), 0xffff);
-        let capture_bb = pos.capturing_attack_bb_of(FairyColor::first());
-        assert_eq!(capture_bb.raw(), 16760150);
-        assert_eq!(18, capture_bb.num_ones());
-        assert_eq!(18, pos.capturing_attack_bb_of(FairyColor::second()).num_ones());
-        assert_eq!(pos.legal_moves_slow().len(), 8 + 2 * 2 + 2 * 2);
-    }
-
-    #[test]
-    fn simple_ataxx_test() {
-        for pos in AtaxxBoard::bench_positions() {
-            let fen = pos.as_fen();
-            println!("{fen}");
-            let fairy_pos = FairyBoard::from_fen_for("ataxx", &fen, Strict).unwrap();
-            let fairy_normal_part = fairy_pos.fen_no_rules();
-            assert_eq!(fairy_normal_part, fen);
-            let fairy_fen = fairy_pos.as_fen();
-            assert_eq!(FairyBoard::from_fen(&fairy_fen, Strict).unwrap(), fairy_pos);
-            assert_eq!(fairy_pos.empty_bb().num_ones(), pos.empty_bb().num_ones());
-            assert_eq!(fairy_pos.active_player_bb().num_ones(), pos.active_player_bb().num_ones());
-            assert_eq!(fairy_pos.active_player_bb().num_ones(), pos.active_player_bb().num_ones());
-            assert_eq!(fairy_pos.num_legal_moves(), pos.num_legal_moves());
-            for i in 1..=3 {
-                let perft_res = perft(Depth::new(i), pos, false);
-                let fairy_perft_res = perft(Depth::new(i), fairy_pos.clone(), false);
-                assert_eq!(perft_res.depth, fairy_perft_res.depth, "{i} {pos}");
-                assert_eq!(perft_res.nodes, fairy_perft_res.nodes, "{i} {pos}");
-            }
-        }
-    }
-
-    #[test]
-    fn simple_mnk_test() {
-        let pos = FairyBoard::from_fen("tictactoe 3 3 3 3/3/3 x 1", Strict).unwrap();
-        assert_eq!(pos.size(), GridSize::tictactoe());
-        assert_eq!(pos.active_player(), FairyColor::from_char('x', &pos.settings()).unwrap());
-        assert!(pos.royal_bb().is_zero());
-        assert_eq!(pos.empty_bb().num_ones(), 9);
-        assert_eq!(pos.num_legal_moves(), 9);
-        let mov = FairyMove::from_compact_text("a1", &pos).unwrap();
-        let pos = pos.make_move(mov).unwrap();
-        assert_eq!(pos.empty_bb().num_ones(), 8);
-        assert_eq!(pos.num_legal_moves(), 8);
-        assert_eq!(pos.as_fen(), "mnk 3 3 3 3/3/X2 o 1");
-        let mov = FairyMove::from_compact_text("c2", &pos).unwrap();
-        let pos = pos.make_move(mov).unwrap();
-        assert_eq!(pos.num_legal_moves(), 7);
-        assert_eq!(pos.as_fen(), "mnk 3 3 3 3/2O/X2 x 2");
-        assert_eq!(pos.last_move, mov);
-        let pos = FairyBoard::from_fen_for("mnk", "5 5 4 X4/O4/O2X1/O1X2/OX3 x 5", Strict).unwrap();
-        assert!(pos.is_game_lost_slow(&NoHistory::default()));
-        assert!(pos.cannot_call_movegen());
-        // TODO: panic when starting search in won position
-    }
-
-    #[test]
-    fn simple_mnk_perft_test() {
-        for mnk_pos in MNKBoard::bench_positions() {
-            let fairy_pos = FairyBoard::from_fen_for("mnk", &mnk_pos.as_fen(), Strict).unwrap();
-            println!("{mnk_pos}");
-            let max = if cfg!(debug_assertions) { 4 } else { 6 };
-            for i in 1..max {
-                let depth = Depth::new(i);
-                let mnk_perft = perft(depth, mnk_pos, false);
-                let fairy_perft = perft(depth, fairy_pos.clone(), false);
-                assert_eq!(mnk_perft.depth, fairy_perft.depth);
-                assert_eq!(mnk_perft.nodes, fairy_perft.nodes, "Depth {i}, pos: {mnk_pos}");
-            }
-        }
     }
 }
