@@ -547,6 +547,7 @@ impl<B: Board> EngineUGI<B> {
             MultiPv => {
                 self.multi_pv = parse_int_from_str(&value, "multipv")?;
             }
+            UCIVariant => self.set_variant(&mut tokens(&value))?,
             UCIOpponent => {
                 let mut words = value.split_whitespace();
                 loop {
@@ -579,7 +580,6 @@ impl<B: Board> EngineUGI<B> {
             SetEval => {
                 self.handle_set_eval(&mut tokens(&value))?;
             }
-            Variant => self.set_variant(&mut tokens(&value))?,
             Hash | Threads | UciElo | UCIEngineAbout | Other(_) => {
                 let value = value.trim().to_string();
                 self.state
@@ -1068,118 +1068,73 @@ impl<B: Board> EngineUGI<B> {
         // use a match to ensure at compile time we're not missing any option
         let mut res = vec![];
         for opt in EngineOptionName::iter() {
-            res.push(match opt {
-                Hash => EngineOption {
-                    name: Hash,
-                    value: Spin(UgiSpin {
-                        val: self.state.engine.next_tt().size_in_mib() as i64,
-                        default: Some(DEFAULT_HASH_SIZE_MB as i64),
-                        min: Some(0),
-                        max: Some(10_000_000), // use at most 10 terabytes (should be enough for anybody™)
-                    }),
-                },
-                Threads => EngineOption {
-                    name: Threads,
-                    value: Spin(UgiSpin {
-                        val: self.state.engine.num_threads() as i64,
-                        default: Some(1),
-                        min: Some(1),
-                        max: Some(max_threads as i64),
-                    }),
-                },
-                EngineOptionName::Ponder => EngineOption {
-                    name: EngineOptionName::Ponder,
-                    value: Check(UgiCheck { val: self.allow_ponder, default: Some(false) }),
-                },
-                MultiPv => EngineOption {
-                    name: MultiPv,
-                    value: Spin(UgiSpin { val: 1, default: Some(1), min: Some(1), max: Some(256) }),
-                },
-                UciElo => continue, // currently not supported
-                UCIOpponent => EngineOption {
-                    name: UCIOpponent,
-                    value: UString(UgiString {
-                        default: None,
-                        val: self.state.opponent_name.clone().unwrap_or_default(),
-                    }),
-                },
-                UCIEngineAbout => EngineOption {
-                    name: UCIEngineAbout,
-                    value: UString(UgiString {
-                        val: String::new(),
-                        default: Some(format!(
-                            "Motors by ToTheAnd. Game: {2}. Engine: {0}. Eval: {1}  ",
-                            engine.long,
-                            eval_long_name,
-                            self.state.game_name()
-                        )),
-                    }),
-                },
-                UCIShowRefutations => EngineOption {
-                    name: UCIShowRefutations,
-                    value: Check(UgiCheck { val: self.output().show_refutation, default: Some(false) }),
-                },
-                UCIShowCurrLine => EngineOption {
-                    name: UCIShowCurrLine,
-                    value: Check(UgiCheck { val: self.output().show_currline, default: Some(false) }),
-                },
-                CurrlineNullmove => EngineOption {
-                    name: CurrlineNullmove,
-                    value: Check(UgiCheck { val: self.output().show_currline, default: Some(true) }),
-                },
-                MoveOverhead => EngineOption {
-                    name: MoveOverhead,
-                    value: Spin(UgiSpin {
-                        val: self.move_overhead.as_millis() as i64,
-                        default: Some(DEFAULT_MOVE_OVERHEAD_MS as i64),
-                        min: Some(0),
-                        max: Some(10_000),
-                    }),
-                },
-                Strictness => EngineOption {
-                    name: Strictness,
-                    value: Check(UgiCheck { val: self.strictness == Strict, default: Some(false) }),
-                },
-                RespondToMove => EngineOption {
-                    name: RespondToMove,
-                    value: Check(UgiCheck { val: self.respond_to_move, default: Some(true) }),
-                },
-                SetEngine =>
-                // We would like to send long names, but unfortunately GUIs struggle with that
-                {
-                    EngineOption {
-                        name: SetEngine,
-                        value: Combo(UgiCombo {
-                            val: engine.short_name(),
-                            default: Some(engine.short_name()),
-                            options: self.searcher_factories.iter().map(|s| s.short_name()).collect_vec(),
-                        }),
-                    }
-                }
-                SetEval => EngineOption {
-                    name: SetEval,
-                    value: Combo(UgiCombo {
-                        val: eval_name.clone(),
-                        default: Some(eval_name.clone()),
-                        options: self.eval_factories.iter().map(|e| e.short_name()).collect_vec(),
-                    }),
-                },
-                Variant => {
+            let value = match opt {
+                Hash => Spin(UgiSpin {
+                    val: self.state.engine.next_tt().size_in_mib() as i64,
+                    default: Some(DEFAULT_HASH_SIZE_MB as i64),
+                    min: Some(0),
+                    max: Some(10_000_000), // use at most 10 terabytes (should be enough for anybody™)
+                }),
+                Threads => Spin(UgiSpin {
+                    val: self.state.engine.num_threads() as i64,
+                    default: Some(1),
+                    min: Some(1),
+                    max: Some(max_threads as i64),
+                }),
+                EngineOptionName::Ponder => Check(UgiCheck { val: self.allow_ponder, default: Some(false) }),
+                MultiPv => Spin(UgiSpin { val: 1, default: Some(1), min: Some(1), max: Some(256) }),
+                UCIVariant => {
                     if let Some(variants) = B::list_variants() {
-                        EngineOption {
-                            name: Variant,
-                            value: Combo(UgiCombo {
-                                val: variants.first().cloned().unwrap_or("<default>".to_string()),
-                                default: variants.first().cloned(),
-                                options: variants,
-                            }),
-                        }
+                        Combo(UgiCombo {
+                            val: variants.first().cloned().unwrap_or("<default>".to_string()),
+                            default: variants.first().cloned(),
+                            options: variants,
+                        })
                     } else {
                         continue;
                     }
                 }
+                UciElo => continue, // currently not supported
+                UCIOpponent => {
+                    UString(UgiString { default: None, val: self.state.opponent_name.clone().unwrap_or_default() })
+                }
+                UCIEngineAbout => UString(UgiString {
+                    val: String::new(),
+                    default: Some(format!(
+                        "Motors by ToTheAnd. Game: {2}. Engine: {0}. Eval: {1}  ",
+                        engine.long,
+                        eval_long_name,
+                        self.state.game_name()
+                    )),
+                }),
+                UCIShowRefutations => Check(UgiCheck { val: self.output().show_refutation, default: Some(false) }),
+                UCIShowCurrLine => Check(UgiCheck { val: self.output().show_currline, default: Some(false) }),
+                CurrlineNullmove => Check(UgiCheck { val: self.output().show_currline, default: Some(true) }),
+                MoveOverhead => Spin(UgiSpin {
+                    val: self.move_overhead.as_millis() as i64,
+                    default: Some(DEFAULT_MOVE_OVERHEAD_MS as i64),
+                    min: Some(0),
+                    max: Some(10_000),
+                }),
+                Strictness => Check(UgiCheck { val: self.strictness == Strict, default: Some(false) }),
+                RespondToMove => Check(UgiCheck { val: self.respond_to_move, default: Some(true) }),
+                SetEngine =>
+                // We would like to send long names, but unfortunately GUIs struggle with that
+                {
+                    Combo(UgiCombo {
+                        val: engine.short_name(),
+                        default: Some(engine.short_name()),
+                        options: self.searcher_factories.iter().map(|s| s.short_name()).collect_vec(),
+                    })
+                }
+                SetEval => Combo(UgiCombo {
+                    val: eval_name.clone(),
+                    default: Some(eval_name.clone()),
+                    options: self.eval_factories.iter().map(|e| e.short_name()).collect_vec(),
+                }),
                 Other(_) => continue,
-            });
+            };
+            res.push(EngineOption { name: opt, value });
         }
         res.extend(self.state.engine.get_engine_info().additional_options());
         res

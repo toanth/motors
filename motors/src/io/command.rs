@@ -410,7 +410,7 @@ pub fn ugi_commands() -> CommandList {
             recurse = true
         ),
         command!(
-            perft,
+            perft | pt,
             Custom,
             "Internal movegen test on current / bench positions",
             |ugi, words, _| ugi.handle_go(Perft, words),
@@ -455,6 +455,7 @@ pub fn ugi_commands() -> CommandList {
     ]
 }
 
+/// The purpose of this trait is to type erase the Board
 pub trait AbstractGoState: Debug {
     fn set_searchmoves(&mut self, words: &mut Tokens) -> Res<()>;
     fn set_time(&mut self, words: &mut Tokens, first: bool, inc: bool, name: &str) -> Res<()>;
@@ -464,6 +465,7 @@ pub trait AbstractGoState: Debug {
     fn load_pos(&mut self, name: &str, words: &mut Tokens, allow_partial: bool) -> Res<()>;
     fn set_search_type(&mut self, search_type: SearchType, depth_words: Option<&mut Tokens>) -> Res<()>;
     fn set_engine(&mut self, words: &mut Tokens) -> Res<()>;
+    fn is_first_player_active(&self) -> bool;
 }
 
 impl<B: Board> AbstractGoState for GoState<B> {
@@ -531,6 +533,10 @@ impl<B: Board> AbstractGoState for GoState<B> {
         self.generic.engine_name = Some(engine_name.to_string());
         _ = words.next();
         Ok(())
+    }
+
+    fn is_first_player_active(&self) -> bool {
+        self.pos.active_player().is_first()
     }
 }
 
@@ -700,6 +706,27 @@ pub(super) fn go_options_impl(
                 func: |state, words, _| state.go_state_mut().set_time(words, false, true, "p2inc"),
                 sub_commands: SubCommandsFn::default(),
             },
+            command!(
+                time,
+                Custom,
+                "Remaining time in ms for the current player (for the entire game, unlike 'movetime')",
+                |state, words, _| {
+                    let active = state.go_state_mut().is_first_player_active();
+                    state.go_state_mut().set_time(words, active, false, "time")
+                }
+            ),
+            command!(opptime, Custom, "Remaining time in ms for the current player's opponent", |state, words, _| {
+                let active = state.go_state_mut().is_first_player_active();
+                state.go_state_mut().set_time(words, !active, false, "opptime")
+            }),
+            command!(increment, Custom, "Increment in ms for the current player", |state, words, _| {
+                let active = state.go_state_mut().is_first_player_active();
+                state.go_state_mut().set_time(words, active, true, "increment")
+            }),
+            command!(oppincrement, Custom, "Increment in ms for the current player's opponent", |state, words, _| {
+                let active = state.go_state_mut().is_first_player_active();
+                state.go_state_mut().set_time(words, !active, true, "oppincrement")
+            }),
             command!(movestogo | mtg, All, "Full moves until the time control is reset", |state, words, _| {
                 let moves_to_go: isize = parse_int(words, "'movestogo' number")?;
                 if moves_to_go < 0 {
@@ -733,7 +760,7 @@ pub(super) fn go_options_impl(
                 state.go_state_mut().limit_mut().mate = Depth::try_new(depth * 2)?; // 'mate' is given in moves instead of plies
                 Ok(())
             }),
-            command!(movetime | mt | time, All, "Maximum time in ms", |state, words, _| {
+            command!(movetime | mt, All, "Maximum time in ms", |state, words, _| {
                 let generic = state.go_state_mut().get_mut();
                 let limit = &mut generic.limit;
                 limit.fixed_time = parse_duration_ms(words, "time per move in milliseconds")?;
@@ -880,8 +907,7 @@ macro_rules! pos_command {
     }
 }
 
-fn generic_go_options(accept_pos_word: bool) -> CommandList {
-    // TODO: The first couple of options don't depend on B, move in new function?
+fn generic_position_options(accept_pos_word: bool) -> CommandList {
     let mut res = vec![
         pos_command!(
             fen | f,
@@ -970,7 +996,7 @@ pub(super) fn position_options<B: Board>(pos: Option<&B>, accept_pos_word: bool)
         --> move |_| all_names_fn()
     );
     res.push(name_cmd);
-    res.append(&mut generic_go_options(accept_pos_word));
+    res.append(&mut generic_position_options(accept_pos_word));
     res.push(move_command(false));
     if let Some(pos) = pos {
         res.append(&mut moves_options(pos, true))

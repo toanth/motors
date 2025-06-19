@@ -120,6 +120,7 @@ pub enum EngineOptionName {
     Threads,
     Ponder,
     MultiPv,
+    UCIVariant,
     UciElo,
     UCIOpponent,
     UCIEngineAbout,
@@ -131,7 +132,6 @@ pub enum EngineOptionName {
     RespondToMove,
     SetEngine,
     SetEval,
-    Variant,
     Other(String),
 }
 
@@ -152,6 +152,7 @@ impl NamedEntity for EngineOptionName {
                 "Pondering mode. Pondering is supported even without this option, so it has no effect"
             }
             EngineOptionName::MultiPv => "The number of Principal Variation (PV) lines to output",
+            EngineOptionName::UCIVariant => "Changes the current variant for 'fairy', e.g. 'chess' or 'shatranj'",
             EngineOptionName::UciElo => "Limit strength to this elo. Currently not supported",
             EngineOptionName::UCIOpponent => "The opponent. Currently only used to output the name in PGNs",
             EngineOptionName::UCIEngineAbout => "Information about the engine. Can't be changed, only queried",
@@ -175,7 +176,6 @@ impl NamedEntity for EngineOptionName {
             EngineOptionName::SetEval => {
                 "Change the current evaluation function without resetting the engine state, such as clearing the TT"
             }
-            EngineOptionName::Variant => "Changes the current variant for 'fairy', e.g. 'chess' or 'shatranj'",
             EngineOptionName::Other(name) => return Some(format!("Custom option named '{name}'")),
         };
         Some(res.to_string())
@@ -189,6 +189,7 @@ impl EngineOptionName {
             EngineOptionName::Threads => "Threads",
             EngineOptionName::Ponder => "Ponder",
             EngineOptionName::MultiPv => "MultiPV",
+            EngineOptionName::UCIVariant => "UCI_Variant",
             EngineOptionName::UciElo => "UCI_Elo",
             EngineOptionName::UCIOpponent => "UCI_Opponent",
             EngineOptionName::UCIEngineAbout => "UCI_EngineAbout",
@@ -200,7 +201,6 @@ impl EngineOptionName {
             EngineOptionName::RespondToMove => "RespondToMove",
             EngineOptionName::SetEngine => "Engine",
             EngineOptionName::SetEval => "SetEval",
-            EngineOptionName::Variant => "Variant",
             EngineOptionName::Other(x) => x,
         }
     }
