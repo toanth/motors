@@ -226,6 +226,27 @@ mod general {
     }
 
     #[test]
+    fn simple_horde_test() {
+        let pos = FairyBoard::from_fen_for(
+            "horde",
+            "r2qkb1r/1Pp3Pp/2n1Pp2/2P2PP1/PPPPppPP/4PPp1/PPp5/PP1PP1PP w kq - 0 1",
+            Strict,
+        )
+        .unwrap();
+        assert!(pos.player_result_slow(&ZobristHistory::default()).is_none());
+        let pos = pos.make_move_from_str("h1h3").unwrap();
+        assert!(pos.ep.is_none());
+        assert!(pos.clone().make_move_from_str("g3h2").is_err());
+        let pos = pos.make_move_from_str("c2b1r").unwrap();
+        _ = pos.debug_verify_invariants(Strict).unwrap();
+        let pos = FairyBoard::from_fen_for("horde", "8/8/2k5/2P5/8/8/8/8 b - - 0 1", Strict).unwrap();
+        assert!(pos.is_game_won_after_slow(FairyMove::from_text("c6c5", &pos).unwrap(), NoHistory::default()));
+        let pos = FairyBoard::from_fen_for("horde", "8/4P3/8/bb2P3/kb2B3/b1p5/2P1B3/1P3B2 w - - 0 1", Strict).unwrap();
+        let pos = pos.make_move_from_str("b1b3").unwrap();
+        assert_eq!(pos.player_result_slow(&ZobristHistory::default()), Some(PlayerResult::Lose));
+    }
+
+    #[test]
     fn simple_ataxx_test() {
         for pos in AtaxxBoard::bench_positions() {
             let fen = pos.as_fen();

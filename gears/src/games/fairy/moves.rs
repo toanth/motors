@@ -458,7 +458,7 @@ impl FairyBoard {
 
     pub(super) fn end_move(mut self) -> Option<Self> {
         self.0.ply_since_start += 1;
-        if self.settings().0.must_preserve_own_king && self.royal_bb_for(self.active).is_zero() {
+        if self.settings().0.must_preserve_own_king[self.active.idx()] && self.royal_bb_for(self.active).is_zero() {
             return None;
         }
         self.adjust_castling_rights();

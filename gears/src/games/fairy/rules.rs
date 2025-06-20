@@ -28,7 +28,7 @@ use crate::games::fairy::rules::GameEndEager::{
 use crate::games::fairy::rules::GameEndRes::{ActivePlayerWin, Draw, DrawUnlessLossOn, InactivePlayerWin};
 use crate::games::fairy::rules::NoMovesCondition::{Always, InCheck, NotInCheck};
 use crate::games::fairy::rules::NumRoyals::{BetweenInclusive, Exactly};
-use crate::games::fairy::rules::PieceCondition::AnyPiece;
+use crate::games::fairy::rules::PieceCond::AnyPiece;
 use crate::games::fairy::{
     ColorInfo, FairyBitboard, FairyBoard, FairyCastleInfo, FairyColor, FairySize, MAX_NUM_PIECE_TYPES,
     RawFairyBitboard, UnverifiedFairyBoard,
@@ -52,6 +52,7 @@ use std::sync::{Arc, LazyLock};
 
 /// Whether any or all royal pieces have to be attacked for the player to be considered in check
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Arbitrary)]
+#[must_use]
 pub enum CheckCount {
     AnyRoyal,
     #[allow(dead_code)] // TODO: Variant with multiple royal pieces
@@ -60,6 +61,7 @@ pub enum CheckCount {
 
 /// Which attacks are considered to put the opponent in check
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Arbitrary)]
+#[must_use]
 pub enum CheckingAttack {
     None,
     Capture,
@@ -68,6 +70,7 @@ pub enum CheckingAttack {
 }
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Arbitrary)]
+#[must_use]
 pub enum InactiveCheckOk {
     Never,
     Always,
@@ -88,6 +91,7 @@ impl InactiveCheckOk {
 
 /// Determines what counts as check
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Arbitrary)]
+#[must_use]
 pub struct CheckRules {
     pub count: CheckCount,
     pub attack_condition: CheckingAttack,
@@ -114,7 +118,8 @@ impl CheckRules {
 
 /// Often, some rules apply to specific pieces. This enum describes such a set of pieces.
 #[derive(Debug, Clone, Eq, PartialEq, Arbitrary)]
-pub enum PieceCondition {
+#[must_use]
+pub enum PieceCond {
     AnyPiece,
     Royal,
     NonRoyal,
@@ -122,41 +127,33 @@ pub enum PieceCondition {
     OneOf(Vec<PieceId>),
 }
 
-impl PieceCondition {
-    pub fn matches(&self, piece: PieceId, rules: &RulesRef) -> bool {
+impl PieceCond {
+    pub fn bitboard(&self, pos: &FairyBoard) -> FairyBitboard {
         match self {
-            PieceCondition::AnyPiece => true,
-            PieceCondition::Royal => piece.get(rules).royal,
-            PieceCondition::NonRoyal => !piece.get(rules).royal,
-            PieceCondition::Only(p) => *p == piece,
-            PieceCondition::OneOf(list) => list.contains(&piece),
-        }
-    }
-    pub fn bitboard(&self, us: FairyColor, pos: &FairyBoard) -> FairyBitboard {
-        match self {
-            AnyPiece => pos.player_bb(us),
-            PieceCondition::Royal => pos.royal_bb_for(us),
-            PieceCondition::NonRoyal => pos.player_bb(us) & !pos.royal_bb(),
-            PieceCondition::Only(piece) => pos.col_piece_bb(us, *piece),
-            PieceCondition::OneOf(list) => {
-                list.iter().map(|&p| pos.col_piece_bb(us, p)).fold(pos.zero_bitboard(), std::ops::BitOr::bitor)
+            AnyPiece => pos.either_player_bb(),
+            PieceCond::Royal => pos.royal_bb(),
+            PieceCond::NonRoyal => pos.either_player_bb() & !pos.royal_bb(),
+            PieceCond::Only(piece) => pos.piece_bb(*piece),
+            PieceCond::OneOf(list) => {
+                list.iter().map(|&p| pos.piece_bb(p)).fold(pos.zero_bitboard(), std::ops::BitOr::bitor)
             }
         }
     }
 }
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Arbitrary)]
-pub enum SquareCondition {
+#[must_use]
+pub enum SquareCond {
     Bitboard(RawFairyBitboard),
     // the bitboard gets flipped vertically for the second player
     SideRelativeBitboard(RawFairyBitboard),
 }
 
-impl SquareCondition {
+impl SquareCond {
     pub fn intersects(&self, bb: FairyBitboard, pos: &FairyBoard) -> bool {
         match self {
-            SquareCondition::Bitboard(b) => (b & bb.raw()).has_set_bit(),
-            SquareCondition::SideRelativeBitboard(b) => (bb.flip_if(!pos.active.is_first()).raw() & *b).has_set_bit(),
+            SquareCond::Bitboard(b) => (b & bb.raw()).has_set_bit(),
+            SquareCond::SideRelativeBitboard(b) => (bb.flip_if(!pos.active.is_first()).raw() & *b).has_set_bit(),
         }
     }
 }
@@ -170,6 +167,8 @@ impl SquareCondition {
 pub enum GameEndRes {
     ActivePlayerWin,   // a.k.a. Win
     InactivePlayerWin, // a.k.a. Lose
+    FirstPlayerWin,
+    SecondPlayerWin,
     Draw,
     MorePieces,
     DrawUnlessLossOn(NoMovesCondition),
@@ -207,6 +206,45 @@ impl GameEndRes {
                     PlayerResult::Draw
                 }
             }
+            GameEndRes::FirstPlayerWin => {
+                if pos.active_player().is_first() {
+                    PlayerResult::Win
+                } else {
+                    PlayerResult::Lose
+                }
+            }
+            GameEndRes::SecondPlayerWin => {
+                if pos.active_player().is_first() {
+                    PlayerResult::Lose
+                } else {
+                    PlayerResult::Win
+                }
+            }
+        }
+    }
+}
+
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Arbitrary)]
+#[must_use]
+pub enum PlayerCond {
+    // A condition applies to all players, i.e. instead of checking the white or black pawn bitboard we check the pawn bitboard
+    All,
+    First,
+    Second,
+    Active,
+    // This is the most common variant, because eager game end conditions are checked of the start of a turn,
+    // which means that a game-winning move has always been made by the now-inactive player.
+    Inactive,
+}
+
+impl PlayerCond {
+    pub fn bb(self, pos: &FairyBoard) -> FairyBitboard {
+        match self {
+            PlayerCond::All => pos.either_player_bb(),
+            PlayerCond::First => pos.player_bb(FairyColor::first()),
+            PlayerCond::Second => pos.player_bb(FairyColor::second()),
+            PlayerCond::Active => pos.active_player_bb(),
+            PlayerCond::Inactive => pos.inactive_player_bb(),
         }
     }
 }
@@ -252,28 +290,33 @@ impl NoMovesCondition {
 #[must_use]
 #[allow(dead_code)]
 pub enum GameEndEager {
-    /// The side to move has no pieces that satisfy the given condition
-    No(PieceCondition),
+    /// The given player has no pieces that satisfy the given condition
+    No(PieceCond, PlayerCond),
     /// The side to move has no royal pieces, except if it can through an immediate capture cause the other side
     /// to also have no royal pieces
     NoNonRoyalsExceptRecapture,
-    // The last move caused the now inactive player to have `k` pieces in a row
-    InRowAtLeast(usize),
+    // If there is a last move, it caused the now inactive player to have `k` pieces in a row, otherwise the given player
+    // has at least `k` pieces in a row somewhere
+    InRowAtLeast(usize, PlayerCond),
     /// a.k.a. the 50 move rule (expressed in ply)
     DrawCounter(usize),
     /// a.k.a. the threefold repetition rule
     Repetition(usize),
-    /// All the given pieces occur at most the given count many times
-    InsufficientMaterial(Vec<(PieceId, usize)>),
+    /// All the given pieces occur at most the given count many times for the given player
+    InsufficientMaterial(Vec<(PieceId, usize)>, PlayerCond),
     /// If any player has a given piece on a given square, they win
-    PieceIn(PieceCondition, SquareCondition),
+    PieceIn(PieceCond, SquareCond, PlayerCond),
 }
 
 impl GameEndEager {
     pub fn satisfied<H: BoardHistory>(&self, pos: &FairyBoard, history: &H) -> bool {
         let us = pos.active_player();
+
         match self {
-            GameEndEager::No(condition) => condition.bitboard(pos.active_player(), pos).is_zero(),
+            GameEndEager::No(piece, player) => {
+                let player_bb = player.bb(pos);
+                (piece.bitboard(pos) & player_bb).is_zero()
+            }
             GameEndEager::NoNonRoyalsExceptRecapture => {
                 let has_nonroyals = (pos.active_player_bb() & !pos.royal_bb()).has_set_bit();
                 if has_nonroyals {
@@ -288,30 +331,34 @@ impl GameEndEager {
                     }
                 }
             }
-            &GameEndEager::InRowAtLeast(k) => {
+            &GameEndEager::InRowAtLeast(k, player) => {
                 let mut res = false;
+                let player_bb = player.bb(pos);
                 if pos.0.last_move.is_null() {
-                    for sq in pos.inactive_player_bb().ones() {
+                    for sq in player_bb.ones() {
                         res |= pos.k_in_row_at(k, sq, !us);
                     }
                     res
                 } else {
+                    debug_assert_eq!(player, PlayerCond::Inactive);
                     let sq = pos.0.last_move.dest_square_in(pos);
                     pos.k_in_row_at(k, sq, !us)
                 }
             }
             &GameEndEager::DrawCounter(max) => pos.0.draw_counter >= max,
             &GameEndEager::Repetition(max) => n_fold_repetition(max, history, pos.hash_pos(), usize::MAX),
-            GameEndEager::InsufficientMaterial(vec) => {
+            GameEndEager::InsufficientMaterial(vec, player) => {
+                let player_bb = player.bb(pos);
                 for &(piece, count) in vec {
-                    if pos.piece_bb(piece).num_ones() > count {
+                    if (pos.piece_bb(piece) & player_bb).num_ones() > count {
                         return false;
                     }
                 }
                 true
             }
-            GameEndEager::PieceIn(piece, squares) => {
-                let bb = piece.bitboard(FairyColor::first(), pos) | piece.bitboard(FairyColor::second(), pos);
+            GameEndEager::PieceIn(piece, squares, player) => {
+                let player_bb = player.bb(pos);
+                let bb = piece.bitboard(pos) & player_bb;
                 squares.intersects(bb, pos)
             }
         }
@@ -319,6 +366,7 @@ impl GameEndEager {
 }
 
 #[derive(Debug, Default, Copy, Clone, Eq, PartialEq, Arbitrary)]
+#[must_use]
 pub enum RulesFenPart {
     #[default]
     None,
@@ -363,7 +411,8 @@ impl Arbitrary<'_> for EmptyBoard {
     }
 }
 
-#[derive(Debug, Clone, Arbitrary)]
+#[derive(Debug, Copy, Clone, Arbitrary)]
+#[must_use]
 pub enum NumRoyals {
     Exactly(usize),
     AtLeast(usize),
@@ -392,8 +441,8 @@ pub(super) struct Rules {
     pub check_rules: CheckRules,
     pub name: String,
     pub fen_part: RulesFenPart,
-    pub num_royals: NumRoyals,
-    pub must_preserve_own_king: bool,
+    pub num_royals: [NumRoyals; NUM_COLORS],
+    pub must_preserve_own_king: [bool; NUM_COLORS],
     pub observers: Observers,
 }
 
@@ -445,6 +494,11 @@ impl Rules {
         self.game_end_eager.iter().any(|(cond, _)| matches!(cond, &GameEndEager::Repetition(_)))
     }
 
+    pub(super) fn piece_by_name(&self, name: &str) -> Option<PieceId> {
+        // case-sensitive
+        self.pieces().find(|(_id, piece)| piece.name == name).map(|(id, _piece)| id)
+    }
+
     fn generic_empty_board(rules: &RulesRef) -> UnverifiedFairyBoard {
         let size = rules.0.size;
         UnverifiedFairyBoard {
@@ -489,8 +543,8 @@ impl Rules {
         let game_end_eager = vec![
             (Repetition(3), Draw),
             (DrawCounter(100), DrawUnlessLossOn(InCheck)),
-            (InsufficientMaterial(knight_draw), Draw),
-            (InsufficientMaterial(bishop_draw), Draw),
+            (InsufficientMaterial(knight_draw, PlayerCond::All), Draw),
+            (InsufficientMaterial(bishop_draw, PlayerCond::All), Draw),
         ];
         let game_end_no_moves = vec![(NotInCheck, Draw), (InCheck, InactivePlayerWin)];
         let startpos_fen_part = chess::START_FEN.to_string();
@@ -514,8 +568,8 @@ impl Rules {
             check_rules: CheckRules::chess(),
             name: "chess".to_string(),
             fen_part: RulesFenPart::None,
-            num_royals: Exactly(1),
-            must_preserve_own_king: true,
+            num_royals: [Exactly(1); NUM_COLORS],
+            must_preserve_own_king: [true; NUM_COLORS],
             observers: Observers::chess(),
         }
     }
@@ -548,19 +602,22 @@ impl Rules {
             check_rules: CheckRules::chess(),
             name: "shatranj".to_string(),
             fen_part: RulesFenPart::None,
-            num_royals: Exactly(1),
-            must_preserve_own_king: true,
+            num_royals: [Exactly(1); NUM_COLORS],
+            must_preserve_own_king: [true; NUM_COLORS],
             observers: Observers::shatranj(),
         }
     }
 
     pub fn king_of_the_hill() -> Self {
         let mut rules = Self::chess();
-        rules.game_end_eager.retain(|(c, _r)| !matches!(c, InsufficientMaterial(_)));
+        rules.game_end_eager.retain(|(c, _r)| !matches!(c, InsufficientMaterial(_, _)));
         // moving a king to the center takes precedence over draw conditions like the 50 mr counter
         rules.game_end_eager.insert(
             0,
-            (GameEndEager::PieceIn(PieceCondition::Royal, SquareCondition::Bitboard(0x1818000000)), GameEndRes::lose()),
+            (
+                GameEndEager::PieceIn(PieceCond::Royal, SquareCond::Bitboard(0x1818000000), PlayerCond::Inactive),
+                GameEndRes::lose(),
+            ),
         );
         rules.name = "kingofthehill".to_string();
         rules
@@ -573,8 +630,8 @@ impl Rules {
         let game_end_eager = vec![
             (Repetition(3), Draw),
             (DrawCounter(100), DrawUnlessLossOn(InCheck)),
-            (No(PieceCondition::Royal), GameEndRes::lose()),
-            (InsufficientMaterial(only_kings), Draw),
+            (No(PieceCond::Royal, PlayerCond::Active), GameEndRes::lose()),
+            (InsufficientMaterial(only_kings, PlayerCond::All), Draw),
         ];
         let game_end_no_moves = vec![(InCheck, GameEndRes::lose()), (NotInCheck, Draw)];
         let check_rules = CheckRules {
@@ -588,9 +645,32 @@ impl Rules {
         rules.game_end_no_moves = game_end_no_moves;
         rules.check_rules = check_rules;
         // it's valid to lose your king, that just means you lost the game
-        rules.num_royals = BetweenInclusive(0, 1);
-        let pawn = rules.pieces().find(|(_id, piece)| piece.name == "pawn").unwrap().0;
+        rules.num_royals = [BetweenInclusive(0, 1); NUM_COLORS];
+        let pawn = rules.piece_by_name("pawn").unwrap();
         rules.observers = Observers::atomic(pawn);
+        rules
+    }
+
+    pub fn horde() -> Self {
+        let mut rules = Self::chess();
+        rules.name = "horde".to_string();
+        rules.startpos_fen_part =
+            "rnbqkbnr/pppppppp/8/1PP2PP1/PPPPPPPP/PPPPPPPP/PPPPPPPP/PPPPPPPP w kq - 0 1".to_string();
+        rules.pieces[0] = Piece::create_piece_by_name("pawn (horde)", FairySize::chess()).unwrap();
+        for p in 1..5 {
+            rules.pieces[0].promotions.pieces.push(PieceId::new(p));
+        }
+        rules.game_end_eager = vec![
+            (Repetition(3), Draw),
+            (DrawCounter(100), DrawUnlessLossOn(InCheck)),
+            // white can achieve other pieces than pawns, so just checking pawns isn't enough
+            (No(AnyPiece, PlayerCond::First), GameEndRes::SecondPlayerWin),
+        ];
+        // Only black can be in check, but the chess rules are still correct in horde. We're explicitly assigning
+        // the same `vec` as in chess to avoid depending on how exactly they're expressed in the chess implementation.
+        rules.game_end_no_moves = vec![(InCheck, GameEndRes::lose()), (NotInCheck, Draw)];
+        rules.num_royals[0] = Exactly(0);
+        rules.must_preserve_own_king[0] = false;
         rules
     }
 
@@ -605,7 +685,11 @@ impl Rules {
             pieces,
             colors: Self::mnk_colors(),
             starting_pieces_in_hand: [u8::MAX; MAX_NUM_PIECE_TYPES],
-            game_end_eager: vec![(Repetition(3), Draw), (DrawCounter(100), Draw), (No(AnyPiece), GameEndRes::lose())],
+            game_end_eager: vec![
+                (Repetition(3), Draw),
+                (DrawCounter(100), Draw),
+                (No(AnyPiece, PlayerCond::Active), GameEndRes::lose()),
+            ],
             game_end_no_moves: vec![(NoMovesCondition::NoOpponentMoves, GameEndRes::MorePieces)],
             startpos_fen_part,
             // legality: Legality::Legal,
@@ -618,8 +702,8 @@ impl Rules {
             check_rules: CheckRules::none(),
             name: "ataxx".to_string(),
             fen_part: RulesFenPart::None,
-            num_royals: Exactly(0),
-            must_preserve_own_king: false,
+            num_royals: [Exactly(0); NUM_COLORS],
+            must_preserve_own_king: [false; NUM_COLORS],
             observers: Observers::ataxx(),
         }
     }
@@ -637,8 +721,7 @@ impl Rules {
             pieces,
             colors: Self::mnk_colors(),
             starting_pieces_in_hand: [u8::MAX; MAX_NUM_PIECE_TYPES],
-            // lose because the side to move switches after a move, so `InRowAtLeast` checks the last move
-            game_end_eager: vec![(InRowAtLeast(k as usize), GameEndRes::lose())],
+            game_end_eager: vec![(InRowAtLeast(k as usize, PlayerCond::Inactive), GameEndRes::lose())],
             game_end_no_moves: vec![(Always, Draw)],
             startpos_fen_part,
             // legality: Legality::Legal,
@@ -651,8 +734,8 @@ impl Rules {
             check_rules: CheckRules::none(),
             name: "mnk".to_string(),
             fen_part: RulesFenPart::Mnk(settings),
-            num_royals: Exactly(0),
-            must_preserve_own_king: false,
+            num_royals: [Exactly(0); NUM_COLORS],
+            must_preserve_own_king: [false; NUM_COLORS],
             observers: Observers::mnk(),
         }
     }

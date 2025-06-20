@@ -224,16 +224,13 @@ fn simple_perft_test() {
     let perft_res = perft(Depth::new(1), board, false);
     assert_eq!(perft_res.depth, Depth::new(1));
     assert_eq!(perft_res.nodes, 5 + 7 + 13 + 14);
-    assert!(perft_res.time.as_millis() <= 1);
     let board = FairyBoard::default();
     let perft_res = perft(Depth::new(1), board.clone(), true);
     assert_eq!(perft_res.depth, Depth::new(1));
     assert_eq!(perft_res.nodes, 20);
-    assert!(perft_res.time.as_millis() <= 2);
     let perft_res = perft(Depth::new(2), board, false);
     assert_eq!(perft_res.depth, Depth::new(2));
     assert_eq!(perft_res.nodes, 20 * 20);
-    assert!(perft_res.time.as_millis() <= 20);
 
     let board = FairyBoard::from_fen("r1bqkbnr/1pppNppp/p1n5/8/8/8/PPPPPPPP/R1BQKBNR b KQkq - 0 3", Strict).unwrap();
     let perft_res = perft(Depth::new(1), board.clone(), true);

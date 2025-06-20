@@ -75,6 +75,12 @@ mod tests {
                 "kingofthehill r6r/p1ppqpb1/bn2pnp1/2kPN3/1p2P3/2N1KQ1p/PPPBBPPP/R6R w - - 0 1",
                 vec![47, 2061, 85499, 3_525_128],
             ),
+            ("horde startpos", vec![8, 128, 1274, 23_310, 265_223, 5_396_554]),
+            (
+                "horde r3k2r/pq1bppQR/2RR3R/pPP2PP1/p1PPQQ1P/P1qP1PPp/PPpPQP1P/P1PPP1PP w kq - 0 1",
+                vec![43, 1223, 52_478, 1_488_796],
+            ),
+            ("horde 4k2r/6P1/8/8/8/8/1q1p4/2P5 w - - 0 1", vec![12, 262, 2129, 56_153, 531_852, 16_410_824]),
         ];
         let old = FairyBoard::default();
         for (testcase, res) in fens {

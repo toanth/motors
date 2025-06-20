@@ -298,6 +298,60 @@ impl Piece {
         Self::new(name, attacks, ascii, unicode)
     }
 
+    fn chess_pawn_no_promo(size: FairySize) -> Self {
+        let normal_white = GenPieceAttackKind::pawn_noncapture(
+            Leaping(LeapingBitboards::range(once(0), once(1), size)),
+            Player(FairyColor::first()),
+        );
+        let normal_black = GenPieceAttackKind::pawn_noncapture(
+            Leaping(LeapingBitboards::range(once(0), once(-1), size)),
+            Player(FairyColor::second()),
+        );
+        let white_capture = GenPieceAttackKind::pawn_capture(
+            Leaping(LeapingBitboards::range([-1, 1].into_iter(), once(1), size)),
+            Player(FairyColor::first()),
+            AttackBitboardFilter::PawnCapture,
+        );
+        let black_capture = GenPieceAttackKind::pawn_capture(
+            Leaping(LeapingBitboards::range([-1, 1].into_iter(), once(-1), size)),
+            Player(FairyColor::second()),
+            AttackBitboardFilter::PawnCapture,
+        );
+        // promotions are handled as effects instead of duplicating all normal and capture moves
+        let white_double = GenPieceAttackKind {
+            required: RequiredForAttack::PieceOnBoard,
+            typ: Rider(SliderDirections::Vertical),
+            condition: OnRank(1, FairyColor::first()),
+            bitboard_filter: vec![EmptySquares, AttackBitboardFilter::Rank(3)],
+            kind: DoublePawnPush,
+            attack_mode: AttackMode::NoCaptures,
+            capture_condition: CaptureCondition::Never,
+        };
+        let black_double = GenPieceAttackKind {
+            required: RequiredForAttack::PieceOnBoard,
+            typ: Rider(SliderDirections::Vertical),
+            condition: OnRank(size.height().get().saturating_sub(2), FairyColor::second()),
+            bitboard_filter: vec![EmptySquares, AttackBitboardFilter::Rank(size.height().get().saturating_sub(4))],
+            kind: DoublePawnPush,
+            attack_mode: AttackMode::NoCaptures,
+            capture_condition: CaptureCondition::Never,
+        };
+        Self {
+            name: "pawn".to_string(),
+            uncolored: false,
+            uncolored_symbol: ['p', UNICODE_NEUTRAL_PAWN],
+            player_symbol: [['P', UNICODE_WHITE_PAWN], ['p', UNICODE_BLACK_PAWN]],
+
+            attacks: vec![normal_white, normal_black, white_double, black_double, white_capture, black_capture],
+            // the promotion pieces are set later, once it's known which pieces are available
+            promotions: Promo { pieces: vec![], squares: FairyBitboard::backranks_for(size).raw() },
+            can_ep_capture: true,
+            resets_draw_counter: DrawCtrReset::Always,
+            royal: false,
+            can_castle: false,
+        }
+    }
+
     pub fn pieces(size: FairySize) -> Vec<Self> {
         // order of leapers matters
         let mut leapers = vec![
@@ -337,292 +391,263 @@ impl Piece {
             riders.push(rider);
         }
         riders[3].name = "nightrider".to_string();
-        let mut rest = vec![
-            {
-                let castle_king_side = GenPieceAttackKind {
-                    required: RequiredForAttack::PieceOnBoard,
-                    condition: CanCastle(Kingside),
-                    attack_mode: AttackMode::NoCaptures,
-                    typ: Castling(Kingside),
-                    bitboard_filter: vec![],
-                    kind: Castle(Kingside),
-                    capture_condition: CaptureCondition::Never,
-                };
-                let castle_queen_side = GenPieceAttackKind {
-                    required: RequiredForAttack::PieceOnBoard,
-                    condition: CanCastle(Queenside),
-                    attack_mode: AttackMode::NoCaptures,
-                    typ: Castling(Queenside),
-                    bitboard_filter: vec![],
-                    kind: Castle(Queenside),
-                    capture_condition: CaptureCondition::Never,
-                };
+        let mut rest =
+            vec![
+                {
+                    let castle_king_side = GenPieceAttackKind {
+                        required: RequiredForAttack::PieceOnBoard,
+                        condition: CanCastle(Kingside),
+                        attack_mode: AttackMode::NoCaptures,
+                        typ: Castling(Kingside),
+                        bitboard_filter: vec![],
+                        kind: Castle(Kingside),
+                        capture_condition: CaptureCondition::Never,
+                    };
+                    let castle_queen_side = GenPieceAttackKind {
+                        required: RequiredForAttack::PieceOnBoard,
+                        condition: CanCastle(Queenside),
+                        attack_mode: AttackMode::NoCaptures,
+                        typ: Castling(Queenside),
+                        bitboard_filter: vec![],
+                        kind: Castle(Queenside),
+                        capture_condition: CaptureCondition::Never,
+                    };
+                    Self {
+                        name: "king".to_string(),
+                        uncolored: false,
+                        uncolored_symbol: ['K', UNICODE_NEUTRAL_KING],
+                        player_symbol: [['K', UNICODE_WHITE_KING], ['k', UNICODE_BLACK_KING]],
+                        attacks: vec![
+                            GenPieceAttackKind::simple(Leaping(
+                                LeapingBitboards::fixed(1, 1, size).combine(LeapingBitboards::fixed(1, 0, size)),
+                            )),
+                            castle_king_side,
+                            castle_queen_side,
+                        ],
+                        promotions: Promo::none(),
+                        can_ep_capture: false,
+                        resets_draw_counter: DrawCtrReset::Never,
+                        royal: true,
+                        can_castle: true,
+                    }
+                },
+                Self::new(
+                    "queen",
+                    vec![Rider(SliderDirections::Queen)],
+                    'q',
+                    Some([UNICODE_WHITE_QUEEN, UNICODE_BLACK_QUEEN, UNICODE_NEUTRAL_QUEEN]),
+                ),
+                Self::new(
+                    "rook",
+                    vec![Rider(SliderDirections::Rook)],
+                    'r',
+                    Some([UNICODE_WHITE_ROOK, UNICODE_BLACK_ROOK, UNICODE_NEUTRAL_ROOK]),
+                ),
+                Self::new(
+                    "bishop",
+                    vec![Rider(SliderDirections::Bishop)],
+                    'b',
+                    Some([UNICODE_WHITE_BISHOP, UNICODE_BLACK_BISHOP, UNICODE_NEUTRAL_BISHOP]),
+                ),
+                Self::chess_pawn_no_promo(size),
+                {
+                    let mut res = Self::chess_pawn_no_promo(size);
+                    res.name = "pawn (horde)".to_string();
+                    // double pushes from the backrank don't set the ep square, so their `kind` is `Normal` instead of `DoublePawnPush`
+                    res.attacks.push(GenPieceAttackKind {
+                        required: RequiredForAttack::PieceOnBoard,
+                        typ: Rider(SliderDirections::Vertical),
+                        condition: OnRank(0, FairyColor::first()),
+                        bitboard_filter: vec![EmptySquares, AttackBitboardFilter::Rank(2)],
+                        kind: Normal,
+                        attack_mode: AttackMode::NoCaptures,
+                        capture_condition: CaptureCondition::Never,
+                    });
+                    res.attacks.push(GenPieceAttackKind {
+                        required: RequiredForAttack::PieceOnBoard,
+                        typ: Rider(SliderDirections::Vertical),
+                        condition: OnRank(size.height().get().saturating_sub(1), FairyColor::second()),
+                        bitboard_filter: vec![
+                            EmptySquares,
+                            AttackBitboardFilter::Rank(size.height().get().saturating_sub(3)),
+                        ],
+                        kind: Normal,
+                        attack_mode: AttackMode::NoCaptures,
+                        capture_condition: CaptureCondition::Never,
+                    });
+                    res
+                },
+                {
+                    let mut res = Self::new(
+                        "king (shatranj)",
+                        vec![Leaping(LeapingBitboards::fixed(1, 1, size).combine(LeapingBitboards::fixed(0, 1, size)))],
+                        'k',
+                        Some([UNICODE_WHITE_KING, UNICODE_BLACK_KING, UNICODE_NEUTRAL_KING]),
+                    );
+                    res.royal = true;
+                    res
+                },
+                // like the chess pawn, but without double pawn push and ep
+                {
+                    let normal_white = GenPieceAttackKind::pawn_noncapture(
+                        Leaping(LeapingBitboards::range(once(0), once(1), size)),
+                        Player(FairyColor::first()),
+                    );
+                    let normal_black = GenPieceAttackKind::pawn_noncapture(
+                        Leaping(LeapingBitboards::range(once(0), once(-1), size)),
+                        Player(FairyColor::second()),
+                    );
+                    let white_capture = GenPieceAttackKind::pawn_capture(
+                        Leaping(LeapingBitboards::range([-1, 1].into_iter(), once(1), size)),
+                        Player(FairyColor::first()),
+                        AttackBitboardFilter::Them,
+                    );
+                    let black_capture = GenPieceAttackKind::pawn_capture(
+                        Leaping(LeapingBitboards::range([-1, 1].into_iter(), once(-1), size)),
+                        Player(FairyColor::second()),
+                        AttackBitboardFilter::Them,
+                    );
+                    Self {
+                        name: "pawn (shatranj)".to_string(),
+                        uncolored: false,
+                        uncolored_symbol: ['p', UNICODE_NEUTRAL_PAWN],
+                        player_symbol: [['P', UNICODE_WHITE_PAWN], ['p', UNICODE_BLACK_PAWN]],
+
+                        attacks: vec![normal_white, normal_black, white_capture, black_capture],
+                        // the promotion pieces are set later, once it's known which pieces are available
+                        promotions: Promo { pieces: vec![], squares: FairyBitboard::backranks_for(size).raw() },
+                        can_ep_capture: false,
+                        resets_draw_counter: DrawCtrReset::Always,
+                        royal: false,
+                        can_castle: false,
+                    }
+                },
+                Self::new(
+                    "pawn (shogi)",
+                    vec![Leaping(LeapingBitboards::range(once(0), once(1), size))],
+                    'p',
+                    Some(['歩', '歩', '歩']),
+                ),
+                Self::new(
+                    "gold general",
+                    vec![Leaping(
+                        LeapingBitboards::fixed(0, 1, size)
+                            .combine(LeapingBitboards::fixed(1, 1, size))
+                            .remove(LeapingBitboards::range(once(-1), [-1, 1].into_iter(), size)),
+                    )],
+                    'g',
+                    Some(['金', '金', '金']),
+                ),
+                Self::new(
+                    "silver general",
+                    vec![Leaping(LeapingBitboards::range(once(1), -1..=1, size).combine(LeapingBitboards::range(
+                        once(-1),
+                        [-1, 1].into_iter(),
+                        size,
+                    )))],
+                    's',
+                    Some(['銀', '銀', '銀']),
+                ),
+                Self::new(
+                    "knight (shogi)",
+                    vec![Leaping(LeapingBitboards::range(once(2), -1..=1, size))],
+                    'n',
+                    Some(['桂', '桂', '桂']),
+                ),
+                Self::new("lance", vec![Rider(SliderDirections::Vertical)], 'l', Some(['香', '香', '香'])),
+                Self::new(
+                    "dragon king",
+                    vec![Rider(SliderDirections::Rook), Leaping(LeapingBitboards::fixed(1, 1, size))],
+                    'd',
+                    Some(['龍', '龍', '龍']),
+                ),
+                Self::new(
+                    "dragon horse",
+                    vec![Rider(SliderDirections::Bishop), Leaping(LeapingBitboards::fixed(0, 1, size))],
+                    'h',
+                    Some(['馬', '馬', '馬']),
+                ),
+                Self::new(
+                    "go-between",
+                    vec![Leaping(LeapingBitboards::range(once(0), [-1, 1].into_iter(), size))],
+                    'g',
+                    None,
+                ),
+                // compound pieces
+                Self::new(
+                    "archbishop",
+                    vec![AttackTypes::leaping(1, 2, size), Rider(SliderDirections::Bishop)],
+                    'a',
+                    Some(['🩐', '🩓', '🩐']),
+                ),
+                Self::new(
+                    "chancellor",
+                    vec![AttackTypes::leaping(1, 2, size), Rider(SliderDirections::Rook)],
+                    'c',
+                    Some(['🩏', '🩒', '🩏']),
+                ),
+                Self::new(
+                    "amazon",
+                    vec![AttackTypes::leaping(1, 2, size), Rider(SliderDirections::Queen)],
+                    'a',
+                    Some(['🩎', '🩑', '🩎']),
+                ),
+                Self::new("kirin", vec![AttackTypes::leaping(1, 1, size), AttackTypes::leaping(0, 2, size)], 'f', None),
+                Self::new("frog", vec![AttackTypes::leaping(1, 1, size), AttackTypes::leaping(0, 3, size)], 'f', None),
+                Self::new("gnu", vec![AttackTypes::leaping(1, 2, size), AttackTypes::leaping(1, 3, size)], 'g', None),
                 Self {
-                    name: "king".to_string(),
+                    name: "mnk".to_string(),
                     uncolored: false,
-                    uncolored_symbol: ['K', UNICODE_NEUTRAL_KING],
-                    player_symbol: [['K', UNICODE_WHITE_KING], ['k', UNICODE_BLACK_KING]],
-                    attacks: vec![
-                        GenPieceAttackKind::simple(Leaping(
-                            LeapingBitboards::fixed(1, 1, size).combine(LeapingBitboards::fixed(1, 0, size)),
-                        )),
-                        castle_king_side,
-                        castle_queen_side,
-                    ],
-                    promotions: Promo::none(),
+                    uncolored_symbol: ['x', UNICODE_X],
+                    player_symbol: [['X', UNICODE_X], ['O', UNICODE_O]],
+                    attacks: vec![GenPieceAttackKind::piece_drop(vec![EmptySquares])],
+                    promotions: Default::default(),
                     can_ep_capture: false,
                     resets_draw_counter: DrawCtrReset::Never,
-                    royal: true,
-                    can_castle: true,
-                }
-            },
-            Self::new(
-                "queen",
-                vec![Rider(SliderDirections::Queen)],
-                'q',
-                Some([UNICODE_WHITE_QUEEN, UNICODE_BLACK_QUEEN, UNICODE_NEUTRAL_QUEEN]),
-            ),
-            Self::new(
-                "rook",
-                vec![Rider(SliderDirections::Rook)],
-                'r',
-                Some([UNICODE_WHITE_ROOK, UNICODE_BLACK_ROOK, UNICODE_NEUTRAL_ROOK]),
-            ),
-            Self::new(
-                "bishop",
-                vec![Rider(SliderDirections::Bishop)],
-                'b',
-                Some([UNICODE_WHITE_BISHOP, UNICODE_BLACK_BISHOP, UNICODE_NEUTRAL_BISHOP]),
-            ),
-            {
-                let normal_white = GenPieceAttackKind::pawn_noncapture(
-                    Leaping(LeapingBitboards::range(once(0), once(1), size)),
-                    Player(FairyColor::first()),
-                );
-                let normal_black = GenPieceAttackKind::pawn_noncapture(
-                    Leaping(LeapingBitboards::range(once(0), once(-1), size)),
-                    Player(FairyColor::second()),
-                );
-                let white_capture = GenPieceAttackKind::pawn_capture(
-                    Leaping(LeapingBitboards::range([-1, 1].into_iter(), once(1), size)),
-                    Player(FairyColor::first()),
-                    AttackBitboardFilter::PawnCapture,
-                );
-                let black_capture = GenPieceAttackKind::pawn_capture(
-                    Leaping(LeapingBitboards::range([-1, 1].into_iter(), once(-1), size)),
-                    Player(FairyColor::second()),
-                    AttackBitboardFilter::PawnCapture,
-                );
-                // promotions are handled as effects instead of duplicating all normal and capture moves
-                let white_double = GenPieceAttackKind {
-                    required: RequiredForAttack::PieceOnBoard,
-                    typ: Rider(SliderDirections::Vertical),
-                    condition: OnRank(1, FairyColor::first()),
-                    bitboard_filter: vec![AttackBitboardFilter::EmptySquares, AttackBitboardFilter::Rank(3)],
-                    kind: DoublePawnPush,
-                    attack_mode: AttackMode::NoCaptures,
-                    capture_condition: CaptureCondition::Never,
-                };
-                let black_double = GenPieceAttackKind {
-                    required: RequiredForAttack::PieceOnBoard,
-                    typ: Rider(SliderDirections::Vertical),
-                    condition: OnRank(size.height().get().saturating_sub(2), FairyColor::second()),
-                    bitboard_filter: vec![
-                        AttackBitboardFilter::EmptySquares,
-                        AttackBitboardFilter::Rank(size.height().get().saturating_sub(4)),
-                    ],
-                    kind: DoublePawnPush,
-                    attack_mode: AttackMode::NoCaptures,
-                    capture_condition: CaptureCondition::Never,
-                };
-                Self {
-                    name: "pawn".to_string(),
-                    uncolored: false,
-                    uncolored_symbol: ['p', UNICODE_NEUTRAL_PAWN],
-                    player_symbol: [['P', UNICODE_WHITE_PAWN], ['p', UNICODE_BLACK_PAWN]],
-
-                    attacks: vec![normal_white, normal_black, white_double, black_double, white_capture, black_capture],
-                    // the promotion pieces are set later, once it's known which pieces are available
-                    promotions: Promo { pieces: vec![], squares: FairyBitboard::backranks_for(size).raw() },
-                    can_ep_capture: true,
-                    resets_draw_counter: DrawCtrReset::Always,
                     royal: false,
                     can_castle: false,
-                }
-            },
-            {
-                let mut res = Self::new(
-                    "king (shatranj)",
-                    vec![Leaping(LeapingBitboards::fixed(1, 1, size).combine(LeapingBitboards::fixed(0, 1, size)))],
-                    'k',
-                    Some([UNICODE_WHITE_KING, UNICODE_BLACK_KING, UNICODE_NEUTRAL_KING]),
-                );
-                res.royal = true;
-                res
-            },
-            // like the chess pawn, but without double pawn push and ep
-            {
-                let normal_white = GenPieceAttackKind::pawn_noncapture(
-                    Leaping(LeapingBitboards::range(once(0), once(1), size)),
-                    Player(FairyColor::first()),
-                );
-                let normal_black = GenPieceAttackKind::pawn_noncapture(
-                    Leaping(LeapingBitboards::range(once(0), once(-1), size)),
-                    Player(FairyColor::second()),
-                );
-                let white_capture = GenPieceAttackKind::pawn_capture(
-                    Leaping(LeapingBitboards::range([-1, 1].into_iter(), once(1), size)),
-                    Player(FairyColor::first()),
-                    AttackBitboardFilter::Them,
-                );
-                let black_capture = GenPieceAttackKind::pawn_capture(
-                    Leaping(LeapingBitboards::range([-1, 1].into_iter(), once(-1), size)),
-                    Player(FairyColor::second()),
-                    AttackBitboardFilter::Them,
-                );
+                },
                 Self {
-                    name: "pawn (shatranj)".to_string(),
+                    name: "ataxx".to_string(),
                     uncolored: false,
-                    uncolored_symbol: ['p', UNICODE_NEUTRAL_PAWN],
-                    player_symbol: [['P', UNICODE_WHITE_PAWN], ['p', UNICODE_BLACK_PAWN]],
-
-                    attacks: vec![normal_white, normal_black, white_capture, black_capture],
-                    // the promotion pieces are set later, once it's known which pieces are available
-                    promotions: Promo { pieces: vec![], squares: FairyBitboard::backranks_for(size).raw() },
-                    can_ep_capture: false,
-                    resets_draw_counter: DrawCtrReset::Always,
-                    royal: false,
-                    can_castle: false,
-                }
-            },
-            Self::new(
-                "pawn (shogi)",
-                vec![Leaping(LeapingBitboards::range(once(0), once(1), size))],
-                'p',
-                Some(['歩', '歩', '歩']),
-            ),
-            Self::new(
-                "gold general",
-                vec![Leaping(
-                    LeapingBitboards::fixed(0, 1, size)
-                        .combine(LeapingBitboards::fixed(1, 1, size))
-                        .remove(LeapingBitboards::range(once(-1), [-1, 1].into_iter(), size)),
-                )],
-                'g',
-                Some(['金', '金', '金']),
-            ),
-            Self::new(
-                "silver general",
-                vec![Leaping(LeapingBitboards::range(once(1), -1..=1, size).combine(LeapingBitboards::range(
-                    once(-1),
-                    [-1, 1].into_iter(),
-                    size,
-                )))],
-                's',
-                Some(['銀', '銀', '銀']),
-            ),
-            Self::new(
-                "knight (shogi)",
-                vec![Leaping(LeapingBitboards::range(once(2), -1..=1, size))],
-                'n',
-                Some(['桂', '桂', '桂']),
-            ),
-            Self::new("lance", vec![Rider(SliderDirections::Vertical)], 'l', Some(['香', '香', '香'])),
-            Self::new(
-                "dragon king",
-                vec![Rider(SliderDirections::Rook), Leaping(LeapingBitboards::fixed(1, 1, size))],
-                'd',
-                Some(['龍', '龍', '龍']),
-            ),
-            Self::new(
-                "dragon horse",
-                vec![Rider(SliderDirections::Bishop), Leaping(LeapingBitboards::fixed(0, 1, size))],
-                'h',
-                Some(['馬', '馬', '馬']),
-            ),
-            Self::new(
-                "go-between",
-                vec![Leaping(LeapingBitboards::range(once(0), [-1, 1].into_iter(), size))],
-                'g',
-                None,
-            ),
-            // compound pieces
-            Self::new(
-                "archbishop",
-                vec![AttackTypes::leaping(1, 2, size), Rider(SliderDirections::Bishop)],
-                'a',
-                Some(['🩐', '🩓', '🩐']),
-            ),
-            Self::new(
-                "chancellor",
-                vec![AttackTypes::leaping(1, 2, size), Rider(SliderDirections::Rook)],
-                'c',
-                Some(['🩏', '🩒', '🩏']),
-            ),
-            Self::new(
-                "amazon",
-                vec![AttackTypes::leaping(1, 2, size), Rider(SliderDirections::Queen)],
-                'a',
-                Some(['🩎', '🩑', '🩎']),
-            ),
-            Self::new("kirin", vec![AttackTypes::leaping(1, 1, size), AttackTypes::leaping(0, 2, size)], 'f', None),
-            Self::new("frog", vec![AttackTypes::leaping(1, 1, size), AttackTypes::leaping(0, 3, size)], 'f', None),
-            Self::new("gnu", vec![AttackTypes::leaping(1, 2, size), AttackTypes::leaping(1, 3, size)], 'g', None),
-            Self {
-                name: "mnk".to_string(),
-                uncolored: false,
-                uncolored_symbol: ['x', UNICODE_X],
-                player_symbol: [['X', UNICODE_X], ['O', UNICODE_O]],
-                attacks: vec![GenPieceAttackKind::piece_drop(vec![EmptySquares])],
-                promotions: Default::default(),
-                can_ep_capture: false,
-                resets_draw_counter: DrawCtrReset::Never,
-                royal: false,
-                can_castle: false,
-            },
-            Self {
-                name: "ataxx".to_string(),
-                uncolored: false,
-                uncolored_symbol: ['x', UNICODE_X],
-                player_symbol: [['x', 'X'], ['o', 'O']],
-                attacks: vec![
-                    GenPieceAttackKind::piece_drop(vec![
-                        EmptySquares,
-                        AttackBitboardFilter::Neighbor(Box::new(AttackBitboardFilter::Us)),
-                    ]),
-                    GenPieceAttackKind {
-                        required: RequiredForAttack::PieceOnBoard,
-                        condition: Always,
-                        attack_mode: AttackMode::All,
-                        typ: Leaping(
-                            LeapingBitboards::fixed(0, 2, size).combine(
+                    uncolored_symbol: ['x', UNICODE_X],
+                    player_symbol: [['x', 'X'], ['o', 'O']],
+                    attacks: vec![
+                        GenPieceAttackKind::piece_drop(vec![
+                            EmptySquares,
+                            AttackBitboardFilter::Neighbor(Box::new(AttackBitboardFilter::Us)),
+                        ]),
+                        GenPieceAttackKind {
+                            required: RequiredForAttack::PieceOnBoard,
+                            condition: Always,
+                            attack_mode: AttackMode::All,
+                            typ: Leaping(LeapingBitboards::fixed(0, 2, size).combine(
                                 LeapingBitboards::fixed(1, 2, size).combine(LeapingBitboards::fixed(2, 2, size)),
-                            ),
-                        ),
-                        bitboard_filter: vec![EmptySquares],
-                        kind: Normal,
-                        capture_condition: CaptureCondition::Never,
-                    },
-                ],
-                promotions: Default::default(),
-                can_ep_capture: false,
-                resets_draw_counter: DrawCtrReset::MoveKind(vec![MoveKind::Drop(0)]),
-                royal: false,
-                can_castle: false,
-            },
-            Self {
-                name: "gap".to_string(),
-                uncolored: true,
-                uncolored_symbol: ['-', '-'],
-                player_symbol: [[' ', ' '], [' ', ' ']],
-                attacks: vec![],
-                promotions: Default::default(),
-                can_ep_capture: false,
-                resets_draw_counter: DrawCtrReset::Never,
-                royal: false,
-                can_castle: false,
-            },
-        ];
+                            )),
+                            bitboard_filter: vec![EmptySquares],
+                            kind: Normal,
+                            capture_condition: CaptureCondition::Never,
+                        },
+                    ],
+                    promotions: Default::default(),
+                    can_ep_capture: false,
+                    resets_draw_counter: DrawCtrReset::MoveKind(vec![MoveKind::Drop(0)]),
+                    royal: false,
+                    can_castle: false,
+                },
+                Self {
+                    name: "gap".to_string(),
+                    uncolored: true,
+                    uncolored_symbol: ['-', '-'],
+                    player_symbol: [[' ', ' '], [' ', ' ']],
+                    attacks: vec![],
+                    promotions: Default::default(),
+                    can_ep_capture: false,
+                    resets_draw_counter: DrawCtrReset::Never,
+                    royal: false,
+                    can_castle: false,
+                },
+            ];
         rest.append(&mut leapers);
         rest.append(&mut riders);
         rest
@@ -667,5 +692,9 @@ impl Piece {
             _ = res.insert(piece.name.clone(), piece);
         }
         res
+    }
+
+    pub fn create_piece_by_name(name: &str, size: FairySize) -> Option<Piece> {
+        Self::pieces(size).into_iter().find(|p| p.name == name)
     }
 }

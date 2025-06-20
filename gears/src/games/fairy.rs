@@ -275,6 +275,10 @@ impl UnverifiedFairyBoard {
         FairyBitboard::new(self.color_bitboards[0] | self.color_bitboards[1] | self.neutral_bb, self.size())
     }
 
+    fn either_player_bb(&self) -> FairyBitboard {
+        FairyBitboard::new(self.color_bitboards[0] | self.color_bitboards[1], self.size())
+    }
+
     fn rules(&self) -> &Arc<Rules> {
         &self.rules.0
     }
@@ -366,7 +370,7 @@ impl UnverifiedBoard<FairyBoard> for UnverifiedFairyBoard {
         for color in FairyColor::iter() {
             let royals = self.royal_bb_for(color);
             let num = royals.num_ones();
-            match rules.num_royals {
+            match rules.num_royals[color.idx()] {
                 NumRoyals::Exactly(n) => {
                     ensure!(
                         num == n,
@@ -680,14 +684,14 @@ impl Board for FairyBoard {
         let mut res = false;
         for (cond, _) in &self.rules().game_end_eager {
             res |= match cond {
-                GameEndEager::No(_)
+                GameEndEager::No(_, _)
                 | GameEndEager::NoNonRoyalsExceptRecapture
-                | GameEndEager::InRowAtLeast(_)
-                | GameEndEager::PieceIn(_, _) => cond.satisfied(self, &NoHistory::default()),
+                | GameEndEager::InRowAtLeast(_, _)
+                | GameEndEager::PieceIn(_, _, _) => cond.satisfied(self, &NoHistory::default()),
                 // These conditions are ignored in perft
-                GameEndEager::DrawCounter(_) | GameEndEager::Repetition(_) | GameEndEager::InsufficientMaterial(_) => {
-                    false
-                }
+                GameEndEager::DrawCounter(_)
+                | GameEndEager::Repetition(_)
+                | GameEndEager::InsufficientMaterial(_, _) => false,
             };
         }
         res
@@ -858,6 +862,7 @@ impl FairyBoard {
             GenericSelect { name: "shatranj", val: || RulesRef::new(Rules::shatranj()) },
             GenericSelect { name: "atomic", val: || RulesRef::new(Rules::atomic()) },
             GenericSelect { name: "kingofthehill", val: || RulesRef::new(Rules::king_of_the_hill()) },
+            GenericSelect { name: "horde", val: || RulesRef::new(Rules::horde()) },
             GenericSelect { name: "ataxx", val: || RulesRef::new(Rules::ataxx()) },
             GenericSelect { name: "tictactoe", val: || RulesRef::new(Rules::tictactoe()) },
             GenericSelect { name: "mnk", val: || RulesRef::new(Rules::mnk(GridSize::connect4(), 4)) },
