@@ -71,6 +71,10 @@ mod tests {
                 vec![48, 1939, 88298, 3_492_097],
             ),
             ("atomic r7/8/8/8/8/8/3k1q2/R3K2R w KQ - 0 1", vec![22, 798, 16_158, 589_688, 13_318_284]),
+            (
+                "kingofthehill r6r/p1ppqpb1/bn2pnp1/2kPN3/1p2P3/2N1KQ1p/PPPBBPPP/R6R w - - 0 1",
+                vec![47, 2061, 85499, 3_525_128],
+            ),
         ];
         let old = FairyBoard::default();
         for (testcase, res) in fens {

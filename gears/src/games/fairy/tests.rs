@@ -27,12 +27,13 @@ mod general {
     use crate::games::chess::Chessboard;
     use crate::games::fairy::attacks::MoveKind;
     use crate::games::fairy::moves::FairyMove;
-    use crate::games::fairy::{FairyBoard, FairyColor, FairySquare};
+    use crate::games::fairy::pieces::ColoredPieceId;
+    use crate::games::fairy::{FairyBoard, FairyColor, FairyPiece, FairySquare};
     use crate::games::mnk::MNKBoard;
-    use crate::games::{BoardHistory, Color, Height, NoHistory, Width, ZobristHistory, chess};
+    use crate::games::{AbstractPieceType, BoardHistory, Color, Height, NoHistory, Width, ZobristHistory, chess};
     use crate::general::bitboards::{Bitboard, RawBitboard};
     use crate::general::board::Strictness::{Relaxed, Strict};
-    use crate::general::board::{BitboardBoard, Board, BoardHelpers};
+    use crate::general::board::{BitboardBoard, Board, BoardHelpers, UnverifiedBoard};
     use crate::general::moves::Move;
     use crate::general::perft::perft;
     use crate::general::squares::GridSize;
@@ -189,8 +190,8 @@ mod general {
     #[test]
     fn simple_shatranj_startpos_test() {
         let pos = FairyBoard::variant_simple("shatranj").unwrap();
-        let as_fen = pos.as_fen();
-        assert_eq!(as_fen, pos.rules().startpos_fen);
+        let as_fen = pos.fen_no_rules();
+        assert_eq!(as_fen, pos.rules().startpos_fen_part);
         let size = pos.size();
         assert_eq!(size, GridSize::new(Height(8), Width(8)));
         assert_eq!(pos.royal_bb().num_ones(), 2);
@@ -203,6 +204,25 @@ mod general {
         assert_eq!(18, capture_bb.num_ones());
         assert_eq!(18, pos.capturing_attack_bb_of(FairyColor::second()).num_ones());
         assert_eq!(pos.legal_moves_slow().len(), 8 + 2 * 2 + 2 * 2);
+    }
+
+    #[test]
+    fn simple_koth_test() {
+        let pos = FairyBoard::from_fen_for("kingofthehill", "2k5/8/8/8/3K4/8/8/8 b - - 0 1", Strict).unwrap();
+        assert_eq!(pos.player_result_slow(&ZobristHistory::default()), Some(PlayerResult::Lose));
+        let pos = FairyBoard::from_fen_for("kingofthehill", "8/8/3k4/8/8/4K3/8/8 b - - 99 6", Strict).unwrap();
+        let new_pos = pos.clone().make_move_from_str("d6e5").unwrap();
+        assert_eq!(new_pos.player_result_slow(&ZobristHistory::default()), Some(PlayerResult::Lose));
+        let settings = pos.settings();
+        let pos = pos
+            .place_piece(FairyPiece::new(
+                ColoredPieceId::from_name("Q", &settings).unwrap(),
+                FairySquare::algebraic('h', 5).unwrap(),
+            ))
+            .unwrap()
+            .verify(Strict)
+            .unwrap();
+        assert!(pos.make_move_from_str("d6e5").is_err());
     }
 
     #[test]

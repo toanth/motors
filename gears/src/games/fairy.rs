@@ -583,7 +583,7 @@ impl Board for FairyBoard {
     }
 
     fn startpos_for_settings(settings: Self::Settings) -> Self {
-        Self::from_fen(&settings.0.startpos_fen, Strict).unwrap()
+        Self::from_fen_for(&settings.0.name, &settings.0.startpos_fen_part, Strict).unwrap()
     }
 
     fn name_to_pos_map() -> EntityList<NameToPos> {
@@ -680,11 +680,10 @@ impl Board for FairyBoard {
         let mut res = false;
         for (cond, _) in &self.rules().game_end_eager {
             res |= match cond {
-                GameEndEager::NoRoyals
-                | GameEndEager::NoPieces
-                | GameEndEager::NoNonRoyals
+                GameEndEager::No(_)
                 | GameEndEager::NoNonRoyalsExceptRecapture
-                | GameEndEager::InRowAtLeast(_) => cond.satisfied(self, &NoHistory::default()),
+                | GameEndEager::InRowAtLeast(_)
+                | GameEndEager::PieceIn(_, _) => cond.satisfied(self, &NoHistory::default()),
                 // These conditions are ignored in perft
                 GameEndEager::DrawCounter(_) | GameEndEager::Repetition(_) | GameEndEager::InsufficientMaterial(_) => {
                     false
@@ -737,7 +736,9 @@ impl Board for FairyBoard {
         }
         None
     }
-
+    /// When loading a position where the side to move has won and there is no legal previous move for the other player,
+    /// like a position where the current player has the king in the center in king of the hill,
+    /// [`Self::player_result_slow`] can return a win for an incorrect player, but this can never happen in a real game.
     fn player_result_slow<H: BoardHistory>(&self, history: &H) -> Option<PlayerResult> {
         if let Some(res) = self.player_result_no_movegen(history) {
             return Some(res);
@@ -856,6 +857,7 @@ impl FairyBoard {
             GenericSelect { name: "chess", val: || RulesRef::new(Rules::chess()) },
             GenericSelect { name: "shatranj", val: || RulesRef::new(Rules::shatranj()) },
             GenericSelect { name: "atomic", val: || RulesRef::new(Rules::atomic()) },
+            GenericSelect { name: "kingofthehill", val: || RulesRef::new(Rules::king_of_the_hill()) },
             GenericSelect { name: "ataxx", val: || RulesRef::new(Rules::ataxx()) },
             GenericSelect { name: "tictactoe", val: || RulesRef::new(Rules::tictactoe()) },
             GenericSelect { name: "mnk", val: || RulesRef::new(Rules::mnk(GridSize::connect4(), 4)) },
