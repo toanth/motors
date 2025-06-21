@@ -22,7 +22,7 @@ mod chess_tests;
 
 #[cfg(test)]
 mod general {
-    use crate::PlayerResult::Draw;
+    use crate::PlayerResult::{Draw, Lose};
     use crate::games::ataxx::AtaxxBoard;
     use crate::games::chess::Chessboard;
     use crate::games::fairy::attacks::MoveKind;
@@ -38,7 +38,7 @@ mod general {
     use crate::general::perft::perft;
     use crate::general::squares::GridSize;
     use crate::search::Depth;
-    use crate::{GameOverReason, GameResult, MatchResult, PlayerResult};
+    use crate::{GameOverReason, GameResult, MatchResult};
     use itertools::Itertools;
     use rand::SeedableRng;
     use rand::rngs::StdRng;
@@ -146,7 +146,7 @@ mod general {
         let pos = FairyBoard::from_fen(pos, Strict).unwrap();
         assert!(pos.match_result_slow(&ZobristHistory::default()).is_none());
         let pos = pos.make_move_from_str("h5f7").unwrap();
-        assert_eq!(pos.player_result_slow(&ZobristHistory::default()), Some(PlayerResult::Lose));
+        assert_eq!(pos.player_result_slow(&ZobristHistory::default()), Some(Lose));
         let mut pos = FairyBoard::from_name("kiwipete").unwrap();
         let original = pos.clone();
         let mut hist = ZobristHistory::default();
@@ -207,12 +207,22 @@ mod general {
     }
 
     #[test]
+    fn simple_shatranj_test() {
+        let pos = FairyBoard::from_fen_for("shatranj", "5k2/6r1/8/8/8/6R1/5K2/8 w 0 1", Strict).unwrap();
+        let new_pos = pos.make_move_from_str("g3g7").unwrap();
+        assert_eq!(new_pos.player_result_slow(&NoHistory::default()), Some(Draw));
+        let pos = FairyBoard::from_fen_for("shatranj", "4k3/6r1/8/8/8/6R1/5K2/8 w 0 1", Strict).unwrap();
+        let new_pos = pos.make_move_from_str("g3g7").unwrap();
+        assert_eq!(new_pos.player_result_slow(&NoHistory::default()), Some(Lose));
+    }
+
+    #[test]
     fn simple_koth_test() {
         let pos = FairyBoard::from_fen_for("kingofthehill", "2k5/8/8/8/3K4/8/8/8 b - - 0 1", Strict).unwrap();
-        assert_eq!(pos.player_result_slow(&ZobristHistory::default()), Some(PlayerResult::Lose));
+        assert_eq!(pos.player_result_slow(&ZobristHistory::default()), Some(Lose));
         let pos = FairyBoard::from_fen_for("kingofthehill", "8/8/3k4/8/8/4K3/8/8 b - - 99 6", Strict).unwrap();
         let new_pos = pos.clone().make_move_from_str("d6e5").unwrap();
-        assert_eq!(new_pos.player_result_slow(&ZobristHistory::default()), Some(PlayerResult::Lose));
+        assert_eq!(new_pos.player_result_slow(&ZobristHistory::default()), Some(Lose));
         let settings = pos.settings();
         let pos = pos
             .place_piece(FairyPiece::new(
@@ -243,7 +253,21 @@ mod general {
         assert!(pos.is_game_won_after_slow(FairyMove::from_text("c6c5", &pos).unwrap(), NoHistory::default()));
         let pos = FairyBoard::from_fen_for("horde", "8/4P3/8/bb2P3/kb2B3/b1p5/2P1B3/1P3B2 w - - 0 1", Strict).unwrap();
         let pos = pos.make_move_from_str("b1b3").unwrap();
-        assert_eq!(pos.player_result_slow(&ZobristHistory::default()), Some(PlayerResult::Lose));
+        assert_eq!(pos.player_result_slow(&ZobristHistory::default()), Some(Lose));
+    }
+
+    #[test]
+    fn simple_racing_kings_test() {
+        let pos = FairyBoard::from_fen_for("racingkings", "8/7K/1k6/8/8/8/8/3R4 w - - 0 1", Strict).unwrap();
+        assert!(pos.player_result_slow(&ZobristHistory::default()).is_none());
+        let pos = pos.make_move_from_str("h7h8").unwrap();
+        assert_eq!(pos.player_result_slow(&ZobristHistory::default()), Some(Lose));
+        let pos = FairyBoard::from_fen_for("racingkings", "8/1k5K/4r3/8/8/8/8/3R4 w - - 0 1", Strict).unwrap();
+        assert!(pos.player_result_slow(&ZobristHistory::default()).is_none());
+        let new_pos = pos.clone().make_move_from_str("h7h8").unwrap();
+        assert_eq!(new_pos.player_result_slow(&ZobristHistory::default()), Some(Draw));
+        assert!(pos.clone().make_move_from_str("d1b1").is_err());
+        assert!(pos.make_move_from_str("h7h6").is_err());
     }
 
     #[test]

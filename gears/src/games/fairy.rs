@@ -398,8 +398,13 @@ impl UnverifiedBoard<FairyBoard> for UnverifiedFairyBoard {
         let mut res = FairyBoard(self);
         res.0.hash = res.compute_hash();
         ensure!(
-            res.rules().check_rules.inactive_check.satisfied(&res),
-            "Player {} is in check, but it's not their turn to move",
+            res.rules().check_rules.active_check_ok.satisfied(&res, res.active_player()),
+            "Player {} is in check, but that's not allowed in this position",
+            res.rules().colors[res.active_player().idx()].name
+        );
+        ensure!(
+            res.rules().check_rules.inactive_check_ok.satisfied(&res, res.inactive_player()),
+            "Player {} is in check, but that's not allowed in this position (it's not their turn to move)",
             res.rules().colors[res.inactive_player().idx()].name
         );
 
@@ -684,10 +689,9 @@ impl Board for FairyBoard {
         let mut res = false;
         for (cond, _) in &self.rules().game_end_eager {
             res |= match cond {
-                GameEndEager::No(_, _)
-                | GameEndEager::NoNonRoyalsExceptRecapture
-                | GameEndEager::InRowAtLeast(_, _)
-                | GameEndEager::PieceIn(_, _, _) => cond.satisfied(self, &NoHistory::default()),
+                GameEndEager::No(_, _) | GameEndEager::InRowAtLeast(_, _) | GameEndEager::PieceIn(_, _, _) => {
+                    cond.satisfied(self, &NoHistory::default())
+                }
                 // These conditions are ignored in perft
                 GameEndEager::DrawCounter(_)
                 | GameEndEager::Repetition(_)
@@ -735,7 +739,7 @@ impl Board for FairyBoard {
     fn player_result_no_movegen<H: BoardHistory>(&self, history: &H) -> Option<PlayerResult> {
         for (cond, outcome) in &self.rules().game_end_eager {
             if cond.satisfied(self, history) {
-                return Some(outcome.to_res(self));
+                return Some(outcome.to_res(self, history));
             }
         }
         None
@@ -756,7 +760,8 @@ impl Board for FairyBoard {
     fn no_moves_result(&self) -> Option<PlayerResult> {
         for (cond, outcome) in &self.rules().game_end_no_moves {
             if cond.satisfied(self) {
-                return Some(outcome.to_res(self));
+                // TODO: Pass the actual history? Currently not needed, but this not working is surprising
+                return Some(outcome.to_res(self, &NoHistory::default()));
             }
         }
         None
@@ -863,6 +868,7 @@ impl FairyBoard {
             GenericSelect { name: "atomic", val: || RulesRef::new(Rules::atomic()) },
             GenericSelect { name: "kingofthehill", val: || RulesRef::new(Rules::king_of_the_hill()) },
             GenericSelect { name: "horde", val: || RulesRef::new(Rules::horde()) },
+            GenericSelect { name: "racingkings", val: || RulesRef::new(Rules::racing_kings(FairySize::chess())) },
             GenericSelect { name: "ataxx", val: || RulesRef::new(Rules::ataxx()) },
             GenericSelect { name: "tictactoe", val: || RulesRef::new(Rules::tictactoe()) },
             GenericSelect { name: "mnk", val: || RulesRef::new(Rules::mnk(GridSize::connect4(), 4)) },

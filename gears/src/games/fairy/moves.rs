@@ -485,7 +485,7 @@ impl FairyBoard {
     pub fn flip_side_to_move(mut self) -> Option<Self> {
         self.0.active = !self.0.active;
         self.0.hash = self.compute_hash();
-        if !self.rules().check_rules.inactive_check.satisfied(&self) {
+        if !self.rules().check_rules.satisfied(&self) {
             return None;
         }
         if cfg!(debug_assertions) {

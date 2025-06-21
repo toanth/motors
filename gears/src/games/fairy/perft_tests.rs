@@ -81,6 +81,7 @@ mod tests {
                 vec![43, 1223, 52_478, 1_488_796],
             ),
             ("horde 4k2r/6P1/8/8/8/8/1q1p4/2P5 w - - 0 1", vec![12, 262, 2129, 56_153, 531_852, 16_410_824]),
+            ("racingkings startpos", vec![21, 421, 11_264, 296_242, 9_472_927]),
         ];
         let old = FairyBoard::default();
         for (testcase, res) in fens {
