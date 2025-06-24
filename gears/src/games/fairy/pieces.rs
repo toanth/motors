@@ -33,10 +33,15 @@ use crate::games::fairy::attacks::{
 use crate::games::fairy::moves::FairyMove;
 use crate::games::fairy::rules::RulesRef;
 use crate::games::fairy::{FairyBitboard, FairyBoard, FairyColor, FairySize, RawFairyBitboard};
-use crate::games::{AbstractPieceType, CharType, Color, ColoredPieceType, Height, NUM_COLORS, PieceType, Width};
+use crate::games::{
+    AbstractPieceType, CharType, Color, ColoredPieceType, Height, NUM_CHAR_TYPES, NUM_COLORS, PieceType, Width,
+};
 use crate::general::bitboards::Bitboard;
+use crate::general::common::Res;
 use crate::general::squares::RectangularSize;
+use anyhow::bail;
 use arbitrary::Arbitrary;
+use colored::Colorize;
 use itertools::Itertools;
 use std::cmp::max;
 use std::collections::HashMap;
@@ -165,7 +170,7 @@ impl AbstractPieceType<FairyBoard> for ColoredPieceId {
     fn from_char(c: char, rules: &RulesRef) -> Option<Self> {
         let found = rules.0.pieces().find(|(_id, p)| p.player_symbol.iter().any(|s| s.contains(&c)));
         if let Some((id, p)) = found {
-            if p.player_symbol[0].contains(&c) {
+            if p.player_symbol[CharType::Ascii].contains(&c) {
                 Some(Self { id, color: Some(FairyColor::first()) })
             } else {
                 Some(Self { id, color: Some(FairyColor::second()) })
@@ -191,6 +196,10 @@ impl AbstractPieceType<FairyBoard> for ColoredPieceId {
 impl ColoredPieceType<FairyBoard> for ColoredPieceId {
     type Uncolored = PieceId;
 
+    fn new(color: FairyColor, uncolored: Self::Uncolored) -> Self {
+        Self { id: uncolored, color: Some(color) }
+    }
+
     fn color(self) -> Option<FairyColor> {
         self.color
     }
@@ -203,8 +212,20 @@ impl ColoredPieceType<FairyBoard> for ColoredPieceId {
         self.id.val()
     }
 
-    fn new(color: FairyColor, uncolored: Self::Uncolored) -> Self {
-        Self { id: uncolored, color: Some(color) }
+    fn make_promoted(&mut self, rules: &RulesRef) -> Res<()> {
+        let Some(promoted) = self.id.get(rules).promotions.promoted_version else {
+            bail!(
+                "The piece '{0}' can't be marked as having been promoted. Current variant: {1}",
+                self.name(rules).as_ref().bold(),
+                rules.0.name.bold()
+            )
+        };
+        self.id = promoted;
+        Ok(())
+    }
+
+    fn is_promoted(&self, rules: &RulesRef) -> bool {
+        self.id.get(rules).promotions.promoted_from.is_some()
     }
 }
 
@@ -213,6 +234,11 @@ impl ColoredPieceType<FairyBoard> for ColoredPieceId {
 pub(super) struct Promo {
     pub pieces: Vec<PieceId>,
     pub squares: RawFairyBitboard,
+    // Only set in variants where this matters, like crazyhouse, but not in e.g. chess.
+    // In crazyhouse, this is always set to pawn.
+    pub promoted_from: Option<PieceId>,
+    // when reading a fen, this is what the promotion modifier turns the piece into
+    pub promoted_version: Option<PieceId>,
 }
 
 impl Promo {
@@ -246,8 +272,8 @@ pub struct Piece {
     // (not currently used) actual neutral pieces. If a piece can be both colored and neutral, this currently has to be simulated
     // using two different pieces.
     pub(super) uncolored: bool,
-    pub(super) uncolored_symbol: [char; 2],
-    pub(super) player_symbol: [[char; 2]; NUM_COLORS],
+    pub(super) uncolored_symbol: [char; NUM_CHAR_TYPES],
+    pub(super) player_symbol: [[char; NUM_CHAR_TYPES]; NUM_COLORS],
     // Most of the attack data is represented with a bitboard.
     // To distinguish between different special moves, the `GenPieceAttackKind` struct has an `AttackKind` field.
     pub(super) attacks: Vec<GenPieceAttackKind>,
@@ -339,12 +365,17 @@ impl Piece {
         Self {
             name: "pawn".to_string(),
             uncolored: false,
-            uncolored_symbol: ['p', UNICODE_NEUTRAL_PAWN],
+            uncolored_symbol: ['P', UNICODE_NEUTRAL_PAWN],
             player_symbol: [['P', UNICODE_WHITE_PAWN], ['p', UNICODE_BLACK_PAWN]],
 
             attacks: vec![normal_white, normal_black, white_double, black_double, white_capture, black_capture],
             // the promotion pieces are set later, once it's known which pieces are available
-            promotions: Promo { pieces: vec![], squares: FairyBitboard::backranks_for(size).raw() },
+            promotions: Promo {
+                pieces: vec![],
+                squares: FairyBitboard::backranks_for(size).raw(),
+                promoted_from: None,
+                promoted_version: None,
+            },
             can_ep_capture: true,
             resets_draw_counter: DrawCtrReset::Always,
             royal: false,
@@ -515,7 +546,12 @@ impl Piece {
 
                         attacks: vec![normal_white, normal_black, white_capture, black_capture],
                         // the promotion pieces are set later, once it's known which pieces are available
-                        promotions: Promo { pieces: vec![], squares: FairyBitboard::backranks_for(size).raw() },
+                        promotions: Promo {
+                            pieces: vec![],
+                            squares: FairyBitboard::backranks_for(size).raw(),
+                            promoted_from: None,
+                            promoted_version: None,
+                        },
                         can_ep_capture: false,
                         resets_draw_counter: DrawCtrReset::Always,
                         royal: false,

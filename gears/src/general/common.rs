@@ -256,6 +256,9 @@ impl Name {
     pub fn from_name(string: &str) -> Self {
         Self { short: string.to_string(), long: string.to_string(), description: None }
     }
+    pub fn from_name_descr(name: &str, descr: &str) -> Self {
+        Self { short: name.to_string(), long: name.to_string(), description: Some(descr.to_string()) }
+    }
 }
 
 pub type EntityList<T> = Vec<T>;

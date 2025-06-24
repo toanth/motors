@@ -25,10 +25,11 @@ mod general {
     use crate::PlayerResult::{Draw, Lose};
     use crate::games::ataxx::AtaxxBoard;
     use crate::games::chess::Chessboard;
+    use crate::games::fairy::Side::Kingside;
     use crate::games::fairy::attacks::MoveKind;
     use crate::games::fairy::moves::FairyMove;
     use crate::games::fairy::pieces::ColoredPieceId;
-    use crate::games::fairy::{FairyBoard, FairyColor, FairyPiece, FairySquare};
+    use crate::games::fairy::{FairyBoard, FairyCastleInfo, FairyColor, FairyPiece, FairySquare};
     use crate::games::mnk::MNKBoard;
     use crate::games::{AbstractPieceType, BoardHistory, Color, Height, NoHistory, Width, ZobristHistory, chess};
     use crate::general::bitboards::{Bitboard, RawBitboard};
@@ -268,6 +269,66 @@ mod general {
         assert_eq!(new_pos.player_result_slow(&ZobristHistory::default()), Some(Draw));
         assert!(pos.clone().make_move_from_str("d1b1").is_err());
         assert!(pos.make_move_from_str("h7h6").is_err());
+    }
+
+    #[test]
+    fn simple_crazyhouse_test() {
+        let pos = FairyBoard::variant_simple("crazyhouse").unwrap();
+        assert!(pos.player_result_slow(&ZobristHistory::default()).is_none());
+        assert_eq!(pos.num_legal_moves(), 20);
+        let pos = FairyBoard::from_fen_for("crazyhouse", "k3R3/8/K7/8/8/8/8/8[n] b - - 0 1", Strict).unwrap();
+        assert!(pos.is_in_check());
+        assert_eq!(pos.num_legal_moves(), 3);
+        assert!(pos.player_result_slow(&ZobristHistory::default()).is_none());
+        let pos = pos.make_move_from_str("N@b8").unwrap();
+        assert!(pos.is_in_check());
+        let pos = FairyBoard::from_fen_for(
+            "crazyhouse",
+            "2kr1bQ~r/ppp1pp2/2n5/8/2q3b1/8/PPPP2PP/RNBQK1NR[PPPNpb] b KQ - 0 8",
+            Strict,
+        )
+        .unwrap();
+        let num_moves = pos.num_legal_moves();
+        assert_eq!(num_moves, 128);
+        let pos = pos.flip_side_to_move().unwrap();
+        assert_eq!(pos.fen_no_rules(), "2kr1bQ~r/ppp1pp2/2n5/8/2q3b1/8/PPPP2PP/RNBQK1NR[NPPPbp] w KQ - 0 9");
+        assert_eq!(pos, FairyBoard::from_fen(&pos.as_fen(), Strict).unwrap());
+        assert_eq!(pos.num_legal_moves(), 99);
+        let pos = FairyBoard::from_fen_for(
+            "crazyhouse",
+            "r1bqkbB~r/p1ppp3/1p6/8/8/5Q2/PPPP1PPP/RNB1KBNR[PPPNN] w KQkq - 0 7",
+            Strict,
+        )
+        .unwrap();
+        assert!(pos.is_game_won_after_slow(FairyMove::from_compact_text("f3f7", &pos).unwrap(), NoHistory::default()));
+        assert!(pos.is_game_won_after_slow(FairyMove::from_compact_text("g8f7", &pos).unwrap(), NoHistory::default()));
+        assert!(pos.is_game_won_after_slow(FairyMove::from_compact_text("P@f7", &pos).unwrap(), NoHistory::default()));
+        let pos = FairyBoard::from_fen_for(
+            "crazyhouse",
+            "r1bqk2r~/p1p1p3/1p3p2/3p4/3P2p1/2N2N2/PP1BBPPP/R~3K2R[PPPNN] b KQkq - 0 7",
+            Strict,
+        )
+        .unwrap();
+        assert!(pos.castling_info.can_castle(FairyColor::second(), Kingside));
+        let pos = pos.make_move_from_str("e8h8").unwrap();
+        let pos = pos.make_move_from_str("e1h1").unwrap();
+        assert_eq!(pos.castling_info, FairyCastleInfo::default());
+        let pos = FairyBoard::from_fen_for("crazyhouse", "6r~1/7P/3k4/8/3K4/8/8/8[] w - - 0 1", Strict).unwrap();
+        for m in pos.legal_moves_slow() {
+            if m.is_capture() {
+                println!("{}", m.compact_formatter(&pos));
+            }
+        }
+        let pos = pos.make_move_from_str("h7g8q").unwrap();
+        let pos = pos.flip_side_to_move().unwrap();
+        for m in pos.legal_moves_slow() {
+            if m.src_square_in(&pos).is_none() {
+                assert_eq!(m.piece(&pos).name(&pos.rules).as_ref(), "white pawn");
+            }
+        }
+        let pos = FairyBoard::from_fen("crazyhouse 7n/5p2/6p1/8/8/k7/7p/1K1Q4[] b - - 1 1", Strict).unwrap();
+        let pos = pos.make_move_from_str("h2h1q").unwrap();
+        assert_eq!(pos.fen_no_rules(), "7n/5p2/6p1/8/8/k7/8/1K1Q3q~[] w - - 0 2");
     }
 
     #[test]

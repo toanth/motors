@@ -15,6 +15,7 @@
  *  You should have received a copy of the GNU General Public License
  *  along with Gears. If not, see <https://www.gnu.org/licenses/>.
  */
+use crate::games::CharType::Ascii;
 use crate::games::fairy::Side::{Kingside, Queenside};
 use crate::games::fairy::attacks::{EffectRules, MoveKind};
 use crate::games::fairy::moves::MoveEffect::{
@@ -59,7 +60,7 @@ impl FairyMove {
         Self::new(
             CompactSquare::new(FairySquare::no_coordinates(), size),
             CompactSquare::new(to, size),
-            MoveKind::Drop(piece.as_u8()),
+            MoveKind::Drop(piece.to_uncolored_idx() as u8),
             false,
         )
     }
@@ -102,7 +103,7 @@ impl FairyMove {
 
     pub fn piece(self, pos: &FairyBoard) -> ColoredPieceId {
         if let MoveKind::Drop(piece) = self.kind() {
-            ColoredPieceId::from_u8(piece)
+            ColoredPieceId::new(pos.active_player(), PieceId::new(piece as usize))
         } else {
             pos.colored_piece_on(self.source(pos.size())).symbol
         }
@@ -148,7 +149,6 @@ impl Move<FairyBoard> for FairyMove {
     }
 
     fn parse_compact_text<'a>(s: &'a str, board: &FairyBoard) -> Res<(&'a str, FairyMove)> {
-        // let size = board.size();
         if s.is_empty() {
             bail!("empty move")
         } else if let Some(rest) = s.strip_prefix("0000") {
@@ -193,7 +193,7 @@ fn format_move_compact(f: &mut Formatter<'_>, mov: FairyMove, pos: &FairyBoard) 
         }
         MoveKind::ChangePiece(new_piece) => {
             let piece = ColoredPieceId::from_u8(new_piece).to_uncolored_idx();
-            write!(f, "{from}{to}{}", pos.rules().pieces.get(piece)?.uncolored_symbol[0].to_ascii_lowercase())
+            write!(f, "{from}{to}{}", pos.rules().pieces.get(piece)?.uncolored_symbol[Ascii].to_ascii_lowercase())
         }
         MoveKind::Castle(side) => {
             let rook_sq = pos.0.castling_info.player(pos.active_player()).rook_sq(side)?;
@@ -203,7 +203,10 @@ fn format_move_compact(f: &mut Formatter<'_>, mov: FairyMove, pos: &FairyBoard) 
             if pos.rules().pieces.iter().filter(|p| !p.uncolored).count() <= 1 {
                 write!(f, "{to}")
             } else {
-                write!(f, "{to}{}", pos.rules().pieces.get(piece as usize)?.uncolored_symbol[0].to_ascii_lowercase())
+                let piece = pos.rules().pieces.get(piece as usize)?;
+                // although lichess doesn't use `P` for pawn drops in their human-readable notation,
+                // fairy sf and cutechess do (at least in crazyhouse) in their UCI notation
+                write!(f, "{}@{to}", piece.uncolored_symbol[Ascii])
             }
         }
     })
@@ -220,13 +223,13 @@ pub enum MoveEffect {
     ResetDrawCtr,
     PlaceSinglePiece(FairySquare, ColoredPieceId),
     // if the source square is not valid, this effect will be ignored
-    RemoveSinglePiece(FairySquare),
+    RemoveSinglePiece(FairySquare, ColoredPieceId),
     // ClearSquares(RawFairyBitboard),
     SetColorTo(RawFairyBitboard, FairyColor),
     SetEp(FairySquare),
     ResetEp,
     RemoveCastlingRight(FairyColor, Side),
-    RemovePieceFromHand(usize),
+    RemovePieceFromHand(PieceId, FairyColor),
     Capture(FairySquare),
     Promote(ColoredPieceId),
     ConvertOne(FairySquare),
@@ -243,8 +246,9 @@ impl MoveEffect {
                 debug_assert!(board.is_empty(square), "{pos} {square}");
                 board.place_piece(square, piece);
             }
-            RemoveSinglePiece(square) => {
-                board.remove_piece_impl(square);
+            RemoveSinglePiece(square, piece) => {
+                debug_assert_eq!(board.piece_on(square).symbol, piece);
+                board.remove_piece_impl(square, piece);
             }
             // ClearSquares(to_remove) => {
             //     // TODO: Maybe some kind of death callback would make sense? That's definitely not in the first version though
@@ -270,8 +274,8 @@ impl MoveEffect {
             RemoveCastlingRight(color, side) => {
                 board.castling_info.unset(color, side);
             }
-            RemovePieceFromHand(piece) => {
-                board.in_hand[piece] -= 1;
+            RemovePieceFromHand(piece, color) => {
+                board.in_hand[color][piece.val()] -= 1;
             }
             MoveEffect::Win => {}
             MoveEffect::Draw => {}
@@ -291,12 +295,18 @@ fn effects_for(mov: FairyMove, pos: &mut FairyBoard, r: EffectRules) {
     let piece = mov.piece(pos);
     let piece_rules = &pos.rules().clone().pieces[piece.uncolor().val()];
     let mut set_ep = None;
+    let mut captured = None;
     if mov.is_capture() {
         let is_ep = piece_rules.can_ep_capture && Some(to) == pos.0.ep;
         if is_ep {
-            RemoveSinglePiece(pos.0.ep.unwrap().pawn_push(!piece.color().unwrap().is_first())).apply(pos);
+            let sq = pos.0.ep.unwrap().pawn_push(!piece.color().unwrap().is_first());
+            let capt = pos.piece_on(sq).symbol;
+            RemoveSinglePiece(sq, capt).apply(pos);
+            captured = Some(capt);
         } else {
-            RemoveSinglePiece(to).apply(pos);
+            let capt = pos.piece_on(to).symbol;
+            RemoveSinglePiece(to, capt).apply(pos);
+            captured = Some(capt);
         }
     }
     // TODO: Needlessy inefficient because it needs to look up the piece bitboards from placing and removing,
@@ -304,11 +314,11 @@ fn effects_for(mov: FairyMove, pos: &mut FairyBoard, r: EffectRules) {
     // normal move and drop)
     match mov.kind() {
         MoveKind::Normal => {
-            RemoveSinglePiece(from).apply(pos);
+            RemoveSinglePiece(from, piece).apply(pos);
             PlaceSinglePiece(to, piece).apply(pos);
         }
         MoveKind::DoublePawnPush => {
-            RemoveSinglePiece(from).apply(pos);
+            RemoveSinglePiece(from, piece).apply(pos);
             PlaceSinglePiece(to, piece).apply(pos);
             let ep_capture_bb = FairyBitboard::single_piece_for(to, pos.size());
             let ep_capture_bb = ep_capture_bb.west() | ep_capture_bb.east();
@@ -317,13 +327,14 @@ fn effects_for(mov: FairyMove, pos: &mut FairyBoard, r: EffectRules) {
             }
         }
         MoveKind::Drop(piece) => {
-            let piece = ColoredPieceId::from_u8(piece);
-            PlaceSinglePiece(to, piece).apply(pos);
-            RemovePieceFromHand(piece.val()).apply(pos);
+            let piece = PieceId::new(piece as usize);
+            let col_piece = ColoredPieceId::create(piece, Some(pos.active_player()));
+            PlaceSinglePiece(to, col_piece).apply(pos);
+            RemovePieceFromHand(piece, pos.active_player()).apply(pos);
         }
-        MoveKind::ChangePiece(piece) => {
-            RemoveSinglePiece(from).apply(pos);
-            let piece = ColoredPieceId::from_u8(piece);
+        MoveKind::ChangePiece(new_piece) => {
+            RemoveSinglePiece(from, piece).apply(pos);
+            let piece = ColoredPieceId::from_u8(new_piece);
             PlaceSinglePiece(to, piece).apply(pos);
         }
         MoveKind::Castle(side) => {
@@ -332,8 +343,8 @@ fn effects_for(mov: FairyMove, pos: &mut FairyBoard, r: EffectRules) {
             debug_assert_eq!(castling_info.king_dest_sq(side), Some(to));
             let rook_sq = castling_info.rook_sq(side).unwrap();
             let rook = pos.colored_piece_on(rook_sq).symbol;
-            RemoveSinglePiece(from).apply(pos);
-            RemoveSinglePiece(rook_sq).apply(pos);
+            RemoveSinglePiece(from, piece).apply(pos);
+            RemoveSinglePiece(rook_sq, rook).apply(pos);
             PlaceSinglePiece(to, piece).apply(pos);
             PlaceSinglePiece(castling_info.rook_dest_sq(side).unwrap(), rook).apply(pos);
         }
@@ -358,7 +369,7 @@ fn effects_for(mov: FairyMove, pos: &mut FairyBoard, r: EffectRules) {
     if pos.rules().has_castling {
         for color in FairyColor::iter() {
             let castling_bb = pos.castling_bb() & pos.player_bb(color);
-            if castling_bb.is_bit_set_at(pos.size().internal_key(from))
+            if (mov.src_square_in(pos).is_some() && castling_bb.is_bit_set_at(pos.size().internal_key(from)))
                 || castling_bb.is_bit_set_at(pos.size().internal_key(to))
             {
                 RemoveCastlingRight(color, Kingside).apply(pos);
@@ -372,7 +383,7 @@ fn effects_for(mov: FairyMove, pos: &mut FairyBoard, r: EffectRules) {
         }
     }
     if mov.is_capture() {
-        let event = effects::Capture { square: to };
+        let event = effects::Capture { square: to, captured: captured.unwrap() };
         pos.emit(event);
     }
 }
@@ -457,7 +468,6 @@ impl FairyBoard {
     }
 
     pub(super) fn end_move(mut self) -> Option<Self> {
-        self.0.ply_since_start += 1;
         if self.settings().0.must_preserve_own_king[self.active.idx()] && self.royal_bb_for(self.active).is_zero() {
             return None;
         }
@@ -485,6 +495,7 @@ impl FairyBoard {
     pub fn flip_side_to_move(mut self) -> Option<Self> {
         self.0.active = !self.0.active;
         self.0.hash = self.compute_hash();
+        self.0.ply_since_start += 1;
         if !self.rules().check_rules.satisfied(&self) {
             return None;
         }

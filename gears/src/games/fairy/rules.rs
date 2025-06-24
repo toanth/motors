@@ -17,7 +17,7 @@
  */
 use crate::PlayerResult;
 use crate::games::ataxx::AtaxxBoard;
-use crate::games::fairy::attacks::EffectRules;
+use crate::games::fairy::attacks::{AttackBitboardFilter, EffectRules, GenPieceAttackKind};
 use crate::games::fairy::effects::Observers;
 use crate::games::fairy::moves::FairyMove;
 use crate::games::fairy::pieces::{Piece, PieceId};
@@ -45,8 +45,15 @@ use std::cmp::Ordering;
 use std::fmt;
 use std::fmt::{Debug, Formatter};
 use std::hash::{Hash, Hasher};
-use std::ops::Deref;
 use std::sync::{Arc, LazyLock};
+
+/// Modifications that can apply to a square, such as a piece on that square being promoted in crazyhouse.
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Arbitrary)]
+#[must_use]
+pub enum SquareEffect {
+    Promoted,
+    // TODO: More values like `Neutral`, etc
+}
 
 /// Whether any or all royal pieces have to be attacked for the player to be considered in check
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Arbitrary)]
@@ -390,7 +397,7 @@ impl GameEndEager {
     }
 }
 
-#[derive(Debug, Default, Copy, Clone, Eq, PartialEq, Arbitrary)]
+#[derive(Debug, Default, Copy, Clone, Eq, PartialEq, Hash, Arbitrary)]
 #[must_use]
 pub enum RulesFenPart {
     #[default]
@@ -414,7 +421,7 @@ impl Arbitrary<'_> for EmptyBoard {
             color_bitboards: [RawFairyBitboard::arbitrary(u)?; NUM_COLORS],
             neutral_bb: RawFairyBitboard::arbitrary(u)?,
             mask_bb: RawFairyBitboard::arbitrary(u)?,
-            in_hand: [u8::arbitrary(u)?; MAX_NUM_PIECE_TYPES],
+            in_hand: [[u8::arbitrary(u)?; MAX_NUM_PIECE_TYPES]; NUM_COLORS],
             ply_since_start: usize::arbitrary(u)?,
             num_piece_bitboards: usize::arbitrary(u)?,
             draw_counter: usize::arbitrary(u)?,
@@ -425,7 +432,6 @@ impl Arbitrary<'_> for EmptyBoard {
             last_move: FairyMove::arbitrary(u)?,
             rules: Default::default(),
             hash: PosHash::arbitrary(u)?,
-            game_result: None,
         };
         let func = move |rules: &RulesRef| {
             let mut b = board.clone();
@@ -444,15 +450,15 @@ pub enum NumRoyals {
     BetweenInclusive(usize, usize),
 }
 
-/// This struct defined the rules for the game.
+/// This struct defined the rules for the variant.
 /// Since the rules don't change during a game, but are expensive to copy and the board uses copy-make,
-/// they are created once and stored globally.
+/// they are created once and stored behind an [`Arc`] that all boards have one copy of.
 #[must_use]
 #[derive(Debug, Arbitrary)]
 pub(super) struct Rules {
     pub pieces: Vec<Piece>,
     pub colors: [ColorInfo; NUM_COLORS],
-    pub starting_pieces_in_hand: [u8; MAX_NUM_PIECE_TYPES],
+    pub starting_pieces_in_hand: [[u8; MAX_NUM_PIECE_TYPES]; NUM_COLORS],
     pub game_end_eager: Vec<(GameEndEager, GameEndRes)>,
     pub game_end_no_moves: Vec<(NoMovesCondition, GameEndRes)>,
     pub startpos_fen_part: String, // doesn't include the rules
@@ -460,9 +466,10 @@ pub(super) struct Rules {
     // pub legality: Legality,
     pub size: GridSize,
     pub has_ep: bool,
+    pub has_fen_hand_info: bool, // false for e.g. mnk games, which have a hand, but don't include that in the FEN.
     pub has_castling: bool,
     pub store_last_move: bool,
-    pub effect_rules: EffectRules,
+    pub effect_rules: EffectRules, // TODO: Remove?
     pub check_rules: CheckRules,
     pub name: String,
     pub fen_part: RulesFenPart,
@@ -499,7 +506,7 @@ impl Rules {
         }
     }
 
-    pub fn pieces(&self) -> impl Iterator<Item = (PieceId, &Piece)> {
+    pub fn pieces(&self) -> impl DoubleEndedIterator<Item = (PieceId, &Piece)> {
         self.pieces.iter().enumerate().map(|(id, piece)| (PieceId::new(id), piece))
     }
 
@@ -542,7 +549,6 @@ impl Rules {
             last_move: Default::default(),
             rules: rules.clone(),
             hash: PosHash::default(),
-            game_result: None,
         }
     }
 
@@ -579,7 +585,7 @@ impl Rules {
         Self {
             pieces,
             colors,
-            starting_pieces_in_hand: [0; MAX_NUM_PIECE_TYPES],
+            starting_pieces_in_hand: [[0; MAX_NUM_PIECE_TYPES]; NUM_COLORS],
             game_end_eager,
             game_end_no_moves,
             startpos_fen_part,
@@ -587,6 +593,7 @@ impl Rules {
             empty_board: EmptyBoard(Box::new(empty_func)),
             size: FairySize::chess(),
             has_ep: true,
+            has_fen_hand_info: false,
             has_castling: true,
             store_last_move: false,
             effect_rules,
@@ -617,7 +624,7 @@ impl Rules {
         Self {
             pieces,
             colors,
-            starting_pieces_in_hand: [0; MAX_NUM_PIECE_TYPES],
+            starting_pieces_in_hand: [[0; MAX_NUM_PIECE_TYPES]; NUM_COLORS],
             game_end_eager,
             game_end_no_moves,
             startpos_fen_part,
@@ -625,6 +632,7 @@ impl Rules {
             empty_board: EmptyBoard(Box::new(Self::generic_empty_board)),
             size: FairySize::chess(),
             has_ep: false,
+            has_fen_hand_info: false,
             has_castling: false,
             store_last_move: false,
             effect_rules,
@@ -720,6 +728,40 @@ impl Rules {
         rules
     }
 
+    pub fn crazyhouse() -> Self {
+        let mut rules = Self::chess();
+        rules.name = "crazyhouse".to_string();
+        rules.startpos_fen_part = chess::START_FEN.to_string();
+        rules.has_fen_hand_info = true;
+        rules.observers = Observers::crazyhouse();
+        for (i, p) in rules.pieces.iter_mut().enumerate() {
+            let mut drop = GenPieceAttackKind::piece_drop(vec![AttackBitboardFilter::EmptySquares]);
+            if p.name == "pawn" {
+                drop.bitboard_filter
+                    .push(AttackBitboardFilter::Bitboard(!FairyBitboard::backranks_for(rules.size).raw()))
+            } else if p.name != "king" {
+                p.promotions.promoted_version = Some(PieceId::new(i + 5));
+            }
+            p.attacks.push(drop);
+        }
+        let mut pieces = Piece::complete_piece_map(rules.size);
+        for i in 1..5 {
+            let mut piece = pieces.remove(&rules.pieces[i].name).unwrap();
+            let pawn = PieceId::new(0);
+            piece.promotions.promoted_from = Some(pawn);
+            piece.name += " (promoted)";
+            debug_assert_eq!(rules.pieces[i].promotions.promoted_version, Some(PieceId::new(rules.pieces.len())));
+            rules.pieces.push(piece);
+        }
+        for piece in &rules.pieces[0].promotions.pieces {
+            assert!(rules.pieces[piece.val() + 5].name.starts_with(&rules.pieces[piece.val()].name));
+        }
+        for piece in &mut rules.pieces[0].promotions.pieces {
+            *piece = PieceId::new(piece.val() + 5);
+        }
+        rules
+    }
+
     pub fn ataxx() -> Self {
         let size = FairySize::ataxx();
         let mut map = Piece::complete_piece_map(size);
@@ -730,7 +772,7 @@ impl Rules {
         Self {
             pieces,
             colors: Self::mnk_colors(),
-            starting_pieces_in_hand: [u8::MAX; MAX_NUM_PIECE_TYPES],
+            starting_pieces_in_hand: [[u8::MAX; MAX_NUM_PIECE_TYPES]; NUM_COLORS],
             game_end_eager: vec![
                 (Repetition(3), Draw),
                 (DrawCounter(100), Draw),
@@ -742,6 +784,7 @@ impl Rules {
             empty_board: EmptyBoard(Box::new(Self::generic_empty_board)),
             size,
             has_ep: false,
+            has_fen_hand_info: false,
             has_castling: false,
             store_last_move: false,
             effect_rules: EffectRules { reset_draw_counter_on_capture: true, conversion_radius: 1 },
@@ -766,7 +809,7 @@ impl Rules {
         Self {
             pieces,
             colors: Self::mnk_colors(),
-            starting_pieces_in_hand: [u8::MAX; MAX_NUM_PIECE_TYPES],
+            starting_pieces_in_hand: [[u8::MAX; MAX_NUM_PIECE_TYPES]; NUM_COLORS],
             game_end_eager: vec![(InRowAtLeast(k as usize, PlayerCond::Inactive), GameEndRes::loss())],
             game_end_no_moves: vec![(Always, Draw)],
             startpos_fen_part,
@@ -774,6 +817,7 @@ impl Rules {
             empty_board: EmptyBoard(Box::new(Self::generic_empty_board)),
             size,
             has_ep: false,
+            has_fen_hand_info: false,
             has_castling: false,
             store_last_move: true,
             effect_rules: EffectRules::default(),
@@ -825,7 +869,7 @@ impl Eq for RulesRef {}
 
 impl Hash for RulesRef {
     fn hash<H: Hasher>(&self, state: &mut H) {
-        std::ptr::hash(self.0.deref(), state);
+        (&self.0.name, &self.0.fen_part).hash(state);
     }
 }
 

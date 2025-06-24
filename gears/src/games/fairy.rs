@@ -24,6 +24,8 @@ mod rules;
 #[cfg(test)]
 mod tests;
 
+use crate::PlayerResult;
+use crate::games::CharType::Ascii;
 use crate::games::fairy::moves::FairyMove;
 use crate::games::fairy::pieces::{ColoredPieceId, PieceId};
 use crate::games::fairy::rules::{GameEndEager, NumRoyals, Rules, RulesRef};
@@ -48,16 +50,16 @@ use crate::general::squares::{GridCoordinates, GridSize, RectangularCoordinates,
 use crate::output::OutputOpts;
 use crate::output::text_output::{BoardFormatter, DefaultBoardFormatter, board_to_string, display_board_pretty};
 use crate::search::Depth;
-use crate::{GameResult, PlayerResult};
 use anyhow::{bail, ensure};
 use arbitrary::Arbitrary;
+use colored::Colorize;
 use itertools::Itertools;
 use rand::Rng;
 use rand::prelude::IndexedRandom;
 use std::fmt;
 use std::fmt::{Debug, Display, Formatter};
 use std::hash::{DefaultHasher, Hash, Hasher};
-use std::ops::{Deref, Not};
+use std::ops::{Deref, Index, IndexMut, Not};
 use std::sync::Arc;
 use strum::IntoEnumIterator;
 use strum_macros::{EnumIter, FromRepr};
@@ -119,6 +121,20 @@ impl Not for FairyColor {
     type Output = Self;
     fn not(self) -> Self {
         self.other()
+    }
+}
+
+impl<T> Index<FairyColor> for [T; 2] {
+    type Output = T;
+
+    fn index(&self, color: FairyColor) -> &Self::Output {
+        &self[color.idx()]
+    }
+}
+
+impl<T> IndexMut<FairyColor> for [T; 2] {
+    fn index_mut(&mut self, color: FairyColor) -> &mut Self::Output {
+        &mut self[color.idx()]
     }
 }
 
@@ -248,7 +264,7 @@ pub struct UnverifiedFairyBoard {
     // bb of all valid squares
     mask_bb: RawFairyBitboard,
     // for each piece type, how many the player has available to drop
-    in_hand: [u8; MAX_NUM_PIECE_TYPES],
+    in_hand: [[u8; MAX_NUM_PIECE_TYPES]; NUM_COLORS],
     ply_since_start: usize,
     // like the 50mr counter in chess TODO: Maybe make it count down?
     num_piece_bitboards: usize,
@@ -258,7 +274,6 @@ pub struct UnverifiedFairyBoard {
     size: GridSize,
     ep: Option<FairySquare>,
     last_move: FairyMove,
-    game_result: Option<GameResult>,
     hash: PosHash,
     rules: RulesRef,
 }
@@ -415,6 +430,10 @@ impl UnverifiedBoard<FairyBoard> for UnverifiedFairyBoard {
         RulesRef(self.rules().clone())
     }
 
+    fn name(&self) -> String {
+        self.settings().0.name.clone()
+    }
+
     fn size(&self) -> BoardSize<FairyBoard> {
         self.size
     }
@@ -430,7 +449,8 @@ impl UnverifiedBoard<FairyBoard> for UnverifiedFairyBoard {
     }
 
     fn remove_piece(&mut self, coords: FairySquare) {
-        self.remove_piece_impl(coords);
+        let piece = self.piece_on(coords).symbol;
+        self.remove_piece_impl(coords, piece);
         // just give up when it comes to flags
         self.castling_info = FairyCastleInfo::default();
         self.ep = None;
@@ -474,6 +494,44 @@ impl UnverifiedBoard<FairyBoard> for UnverifiedFairyBoard {
         self.draw_counter = ply;
         Ok(())
     }
+
+    fn read_fen_hand_part(&mut self, input: &str) -> Res<()> {
+        ensure!(
+            self.settings().0.has_fen_hand_info,
+            "The variant '{}' does not contain hand info in the FEN, so '[' and ']' can't appear in the position FEN part",
+            self.settings().0.name
+        );
+        for c in input.chars() {
+            let Some(piece) = ColoredPieceId::from_char(c, &self.settings()) else {
+                bail!(
+                    "Expected a fairy piece, but '{0}' is not a valid FEN piece character for the current variant ({1})",
+                    c.to_string().bold(),
+                    self.settings().0.name.bold()
+                )
+            };
+            let val = &mut self.in_hand[piece.color().unwrap()][piece.to_uncolored_idx()];
+            *val = val.saturating_add(1);
+        }
+        Ok(())
+    }
+
+    fn write_fen_hand_part(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        let rules = self.settings().0;
+        if rules.has_fen_hand_info {
+            write!(f, "[")?;
+            for color in FairyColor::iter() {
+                for (id, piece) in rules.pieces().rev() {
+                    let mut count = self.in_hand[color][id.val()];
+                    while count > 0 {
+                        write!(f, "{}", piece.player_symbol[color][Ascii])?;
+                        count -= 1;
+                    }
+                }
+            }
+            write!(f, "]")?;
+        }
+        Ok(())
+    }
 }
 
 impl UnverifiedFairyBoard {
@@ -484,15 +542,12 @@ impl UnverifiedFairyBoard {
         FairyBitboard::new(RawFairyBitboard::single_piece_at(self.idx(square)), self.size())
     }
     // doesn't affect the neutral bitboard (todo: change?)
-    fn remove_piece_impl(&mut self, square: FairySquare) {
-        let idx = self.idx(square);
+    fn remove_piece_impl(&mut self, square: FairySquare, piece: ColoredPieceId) {
         let bb = self.single_piece(square).raw();
-        if let Some(col_bb) = self.color_bitboards.iter_mut().find(|bb| bb.is_bit_set_at(idx)) {
-            *col_bb ^= bb;
+        if let Some(col) = piece.color() {
+            self.color_bitboards[col.idx()] ^= bb;
         }
-        if let Some(piece_bb) = self.piece_bitboards.iter_mut().find(|bb| bb.is_bit_set_at(idx)) {
-            *piece_bb ^= bb;
-        }
+        self.piece_bitboards[piece.uncolor().val()] ^= bb;
     }
     // adds or removes a given piece at a given square
     fn xor_given_piece_at(&mut self, square: FairySquare, piece: PieceId, color: FairyColor) {
@@ -869,6 +924,7 @@ impl FairyBoard {
             GenericSelect { name: "kingofthehill", val: || RulesRef::new(Rules::king_of_the_hill()) },
             GenericSelect { name: "horde", val: || RulesRef::new(Rules::horde()) },
             GenericSelect { name: "racingkings", val: || RulesRef::new(Rules::racing_kings(FairySize::chess())) },
+            GenericSelect { name: "crazyhouse", val: || RulesRef::new(Rules::crazyhouse()) },
             GenericSelect { name: "ataxx", val: || RulesRef::new(Rules::ataxx()) },
             GenericSelect { name: "tictactoe", val: || RulesRef::new(Rules::tictactoe()) },
             GenericSelect { name: "mnk", val: || RulesRef::new(Rules::mnk(GridSize::connect4(), 4)) },

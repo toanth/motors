@@ -28,7 +28,7 @@ use crate::games::fairy::{
     CastlingMoveInfo, FairyBitboard, FairyBoard, FairyCastleInfo, FairyColor, FairyPiece, FairySize, FairySquare,
     RawFairyBitboard, Side, UnverifiedFairyBoard,
 };
-use crate::games::{Color, ColoredPiece, ColoredPieceType, DimT, Size, char_to_file};
+use crate::games::{AbstractPieceType, Color, ColoredPiece, ColoredPieceType, DimT, Size, char_to_file};
 use crate::general::bitboards::{Bitboard, RawBitboard};
 use crate::general::board::{BitboardBoard, Board, BoardHelpers, PieceTypeOf, Strictness, UnverifiedBoard};
 use crate::general::common::{Res, Tokens};
@@ -176,7 +176,7 @@ impl AttackKind {
             Self::Normal => MoveKind::Normal,
             Self::DoublePawnPush => MoveKind::DoublePawnPush,
             Self::Castle(side) => MoveKind::Castle(side),
-            AttackKind::Drop => MoveKind::Drop(piece.as_u8()),
+            AttackKind::Drop => MoveKind::Drop(piece.to_uncolored_idx() as u8),
         }
     }
 }
@@ -411,6 +411,7 @@ pub enum AttackBitboardFilter {
     Them,
     Us,
     NotUs,
+    Bitboard(RawFairyBitboard),
     // NotThem,
     Rank(DimT),
     // File(DimT),
@@ -427,6 +428,7 @@ impl AttackBitboardFilter {
             AttackBitboardFilter::Us => pos.player_bb(us),
             NotUs => !pos.player_bb(us),
             // AttackBitboardFilter::NotThem => !pos.player_bb(!us),
+            AttackBitboardFilter::Bitboard(bb) => FairyBitboard::new(*bb, pos.size()),
             AttackBitboardFilter::Rank(rank) => FairyBitboard::rank_for(*rank, pos.size()),
             // AttackBitboardFilter::File(file) => FairyBitboard::file_for(file, pos.size()),
             AttackBitboardFilter::Neighbor(nested) => {
@@ -610,7 +612,7 @@ impl FairyBoard {
                         }
                     }
                     RequiredForAttack::PieceInHand => {
-                        if self.0.in_hand[id.val()] > 0 {
+                        if self.0.in_hand[color][id.val()] > 0 {
                             let piece = FairyPiece {
                                 symbol: ColoredPieceId::new(color, id),
                                 coordinates: FairySquare::no_coordinates(),

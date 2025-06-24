@@ -73,7 +73,6 @@ fn empty_test() {
             assert!(!board.castling_info.can_castle(c, side));
         }
     }
-    assert!(board.game_result.is_none());
     assert_eq!(board.active, FairyColor::default());
     assert!(board.verify(Relaxed).is_err());
 }
@@ -96,7 +95,6 @@ fn startpos_test() {
     }
     assert!(!board.is_in_check());
     assert!(!board.is_game_lost_slow(&NoHistory::default()));
-    assert!(board.game_result.is_none());
     assert_eq!(board.player_bb(FairyColor::first()), FairyBitboard::new(0xffff, board.size()));
     assert_eq!(board.player_bb(FairyColor::second()), FairyBitboard::new(0xffff << 48, board.size()));
     assert_eq!(board.occupied_bb(), FairyBitboard::new(0xffff_0000_0000_ffff, board.size()));

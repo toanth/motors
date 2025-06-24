@@ -1,5 +1,5 @@
 use crate::games::CharType::{Ascii, Unicode};
-use crate::general::board::Board;
+use crate::general::board::{Board, BoardHelpers};
 use crate::general::common::{EntityList, Res, Tokens};
 use crate::output::OutputBuilder;
 use anyhow::bail;
@@ -10,7 +10,7 @@ use std::cmp::min;
 use std::fmt;
 use std::fmt::{Debug, Display, Formatter};
 use std::hash::Hash;
-use std::ops::Not;
+use std::ops::{Index, IndexMut, Not};
 use std::str::FromStr;
 use strum_macros::EnumIter;
 
@@ -34,9 +34,24 @@ pub enum CharType {
     Unicode,
 }
 
+impl<T> Index<CharType> for [T; 2] {
+    type Output = T;
+    fn index(&self, index: CharType) -> &Self::Output {
+        &self[index as usize]
+    }
+}
+
+impl<T> IndexMut<CharType> for [T; 2] {
+    fn index_mut(&mut self, index: CharType) -> &mut Self::Output {
+        &mut self[index as usize]
+    }
+}
+
+pub const NUM_CHAR_TYPES: usize = 2;
+
 pub const NUM_COLORS: usize = 2;
 
-pub trait Color: Debug + Default + Copy + Clone + PartialEq + Eq + Send + Hash + Not {
+pub trait Color: Debug + Default + Copy + Clone + PartialEq + Eq + Send + Hash + Not<Output = Self> {
     type Board: Board<Color = Self>;
 
     #[must_use]
@@ -189,6 +204,25 @@ pub trait ColoredPieceType<B: Board>: AbstractPieceType<B> {
     }
 
     fn to_colored_idx(self) -> usize;
+
+    fn flip_color(self) -> Self {
+        if let Some(color) = self.color() { Self::new(!color, self.uncolor()) } else { self }
+    }
+
+    /// This method is used when parsing FENs and only does something in some fairy variants.
+    fn make_promoted(&mut self, rules: &B::Settings) -> Res<()> {
+        bail!(
+            "There is no special meaning for a promoted {0} in {1}",
+            self.name(rules).as_ref().bold(),
+            B::game_name().bold()
+        )
+    }
+
+    /// Like [`Self::make_promoted`], this method is used to for FENs.
+    /// For example, in crazyhouse, a promoted piece is suffixed with a '~'.
+    fn is_promoted(&self, _rules: &B::Settings) -> bool {
+        false
+    }
 }
 
 // TODO: Don't save coordinates in colored piece

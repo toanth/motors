@@ -281,7 +281,7 @@ impl Move<MNKBoard> for FillSquare {
     }
 }
 
-#[derive(Copy, Clone, Debug, Eq, PartialEq, Arbitrary)]
+#[derive(Copy, Clone, Debug, Eq, PartialEq, Hash, Arbitrary)]
 #[must_use]
 pub struct MnkSettings {
     height: DimT,

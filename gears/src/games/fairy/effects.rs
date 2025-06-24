@@ -15,11 +15,12 @@
  *  You should have received a copy of the GNU General Public License
  *  along with Gears. If not, see <https://www.gnu.org/licenses/>.
  */
+use crate::games::ColoredPieceType;
 use crate::games::fairy::pieces::{ColoredPieceId, PieceId};
 use crate::games::fairy::rules::GameEndEager;
 use crate::games::fairy::{FairyBitboard, FairyBoard, FairyColor, FairySquare, RawFairyBitboard, Side};
 use crate::general::bitboards::Bitboard;
-use crate::general::board::UnverifiedBoard;
+use crate::general::board::{Board, UnverifiedBoard};
 use arbitrary::{Arbitrary, Unstructured};
 use std::fmt::Debug;
 
@@ -93,18 +94,21 @@ pub struct RemoveCastlingRight {
 
 #[derive(Debug, Copy, Clone)]
 pub struct RemovePieceFromHand {
-    pub piece: ColoredPieceId,
+    pub piece: PieceId,
+    pub color: FairyColor,
 }
 
 #[derive(Debug, Copy, Clone)]
 pub struct AddPieceToHand {
-    pub piece: ColoredPieceId,
+    pub piece: PieceId,
+    pub color: FairyColor,
 }
 
 #[derive(Debug, Copy, Clone)]
 #[allow(dead_code)]
 pub struct Capture {
     pub square: FairySquare,
+    pub captured: ColoredPieceId,
 }
 
 #[derive(Debug, Copy, Clone)]
@@ -233,8 +237,8 @@ impl Event for RemoveCastlingRight {
 
 impl Event for RemovePieceFromHand {
     fn execute(self, pos: &mut FairyBoard) {
-        debug_assert!(pos.0.in_hand[self.piece.val()] > 0);
-        pos.0.in_hand[self.piece.val()] -= 1;
+        debug_assert!(pos.0.in_hand[self.color][self.piece.val()] > 0);
+        pos.0.in_hand[self.color][self.piece.val()] -= 1;
     }
 
     fn notify(self, observers: &Observers, pos: &mut FairyBoard) {
@@ -244,7 +248,7 @@ impl Event for RemovePieceFromHand {
 
 impl Event for AddPieceToHand {
     fn execute(self, pos: &mut FairyBoard) {
-        let val = &mut pos.0.in_hand[self.piece.val()];
+        let val = &mut pos.0.in_hand[self.color][self.piece.val()];
         *val = val.saturating_add(1);
     }
 
@@ -366,6 +370,20 @@ impl Observers {
             pos.emit(RemoveAll { bb });
         };
         res.capture.push(Box::new(explosion));
+        res
+    }
+
+    pub fn crazyhouse() -> Self {
+        let mut res = Self::chess();
+        let add_to_hand = |event: Capture, pos: &mut FairyBoard| {
+            let mut piece = event.captured.uncolor();
+            if let Some(pawn) = piece.get(&pos.rules).promotions.promoted_from {
+                piece = pawn;
+                debug_assert!(piece.get(&pos.rules).promotions.promoted_version.is_none());
+            }
+            pos.emit(AddPieceToHand { piece, color: pos.active_player() })
+        };
+        res.capture.push(Box::new(add_to_hand));
         res
     }
 

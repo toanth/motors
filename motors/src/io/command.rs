@@ -556,6 +556,7 @@ pub struct GenericGoState {
     pub search_type: SearchType,
     pub complete: bool,
     pub unique: bool,
+    pub compare: bool,
     pub move_overhead: Duration,
     pub strictness: Strictness,
     pub override_hash_size: Option<usize>,
@@ -607,6 +608,7 @@ impl<B: Board> GoState<B> {
                 search_type,
                 complete: false,
                 unique: false,
+                compare: false,
                 move_overhead,
                 strictness,
                 override_hash_size: None,
@@ -831,27 +833,42 @@ pub(super) fn go_options_impl(
                 |state, words, _| state.go_state_mut().set_engine(words)
             ),
         ];
-        // this checks only the mode that `go_options` is called for, but it can be changed through args (eg `go perft`),
-        // which is why there's another check when actually handling it. Still, the first check prevents it from showing up in completion suggestion.
-        if mode.is_none_or(|m| [Bench, Perft].iter().contains(&m)) {
-            res.push(command!(complete | all, Custom, "Run bench / perft on all bench positions", |state, _, _| {
-                if ![Bench, Perft].contains(&state.go_state_mut().get_mut().search_type) {
-                    bail!("The 'all' option can only be used with 'bench' or 'perft' searches")
-                }
-                state.go_state_mut().get_mut().complete = true;
-                Ok(())
-            }));
-        }
-        if mode.is_none_or(|m| m == Perft) {
-            res.push(command!(unique, Custom, "Only count unique positions in perft", |state, _, _| {
-                if state.go_state_mut().get_mut().search_type != Perft {
-                    bail!("The 'all' option can only be used with 'perft' searches")
-                }
-                state.go_state_mut().get_mut().unique = true;
-                Ok(())
-            }));
-        }
         res.append(&mut additional);
+    }
+    // this checks only the mode that `go_options` is called for, but it can be changed through args (eg `go perft`),
+    // which is why there's another check when actually handling it. Still, the first check prevents it from showing up in completion suggestion.
+    if mode.is_none_or(|m| [Bench, Perft].iter().contains(&m)) {
+        res.push(command!(complete | all, Custom, "Run bench / perft on all bench positions", |state, _, _| {
+            if ![Bench, Perft].contains(&state.go_state_mut().get_mut().search_type) {
+                bail!("The 'all' option can only be used with 'bench' or 'perft' searches")
+            }
+            state.go_state_mut().get_mut().complete = true;
+            Ok(())
+        }));
+    }
+    if mode.is_none_or(|m| m == Perft) {
+        res.push(command!(unique, Custom, "Only count unique positions in perft", |state, _, _| {
+            if state.go_state_mut().get_mut().search_type != Perft {
+                bail!("The 'all' option can only be used with 'perft' searches")
+            }
+            state.go_state_mut().get_mut().unique = true;
+            Ok(())
+        }));
+    }
+    if mode.is_none_or(|m| m == SplitPerft) {
+        let c = command!(
+            compare | cmp | diff,
+            Custom,
+            "Compare user-provided splitperft results against this implementation",
+            |state, _, _| {
+                if state.go_state_mut().get_mut().search_type != SplitPerft {
+                    bail!("The 'compare' option can only be used with 'splitperft' searches")
+                }
+                state.go_state_mut().get_mut().compare = true;
+                Ok(())
+            }
+        );
+        res.push(c);
     }
     res
 }
@@ -1050,7 +1067,7 @@ pub(super) fn coords_options<B: Board>(pos: &B, ac_coords: bool, only_occupied: 
         if only_occupied && pos.is_empty(c) {
             continue;
         }
-        let n = Name { short: c.to_string(), long: c.to_string(), description: None };
+        let n = Name::from_name(&c.to_string());
         let mut cmd = named_entity_to_command(&n);
         let piece = pos.colored_piece_on(c).colored_piece_type();
         if pos.is_empty(c) {
@@ -1070,8 +1087,7 @@ pub(super) fn piece_options<B: Board>(pos: &B) -> CommandList {
     let mut res = vec![];
     let settings = pos.settings();
     for p in ColPieceTypeOf::<B>::non_empty(&settings) {
-        let name = p.name(&settings).as_ref().to_string();
-        let n = Name { short: name.clone(), long: name.clone(), description: None };
+        let n = Name::from_name(p.name(&settings).as_ref());
         let mut cmd = named_entity_to_command(&n);
         let list = [p.to_char(Ascii, &settings), p.to_char(Unicode, &settings)];
         for c in list.iter().sorted().dedup() {

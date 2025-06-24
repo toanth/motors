@@ -55,7 +55,7 @@ use gears::general::common::{
 use gears::general::common::{Res, Tokens};
 use gears::general::moves::ExtendedFormat::{Alternative, Standard};
 use gears::general::moves::Move;
-use gears::general::perft::{num_unique_positions_up_to, perft_for, split_perft};
+use gears::general::perft::{SplitPerftRes, num_unique_positions_up_to, perft_for, split_perft};
 use gears::itertools::Itertools;
 use gears::output::Message::*;
 use gears::output::logger::LoggerBuilder;
@@ -73,6 +73,7 @@ use gears::{
     UgiPosState, output_builder_from_str,
 };
 use std::cell::RefCell;
+use std::collections::HashSet;
 use std::fmt::{Debug, Display, Formatter, Write};
 use std::ops::{Deref, DerefMut};
 use std::rc::Rc;
@@ -710,7 +711,11 @@ impl<B: Board> EngineUGI<B> {
                 if threads > 1 {
                     bail!("For 'splitperft' runs, the 'Threads' options can only be used to set threads to 1")
                 }
-                self.write_ugi(&format_args!("{}", split_perft(limit.depth, board, threads != 1)));
+                let res = split_perft(limit.depth, board, threads != 1);
+                self.write_ugi(&format_args!("{res}"));
+                if self.go_state_mut().get_mut().compare {
+                    compare_splitperft(self, res)?;
+                }
             }
             _ => return self.start_search(),
         }
@@ -1896,6 +1901,94 @@ fn handle_play_impl(ugi: &mut dyn AbstractEngineUgi, words: &mut Tokens) -> Res<
     } else {
         // print the current board again, now that the match is over
         ugi.print_board(OutputOpts::default());
+    }
+    Ok(())
+}
+
+#[cold]
+fn compare_splitperft<B: Board>(ugi: &mut EngineUGI<B>, perft_res: SplitPerftRes<B>) -> Res<()> {
+    let compare_text =
+        inquire::Editor::new("Press 'e' to open an editor and enter your splitperft results, then press enter")
+            .prompt()?;
+    ugi.write_message(Info, &format_args!("Received input: '{compare_text}'"));
+    let mut seen = HashSet::default();
+    let mut errors = vec![];
+    for line in compare_text.lines().filter(|l| !l.trim().is_empty()) {
+        if let Err(err) = splitperft_line(line, &perft_res, &mut seen) {
+            errors.push(err.to_string());
+        }
+    }
+    for (unseen, nodes) in perft_res.children.iter().filter(|(m, _n)| !seen.contains(m)) {
+        let err = anyhow!(
+            "Missing move '{0}' ({1} nodes)",
+            unseen.compact_formatter(&perft_res.pos).to_string().red(),
+            nodes.to_string().bold()
+        );
+        errors.push(err.to_string());
+    }
+    if errors.is_empty() {
+        ugi.write_ugi(&format_args!("Splitperft result matches ({} moves)!", perft_res.children.len()));
+    } else {
+        ugi.write_message(Warning, &format_args!("There were {0} errors: ", errors.len().to_string().bold()));
+        for line in errors {
+            ugi.write_ugi(&format_args!("{}", line));
+        }
+    }
+    Ok(())
+}
+
+fn splitperft_line<B: Board>(line: &str, perft_res: &SplitPerftRes<B>, seen: &mut HashSet<B::Move>) -> Res<()> {
+    let mut words = tokens(line).map(|w| w.to_ascii_lowercase());
+    let mov = words.next().unwrap();
+    let mov = mov.trim_end_matches(':');
+    let mut numbers = words.filter_map(|w| w.trim_end_matches("nodes").parse::<u64>().ok());
+    let Some(nodes) = numbers.next() else {
+        bail!("Failed to find subtree nodes count in '{}'", line.red());
+    };
+    if numbers.next().is_some() {
+        bail!("Line contains multiple numbers, can't decide which one is the splitperft nodes count")
+    }
+    let mov = match B::Move::from_text(mov, &perft_res.pos) {
+        Ok(m) => m,
+        Err(_) => {
+            let mut matching = perft_res.children.iter().filter_map(|(m, _n)| {
+                let strings = [
+                    m.compact_formatter(&perft_res.pos).to_string(),
+                    m.to_extended_text(&perft_res.pos, Standard),
+                    m.to_extended_text(&perft_res.pos, Alternative),
+                ];
+                if strings.iter().any(|s| s.eq_ignore_ascii_case(mov)) { Some(*m) } else { None }
+            });
+            let Some(m) = matching.next() else {
+                bail!("Invalid move '{0}' ({1} nodes)", mov.red(), nodes.to_string().bold())
+            };
+            if let Some(m2) = matching.next() {
+                bail!(
+                    "Move '{0}' can't be parsed directly and matches more than one textual move representation: '{1}' and '{2}'",
+                    mov.red(),
+                    m.compact_formatter(&perft_res.pos).to_string().bold(),
+                    m2.compact_formatter(&perft_res.pos).to_string().bold()
+                );
+            }
+            m
+        }
+    };
+    if !seen.insert(mov) {
+        bail!("Duplicate move '{0}'", mov.compact_formatter(&perft_res.pos).to_string().red());
+    }
+    let Some((mov, n)) = perft_res.children.iter().find(|(m, _n)| *m == mov) else {
+        bail!(
+            "Invalid move '{0}' (Internal error: Not a splitperft child but matches a legal move)",
+            mov.compact_formatter(&perft_res.pos).to_string().red()
+        );
+    };
+    if nodes != *n {
+        bail!(
+            "Incorrect splitperft number for move '{0}': Should be {1} but is {2}",
+            mov.compact_formatter(&perft_res.pos).to_string().red(),
+            nodes.to_string().bold(),
+            n.to_string().red()
+        );
     }
     Ok(())
 }

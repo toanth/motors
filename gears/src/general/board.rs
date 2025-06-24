@@ -163,6 +163,10 @@ where
 
     fn settings(&self) -> B::Settings;
 
+    fn name(&self) -> String {
+        B::game_name()
+    }
+
     /// Returns the size of the board.
     fn size(&self) -> BoardSize<B>;
 
@@ -250,8 +254,18 @@ where
 
     fn set_halfmove_repetition_clock(&mut self, ply: usize) -> Res<()>;
 
+    /// Loads the hand part of a FEN, which is relevant for fairy chess variants like crazyhouse.
+    /// A member of this trait so that implementations can override it, but this method shouldn't need to be called directly.
+    fn read_fen_hand_part(&mut self, _input: &str) -> Res<()> {
+        bail!("FENs for the game '{}' do not contain a hand part", self.name())
+    }
+
+    fn write_fen_hand_part(&self, _f: &mut Formatter<'_>) -> fmt::Result {
+        Ok(())
+    }
+
     // TODO: Also put more methods, like `as_fen`, in this trait?
-    // Might be useful to print such boards, but the implementation might be annoying
+    // Might be useful to print such boards, but the implementation might be annoying because we can't rely on invariants
 }
 
 // Rustc warns that the `Board` bounds are not enforced but removing them makes the program fail to compile
@@ -325,7 +339,7 @@ pub trait Board:
     }
 
     /// Constructs a specific, well-known position from its name, such as 'kiwipete' in chess.
-    /// Not to be confused with `from_fen`, which can load arbitrary positions.
+    /// Not to be confused with [`Self::from_fen`], which can load arbitrary positions.
     /// The default implementation forwards to [`board_from_name`].
     fn from_name(name: &str) -> Res<Self> {
         board_from_name(name)
@@ -561,7 +575,7 @@ pub trait Board:
     /// The hash of this position. E.g. for chess, this is the zobrist hash.
     fn hash_pos(&self) -> PosHash;
 
-    /// Like [`Self::from_fen`], but changes the `input` argument to contain the reining input instead of panicking when there's
+    /// Like [`Self::from_fen`], but changes the `input` argument to contain the remaining input instead of panicking when there's
     /// any remaining input after reading the fen.
     fn read_fen_and_advance_input(input: &mut Tokens, strictness: Strictness) -> Res<Self>;
 
@@ -684,9 +698,9 @@ pub trait BoardHelpers: Board {
         if no_legal_moves { self.no_moves_result() } else { self.player_result_no_movegen(history) }
     }
 
-    /// Reads in a compact textual description of the board, such that `B::from_fen(board.as_fen()) == b` holds.
+    /// Reads in a compact textual description of the board, such that `B::from_fen(board.as_fen()) == board` holds.
     /// Assumes that the entire string represents the FEN, without any trailing tokens.
-    /// Use the lower-level `read_fen_and_advance_input` if this assumption doesn't have to hold.
+    /// Use the lower-level [`Self::read_fen_and_advance_input`] if this assumption doesn't have to hold.
     /// To print a board as fen, the [`Display`] implementation should be used.
     fn from_fen(string: &str, strictness: Strictness) -> Res<Self> {
         let mut words = tokens(string);
@@ -710,7 +724,7 @@ pub trait BoardHelpers: Board {
 
     /// Verifies that all invariants of this board are satisfied. It should never be possible for this function to
     /// fail for a bug-free program; failure most likely means the `Board` implementation is bugged.
-    /// For checking invariants that might be violated, use a `Board::Unverified` and call `verify_with_level`.
+    /// For checking invariants that might be violated, use a [`Board::Unverified`] and call [`Board::Unverified::verify_with_level`].
     fn debug_verify_invariants(&self, strictness: Strictness) -> Res<Self> {
         let verified = Self::Unverified::new(self.clone()).verify_with_level(Assertion, strictness)?;
         ensure!(verified == *self, "Recalculated data doesn't match: Should be \n'{verified:?}' but is \n'{self:?}'");
@@ -763,6 +777,10 @@ pub trait BoardHelpers: Board {
         let mut res = Self::Unverified::new(self);
         res.set_ply_since_start(ply)?;
         Ok(res)
+    }
+
+    fn write_fen_hand_part(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        Self::Unverified::new(self.clone()).write_fen_hand_part(f)
     }
 }
 
@@ -896,6 +914,9 @@ pub fn position_fen_part<B: RectangularBoard>(f: &mut Formatter<'_>, pos: &B) ->
                 }
                 empty_ctr = 0;
                 write!(f, "{}", piece.to_char(CharType::Ascii, &pos.settings()))?;
+                if piece.colored_piece_type().is_promoted(&pos.settings()) {
+                    write!(f, "~")?;
+                }
             }
         }
         if empty_ctr > 0 {
@@ -905,6 +926,7 @@ pub fn position_fen_part<B: RectangularBoard>(f: &mut Formatter<'_>, pos: &B) ->
             write!(f, "/")?;
         }
     }
+    pos.write_fen_hand_part(f)?;
     Ok(())
 }
 
@@ -946,13 +968,18 @@ fn read_position_fen_impl<B: RectangularBoard>(
             }
             Ok(())
         };
+        let mut skip = false;
 
         for (i, c) in line.char_indices() {
+            if skip {
+                skip = false;
+                continue;
+            }
             if c.is_ascii_digit() {
                 skipped_digits += 1;
                 continue;
             }
-            let Some(symbol) = ColPieceTypeOf::<B>::from_char(c, &board.settings()) else {
+            let Some(mut symbol) = ColPieceTypeOf::<B>::from_char(c, &board.settings()) else {
                 bail!(
                     "Invalid character in {0} FEN position description (not a piece): {1}",
                     B::game_name(),
@@ -967,6 +994,10 @@ fn read_position_fen_impl<B: RectangularBoard>(
                     board.size().num_squares()
                 );
             }
+            if line.bytes().nth(i + 1).is_some_and(|c| c == b'~') {
+                symbol.make_promoted(&board.settings())?;
+                skip = true;
+            }
 
             board.place_piece(board.size().idx_to_coordinates(square as DimT).flip_up_down(board.size()), symbol);
             square += 1;
@@ -980,7 +1011,14 @@ fn read_position_fen_impl<B: RectangularBoard>(
     Ok(())
 }
 
-pub(crate) fn read_position_fen<B: RectangularBoard>(position: &str, board: &mut B::Unverified) -> Res<()> {
+pub(crate) fn read_position_fen<B: RectangularBoard>(mut position: &str, board: &mut B::Unverified) -> Res<()> {
+    if let Some((pos, hand)) = position.split_once('[') {
+        position = pos;
+        let Some(hand) = hand.strip_suffix(']') else {
+            bail!("If the position description of the FEN contains a '[', it must end with a ']'");
+        };
+        board.read_fen_hand_part(hand)?;
+    }
     let lines = position.split('/');
     let mut num_lines = 0;
     let height = board.size().height().val();
