@@ -21,12 +21,16 @@ use crate::games::fairy::attacks::{AttackBitboardFilter, EffectRules, GenPieceAt
 use crate::games::fairy::effects::Observers;
 use crate::games::fairy::moves::FairyMove;
 use crate::games::fairy::pieces::{Piece, PieceId};
-use crate::games::fairy::rules::GameEndEager::{DrawCounter, InsufficientMaterial, No, Repetition};
+use crate::games::fairy::rules::GameEndEager::{
+    And, CanAchieve, DrawCounter, InsufficientMaterial, NoPiece, Not, Repetition,
+};
 use crate::games::fairy::rules::GameEndEager::{InRowAtLeast, PieceIn};
-use crate::games::fairy::rules::GameEndRes::{ActivePlayerWin, Draw, InactivePlayerWin};
+use crate::games::fairy::rules::GameEndRes::{
+    ActivePlayerWin, Draw, FirstPlayerWin, InactivePlayerWin, SecondPlayerWin,
+};
 use crate::games::fairy::rules::NoMovesCondition::{Always, InCheck, NotInCheck};
 use crate::games::fairy::rules::NumRoyals::{BetweenInclusive, Exactly};
-use crate::games::fairy::rules::PieceCond::AnyPiece;
+use crate::games::fairy::rules::PieceCond::{AnyPiece, Royal};
 use crate::games::fairy::{
     ColorInfo, FairyBitboard, FairyBoard, FairyCastleInfo, FairyColor, FairySize, MAX_NUM_PIECE_TYPES,
     RawFairyBitboard, UnverifiedFairyBoard,
@@ -147,7 +151,7 @@ impl PieceCond {
     pub fn bitboard(&self, pos: &FairyBoard) -> FairyBitboard {
         match self {
             AnyPiece => pos.either_player_bb(),
-            PieceCond::Royal => pos.royal_bb(),
+            Royal => pos.royal_bb(),
             PieceCond::NonRoyal => pos.either_player_bb() & !pos.royal_bb(),
             PieceCond::Only(piece) => pos.piece_bb(*piece),
             PieceCond::OneOf(list) => {
@@ -203,9 +207,9 @@ pub enum GameEndRes {
     SecondPlayerWin,
     Draw,
     MorePieces,
+    // the second array entry if the condition is satisfied, otherwise the first entry
     If(GameEndEager, Box<[GameEndRes; 2]>),
     IfNoMovesAnd(NoMovesCondition, Box<[GameEndRes; 2]>),
-    // the index is 1 iff there is a legal move that makes the condition true
     IfMoveAchieves(GameEndEager, Box<[GameEndRes; 2]>),
 }
 
@@ -284,6 +288,8 @@ pub enum PlayerCond {
     // This is the most common variant, because eager game end conditions are checked of the start of a turn,
     // which means that a game-winning move has always been made by the now-inactive player.
     Inactive,
+    // This means the start of a full move
+    FirstAndActive,
 }
 
 impl PlayerCond {
@@ -294,6 +300,13 @@ impl PlayerCond {
             PlayerCond::Second => pos.player_bb(FairyColor::second()),
             PlayerCond::Active => pos.active_player_bb(),
             PlayerCond::Inactive => pos.inactive_player_bb(),
+            PlayerCond::FirstAndActive => {
+                if pos.active_player().is_first() {
+                    pos.active_player_bb()
+                } else {
+                    pos.zero_bitboard()
+                }
+            }
         }
     }
 }
@@ -340,7 +353,7 @@ impl NoMovesCondition {
 #[allow(dead_code)]
 pub enum GameEndEager {
     /// The given player has no pieces that satisfy the given condition
-    No(PieceCond, PlayerCond),
+    NoPiece(PieceCond, PlayerCond),
     // If there is a last move, it caused the now inactive player to have `k` pieces in a row, otherwise the given player
     // has at least `k` pieces in a row somewhere
     InRowAtLeast(usize, PlayerCond),
@@ -352,6 +365,14 @@ pub enum GameEndEager {
     InsufficientMaterial(Vec<(PieceId, usize)>, PlayerCond),
     /// If any player has a given piece on a given square, they win
     PieceIn(PieceCond, SquareCond, PlayerCond),
+    /// If both conditions are satisfied. Lazily evaluates the second condition
+    And(Box<[GameEndEager; 2]>),
+    /// The given condition is not satisfied
+    Not(Box<GameEndEager>),
+    /// There is a legal moves that achieves the given condition.
+    /// For obvious reasons, this is a very slow condition to check, so it should only be used as a last resort
+    /// or as second part of an `And` where the first condition is usually false.
+    CanAchieve(Box<GameEndEager>),
 }
 
 impl GameEndEager {
@@ -359,7 +380,7 @@ impl GameEndEager {
         let us = pos.active_player();
 
         match self {
-            No(piece, player) => {
+            NoPiece(piece, player) => {
                 let player_bb = player.bb(pos);
                 (piece.bitboard(pos) & player_bb).is_zero()
             }
@@ -393,6 +414,13 @@ impl GameEndEager {
                 let bb = piece.bitboard(pos) & player_bb;
                 squares.intersects(bb, pos)
             }
+            CanAchieve(cond) => {
+                let mut h = history.clone();
+                h.push(pos.hash_pos());
+                pos.children().any(|c| cond.satisfied(&c, &h))
+            }
+            And(conds) => conds[0].satisfied(pos, history) && conds[1].satisfied(pos, history),
+            Not(cond) => !cond.satisfied(pos, history),
         }
     }
 }
@@ -609,7 +637,7 @@ impl Rules {
     pub fn shatranj() -> Self {
         let pieces = Piece::shatranj_pieces();
         let colors = Self::chess_colors();
-        let bare_king = No(PieceCond::NonRoyal, PlayerCond::Active);
+        let bare_king = NoPiece(PieceCond::NonRoyal, PlayerCond::Active);
         let game_end_eager = vec![
             (DrawCounter(100), Draw),
             (Repetition(3), Draw),
@@ -652,7 +680,7 @@ impl Rules {
         rules.game_end_eager.insert(
             0,
             (
-                GameEndEager::PieceIn(PieceCond::Royal, SquareCond::Bitboard(0x1818000000), PlayerCond::Inactive),
+                GameEndEager::PieceIn(Royal, SquareCond::Bitboard(0x1818000000), PlayerCond::Inactive),
                 GameEndRes::loss(),
             ),
         );
@@ -667,7 +695,7 @@ impl Rules {
         let game_end_eager = vec![
             (Repetition(3), Draw),
             (DrawCounter(100), Draw.but(GameEndRes::loss()).if_no_moves_and(InCheck)),
-            (No(PieceCond::Royal, PlayerCond::Active), GameEndRes::loss()),
+            (NoPiece(Royal, PlayerCond::Active), GameEndRes::loss()),
             (InsufficientMaterial(only_kings, PlayerCond::All), Draw),
         ];
         let game_end_no_moves = vec![(InCheck, GameEndRes::loss()), (NotInCheck, Draw)];
@@ -702,7 +730,7 @@ impl Rules {
             (Repetition(3), Draw),
             (DrawCounter(100), Draw.but(GameEndRes::loss()).if_no_moves_and(InCheck)),
             // white can achieve other pieces than pawns, so just checking pawns isn't enough
-            (No(AnyPiece, PlayerCond::First), GameEndRes::SecondPlayerWin),
+            (NoPiece(AnyPiece, PlayerCond::First), GameEndRes::SecondPlayerWin),
         ];
         // Only black can be in check, but the chess rules are still correct in horde. We're explicitly assigning
         // the same `vec` as in chess to avoid depending on how exactly they're expressed in the chess implementation.
@@ -717,12 +745,24 @@ impl Rules {
         rules.name = "racingkings".to_string();
         rules.startpos_fen_part = "8/8/8/8/8/8/krbnNBRK/qrbnNBRQ w - - 0 1".to_string();
         let goal_rank = FairyBitboard::rank_for(size.height.0 - 1, size);
-        let almost_goal_rank = goal_rank.south();
-        let backrank_end = PieceIn(PieceCond::Royal, SquareCond::Bitboard(goal_rank.raw()), PlayerCond::Inactive);
-        let backrank_draw = PieceIn(PieceCond::Royal, SquareCond::Bitboard(almost_goal_rank.raw()), PlayerCond::Active);
-        let backrank_end_res = GameEndRes::loss().but(Draw).if_eager(backrank_draw);
+        let goal = SquareCond::Bitboard(goal_rank.raw());
+        // this is checked first, so that it's a draw if both kings have reached the backrank
+        let backrank_black = PieceIn(Royal, goal, PlayerCond::Second);
+        let backrank_white_active = PieceIn(Royal, goal, PlayerCond::FirstAndActive);
+        // the last win condition because it's expensive to check and relies on the other conditions being false
+        let backrand_white_inactive = And(Box::new([
+            PieceIn(Royal, goal, PlayerCond::First),
+            Not(Box::new(CanAchieve(Box::new(PieceIn(Royal, goal, PlayerCond::Second))))),
+        ]));
+        let backrank_end_res = SecondPlayerWin.but(Draw).if_eager(PieceIn(Royal, goal, PlayerCond::First));
         // a backrank win takes precedence over draw conditions
-        rules.game_end_eager = vec![(backrank_end, backrank_end_res), (Repetition(3), Draw), (DrawCounter(100), Draw)];
+        rules.game_end_eager = vec![
+            (backrank_black, backrank_end_res),
+            (backrank_white_active, FirstPlayerWin),
+            (backrand_white_inactive, FirstPlayerWin),
+            (Repetition(3), Draw),
+            (DrawCounter(100), Draw),
+        ];
         rules.game_end_no_moves = vec![(NotInCheck, Draw)];
         rules.check_rules.active_check_ok = PlayerCheckOk::Never;
         rules
@@ -776,7 +816,7 @@ impl Rules {
             game_end_eager: vec![
                 (Repetition(3), Draw),
                 (DrawCounter(100), Draw),
-                (No(AnyPiece, PlayerCond::Active), GameEndRes::loss()),
+                (NoPiece(AnyPiece, PlayerCond::Active), GameEndRes::loss()),
             ],
             game_end_no_moves: vec![(NoMovesCondition::NoOpponentMoves, GameEndRes::MorePieces)],
             startpos_fen_part,

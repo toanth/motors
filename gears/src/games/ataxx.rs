@@ -421,7 +421,7 @@ impl Board for AtaxxBoard {
     }
 
     fn should_flip_visually() -> bool {
-        true
+        false
     }
 
     fn as_diagram(&self, typ: CharType, flip: bool) -> String {

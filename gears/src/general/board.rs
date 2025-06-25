@@ -1033,6 +1033,13 @@ pub(crate) fn read_position_fen<B: RectangularBoard>(mut position: &str, board: 
                 "/".bold(),
                 position.red()
             )
+        } else if num_lines == height + 1 {
+            // try to parse this as lichess notation, where the hand is given as an additional row
+            let (fen, hand) = position.rsplit_once('/').unwrap();
+            if board.read_fen_hand_part(hand).is_ok() {
+                num_lines = 0;
+                return read_position_fen_impl::<B>(fen.split('/'), board, &mut num_lines);
+            }
         }
         // If parsing the fen failed, the number of lines isn't accurate
         if res.is_ok() {

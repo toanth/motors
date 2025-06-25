@@ -743,15 +743,7 @@ impl Board for FairyBoard {
     fn cannot_call_movegen(&self) -> bool {
         let mut res = false;
         for (cond, _) in &self.rules().game_end_eager {
-            res |= match cond {
-                GameEndEager::No(_, _) | GameEndEager::InRowAtLeast(_, _) | GameEndEager::PieceIn(_, _, _) => {
-                    cond.satisfied(self, &NoHistory::default())
-                }
-                // These conditions are ignored in perft
-                GameEndEager::DrawCounter(_)
-                | GameEndEager::Repetition(_)
-                | GameEndEager::InsufficientMaterial(_, _) => false,
-            };
+            res |= self.precludes_movegen(cond);
         }
         res
     }
@@ -830,8 +822,9 @@ impl Board for FairyBoard {
         self.hash
     }
 
-    // Eventually, FEN parsing should work like this: If the first token of the FEN is a recognized game name, like `chess`,
-    // that sets the rules() and parses the FEN according to those rules. Otherwise, the rules are inferred from the FEN.
+    // TODO: Eventually, FEN parsing should work like this: If the first token of the FEN is a recognized game name, like `chess`,
+    // that sets the variant and parses the FEN according to those rules. Otherwise, the variant is the same as the old one
+    // (which requires passing in an old board).
     fn read_fen_and_advance_input(input: &mut Tokens, strictness: Strictness) -> Res<Self> {
         let variants = Self::variants();
         let mut board;
@@ -859,7 +852,7 @@ impl Board for FairyBoard {
     }
 
     fn should_flip_visually() -> bool {
-        true
+        false
     }
 
     fn as_diagram(&self, typ: CharType, flip: bool) -> String {
@@ -945,6 +938,27 @@ impl FairyBoard {
 
     pub fn fen_no_rules(&self) -> String {
         NoRulesFenFormatter(self).to_string()
+    }
+
+    fn precludes_movegen(&self, cond: &GameEndEager) -> bool {
+        match cond {
+            GameEndEager::NoPiece(_, _)
+            | GameEndEager::InRowAtLeast(_, _)
+            | GameEndEager::PieceIn(_, _, _)
+            | GameEndEager::CanAchieve(_) => cond.satisfied(self, &NoHistory::default()),
+            // These conditions are ignored in perft
+            GameEndEager::DrawCounter(_) | GameEndEager::Repetition(_) | GameEndEager::InsufficientMaterial(_, _) => {
+                false
+            }
+
+            GameEndEager::And(both) => self.precludes_movegen(&both[0]) && self.precludes_movegen(&both[1]),
+            GameEndEager::Not(c) => match Box::deref(c) {
+                GameEndEager::DrawCounter(_)
+                | GameEndEager::Repetition(_)
+                | GameEndEager::InsufficientMaterial(_, _) => false,
+                c => !self.precludes_movegen(c),
+            },
+        }
     }
 }
 

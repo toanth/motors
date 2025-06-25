@@ -1986,8 +1986,8 @@ fn splitperft_line<B: Board>(line: &str, perft_res: &SplitPerftRes<B>, seen: &mu
         bail!(
             "Incorrect splitperft number for move '{0}': Should be {1} but is {2}",
             mov.compact_formatter(&perft_res.pos).to_string().red(),
-            nodes.to_string().bold(),
-            n.to_string().red()
+            n.to_string().red(),
+            nodes.to_string().bold()
         );
     }
     Ok(())

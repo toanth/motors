@@ -266,9 +266,12 @@ mod general {
         let pos = FairyBoard::from_fen_for("racingkings", "8/1k5K/4r3/8/8/8/8/3R4 w - - 0 1", Strict).unwrap();
         assert!(pos.player_result_slow(&ZobristHistory::default()).is_none());
         let new_pos = pos.clone().make_move_from_str("h7h8").unwrap();
-        assert_eq!(new_pos.player_result_slow(&ZobristHistory::default()), Some(Draw));
+        assert!(new_pos.player_result_slow(&ZobristHistory::default()).is_none());
         assert!(pos.clone().make_move_from_str("d1b1").is_err());
-        assert!(pos.make_move_from_str("h7h6").is_err());
+        assert!(pos.clone().make_move_from_str("h7h6").is_err());
+        let pos = pos.make_nullmove().unwrap();
+        let new_pos = pos.make_move_from_str("b7b8").unwrap();
+        assert_eq!(new_pos.player_result_slow(&ZobristHistory::default()), Some(Lose));
     }
 
     #[test]

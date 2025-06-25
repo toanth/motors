@@ -39,7 +39,7 @@ use crate::{precompute_leaper_attacks, shift_left};
 use anyhow::{bail, ensure};
 use arbitrary::Arbitrary;
 use arrayvec::ArrayVec;
-use crossterm::style::Stylize;
+use colored::Colorize;
 use std::str::FromStr;
 
 type SliderGen<'a> = BitReverseSliderGenerator<'a, FairySquare, FairyBitboard>;
@@ -679,6 +679,35 @@ impl FairyBoard {
 }
 
 impl UnverifiedFairyBoard {
+    fn find_x_fen_rook_file(&self, side: char, color: FairyColor, king_sq: FairySquare) -> Res<DimT> {
+        if side == 'q' {
+            for file in 0..king_sq.file() {
+                let sq = FairySquare::from_rank_file(king_sq.rank(), file);
+                let piece = self.piece_on(sq);
+                // `contains` because e.g. 'rook (promoted)' should also match, and there aren't really any piece names that
+                // "accidentally" contain 'rook'.
+                if piece.color() == Some(color) && piece.uncolored().get(&self.rules).name.contains("rook") {
+                    return Ok(file);
+                }
+            }
+        } else {
+            for file in ((king_sq.file() + 1)..self.size.width.get()).rev() {
+                let sq = FairySquare::from_rank_file(king_sq.rank(), file);
+                let piece = self.piece_on(sq);
+                if piece.color() == Some(color) && piece.uncolored().get(&self.rules).name.contains("rook") {
+                    return Ok(file);
+                }
+            }
+        }
+        let side = if side == 'q' { "queen" } else { "king" };
+        bail!(
+            "No rook found for {0} to castle {1}side: When using X-FEN castling rights (i.e., 'kqKQ' letters), \
+            the rook piece must be named exactly 'rook'. Use the file letter instead to allow castling with other pieces",
+            color.name(&self.rules).bold(),
+            side.bold()
+        )
+    }
+
     fn parse_castling_info(&self, castling_word: &str) -> Res<FairyCastleInfo> {
         let size = self.size;
         let mut info = FairyCastleInfo::new(size);
@@ -706,8 +735,10 @@ impl UnverifiedFairyBoard {
             };
 
             let lowercase_c = c.to_ascii_lowercase();
-            let file = if (lowercase_c == 'k' || lowercase_c == 'q') && size.width.val() == 8 {
-                if lowercase_c == 'k' { 7 } else { 0 }
+            // X-FEN requires finding a rook, which we test for by literally searching for "rook" in the piece name.
+            // For Shredder FEN, we instead use the given square, which enables castling with other pieces.
+            let file = if lowercase_c == 'k' || lowercase_c == 'q' {
+                self.find_x_fen_rook_file(lowercase_c, color, king_sq)?
             } else {
                 char_to_file(lowercase_c)
             };
