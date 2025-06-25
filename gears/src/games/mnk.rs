@@ -230,7 +230,7 @@ impl FillSquare {
 impl Move<MNKBoard> for FillSquare {
     type Underlying = u16;
 
-    fn legality() -> Legality {
+    fn legality(_: &MnkSettings) -> Legality {
         Legal
     }
 

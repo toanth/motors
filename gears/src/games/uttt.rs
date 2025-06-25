@@ -310,7 +310,7 @@ impl Display for UtttMove {
 impl Move<UtttBoard> for UtttMove {
     type Underlying = u8;
 
-    fn legality() -> Legality {
+    fn legality(_: &UtttSettings) -> Legality {
         Legal
     }
 

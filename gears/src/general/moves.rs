@@ -63,7 +63,7 @@ where
     /// `PseudoLegal`. Note that legality depends on the move and the position, which means the result of this function
     /// is not a statically guaranteed property and instead a promise that depends on correct usage.
     /// If pseudolegality can't be expected, [`UntrustedMove`] should be used to wrap the move.
-    fn legality() -> Legality;
+    fn legality(settings: &B::Settings) -> Legality;
 
     /// From which square does the piece move?
     /// When this doesn't make sense, such as for m,n,k games, return some default value, such as `no_coordinates()`

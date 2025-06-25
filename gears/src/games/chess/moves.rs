@@ -17,7 +17,7 @@ use crate::games::chess::pieces::ChessPieceType::*;
 use crate::games::chess::pieces::{ChessPiece, ChessPieceType, ColoredChessPieceType};
 use crate::games::chess::squares::{C_FILE_NUM, ChessSquare, ChessboardSize, D_FILE_NUM, F_FILE_NUM, G_FILE_NUM};
 use crate::games::chess::zobrist::ZOBRIST_KEYS;
-use crate::games::chess::{ChessColor, Chessboard};
+use crate::games::chess::{ChessColor, ChessSettings, Chessboard};
 use crate::games::{
     AbstractPieceType, Board, CharType, Color, ColoredPiece, ColoredPieceType, DimT, NoHistory, PosHash, char_to_file,
     file_to_char,
@@ -209,7 +209,7 @@ impl Move<Chessboard> for ChessMove {
     type Underlying = u16;
 
     #[inline]
-    fn legality() -> Legality {
+    fn legality(_: &ChessSettings) -> Legality {
         PseudoLegal
     }
 

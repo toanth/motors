@@ -24,6 +24,7 @@ use crate::games::fairy::moves::MoveEffect::{
     SetEp,
 };
 use crate::games::fairy::pieces::{ColoredPieceId, PieceId};
+use crate::games::fairy::rules::RulesRef;
 use crate::games::fairy::{
     FairyBitboard, FairyBoard, FairyColor, FairySize, FairySquare, RawFairyBitboard, Side, effects,
 };
@@ -33,7 +34,6 @@ use crate::general::board::SelfChecks::Verify;
 use crate::general::board::Strictness::{Relaxed, Strict};
 use crate::general::board::{BitboardBoard, Board, BoardHelpers, UnverifiedBoard};
 use crate::general::common::{Res, tokens};
-use crate::general::moves::Legality::PseudoLegal;
 use crate::general::moves::{ExtendedFormat, Legality, Move, UntrustedMove};
 use crate::general::squares::{CompactSquare, RectangularCoordinates};
 use anyhow::bail;
@@ -122,9 +122,8 @@ impl FairyMove {
 impl Move<FairyBoard> for FairyMove {
     type Underlying = u32;
 
-    fn legality() -> Legality {
-        // TODO: Lots of games have legal movegen, so look into returning Legal for those
-        PseudoLegal
+    fn legality(rules: &RulesRef) -> Legality {
+        rules.0.legality
     }
 
     fn src_square_in(self, pos: &FairyBoard) -> Option<FairySquare> {

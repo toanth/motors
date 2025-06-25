@@ -439,7 +439,7 @@ pub trait Board:
     /// unlike `gen_pseudolegal` (which can't know if there are no legal moves).
     fn legal_moves_slow(&self) -> Self::MoveList {
         let mut res = self.pseudolegal_moves();
-        if Self::Move::legality() == PseudoLegal {
+        if Self::Move::legality(&self.settings()) == PseudoLegal {
             res.filter_moves(|m| self.is_pseudolegal_move_legal(*m));
         }
         if res.num_moves() == 0 && self.no_moves_result().is_none() {
@@ -457,7 +457,11 @@ pub trait Board:
     /// Returns the number of legal moves. Automatically falls back to [`Self::num_pseudolegal_moves`] for games
     /// with legal movegen.
     fn num_legal_moves(&self) -> usize {
-        if Self::Move::legality() == Legal { self.num_pseudolegal_moves() } else { self.legal_moves_slow().num_moves() }
+        if Self::Move::legality(&self.settings()) == Legal {
+            self.num_pseudolegal_moves()
+        } else {
+            self.legal_moves_slow().num_moves()
+        }
     }
 
     /// Returns 'true' if there are no legal moves, i.e. if `num_legal_moves()` would return 0.
@@ -512,7 +516,7 @@ pub trait Board:
     /// Expects a pseudolegal move and returns if this move is also legal, which means that playing it with
     /// `make_move` returns `Some(new_board)`
     fn is_pseudolegal_move_legal(&self, mov: Self::Move) -> bool {
-        Self::Move::legality() == Legal || self.clone().make_move(mov).is_some()
+        Self::Move::legality(&self.settings()) == Legal || self.clone().make_move(mov).is_some()
     }
 
     /// Returns the result (win/draw/loss), if any, but doesn't necessarily catch all game-ending conditions.

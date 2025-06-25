@@ -334,7 +334,7 @@ impl NoMovesCondition {
                 };
                 // we can't simply use `legal_moves()` here because that already handles no legal moves
                 let mut pseudolegal = new_pos.pseudolegal_moves();
-                if FairyMove::legality() == PseudoLegal {
+                if FairyMove::legality(&pos.settings()) == PseudoLegal {
                     MoveList::<FairyBoard>::filter_moves(&mut pseudolegal, |m: &mut FairyMove| {
                         new_pos.is_pseudolegal_move_legal(*m)
                     });

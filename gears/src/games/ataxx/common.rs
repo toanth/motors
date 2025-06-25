@@ -206,7 +206,7 @@ impl Display for AtaxxMove {
 impl Move<AtaxxBoard> for AtaxxMove {
     type Underlying = u16;
 
-    fn legality() -> Legality {
+    fn legality(_: &AtaxxSettings) -> Legality {
         Legal
     }
 
