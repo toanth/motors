@@ -44,16 +44,12 @@ fn notify<T: Event>(observers: &[Box<ObsFn<T>>], event: T, pos: &mut FairyBoard)
 }
 
 #[derive(Debug, Copy, Clone)]
-pub struct Win;
-
-#[derive(Debug, Copy, Clone)]
-pub struct Draw;
-
-#[derive(Debug, Copy, Clone)]
-pub struct Lose;
-
-#[derive(Debug, Copy, Clone)]
 pub struct NoMoves;
+
+#[derive(Debug, Copy, Clone)]
+pub struct InCheck {
+    pub color: FairyColor,
+}
 
 #[derive(Debug, Copy, Clone)]
 #[allow(dead_code)]
@@ -135,27 +131,15 @@ pub struct MovePiece {
     pub piece: ColoredPieceId,
 }
 
-impl Event for Win {
-    fn notify(self, observers: &Observers, pos: &mut FairyBoard) {
-        notify(observers.win.as_slice(), self, pos);
-    }
-}
-
-impl Event for Draw {
-    fn notify(self, observers: &Observers, pos: &mut FairyBoard) {
-        notify(observers.draw.as_slice(), self, pos);
-    }
-}
-
-impl Event for Lose {
-    fn notify(self, observers: &Observers, pos: &mut FairyBoard) {
-        notify(observers.lose.as_slice(), self, pos);
-    }
-}
-
 impl Event for NoMoves {
     fn notify(self, observers: &Observers, pos: &mut FairyBoard) {
         notify(observers.no_moves.as_slice(), self, pos);
+    }
+}
+
+impl Event for InCheck {
+    fn notify(self, observers: &Observers, pos: &mut FairyBoard) {
+        notify(observers.in_check.as_slice(), self, pos);
     }
 }
 
@@ -317,10 +301,8 @@ type GameEndEagerObsFn = dyn Fn(GameEndEagerEvent<'_>, &mut FairyBoard) + Sync +
 /// many of the common effects, such as removing a piece when it is captured, are still hardcoded.
 #[derive(Default)]
 pub struct Observers {
-    win: ObsList<Win>,
-    draw: ObsList<Draw>,
-    lose: ObsList<Lose>,
     no_moves: ObsList<NoMoves>,
+    in_check: ObsList<InCheck>,
     game_end_eager: Vec<Box<GameEndEagerObsFn>>,
     reset_draw_ctr: ObsList<ResetDrawCtr>,
     place_single_piece: ObsList<PlaceSinglePiece>,
@@ -384,6 +366,15 @@ impl Observers {
             pos.emit(AddPieceToHand { piece, color: pos.active_player() })
         };
         res.capture.push(Box::new(add_to_hand));
+        res
+    }
+
+    pub fn n_check() -> Self {
+        let mut res = Self::chess();
+        let incr_check_ctr = |event: InCheck, pos: &mut FairyBoard| {
+            pos.0.additional_conters[event.color] += 1;
+        };
+        res.in_check.push(Box::new(incr_check_ctr));
         res
     }
 

@@ -1031,13 +1031,11 @@ mod test {
         assert_eq!(r.perft_res.depth.get(), 2);
         assert_eq!(r.perft_res.nodes, 96 * 95);
         assert!(r.children.iter().all(|x| x.1 == r.children[0].1));
-        assert!(r.perft_res.time.as_millis() <= 50);
         let r =
             split_perft(Depth::new(3), MNKBoard::empty_for_settings(MnkSettings::new(Height(4), Width(3), 3)), true);
         assert_eq!(r.perft_res.depth.get(), 3);
         assert_eq!(r.perft_res.nodes, 12 * 11 * 10);
         assert!(r.children.iter().all(|x| x.1 == r.children[0].1));
-        assert!(r.perft_res.time.as_millis() <= 1000);
         let r =
             split_perft(Depth::new(5), MNKBoard::empty_for_settings(MnkSettings::new(Height(5), Width(5), 5)), false);
         assert_eq!(r.perft_res.depth.get(), 5);

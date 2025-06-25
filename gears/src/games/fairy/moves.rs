@@ -18,6 +18,7 @@
 use crate::games::CharType::Ascii;
 use crate::games::fairy::Side::{Kingside, Queenside};
 use crate::games::fairy::attacks::{EffectRules, MoveKind};
+use crate::games::fairy::effects::InCheck;
 use crate::games::fairy::moves::MoveEffect::{
     PlaceSinglePiece, RemoveCastlingRight, RemovePieceFromHand, RemoveSinglePiece, ResetDrawCtr, ResetEp, SetColorTo,
     SetEp,
@@ -434,7 +435,7 @@ impl FairyBoard {
                 rook = Some(r);
             }
             self.0.xor_given_piece_at(sq, king, us);
-            res &= !self.is_in_check();
+            res &= !self.compute_is_in_check(us);
             self.0.xor_given_piece_at(sq, king, us);
             if sq == rook_sq {
                 self.0.xor_given_piece_at(sq, rook.unwrap(), us);
@@ -472,6 +473,12 @@ impl FairyBoard {
             return None;
         }
         self.adjust_castling_rights();
+        for c in FairyColor::iter() {
+            self.0.in_check[c] = self.compute_is_in_check(c);
+            if self.in_check[c] {
+                self.emit(InCheck { color: c })
+            }
+        }
         self.flip_side_to_move()
     }
 

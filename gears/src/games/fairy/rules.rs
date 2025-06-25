@@ -22,7 +22,7 @@ use crate::games::fairy::effects::Observers;
 use crate::games::fairy::moves::FairyMove;
 use crate::games::fairy::pieces::{Piece, PieceId};
 use crate::games::fairy::rules::GameEndEager::{
-    And, CanAchieve, DrawCounter, InsufficientMaterial, NoPiece, Not, Repetition,
+    AdditionalCounter, And, CanAchieve, DrawCounter, InsufficientMaterial, NoPiece, Not, Repetition,
 };
 use crate::games::fairy::rules::GameEndEager::{InRowAtLeast, PieceIn};
 use crate::games::fairy::rules::GameEndRes::{
@@ -32,7 +32,7 @@ use crate::games::fairy::rules::NoMovesCondition::{Always, InCheck, NotInCheck};
 use crate::games::fairy::rules::NumRoyals::{BetweenInclusive, Exactly};
 use crate::games::fairy::rules::PieceCond::{AnyPiece, Royal};
 use crate::games::fairy::{
-    ColorInfo, FairyBitboard, FairyBoard, FairyCastleInfo, FairyColor, FairySize, MAX_NUM_PIECE_TYPES,
+    AdditionalCtrT, ColorInfo, FairyBitboard, FairyBoard, FairyCastleInfo, FairyColor, FairySize, MAX_NUM_PIECE_TYPES,
     RawFairyBitboard, UnverifiedFairyBoard,
 };
 use crate::games::mnk::{MNKBoard, MnkSettings};
@@ -359,6 +359,8 @@ pub enum GameEndEager {
     InRowAtLeast(usize, PlayerCond),
     /// a.k.a. the 50 move rule (expressed in ply)
     DrawCounter(usize),
+    /// An additional counter has reached the maximum value (given in the settings)
+    AdditionalCounter,
     /// a.k.a. the threefold repetition rule
     Repetition(usize),
     /// All the given pieces occur at most the given count many times for the given player
@@ -397,6 +399,14 @@ impl GameEndEager {
                     let sq = pos.0.last_move.dest_square_in(pos);
                     pos.k_in_row_at(k, sq, !us)
                 }
+            }
+            AdditionalCounter => {
+                for i in 0..2 {
+                    if pos.additional_conters[i] >= pos.rules.0.ctr_threshold[i].unwrap_or(AdditionalCtrT::MAX) {
+                        return true;
+                    }
+                }
+                false
             }
             &DrawCounter(max) => pos.0.draw_counter >= max,
             &Repetition(max) => n_fold_repetition(max, history, pos.hash_pos(), usize::MAX),
@@ -453,6 +463,8 @@ impl Arbitrary<'_> for EmptyBoard {
             ply_since_start: usize::arbitrary(u)?,
             num_piece_bitboards: usize::arbitrary(u)?,
             draw_counter: usize::arbitrary(u)?,
+            in_check: [bool::arbitrary(u)?, bool::arbitrary(u)?],
+            additional_conters: [0; NUM_COLORS],
             active: FairyColor::arbitrary(u)?,
             castling_info: FairyCastleInfo::arbitrary(u)?,
             size: GridSize::arbitrary(u)?,
@@ -497,6 +509,7 @@ pub(super) struct Rules {
     pub has_fen_hand_info: bool, // false for e.g. mnk games, which have a hand, but don't include that in the FEN.
     pub has_castling: bool,
     pub store_last_move: bool,
+    pub ctr_threshold: [Option<AdditionalCtrT>; NUM_COLORS],
     pub effect_rules: EffectRules, // TODO: Remove?
     pub check_rules: CheckRules,
     pub name: String,
@@ -554,6 +567,10 @@ impl Rules {
         self.game_end_eager.iter().any(|(cond, _)| matches!(cond, &GameEndEager::Repetition(_)))
     }
 
+    pub fn has_additional_ctr(&self) -> bool {
+        self.ctr_threshold.iter().any(|c| c.is_some())
+    }
+
     pub(super) fn piece_by_name(&self, name: &str) -> Option<PieceId> {
         // case-sensitive
         self.pieces().find(|(_id, piece)| piece.name == name).map(|(id, _piece)| id)
@@ -570,6 +587,8 @@ impl Rules {
             ply_since_start: 0,
             num_piece_bitboards: rules.0.pieces.len(),
             draw_counter: 0,
+            in_check: [false; NUM_COLORS],
+            additional_conters: [0; NUM_COLORS],
             active: Default::default(),
             castling_info: FairyCastleInfo::new(size),
             size,
@@ -624,6 +643,7 @@ impl Rules {
             has_fen_hand_info: false,
             has_castling: true,
             store_last_move: false,
+            ctr_threshold: [None; NUM_COLORS],
             effect_rules,
             check_rules: CheckRules::chess(),
             name: "chess".to_string(),
@@ -663,6 +683,7 @@ impl Rules {
             has_fen_hand_info: false,
             has_castling: false,
             store_last_move: false,
+            ctr_threshold: [None; NUM_COLORS],
             effect_rules,
             check_rules: CheckRules::chess(),
             name: "shatranj".to_string(),
@@ -692,24 +713,20 @@ impl Rules {
         let mut rules = Self::chess();
         let p = |id: usize| PieceId::new(id);
         let only_kings = vec![(p(0), 0), (p(1), 0), (p(2), 0), (p(3), 0), (p(4), 0)];
-        let game_end_eager = vec![
+        rules.game_end_eager = vec![
             (Repetition(3), Draw),
             (DrawCounter(100), Draw.but(GameEndRes::loss()).if_no_moves_and(InCheck)),
             (NoPiece(Royal, PlayerCond::Active), GameEndRes::loss()),
             (InsufficientMaterial(only_kings, PlayerCond::All), Draw),
         ];
-        let game_end_no_moves = vec![(InCheck, GameEndRes::loss()), (NotInCheck, Draw)];
-        let check_rules = CheckRules {
+        rules.game_end_no_moves = vec![(InCheck, GameEndRes::loss()), (NotInCheck, Draw)];
+        rules.check_rules = CheckRules {
             count: CheckCount::AnyRoyal,
             attack_condition: CheckingAttack::NoRoyalAdjacent,
             inactive_check_ok: PlayerCheckOk::OpponentNoRoyals,
             active_check_ok: PlayerCheckOk::Always,
         };
         rules.name = "atomic".to_string();
-        rules.startpos_fen_part = chess::START_FEN.to_string();
-        rules.game_end_eager = game_end_eager;
-        rules.game_end_no_moves = game_end_no_moves;
-        rules.check_rules = check_rules;
         // it's valid to lose your king, that just means you lost the game
         rules.num_royals = [BetweenInclusive(0, 1); NUM_COLORS];
         let pawn = rules.piece_by_name("pawn").unwrap();
@@ -771,7 +788,6 @@ impl Rules {
     pub fn crazyhouse() -> Self {
         let mut rules = Self::chess();
         rules.name = "crazyhouse".to_string();
-        rules.startpos_fen_part = chess::START_FEN.to_string();
         rules.has_fen_hand_info = true;
         rules.observers = Observers::crazyhouse();
         for (i, p) in rules.pieces.iter_mut().enumerate() {
@@ -802,6 +818,15 @@ impl Rules {
         rules
     }
 
+    pub fn n_check(n: usize) -> Self {
+        let mut rules = Self::chess();
+        rules.name = format!("{n}check");
+        rules.observers = Observers::n_check();
+        rules.game_end_eager.push((AdditionalCounter, InactivePlayerWin));
+        rules.ctr_threshold = [Some(n as AdditionalCtrT); 2];
+        rules
+    }
+
     pub fn ataxx() -> Self {
         let size = FairySize::ataxx();
         let mut map = Piece::complete_piece_map(size);
@@ -827,6 +852,7 @@ impl Rules {
             has_fen_hand_info: false,
             has_castling: false,
             store_last_move: false,
+            ctr_threshold: [None; NUM_COLORS],
             effect_rules: EffectRules { reset_draw_counter_on_capture: true, conversion_radius: 1 },
             check_rules: CheckRules::none(),
             name: "ataxx".to_string(),
@@ -860,6 +886,7 @@ impl Rules {
             has_fen_hand_info: false,
             has_castling: false,
             store_last_move: true,
+            ctr_threshold: [None; NUM_COLORS],
             effect_rules: EffectRules::default(),
             check_rules: CheckRules::none(),
             name: "mnk".to_string(),

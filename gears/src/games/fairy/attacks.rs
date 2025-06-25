@@ -650,13 +650,17 @@ impl FairyBoard {
         our_royals & their_attacks
     }
 
-    pub fn is_player_in_check(&self, color: FairyColor) -> bool {
+    pub(super) fn compute_is_in_check(&self, color: FairyColor) -> bool {
         let rule = self.rules().check_rules;
         let in_check = self.in_check_bb(color);
         match rule.count {
             CheckCount::AllRoyals => in_check == self.royal_bb_for(color),
             CheckCount::AnyRoyal => in_check.has_set_bit(),
         }
+    }
+
+    pub fn is_player_in_check(&self, color: FairyColor) -> bool {
+        self.in_check[color]
     }
 
     pub fn is_in_check(&self) -> bool {

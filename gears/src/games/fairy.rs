@@ -42,7 +42,7 @@ use crate::general::board::{
 };
 use crate::general::common::Description::NoDescription;
 use crate::general::common::{
-    EntityList, GenericSelect, Res, StaticallyNamedEntity, Tokens, select_name_static, tokens,
+    EntityList, GenericSelect, Res, StaticallyNamedEntity, Tokens, parse_int_from_str, select_name_static, tokens,
 };
 use crate::general::move_list::{EagerNonAllocMoveList, MoveList};
 use crate::general::moves::Move;
@@ -253,6 +253,8 @@ impl FairyCastleInfo {
     }
 }
 
+type AdditionalCtrT = i32;
+
 /// A FairyBoard is a rectangular board for a chess-like variant.
 #[derive(Debug, Clone, Eq, PartialEq, Arbitrary)]
 #[must_use]
@@ -269,6 +271,9 @@ pub struct UnverifiedFairyBoard {
     // like the 50mr counter in chess TODO: Maybe make it count down?
     num_piece_bitboards: usize,
     draw_counter: usize,
+    in_check: [bool; NUM_COLORS],
+    // Their meaning depends on the variant. For example, this counts checks in 3check.
+    additional_conters: [AdditionalCtrT; NUM_COLORS],
     active: FairyColor,
     castling_info: FairyCastleInfo,
     size: GridSize,
@@ -412,6 +417,9 @@ impl UnverifiedBoard<FairyBoard> for UnverifiedFairyBoard {
 
         let mut res = FairyBoard(self);
         res.0.hash = res.compute_hash();
+        for c in FairyColor::iter() {
+            res.0.in_check[c] = res.compute_is_in_check(c);
+        }
         ensure!(
             res.rules().check_rules.active_check_ok.satisfied(&res, res.active_player()),
             "Player {} is in check, but that's not allowed in this position",
@@ -587,6 +595,23 @@ impl UnverifiedFairyBoard {
             self.last_move.hash(&mut hasher);
         }
         PosHash(hasher.finish())
+    }
+
+    fn read_ctrs(&mut self, words: &mut Tokens, first: bool) -> Res<()> {
+        let ctrs = words.peek().copied().unwrap_or_default();
+        let Some((c1, c2)) = ctrs.trim_start_matches('+').split_once('+') else {
+            bail!("Expected two counters of the form '{0}', got '{1}'", "<number>+<number>".bold(), ctrs.red())
+        };
+        let mut ctr1 = parse_int_from_str(c1, "counter 1")?;
+        let mut ctr2 = parse_int_from_str(c2, "counter 2")?;
+        if first {
+            ctr1 = self.rules.0.ctr_threshold[0].unwrap_or_default() - ctr1;
+            ctr2 = self.rules.0.ctr_threshold[1].unwrap_or_default() - ctr2;
+        }
+        self.additional_conters[0] = ctr1;
+        self.additional_conters[1] = ctr2;
+        _ = words.next();
+        Ok(())
     }
 }
 
@@ -843,10 +868,14 @@ impl Board for FairyBoard {
         }
         read_common_fen_part::<Self>(input, &mut board)?;
         board.read_castling_and_ep_fen_parts(input, strictness)?;
+        let trailing_counters = board.rules().has_additional_ctr() && board.read_ctrs(input, true).is_err();
         if board.rules().has_halfmove_repetition_clock() {
             read_two_move_numbers::<Self>(input, &mut board, strictness)?;
         } else {
             read_single_move_number::<Self>(input, &mut board, strictness)?;
+        }
+        if trailing_counters {
+            board.read_ctrs(input, false)?;
         }
         board.verify_with_level(CheckFen, strictness)
     }
@@ -918,6 +947,8 @@ impl FairyBoard {
             GenericSelect { name: "horde", val: || RulesRef::new(Rules::horde()) },
             GenericSelect { name: "racingkings", val: || RulesRef::new(Rules::racing_kings(FairySize::chess())) },
             GenericSelect { name: "crazyhouse", val: || RulesRef::new(Rules::crazyhouse()) },
+            GenericSelect { name: "3check", val: || RulesRef::new(Rules::n_check(3)) },
+            GenericSelect { name: "5check", val: || RulesRef::new(Rules::n_check(5)) },
             GenericSelect { name: "ataxx", val: || RulesRef::new(Rules::ataxx()) },
             GenericSelect { name: "tictactoe", val: || RulesRef::new(Rules::tictactoe()) },
             GenericSelect { name: "mnk", val: || RulesRef::new(Rules::mnk(GridSize::connect4(), 4)) },
@@ -945,6 +976,7 @@ impl FairyBoard {
             GameEndEager::NoPiece(_, _)
             | GameEndEager::InRowAtLeast(_, _)
             | GameEndEager::PieceIn(_, _, _)
+            | GameEndEager::AdditionalCounter
             | GameEndEager::CanAchieve(_) => cond.satisfied(self, &NoHistory::default()),
             // These conditions are ignored in perft
             GameEndEager::DrawCounter(_) | GameEndEager::Repetition(_) | GameEndEager::InsufficientMaterial(_, _) => {
@@ -978,6 +1010,16 @@ impl Display for NoRulesFenFormatter<'_> {
             } else {
                 write!(f, "- ")?;
             }
+        }
+        if pos.rules().has_additional_ctr() {
+            if let Some(ctr) = pos.rules().ctr_threshold[0] {
+                write!(f, "{}", ctr - pos.additional_conters[0])?;
+            }
+            write!(f, "+")?;
+            if let Some(ctr) = pos.rules().ctr_threshold[1] {
+                write!(f, "{}", ctr - pos.additional_conters[1])?;
+            }
+            write!(f, " ")?;
         }
         if pos.rules().has_halfmove_repetition_clock() {
             write!(f, "{} ", pos.ply_draw_clock())?;

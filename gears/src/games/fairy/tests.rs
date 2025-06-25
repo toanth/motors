@@ -335,6 +335,20 @@ mod general {
     }
 
     #[test]
+    fn simple_3check_test() {
+        let pos = FairyBoard::from_fen_for("3check", "5q2/3k4/8/3K4/6R1/8/8/8 w - - 1+2 0 1", Strict).unwrap();
+        assert!(pos.player_result_slow(&NoHistory::default()).is_none());
+        let pos = pos.make_move_from_str("g4g7").unwrap();
+        assert_eq!(pos.additional_conters[FairyColor::first()], 2);
+        assert_eq!(pos.additional_conters[FairyColor::second()], 2);
+        assert_eq!(pos.player_result_slow(&NoHistory::default()), None);
+        let pos = pos.make_move_from_str("f8f7").unwrap();
+        assert_eq!(pos.additional_conters[FairyColor::first()], 3);
+        assert_eq!(pos.additional_conters[FairyColor::second()], 2);
+        assert_eq!(pos.player_result_slow(&NoHistory::default()), Some(Lose));
+    }
+
+    #[test]
     fn simple_ataxx_test() {
         for pos in AtaxxBoard::bench_positions() {
             let fen = pos.as_fen();
