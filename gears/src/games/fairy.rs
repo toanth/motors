@@ -850,19 +850,17 @@ impl Board for FairyBoard {
     // TODO: Eventually, FEN parsing should work like this: If the first token of the FEN is a recognized game name, like `chess`,
     // that sets the variant and parses the FEN according to those rules. Otherwise, the variant is the same as the old one
     // (which requires passing in an old board).
-    fn read_fen_and_advance_input(input: &mut Tokens, strictness: Strictness) -> Res<Self> {
+    fn read_fen_and_advance_input_for(input: &mut Tokens, strictness: Strictness, rules: &RulesRef) -> Res<Self> {
         let variants = Self::variants();
-        let mut board;
-        if let Some(v) =
+        let rules = if let Some(v) =
             variants.iter().find(|v| v.name.eq_ignore_ascii_case(input.peek().copied().unwrap_or_default()))
         {
-            let rules = (v.val)();
-            board = Self::empty_for_settings(rules);
             _ = input.next();
+            (v.val)()
         } else {
-            // TODO: This always constructs a chess board, which means you can't leave out the variant name in the fen.
-            board = Self::empty();
+            rules.clone()
         };
+        let mut board = FairyBoard::empty_for_settings(rules);
         if let Some(rules) = board.rules.0.read_rules_fen_part(input)? {
             board = Self::empty_for_settings(rules);
         }

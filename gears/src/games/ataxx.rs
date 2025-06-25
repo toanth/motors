@@ -416,7 +416,11 @@ impl Board for AtaxxBoard {
         self.hash_impl()
     }
 
-    fn read_fen_and_advance_input(string: &mut Tokens, strictness: Strictness) -> Res<Self> {
+    fn read_fen_and_advance_input_for(
+        string: &mut Tokens,
+        strictness: Strictness,
+        _settings: &AtaxxSettings,
+    ) -> Res<Self> {
         Self::read_fen_impl(string, strictness)
     }
 

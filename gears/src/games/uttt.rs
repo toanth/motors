@@ -74,7 +74,7 @@ pub type UtttSubSquare = SmallGridSquare<3, 3, 3>;
 pub type UtttSubBitboard = DynamicallySizedBitboard<RawStandardBitboard, UtttSubSquare>;
 
 #[derive(Debug, Default, Eq, PartialEq, Copy, Clone)]
-pub struct UtttSettings {}
+pub struct UtttSettings;
 
 impl Settings for UtttSettings {}
 
@@ -927,7 +927,11 @@ impl Board for UtttBoard {
     // TODO: Don't use a separate open bitboard, just set both players' bitboards to one for squares that are no longer
     // reachable because the sub board has been won, and update the piece_on function
 
-    fn read_fen_and_advance_input(input: &mut Tokens, strictness: Strictness) -> Res<Self> {
+    fn read_fen_and_advance_input_for(
+        input: &mut Tokens,
+        strictness: Strictness,
+        _settings: &UtttSettings,
+    ) -> Res<Self> {
         let mut pos = Self::default().into();
         read_common_fen_part::<UtttBoard>(input, &mut pos)?;
 

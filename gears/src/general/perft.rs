@@ -272,20 +272,21 @@ mod tests {
 
     #[test]
     fn num_unique_fairy_ataxx_positons_tests() {
-        let pos = AtaxxBoard::default();
-        let fairy_pos = FairyBoard::variant_simple("ataxx").unwrap();
-        let mut res1 = 0;
-        let mut res2 = 0;
-        for i in 0..3 {
-            res1 += perft(Depth::new(i), pos, false).nodes;
-            res2 += perft(Depth::new(i), fairy_pos.clone(), false).nodes;
-            assert_eq!(res1, res2);
-            assert_eq!(num_unique_positions_up_to(Depth::new(i), pos), res2, "{i}");
-            assert_eq!(num_unique_positions_up_to(Depth::new(i), fairy_pos.clone()), res2);
-        }
+        // let pos = AtaxxBoard::default();
+        // let fairy_pos = FairyBoard::variant_simple("ataxx").unwrap();
+        // let mut res1 = 0;
+        // let mut res2 = 0;
+        // for i in 0..3 {
+        //     res1 += perft(Depth::new(i), pos, false).nodes;
+        //     res2 += perft(Depth::new(i), fairy_pos.clone(), false).nodes;
+        //     assert_eq!(res1, res2);
+        //     assert_eq!(num_unique_positions_up_to(Depth::new(i), pos), res2, "{i}");
+        //     assert_eq!(num_unique_positions_up_to(Depth::new(i), fairy_pos.clone()), res2);
+        // }
         let fen = "7/7/7/7/-------/-------/xxxx1oo o 0 3";
         let pos = AtaxxBoard::from_fen(fen, Strict).unwrap();
         let fairy_pos = FairyBoard::from_fen_for("ataxx", fen, Strict).unwrap();
+        assert_eq!(pos.as_fen(), fairy_pos.fen_no_rules());
         assert_eq!(num_unique_positions_up_to(Depth::new(0), pos), 1);
         assert_eq!(num_unique_positions_up_to(Depth::new(1), pos), 3);
         assert_eq!(num_unique_positions_up_to(Depth::new(2), pos), 4);

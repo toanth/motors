@@ -56,7 +56,7 @@ pub struct NameToPos {
 
 impl NameToPos {
     pub fn strict(name: &'static str, fen: &'static str) -> Self {
-        Self { name, fen, strictness: Strictness::Strict }
+        Self { name, fen, strictness: Strict }
     }
 
     pub fn create<B: Board>(&self) -> B {
@@ -458,7 +458,8 @@ pub trait Board:
     /// with legal movegen.
     fn num_legal_moves(&self) -> usize {
         if Self::Move::legality(&self.settings()) == Legal {
-            self.num_pseudolegal_moves()
+            let res = self.num_pseudolegal_moves();
+            if res == 0 && self.no_moves_result().is_none() { 1 } else { res }
         } else {
             self.legal_moves_slow().num_moves()
         }
@@ -581,7 +582,17 @@ pub trait Board:
 
     /// Like [`Self::from_fen`], but changes the `input` argument to contain the remaining input instead of panicking when there's
     /// any remaining input after reading the fen.
-    fn read_fen_and_advance_input(input: &mut Tokens, strictness: Strictness) -> Res<Self>;
+    fn read_fen_and_advance_input(input: &mut Tokens, strictness: Strictness) -> Res<Self> {
+        Self::read_fen_and_advance_input_for(input, strictness, &Self::Settings::default())
+    }
+
+    /// Like [`Self::read_fen_and_advance_input`], but if the input doesn't contain any leading settings information
+    /// (like the variant for [`FairyBoard`], or the size for [`MnkBoard`]) it uses the provided settings instead of the default settings.
+    fn read_fen_and_advance_input_for(
+        input: &mut Tokens,
+        strictness: Strictness,
+        settings: &Self::Settings,
+    ) -> Res<Self>;
 
     /// Returns true iff the board should be flipped when viewed from the second player's perspective.
     /// For example, this is the case for chess, but not for Ultimate Tic-Tac-Toe.

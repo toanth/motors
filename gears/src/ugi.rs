@@ -265,7 +265,7 @@ pub fn parse_ugi_position_part_impl<B: Board>(
     strictness: Strictness,
 ) -> Res<B> {
     Ok(match first_word.to_ascii_lowercase().as_str() {
-        "fen" | "f" => B::read_fen_and_advance_input(rest, strictness)?,
+        "fen" | "f" => B::read_fen_and_advance_input_for(rest, strictness, &current_pos.settings())?,
         "startpos" | "s" => B::startpos_for_settings(current_pos.settings()),
         "current" | "c" => current_pos.clone(),
         // this is effectively just ignored, but it's nice to get autocompletion specifically for position names
@@ -312,7 +312,7 @@ pub fn parse_ugi_position_part<B: Board>(
     // (So 'mnk 3 3 3 3/3/3 x 1' is valid)
     let original_string = tokens_to_string(first, copy.clone());
     let mut original_tokens = tokens(&original_string);
-    let res = B::read_fen_and_advance_input(&mut original_tokens, strictness);
+    let res = B::read_fen_and_advance_input_for(&mut original_tokens, strictness, &current_pos.settings());
     *rest = copy;
     let advance_by = rest.clone().count() - original_tokens.count();
     for _ in 0..advance_by {

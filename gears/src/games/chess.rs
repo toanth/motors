@@ -88,7 +88,7 @@ static STARTPOS: Chessboard = {
 };
 
 #[derive(Eq, PartialEq, Copy, Clone, Debug, Default)]
-pub struct ChessSettings {}
+pub struct ChessSettings;
 
 pub const MAX_CHESS_MOVES_IN_POS: usize = 300;
 
@@ -547,7 +547,11 @@ impl Board for Chessboard {
         self.hashes.total
     }
 
-    fn read_fen_and_advance_input(words: &mut Tokens, strictness: Strictness) -> Res<Self> {
+    fn read_fen_and_advance_input_for(
+        words: &mut Tokens,
+        strictness: Strictness,
+        _settings: &ChessSettings,
+    ) -> Res<Self> {
         let mut board = Chessboard::empty();
         read_common_fen_part::<Chessboard>(words, &mut board)?;
         let color = board.0.active_player();
