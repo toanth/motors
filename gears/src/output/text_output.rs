@@ -382,6 +382,7 @@ trait AbstractPrettyBoardPrinter {
         self.height() as usize
     }
     fn fen(&self) -> String;
+    fn side_to_move(&self) -> String;
     fn settings_text(&self) -> Option<String>;
     fn formatter(&self) -> &dyn AbstractBoardFormatter;
 }
@@ -419,6 +420,10 @@ impl<'a, B: RectangularBoard> AbstractPrettyBoardPrinter for PrettyBoardPrinter<
 
     fn fen(&self) -> String {
         self.board.as_fen()
+    }
+
+    fn side_to_move(&self) -> String {
+        self.board.active_player().name(&self.board.settings()).as_ref().to_string()
     }
 
     fn settings_text(&self) -> Option<String> {
@@ -675,7 +680,17 @@ fn display_board_pretty_impl(printer: &dyn AbstractPrettyBoardPrinter, flip: boo
     if let Some(text) = printer.settings_text() {
         res.insert(0, text);
     }
-    res.insert(0, format!("{0} '{1}'", "Fen:".dimmed(), printer.fen()));
+    res.insert(
+        0,
+        format!(
+            "{0} '{1}'{2} {3} {4}",
+            "Fen:".dimmed(),
+            printer.fen(),
+            ",".dimmed(),
+            printer.side_to_move(),
+            "to move".dimmed()
+        ),
+    );
     let mut line = "    ".to_string();
     for x in 0..printer.get_width() {
         let xc = if flip { printer.get_width() - 1 - x } else { x };
@@ -685,7 +700,6 @@ fn display_board_pretty_impl(printer: &dyn AbstractPrettyBoardPrinter, flip: boo
     res.join("\n") + "\n"
 }
 
-// most of this function deals with coloring the frame of a square
 pub fn display_board_pretty<B: RectangularBoard>(pos: &B, fmt: &mut dyn BoardFormatter<B>) -> String {
     let flip = fmt.flip_board() && B::should_flip_visually();
     let printer = PrettyBoardPrinter { board: pos, print_type: PrintType::Formatter::<B>(fmt) };

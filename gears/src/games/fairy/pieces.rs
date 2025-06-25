@@ -264,6 +264,18 @@ impl DrawCtrReset {
     }
 }
 
+pub(super) const CHESS_PAWN_IDX: usize = 0;
+#[allow(unused)]
+pub(super) const CHESS_KNIGHT_IDX: usize = 1;
+#[allow(unused)]
+pub(super) const CHESS_BISHOP_IDX: usize = 2;
+#[allow(unused)]
+pub(super) const CHESS_ROOK_IDX: usize = 3;
+#[allow(unused)]
+pub(super) const CHESS_QUEEN_IDX: usize = 4;
+#[allow(unused)]
+pub(super) const CHESS_KING_IDX: usize = 5;
+
 /// This struct defines the rules for a single piece.
 #[derive(Debug, Arbitrary)]
 pub struct Piece {

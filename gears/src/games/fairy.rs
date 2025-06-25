@@ -273,7 +273,7 @@ pub struct UnverifiedFairyBoard {
     draw_counter: usize,
     in_check: [bool; NUM_COLORS],
     // Their meaning depends on the variant. For example, this counts checks in 3check.
-    additional_conters: [AdditionalCtrT; NUM_COLORS],
+    additional_ctrs: [AdditionalCtrT; NUM_COLORS],
     active: FairyColor,
     castling_info: FairyCastleInfo,
     size: GridSize,
@@ -608,8 +608,8 @@ impl UnverifiedFairyBoard {
             ctr1 = self.rules.0.ctr_threshold[0].unwrap_or_default() - ctr1;
             ctr2 = self.rules.0.ctr_threshold[1].unwrap_or_default() - ctr2;
         }
-        self.additional_conters[0] = ctr1;
-        self.additional_conters[1] = ctr2;
+        self.additional_ctrs[0] = ctr1;
+        self.additional_ctrs[1] = ctr2;
         _ = words.next();
         Ok(())
     }
@@ -949,6 +949,7 @@ impl FairyBoard {
             GenericSelect { name: "crazyhouse", val: || RulesRef::new(Rules::crazyhouse()) },
             GenericSelect { name: "3check", val: || RulesRef::new(Rules::n_check(3)) },
             GenericSelect { name: "5check", val: || RulesRef::new(Rules::n_check(5)) },
+            GenericSelect { name: "antichess", val: || RulesRef::new(Rules::antichess()) },
             GenericSelect { name: "ataxx", val: || RulesRef::new(Rules::ataxx()) },
             GenericSelect { name: "tictactoe", val: || RulesRef::new(Rules::tictactoe()) },
             GenericSelect { name: "mnk", val: || RulesRef::new(Rules::mnk(GridSize::connect4(), 4)) },
@@ -1013,11 +1014,11 @@ impl Display for NoRulesFenFormatter<'_> {
         }
         if pos.rules().has_additional_ctr() {
             if let Some(ctr) = pos.rules().ctr_threshold[0] {
-                write!(f, "{}", ctr - pos.additional_conters[0])?;
+                write!(f, "{}", ctr - pos.additional_ctrs[0])?;
             }
             write!(f, "+")?;
             if let Some(ctr) = pos.rules().ctr_threshold[1] {
-                write!(f, "{}", ctr - pos.additional_conters[1])?;
+                write!(f, "{}", ctr - pos.additional_ctrs[1])?;
             }
             write!(f, " ")?;
         }

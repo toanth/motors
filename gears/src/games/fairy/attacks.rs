@@ -566,7 +566,7 @@ impl FairyBoard {
     /// Only includes capturing attacks, so no pawn pushes.
     /// All attack bitboards are based on pseudolegality, so they can't be used to determine if a move is legal,
     /// and (depending on the variant) also not easily for testing if a player is in check.
-    /// This method is public mostly because it's often useful to have a rough approximation, e.g. for mobility.
+    /// This method is public mostly because it's often useful to have a rough approximation, e.g. for eval functions.
     pub fn capturing_attack_bb_of(&self, color: FairyColor) -> FairyBitboard {
         self.capturing_attack_bb_of_if(color, |_, _, _| true)
     }
@@ -591,6 +591,7 @@ impl FairyBoard {
             bb.insert_moves(moves, pos, piece);
         };
         self.gen_attacks_impl(f, self.active_player(), AttackMode::All);
+        self.rules.0.moves_filter.apply(moves, self);
     }
 
     fn gen_attacks_impl<F: FnMut(FairyPiece, &PieceAttackBB, &FairyBoard)>(

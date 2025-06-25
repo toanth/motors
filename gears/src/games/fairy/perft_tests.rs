@@ -112,6 +112,10 @@ mod tests {
                 vec![110, 11_017, 914_431, 62_117_409],
             ),
             ("crazyhouse 7n/5p2/6p1/8/8/k7/7p/1K6[Q] w - - 0 1", vec![61, 403, 8793, 73_483, 1_728_921, 18_131_285]),
+            (
+                "antichess rnb1kbnr/ppp2ppp/4P3/3Q4/8/8/PPP1PqPP/RNB1KBNR w - - 0 1",
+                vec![3, 17, 121, 611, 3501, 21338, 133_659, 1_059_417, 12_193_381],
+            ),
         ];
         let old = FairyBoard::default();
         for (testcase, res) in fens {
@@ -136,6 +140,9 @@ mod tests {
 
     fn shakmaty_tests(max: u64) {
         let fens = &[
+            ("antichess rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w - -", vec![20, 400, 8067, 153299]),
+            ("antichess 8/1p6/8/8/8/8/P7/8 w - -", vec![2, 4, 4, 3, 1, 0]),
+            ("antichess 8/2p5/8/8/8/8/P7/8 w - -", vec![2, 4, 4, 4, 4, 4, 4, 4, 12, 36, 312, 2557, 30873]),
             ("atomic rn2kb1r/1pp1p2p/p2q1pp1/3P4/2P3b1/4PN2/PP3PPP/R2QKB1R b KQkq -", vec![40, 1238, 45237, 1434825]),
             ("atomic rn1qkb1r/p5pp/2p5/3p4/N3P3/5P2/PPP4P/R1BQK3 w Qkq -", vec![28, 833, 23353, 714499]),
             ("atomic 8/8/8/8/8/8/2k5/rR4KR w KQ -", vec![18, 180, 4364, 61401, 1603055]),

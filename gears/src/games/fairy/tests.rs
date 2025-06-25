@@ -22,7 +22,7 @@ mod chess_tests;
 
 #[cfg(test)]
 mod general {
-    use crate::PlayerResult::{Draw, Lose};
+    use crate::PlayerResult::{Draw, Lose, Win};
     use crate::games::ataxx::AtaxxBoard;
     use crate::games::chess::Chessboard;
     use crate::games::fairy::Side::Kingside;
@@ -215,6 +215,13 @@ mod general {
         let pos = FairyBoard::from_fen_for("shatranj", "4k3/6r1/8/8/8/6R1/5K2/8 w 0 1", Strict).unwrap();
         let new_pos = pos.make_move_from_str("g3g7").unwrap();
         assert_eq!(new_pos.player_result_slow(&NoHistory::default()), Some(Lose));
+
+        let pos = FairyBoard::from_fen_for("shatranj", "7k/8/6RK/8/8/8/8/8 b 0 1", Strict).unwrap();
+        assert_eq!(pos.player_result_slow(&NoHistory::default()), Some(Lose));
+        let pos = FairyBoard::from_fen_for("shatranj", "7k/8/5pRK/5P2/8/8/8/8 b 0 1", Strict).unwrap();
+        assert_eq!(pos.player_result_slow(&NoHistory::default()), Some(Lose));
+        let pos = FairyBoard::from_fen_for("shatranj", "7k/7R/5pRK/8/8/8/8/8 b 0 1", Strict).unwrap();
+        assert_eq!(pos.player_result_slow(&NoHistory::default()), Some(Lose));
     }
 
     #[test]
@@ -339,13 +346,29 @@ mod general {
         let pos = FairyBoard::from_fen_for("3check", "5q2/3k4/8/3K4/6R1/8/8/8 w - - 1+2 0 1", Strict).unwrap();
         assert!(pos.player_result_slow(&NoHistory::default()).is_none());
         let pos = pos.make_move_from_str("g4g7").unwrap();
-        assert_eq!(pos.additional_conters[FairyColor::first()], 2);
-        assert_eq!(pos.additional_conters[FairyColor::second()], 2);
+        assert_eq!(pos.additional_ctrs[FairyColor::first()], 2);
+        assert_eq!(pos.additional_ctrs[FairyColor::second()], 2);
         assert_eq!(pos.player_result_slow(&NoHistory::default()), None);
         let pos = pos.make_move_from_str("f8f7").unwrap();
-        assert_eq!(pos.additional_conters[FairyColor::first()], 3);
-        assert_eq!(pos.additional_conters[FairyColor::second()], 2);
+        assert_eq!(pos.additional_ctrs[FairyColor::first()], 3);
+        assert_eq!(pos.additional_ctrs[FairyColor::second()], 2);
         assert_eq!(pos.player_result_slow(&NoHistory::default()), Some(Lose));
+    }
+
+    #[test]
+    fn simple_antichess_test() {
+        let pos = FairyBoard::from_fen_for("antichess", "5K2/8/8/8/8/8/8/8 b - - 0 1", Strict).unwrap();
+        assert_eq!(pos.player_result_slow(&NoHistory::default()), Some(Win));
+        let pos = FairyBoard::from_fen_for("antichess", "8/8/8/8/6p1/7K/8/8 w - - 0 1", Strict).unwrap();
+        assert!(!pos.is_in_check());
+        assert!(pos.player_result_slow(&NoHistory::default()).is_none());
+        let pos = pos.make_move_from_str("h3g4").unwrap();
+        assert_eq!(pos.player_result_slow(&NoHistory::default()), Some(Win));
+        let pos = FairyBoard::from_fen_for("antichess", "8/8/8/2R5/8/8/2p5/8 b - - 0 1", Strict).unwrap();
+        let pos = pos.make_move_from_str("c2c1k").unwrap();
+        assert!(pos.clone().make_move_from_str("c5c2").is_err());
+        let pos = pos.make_move_from_str("c5c1").unwrap();
+        assert_eq!(pos.player_result_slow(&NoHistory::default()), Some(Win));
     }
 
     #[test]

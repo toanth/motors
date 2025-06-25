@@ -20,7 +20,7 @@ use crate::games::ataxx::AtaxxBoard;
 use crate::games::fairy::attacks::{AttackBitboardFilter, EffectRules, GenPieceAttackKind};
 use crate::games::fairy::effects::Observers;
 use crate::games::fairy::moves::FairyMove;
-use crate::games::fairy::pieces::{Piece, PieceId};
+use crate::games::fairy::pieces::{CHESS_KING_IDX, CHESS_PAWN_IDX, Piece, PieceId};
 use crate::games::fairy::rules::GameEndEager::{
     AdditionalCounter, And, CanAchieve, DrawCounter, InsufficientMaterial, NoPiece, Not, Repetition,
 };
@@ -41,8 +41,8 @@ use crate::general::bitboards::{Bitboard, RawBitboard};
 use crate::general::board::{BitboardBoard, Board, BoardHelpers};
 use crate::general::common::{Res, Tokens};
 use crate::general::move_list::MoveList;
-use crate::general::moves::Legality::PseudoLegal;
-use crate::general::moves::Move;
+use crate::general::moves::Legality::{Legal, PseudoLegal};
+use crate::general::moves::{Legality, Move};
 use crate::general::squares::GridSize;
 use arbitrary::Arbitrary;
 use std::cmp::Ordering;
@@ -402,7 +402,7 @@ impl GameEndEager {
             }
             AdditionalCounter => {
                 for i in 0..2 {
-                    if pos.additional_conters[i] >= pos.rules.0.ctr_threshold[i].unwrap_or(AdditionalCtrT::MAX) {
+                    if pos.additional_ctrs[i] >= pos.rules.0.ctr_threshold[i].unwrap_or(AdditionalCtrT::MAX) {
                         return true;
                     }
                 }
@@ -464,7 +464,7 @@ impl Arbitrary<'_> for EmptyBoard {
             num_piece_bitboards: usize::arbitrary(u)?,
             draw_counter: usize::arbitrary(u)?,
             in_check: [bool::arbitrary(u)?, bool::arbitrary(u)?],
-            additional_conters: [0; NUM_COLORS],
+            additional_ctrs: [0; NUM_COLORS],
             active: FairyColor::arbitrary(u)?,
             castling_info: FairyCastleInfo::arbitrary(u)?,
             size: GridSize::arbitrary(u)?,
@@ -490,6 +490,44 @@ pub enum NumRoyals {
     BetweenInclusive(usize, usize),
 }
 
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Arbitrary)]
+pub enum MoveCondition {
+    Capture,
+    // Check,
+}
+
+impl MoveCondition {
+    pub fn applies(self, mov: FairyMove) -> bool {
+        match self {
+            MoveCondition::Capture => mov.is_capture(),
+        }
+    }
+}
+
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Arbitrary)]
+pub enum FilterMovesCondition {
+    NoFilter,
+    /// If there is at least one legal move that satisfies the given condition, only moves
+    /// that satisfy this condition can be played (e.g. forced captures in antichess).
+    /// Much simpler to implement in pseudolegal games
+    Any(MoveCondition),
+}
+
+impl FilterMovesCondition {
+    pub fn apply<T: MoveList<FairyBoard>>(&self, list: &mut T, pos: &FairyBoard) {
+        match self {
+            FilterMovesCondition::NoFilter => return,
+            FilterMovesCondition::Any(condition) => {
+                if list.iter_moves().any(|m| {
+                    condition.applies(*m) && (pos.rules.0.legality == Legal || pos.is_pseudolegal_move_legal(*m))
+                }) {
+                    list.filter_moves(|m| condition.applies(*m));
+                }
+            }
+        }
+    }
+}
+
 /// This struct defined the rules for the variant.
 /// Since the rules don't change during a game, but are expensive to copy and the board uses copy-make,
 /// they are created once and stored behind an [`Arc`] that all boards have one copy of.
@@ -503,7 +541,9 @@ pub(super) struct Rules {
     pub game_end_no_moves: Vec<(NoMovesCondition, GameEndRes)>,
     pub startpos_fen_part: String, // doesn't include the rules
     pub empty_board: EmptyBoard,
-    // pub legality: Legality,
+    /// setting this to [`Legal`] can be a speedup, but setting it to [`PseudoLegal`] is always correct.
+    pub legality: Legality,
+    pub moves_filter: FilterMovesCondition,
     pub size: GridSize,
     pub has_ep: bool,
     pub has_fen_hand_info: bool, // false for e.g. mnk games, which have a hand, but don't include that in the FEN.
@@ -588,7 +628,7 @@ impl Rules {
             num_piece_bitboards: rules.0.pieces.len(),
             draw_counter: 0,
             in_check: [false; NUM_COLORS],
-            additional_conters: [0; NUM_COLORS],
+            additional_ctrs: [0; NUM_COLORS],
             active: Default::default(),
             castling_info: FairyCastleInfo::new(size),
             size,
@@ -636,8 +676,9 @@ impl Rules {
             game_end_eager,
             game_end_no_moves,
             startpos_fen_part,
-            // legality,
             empty_board: EmptyBoard(Box::new(empty_func)),
+            legality: PseudoLegal,
+            moves_filter: FilterMovesCondition::NoFilter,
             size: FairySize::chess(),
             has_ep: true,
             has_fen_hand_info: false,
@@ -655,56 +696,29 @@ impl Rules {
     }
 
     pub fn shatranj() -> Self {
-        let pieces = Piece::shatranj_pieces();
-        let colors = Self::chess_colors();
+        let mut rules = Self::chess();
+        rules.name = "shatranj".to_string();
+        rules.startpos_fen_part = "rnakfanr/pppppppp/8/8/8/8/PPPPPPPP/RNAKFANR w 0 1".to_string();
+        rules.pieces = Piece::shatranj_pieces();
         let bare_king = NoPiece(PieceCond::NonRoyal, PlayerCond::Active);
-        let game_end_eager = vec![
+        rules.game_end_eager = vec![
             (DrawCounter(100), Draw),
             (Repetition(3), Draw),
             (bare_king.clone(), GameEndRes::loss().but(Draw).if_a_move_achieves(bare_king)),
         ];
-        let game_end_no_moves = vec![(Always, GameEndRes::loss())];
-        // let game_loss = vec![GameEndEager::Checkmate, GameEndEager::NoMoves, GameEndEager::NoNonRoyalsExceptRecapture];
-        // let draw = vec![GameEndEager::Counter(100), GameEndEager::Repetition(3)];
-        let startpos_fen_part = "rnakfanr/pppppppp/8/8/8/8/PPPPPPPP/RNAKFANR w 0 1".to_string();
-        // let legality = PseudoLegal;
-        let effect_rules = EffectRules::default();
-        Self {
-            pieces,
-            colors,
-            starting_pieces_in_hand: [[0; MAX_NUM_PIECE_TYPES]; NUM_COLORS],
-            game_end_eager,
-            game_end_no_moves,
-            startpos_fen_part,
-            // legality,
-            empty_board: EmptyBoard(Box::new(Self::generic_empty_board)),
-            size: FairySize::chess(),
-            has_ep: false,
-            has_fen_hand_info: false,
-            has_castling: false,
-            store_last_move: false,
-            ctr_threshold: [None; NUM_COLORS],
-            effect_rules,
-            check_rules: CheckRules::chess(),
-            name: "shatranj".to_string(),
-            fen_part: RulesFenPart::None,
-            num_royals: [Exactly(1); NUM_COLORS],
-            must_preserve_own_king: [true; NUM_COLORS],
-            observers: Observers::shatranj(),
-        }
+        rules.game_end_no_moves = vec![(Always, GameEndRes::loss())];
+        rules.has_ep = false;
+        rules.has_castling = false;
+        rules
     }
 
     pub fn king_of_the_hill() -> Self {
         let mut rules = Self::chess();
         rules.game_end_eager.retain(|(c, _r)| !matches!(c, InsufficientMaterial(_, _)));
         // moving a king to the center takes precedence over draw conditions like the 50 mr counter
-        rules.game_end_eager.insert(
-            0,
-            (
-                GameEndEager::PieceIn(Royal, SquareCond::Bitboard(0x1818000000), PlayerCond::Inactive),
-                GameEndRes::loss(),
-            ),
-        );
+        rules
+            .game_end_eager
+            .insert(0, (PieceIn(Royal, SquareCond::Bitboard(0x1818000000), PlayerCond::Inactive), GameEndRes::loss()));
         rules.name = "kingofthehill".to_string();
         rules
     }
@@ -801,18 +815,18 @@ impl Rules {
             p.attacks.push(drop);
         }
         let mut pieces = Piece::complete_piece_map(rules.size);
-        for i in 1..5 {
+        for i in CHESS_PAWN_IDX + 1..5 {
             let mut piece = pieces.remove(&rules.pieces[i].name).unwrap();
-            let pawn = PieceId::new(0);
+            let pawn = PieceId::new(CHESS_PAWN_IDX);
             piece.promotions.promoted_from = Some(pawn);
             piece.name += " (promoted)";
             debug_assert_eq!(rules.pieces[i].promotions.promoted_version, Some(PieceId::new(rules.pieces.len())));
             rules.pieces.push(piece);
         }
-        for piece in &rules.pieces[0].promotions.pieces {
+        for piece in &rules.pieces[CHESS_PAWN_IDX].promotions.pieces {
             assert!(rules.pieces[piece.val() + 5].name.starts_with(&rules.pieces[piece.val()].name));
         }
-        for piece in &mut rules.pieces[0].promotions.pieces {
+        for piece in &mut rules.pieces[CHESS_PAWN_IDX].promotions.pieces {
             *piece = PieceId::new(piece.val() + 5);
         }
         rules
@@ -824,6 +838,23 @@ impl Rules {
         rules.observers = Observers::n_check();
         rules.game_end_eager.push((AdditionalCounter, InactivePlayerWin));
         rules.ctr_threshold = [Some(n as AdditionalCtrT); 2];
+        rules
+    }
+
+    pub fn antichess() -> Self {
+        let mut rules = Self::chess();
+        rules.name = "antichess".to_string();
+        let king = &mut rules.pieces[CHESS_KING_IDX];
+        king.royal = false;
+        king.can_castle = false;
+        let pawn = &mut rules.pieces[CHESS_PAWN_IDX];
+        pawn.promotions.pieces.push(PieceId::new(CHESS_KING_IDX));
+        rules.game_end_no_moves = vec![(Always, ActivePlayerWin)];
+        // TODO: Insufficient material for opposite-colored bishops
+        rules.game_end_eager = vec![(DrawCounter(50), Draw), (Repetition(3), Draw)];
+        rules.must_preserve_own_king = [false; 2];
+        rules.num_royals = [Exactly(0); 2];
+        rules.moves_filter = FilterMovesCondition::Any(MoveCondition::Capture);
         rules
     }
 
@@ -845,7 +876,7 @@ impl Rules {
             ],
             game_end_no_moves: vec![(NoMovesCondition::NoOpponentMoves, GameEndRes::MorePieces)],
             startpos_fen_part,
-            // legality: Legality::Legal,
+            legality: Legal,
             empty_board: EmptyBoard(Box::new(Self::generic_empty_board)),
             size,
             has_ep: false,
@@ -860,6 +891,7 @@ impl Rules {
             num_royals: [Exactly(0); NUM_COLORS],
             must_preserve_own_king: [false; NUM_COLORS],
             observers: Observers::ataxx(),
+            moves_filter: FilterMovesCondition::NoFilter,
         }
     }
 
@@ -879,7 +911,7 @@ impl Rules {
             game_end_eager: vec![(InRowAtLeast(k as usize, PlayerCond::Inactive), GameEndRes::loss())],
             game_end_no_moves: vec![(Always, Draw)],
             startpos_fen_part,
-            // legality: Legality::Legal,
+            legality: Legal,
             empty_board: EmptyBoard(Box::new(Self::generic_empty_board)),
             size,
             has_ep: false,
@@ -894,6 +926,7 @@ impl Rules {
             num_royals: [Exactly(0); NUM_COLORS],
             must_preserve_own_king: [false; NUM_COLORS],
             observers: Observers::mnk(),
+            moves_filter: FilterMovesCondition::NoFilter,
         }
     }
 }

@@ -339,10 +339,6 @@ impl Observers {
         Self::default()
     }
 
-    pub fn shatranj() -> Self {
-        Self::chess()
-    }
-
     pub fn atomic(pawn: PieceId) -> Self {
         let mut res = Self::chess();
         let explosion = move |event: Capture, pos: &mut FairyBoard| {
@@ -372,7 +368,7 @@ impl Observers {
     pub fn n_check() -> Self {
         let mut res = Self::chess();
         let incr_check_ctr = |event: InCheck, pos: &mut FairyBoard| {
-            pos.0.additional_conters[event.color] += 1;
+            pos.0.additional_ctrs[event.color] += 1;
         };
         res.in_check.push(Box::new(incr_check_ctr));
         res
