@@ -80,6 +80,11 @@ mod tests {
             ("mnk 6 7 4", vec![42, 1722, 68_880, 2_686_320]),
             ("large_mnk", vec![121, 14_520, 1_727_880]),
             ("mnk 6 7 4 7/4O2/X2X1X1/O1XX1O1/OXOOOX1/OOXXOX1 x 11", vec![22, 462, 9240, 170_240, 3_050_784]),
+            (
+                "cfour 7 7 3 7/7/7/7/7/1X3O1/XOXXOO1 X",
+                vec![7, 49, 259, 1372, 6804, 30_889, 145_533, 611_261, 2_702_712],
+            ),
+            ("cfour OO2OOX/XXX1XXO/OOXXOOX/XXOOXXX/OXOXXOO/OXOOXOX O", vec![2, 3, 2, 0, 0, 0, 0, 0, 0]),
             ("ataxx 7/7/7/7/7/7/7 x 0 1", vec![0, 0, 0, 0]),
             ("ataxx 7/7/7/7/ooooooo/ooooooo/xxxxxxx o 0 1", vec![75, 249, 14270, 452_980]),
             ("ataxx o5x/7/2-1-2/7/2-1-2/7/x5o o 0 1", vec![14, 196, 4_184, 86_528, 2_266_352]),

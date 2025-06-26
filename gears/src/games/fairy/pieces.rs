@@ -22,13 +22,13 @@ use crate::games::chess::pieces::{
     UNICODE_WHITE_PAWN, UNICODE_WHITE_QUEEN, UNICODE_WHITE_ROOK,
 };
 use crate::games::fairy::Side::*;
-use crate::games::fairy::attacks::AttackBitboardFilter::EmptySquares;
+use crate::games::fairy::attacks::AttackBitboardFilter::{EmptySquares, InDirectionOf, Not};
 use crate::games::fairy::attacks::AttackKind::*;
 use crate::games::fairy::attacks::AttackTypes::*;
 use crate::games::fairy::attacks::GenAttacksCondition::*;
 use crate::games::fairy::attacks::{
-    AttackBitboardFilter, AttackMode, AttackTypes, CaptureCondition, GenPieceAttackKind, LeapingBitboards, MoveKind,
-    RequiredForAttack, SliderDirections,
+    AttackBitboardFilter, AttackMode, AttackTypes, CaptureCondition, Dir, GenPieceAttackKind, LeapingBitboards,
+    MoveKind, RequiredForAttack, SliderDirections,
 };
 use crate::games::fairy::moves::FairyMove;
 use crate::games::fairy::rules::Rules;
@@ -648,6 +648,21 @@ impl Piece {
                     uncolored_symbol: ['x', UNICODE_X],
                     player_symbol: [['X', UNICODE_X], ['O', UNICODE_O]],
                     attacks: vec![GenPieceAttackKind::piece_drop(vec![EmptySquares])],
+                    promotions: Default::default(),
+                    can_ep_capture: false,
+                    resets_draw_counter: DrawCtrReset::Never,
+                    royal: false,
+                    can_castle: false,
+                },
+                Self {
+                    name: "cfour".to_string(),
+                    uncolored: false,
+                    uncolored_symbol: ['x', UNICODE_X],
+                    player_symbol: [['X', UNICODE_X], ['O', UNICODE_O]],
+                    attacks: vec![GenPieceAttackKind::piece_drop(vec![
+                        EmptySquares,
+                        Not(Box::new(InDirectionOf(Box::new(EmptySquares), Dir::North))),
+                    ])],
                     promotions: Default::default(),
                     can_ep_capture: false,
                     resets_draw_counter: DrawCtrReset::Never,

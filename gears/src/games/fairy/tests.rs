@@ -430,4 +430,11 @@ mod general {
             }
         }
     }
+
+    #[test]
+    fn simple_cfour_test() {
+        let pos = FairyBoard::from_fen_for("cfour", "7/7/7/7/7/7 x 1", Strict).unwrap();
+        let pos = pos.make_move_from_str("g1").unwrap();
+        assert!(pos.player_result_slow(&NoHistory::default()).is_none());
+    }
 }

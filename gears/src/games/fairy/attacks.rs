@@ -45,7 +45,7 @@ use std::str::FromStr;
 type SliderGen<'a> = BitReverseSliderGenerator<'a, FairySquare, FairyBitboard>;
 
 /// The general organization of movegen is that of a pipeline, where a stage communicates with the next through enums,
-/// which usually need the global `rules()` to be interpreted correctly
+/// which usually need the `rules()` to be interpreted correctly
 #[derive(Debug, Clone, Arbitrary)]
 pub enum SliderDirections {
     Vertical,
@@ -55,7 +55,7 @@ pub enum SliderDirections {
     Rider { precomputed: Box<[RawFairyBitboard]> },
 }
 
-// not const, which allows using ranges and for loops
+// not `const`, which allows using ranges and for loops
 pub fn leaper_attack_range<Iter1: Iterator<Item = isize>, Iter2: Iterator<Item = isize> + Clone>(
     horizontal_range: Iter1,
     vertical_range: Iter2,
@@ -403,6 +403,49 @@ impl PieceAttackBB {
     }
 }
 
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Arbitrary)]
+pub enum Dir {
+    North,
+    South,
+    East,
+    West,
+    Horizontal,
+    Vertical,
+    Diagonal,
+    AntiDiagonal,
+    Up(FairyColor),
+    Down(FairyColor),
+}
+
+impl Dir {
+    pub fn shift(self, bb: FairyBitboard) -> FairyBitboard {
+        match self {
+            Dir::North => bb.north(),
+            Dir::South => bb.south(),
+            Dir::East => bb.east(),
+            Dir::West => bb.west(),
+            Dir::Horizontal => bb.east() | bb.west(),
+            Dir::Vertical => bb.north() | bb.south(),
+            Dir::Diagonal => bb.north_east() | bb.south_west(),
+            Dir::AntiDiagonal => bb.south_east() | bb.north_west(),
+            Dir::Up(color) => {
+                if color.is_first() {
+                    bb.north()
+                } else {
+                    bb.south()
+                }
+            }
+            Dir::Down(color) => {
+                if color.is_first() {
+                    bb.south()
+                } else {
+                    bb.north()
+                }
+            }
+        }
+    }
+}
+
 /// Bitand the generated attack bitboard with a bitboard given by this enum
 #[derive(Debug, Clone, Arbitrary)]
 #[must_use]
@@ -411,13 +454,14 @@ pub enum AttackBitboardFilter {
     Them,
     Us,
     NotUs,
+    EitherPlayer,
     Bitboard(RawFairyBitboard),
-    // NotThem,
     Rank(DimT),
     // File(DimT),
     Neighbor(Box<AttackBitboardFilter>), // a piece of the given color must be on an adjacent square
-    PawnCapture,                         // Them | {ep_square}
-                                         // Custom(RawFairyBitboard),
+    InDirectionOf(Box<AttackBitboardFilter>, Dir),
+    PawnCapture, // Them | {ep_square}
+    Not(Box<AttackBitboardFilter>),
 }
 
 impl AttackBitboardFilter {
@@ -427,18 +471,22 @@ impl AttackBitboardFilter {
             AttackBitboardFilter::Them => pos.player_bb(!us),
             AttackBitboardFilter::Us => pos.player_bb(us),
             NotUs => !pos.player_bb(us),
-            // AttackBitboardFilter::NotThem => !pos.player_bb(!us),
+            AttackBitboardFilter::EitherPlayer => pos.either_player_bb(),
             AttackBitboardFilter::Bitboard(bb) => FairyBitboard::new(*bb, pos.size()),
             AttackBitboardFilter::Rank(rank) => FairyBitboard::rank_for(*rank, pos.size()),
             // AttackBitboardFilter::File(file) => FairyBitboard::file_for(file, pos.size()),
             AttackBitboardFilter::Neighbor(nested) => {
                 FairyBitboard::new(nested.bb(us, pos), pos.size).moore_neighbors()
             }
+            AttackBitboardFilter::InDirectionOf(nested, dir) => {
+                dir.shift(FairyBitboard::new(nested.bb(us, pos), pos.size))
+            }
             AttackBitboardFilter::PawnCapture => {
                 let ep_bb =
                     pos.0.ep.map(|sq| FairyBitboard::single_piece_for(sq, pos.size()).raw()).unwrap_or_default();
                 return ep_bb | pos.player_bb(!us).raw();
-            } // AttackBitboardFilter::Custom(bb) => return bb,
+            }
+            AttackBitboardFilter::Not(condition) => return !condition.bb(us, pos) & pos.mask_bb,
         };
         bb.raw()
     }

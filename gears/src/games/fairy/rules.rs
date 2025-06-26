@@ -442,6 +442,7 @@ pub enum RulesFenPart {
     #[default]
     None,
     Mnk(MnkSettings),
+    CFour(MnkSettings),
 }
 
 #[must_use]
@@ -574,6 +575,9 @@ impl Rules {
             RulesFenPart::Mnk(settings) => {
                 write!(f, "{settings} ")
             }
+            RulesFenPart::CFour(settings) => {
+                write!(f, "{settings} ")
+            }
         }
     }
 
@@ -586,6 +590,16 @@ impl Rules {
                 let settings = MnkSettings::from_input(first, input)?;
                 if settings != old {
                     let rules = Rules::mnk(settings.size(), settings.k() as DimT);
+                    Ok(Some(RulesRef(Arc::new(rules))))
+                } else {
+                    Ok(None)
+                }
+            }
+            RulesFenPart::CFour(old) => {
+                let first = input.next().unwrap_or_default();
+                let settings = MnkSettings::from_input(first, input)?;
+                if settings != old {
+                    let rules = Rules::cfour(settings.size(), settings.k() as DimT);
                     Ok(Some(RulesRef(Arc::new(rules))))
                 } else {
                     Ok(None)
@@ -935,6 +949,14 @@ impl Rules {
             observers: Observers::mnk(),
             moves_filter: FilterMovesCondition::NoFilter,
         }
+    }
+
+    pub fn cfour(size: FairySize, k: DimT) -> Self {
+        let mut res = Self::mnk(size, k);
+        res.name = "cfour".to_string();
+        res.pieces = vec![Piece::create_piece_by_name("cfour", size).unwrap()];
+        res.fen_part = RulesFenPart::CFour(MnkSettings::new(size.height, size.width, k));
+        res
     }
 }
 

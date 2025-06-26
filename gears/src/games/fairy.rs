@@ -862,8 +862,13 @@ impl Board for FairyBoard {
             _ = input.next();
             rules = (v.val)();
         }
-        if let Some(fen_rules) = rules.get().read_rules_fen_part(input)? {
-            rules = fen_rules;
+        let input_copy = input.clone();
+        match rules.get().read_rules_fen_part(input) {
+            Ok(Some(fen_rules)) => rules = fen_rules,
+            Ok(None) => {}
+            Err(_) => {
+                *input = input_copy;
+            }
         }
         let mut board = FairyBoard::empty_for_settings(rules);
         read_common_fen_part::<Self>(input, &mut board)?;
@@ -953,6 +958,7 @@ impl FairyBoard {
             GenericSelect { name: "ataxx", val: || RulesRef::new(Rules::ataxx()) },
             GenericSelect { name: "tictactoe", val: || RulesRef::new(Rules::tictactoe()) },
             GenericSelect { name: "mnk", val: || RulesRef::new(Rules::mnk(GridSize::connect4(), 4)) },
+            GenericSelect { name: "cfour", val: || RulesRef::new(Rules::cfour(GridSize::connect4(), 4)) },
         ]
     }
 
