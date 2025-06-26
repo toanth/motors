@@ -355,9 +355,9 @@ impl Observers {
         let mut res = Self::chess();
         let add_to_hand = |event: Capture, pos: &mut FairyBoard| {
             let mut piece = event.captured.uncolor();
-            if let Some(pawn) = piece.get(&pos.rules).promotions.promoted_from {
+            if let Some(pawn) = piece.get(pos.rules()).promotions.promoted_from {
                 piece = pawn;
-                debug_assert!(piece.get(&pos.rules).promotions.promoted_version.is_none());
+                debug_assert!(piece.get(pos.rules()).promotions.promoted_version.is_none());
             }
             pos.emit(AddPieceToHand { piece, color: pos.active_player() })
         };
@@ -387,7 +387,7 @@ impl Observers {
     }
 
     pub fn mnk() -> Self {
-        Self::default() // TODO: Implement
+        Self::default()
     }
 }
 
@@ -396,7 +396,7 @@ impl FairyBoard {
         e.execute(self);
         // unfortunately, this Arc clone is necessary to satisfy the borrow checker -- TODO: maybe find a way to avoid that
         let rules = self.rules.clone();
-        let observers = &rules.0.observers;
+        let observers = &rules.get().observers;
         e.notify(observers, self);
     }
 }

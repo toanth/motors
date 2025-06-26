@@ -60,7 +60,6 @@ use std::fmt;
 use std::fmt::{Debug, Display, Formatter};
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::ops::{Deref, Index, IndexMut, Not};
-use std::sync::Arc;
 use strum::IntoEnumIterator;
 use strum_macros::{EnumIter, FromRepr};
 
@@ -107,13 +106,13 @@ impl Color for FairyColor {
         Self(true)
     }
 
-    fn to_char(self, settings: &RulesRef) -> char {
-        settings.0.colors[self.idx()].ascii_char
+    fn to_char(self, settings: &Rules) -> char {
+        settings.colors[self.idx()].ascii_char
     }
 
     #[allow(refining_impl_trait)]
-    fn name(self, settings: &<Self::Board as Board>::Settings) -> String {
-        settings.0.colors[self.idx()].name.clone()
+    fn name(self, settings: &Rules) -> &str {
+        &settings.colors[self.idx()].name
     }
 }
 
@@ -299,12 +298,12 @@ impl UnverifiedFairyBoard {
         FairyBitboard::new(self.color_bitboards[0] | self.color_bitboards[1], self.size())
     }
 
-    fn rules(&self) -> &Arc<Rules> {
-        &self.rules.0
+    fn rules(&self) -> &Rules {
+        self.rules.get()
     }
 
     fn color_name(&self, color: FairyColor) -> &str {
-        &self.rules.0.colors[color.idx()].name
+        &self.rules().colors[color.idx()].name
     }
 }
 
@@ -434,12 +433,12 @@ impl UnverifiedBoard<FairyBoard> for UnverifiedFairyBoard {
         Ok(res)
     }
 
-    fn settings(&self) -> RulesRef {
-        RulesRef(self.rules().clone())
+    fn settings(&self) -> &Rules {
+        self.rules.get()
     }
 
     fn name(&self) -> String {
-        self.settings().0.name.clone()
+        self.settings().name.clone()
     }
 
     fn size(&self) -> BoardSize<FairyBoard> {
@@ -505,16 +504,16 @@ impl UnverifiedBoard<FairyBoard> for UnverifiedFairyBoard {
 
     fn read_fen_hand_part(&mut self, input: &str) -> Res<()> {
         ensure!(
-            self.settings().0.has_fen_hand_info,
+            self.rules().has_fen_hand_info,
             "The variant '{}' does not contain hand info in the FEN, so '[' and ']' can't appear in the position FEN part",
-            self.settings().0.name
+            self.rules().name
         );
         for c in input.chars() {
-            let Some(piece) = ColoredPieceId::from_char(c, &self.settings()) else {
+            let Some(piece) = ColoredPieceId::from_char(c, &self.rules()) else {
                 bail!(
                     "Expected a fairy piece, but '{0}' is not a valid FEN piece character for the current variant ({1})",
                     c.to_string().bold(),
-                    self.settings().0.name.bold()
+                    self.rules().name.bold()
                 )
             };
             let val = &mut self.in_hand[piece.color().unwrap()][piece.to_uncolored_idx()];
@@ -524,7 +523,7 @@ impl UnverifiedBoard<FairyBoard> for UnverifiedFairyBoard {
     }
 
     fn write_fen_hand_part(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        let rules = self.settings().0;
+        let rules = self.rules();
         if rules.has_fen_hand_info {
             write!(f, "[")?;
             for color in FairyColor::iter() {
@@ -605,8 +604,8 @@ impl UnverifiedFairyBoard {
         let mut ctr1 = parse_int_from_str(c1, "counter 1")?;
         let mut ctr2 = parse_int_from_str(c2, "counter 2")?;
         if first {
-            ctr1 = self.rules.0.ctr_threshold[0].unwrap_or_default() - ctr1;
-            ctr2 = self.rules.0.ctr_threshold[1].unwrap_or_default() - ctr2;
+            ctr1 = self.rules().ctr_threshold[0].unwrap_or_default() - ctr1;
+            ctr2 = self.rules().ctr_threshold[1].unwrap_or_default() - ctr2;
         }
         self.additional_ctrs[0] = ctr1;
         self.additional_ctrs[1] = ctr2;
@@ -659,7 +658,8 @@ type FairyPiece = GenericPiece<FairyBoard, ColoredPieceId>;
 
 impl Board for FairyBoard {
     type EmptyRes = Self::Unverified;
-    type Settings = RulesRef;
+    type Settings = Rules;
+    type SettingsRef = RulesRef;
     type Coordinates = FairySquare;
     type Color = FairyColor;
     type Piece = FairyPiece;
@@ -667,12 +667,12 @@ impl Board for FairyBoard {
     type MoveList = FairyMoveList;
     type Unverified = UnverifiedFairyBoard;
 
-    fn empty_for_settings(settings: Self::Settings) -> Self::Unverified {
+    fn empty_for_settings(settings: RulesRef) -> Self::Unverified {
         settings.empty_pos()
     }
 
-    fn startpos_for_settings(settings: Self::Settings) -> Self {
-        Self::from_fen_for(&settings.0.name, &settings.0.startpos_fen_part, Strict).unwrap()
+    fn startpos_for_settings(settings: RulesRef) -> Self {
+        Self::from_fen_for(&settings.get().name, &settings.get().startpos_fen_part, Strict).unwrap()
     }
 
     fn name_to_pos_map() -> EntityList<NameToPos> {
@@ -695,7 +695,11 @@ impl Board for FairyBoard {
         bail!("Not currently implemented for Fairy")
     }
 
-    fn settings(&self) -> Self::Settings {
+    fn settings(&self) -> &Self::Settings {
+        self.rules()
+    }
+
+    fn settings_ref(&self) -> Self::SettingsRef {
         self.rules.clone()
     }
 
@@ -706,7 +710,7 @@ impl Board for FairyBoard {
         let mut variant =
             (select_name_static(first, Self::variants().iter(), "variant", "fairy", NoDescription)?.val)();
         let rest_copy = rest.clone();
-        let res = variant.0.read_rules_fen_part(rest);
+        let res = variant.get().read_rules_fen_part(rest);
         if let Ok(Some(new)) = res {
             variant = new;
         } else if res.is_err() {
@@ -850,20 +854,18 @@ impl Board for FairyBoard {
     // TODO: Eventually, FEN parsing should work like this: If the first token of the FEN is a recognized game name, like `chess`,
     // that sets the variant and parses the FEN according to those rules. Otherwise, the variant is the same as the old one
     // (which requires passing in an old board).
-    fn read_fen_and_advance_input_for(input: &mut Tokens, strictness: Strictness, rules: &RulesRef) -> Res<Self> {
+    fn read_fen_and_advance_input_for(input: &mut Tokens, strictness: Strictness, mut rules: RulesRef) -> Res<Self> {
         let variants = Self::variants();
-        let rules = if let Some(v) =
+        if let Some(v) =
             variants.iter().find(|v| v.name.eq_ignore_ascii_case(input.peek().copied().unwrap_or_default()))
         {
             _ = input.next();
-            (v.val)()
-        } else {
-            rules.clone()
-        };
-        let mut board = FairyBoard::empty_for_settings(rules);
-        if let Some(rules) = board.rules.0.read_rules_fen_part(input)? {
-            board = Self::empty_for_settings(rules);
+            rules = (v.val)();
         }
+        if let Some(fen_rules) = rules.get().read_rules_fen_part(input)? {
+            rules = fen_rules;
+        }
+        let mut board = FairyBoard::empty_for_settings(rules);
         read_common_fen_part::<Self>(input, &mut board)?;
         board.read_castling_and_ep_fen_parts(input, strictness)?;
         let trailing_counters = board.rules().has_additional_ctr() && board.read_ctrs(input, true).is_err();

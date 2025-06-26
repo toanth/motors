@@ -114,7 +114,7 @@ impl Color for UtttColor {
         }
     }
 
-    fn name(self, _settings: &<Self::Board as Board>::Settings) -> impl AsRef<str> {
+    fn name(self, _settings: &<Self::Board as Board>::Settings) -> &str {
         match self {
             X => "X",
             O => "O",
@@ -683,6 +683,7 @@ impl Display for UtttBoard {
 impl Board for UtttBoard {
     type EmptyRes = UtttBoard;
     type Settings = UtttSettings;
+    type SettingsRef = UtttSettings;
     type Coordinates = UtttSquare;
     type Color = UtttColor;
     type Piece = UtttPiece;
@@ -745,7 +746,11 @@ impl Board for UtttBoard {
         }
     }
 
-    fn settings(&self) -> UtttSettings {
+    fn settings(&self) -> &UtttSettings {
+        &UtttSettings {}
+    }
+
+    fn settings_ref(&self) -> Self::SettingsRef {
         UtttSettings {}
     }
 
@@ -930,7 +935,7 @@ impl Board for UtttBoard {
     fn read_fen_and_advance_input_for(
         input: &mut Tokens,
         strictness: Strictness,
-        _settings: &UtttSettings,
+        _settings: UtttSettings,
     ) -> Res<Self> {
         let mut pos = Self::default().into();
         read_common_fen_part::<UtttBoard>(input, &mut pos)?;
@@ -1101,7 +1106,7 @@ impl UnverifiedBoard<UtttBoard> for UnverifiedUtttBoard {
         Ok(this)
     }
 
-    fn settings(&self) -> UtttSettings {
+    fn settings(&self) -> &UtttSettings {
         self.0.settings()
     }
 

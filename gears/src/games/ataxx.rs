@@ -38,9 +38,9 @@ use std::ops::Not;
 type AtaxxBitboard = SmallGridBitboard<7, 7>;
 
 #[derive(Debug, Default, Copy, Clone, Eq, PartialEq)]
-pub struct AtaxxSettings {
-    pub blocked: AtaxxBitboard,
-}
+pub struct AtaxxSettings;
+
+const ATAXX_SETTINGS: AtaxxSettings = AtaxxSettings {};
 
 impl Settings for AtaxxSettings {}
 
@@ -84,7 +84,7 @@ impl Color for AtaxxColor {
         }
     }
 
-    fn name(self, _settings: &<Self::Board as Board>::Settings) -> impl AsRef<str> {
+    fn name(self, _settings: &<Self::Board as Board>::Settings) -> &str {
         match self {
             X => "X",
             O => "O",
@@ -148,6 +148,7 @@ impl Board for AtaxxBoard {
     // TODO: This is not a useful board state since neither player can make any moves
     type EmptyRes = AtaxxBoard;
     type Settings = AtaxxSettings;
+    type SettingsRef = AtaxxSettings;
     type Coordinates = AtaxxSquare;
     type Color = AtaxxColor;
     type Piece = AtaxxPiece;
@@ -284,8 +285,12 @@ impl Board for AtaxxBoard {
         }
     }
 
-    fn settings(&self) -> Self::Settings {
-        AtaxxSettings { blocked: self.blocked_bb() }
+    fn settings(&self) -> &AtaxxSettings {
+        &ATAXX_SETTINGS
+    }
+
+    fn settings_ref(&self) -> Self::SettingsRef {
+        ATAXX_SETTINGS
     }
 
     fn active_player(&self) -> AtaxxColor {
@@ -419,7 +424,7 @@ impl Board for AtaxxBoard {
     fn read_fen_and_advance_input_for(
         string: &mut Tokens,
         strictness: Strictness,
-        _settings: &AtaxxSettings,
+        _settings: AtaxxSettings,
     ) -> Res<Self> {
         Self::read_fen_impl(string, strictness)
     }
@@ -526,7 +531,7 @@ impl UnverifiedBoard<AtaxxBoard> for UnverifiedAtaxxBoard {
         Ok(this)
     }
 
-    fn settings(&self) -> AtaxxSettings {
+    fn settings(&self) -> &AtaxxSettings {
         self.0.settings()
     }
 

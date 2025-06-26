@@ -90,6 +90,8 @@ static STARTPOS: Chessboard = {
 #[derive(Eq, PartialEq, Copy, Clone, Debug, Default)]
 pub struct ChessSettings;
 
+const CHESS_SETTINGS: ChessSettings = ChessSettings {};
+
 pub const MAX_CHESS_MOVES_IN_POS: usize = 300;
 
 // for some reason, Chessboard::MoveList can be ambiguous? This should fix that
@@ -157,7 +159,7 @@ impl Color for ChessColor {
         }
     }
 
-    fn name(self, _settings: &<Self::Board as Board>::Settings) -> impl AsRef<str> {
+    fn name(self, _settings: &<Self::Board as Board>::Settings) -> &str {
         match self {
             White => "White",
             Black => "Black",
@@ -224,6 +226,7 @@ impl StaticallyNamedEntity for Chessboard {
 impl Board for Chessboard {
     type EmptyRes = UnverifiedChessboard;
     type Settings = ChessSettings;
+    type SettingsRef = ChessSettings;
     type Coordinates = ChessSquare;
     type Color = ChessColor;
     type Piece = ChessPiece;
@@ -383,8 +386,12 @@ impl Board for Chessboard {
         }
     }
 
-    fn settings(&self) -> Self::Settings {
-        ChessSettings {}
+    fn settings(&self) -> &Self::Settings {
+        &CHESS_SETTINGS
+    }
+
+    fn settings_ref(&self) -> Self::SettingsRef {
+        CHESS_SETTINGS
     }
 
     fn active_player(&self) -> ChessColor {
@@ -550,7 +557,7 @@ impl Board for Chessboard {
     fn read_fen_and_advance_input_for(
         words: &mut Tokens,
         strictness: Strictness,
-        _settings: &ChessSettings,
+        _settings: ChessSettings,
     ) -> Res<Self> {
         let mut board = Chessboard::empty();
         read_common_fen_part::<Chessboard>(words, &mut board)?;

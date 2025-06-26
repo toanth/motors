@@ -92,7 +92,7 @@ impl Color for MnkColor {
         }
     }
 
-    fn name(self, _settings: &<Self::Board as Board>::Settings) -> impl AsRef<str> {
+    fn name(self, _settings: &<Self::Board as Board>::Settings) -> &str {
         match self {
             MnkColor::X => "X",
             MnkColor::O => "O",
@@ -480,6 +480,7 @@ impl Board for MNKBoard {
     type EmptyRes = MNKBoard;
 
     type Settings = MnkSettings;
+    type SettingsRef = MnkSettings;
 
     type Coordinates = GridCoordinates;
     type Color = MnkColor;
@@ -580,7 +581,11 @@ impl Board for MNKBoard {
         }
     }
 
-    fn settings(&self) -> Self::Settings {
+    fn settings(&self) -> &MnkSettings {
+        &self.settings
+    }
+
+    fn settings_ref(&self) -> Self::SettingsRef {
         self.settings
     }
 
@@ -734,7 +739,7 @@ impl Board for MNKBoard {
         Self::read_fen_for(words, strictness, settings)
     }
 
-    fn read_fen_and_advance_input_for(words: &mut Tokens, strictness: Strictness, settings: &MnkSettings) -> Res<Self> {
+    fn read_fen_and_advance_input_for(words: &mut Tokens, strictness: Strictness, settings: MnkSettings) -> Res<Self> {
         let Some(first) = words.peek().copied() else {
             bail!("Empty mnk fen".to_string());
         };
@@ -893,7 +898,7 @@ impl UnverifiedBoard<MNKBoard> for UnverifiedMnkBoard {
         Ok(this)
     }
 
-    fn settings(&self) -> MnkSettings {
+    fn settings(&self) -> &MnkSettings {
         self.0.settings()
     }
 

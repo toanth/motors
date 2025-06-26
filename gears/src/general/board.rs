@@ -161,7 +161,7 @@ where
     // TODO: Refactor such that debug_verify_invariants actually checks invariants that should not be broken in a Board
     // but are getting corrected in the verify method of an UnverifiedBoard
 
-    fn settings(&self) -> B::Settings;
+    fn settings(&self) -> &B::Settings;
 
     fn name(&self) -> String {
         B::game_name()
@@ -300,6 +300,7 @@ pub trait Board:
     /// Should be either `Self::Unverified` or `Self`
     type EmptyRes: Into<Self::Unverified>;
     type Settings: Settings;
+    type SettingsRef: Default;
     type Coordinates: Coordinates;
     type Color: Color<Board = Self>;
     type Piece: ColoredPiece<Self>;
@@ -310,12 +311,12 @@ pub trait Board:
     /// The position returned by this function does not have to be legal, e.g. in chess it would
     /// not include any kings. However, this is still useful to set up the board and is used
     /// in fen parsing, for example.
-    fn empty_for_settings(settings: Self::Settings) -> Self::EmptyRes;
+    fn empty_for_settings(settings: Self::SettingsRef) -> Self::EmptyRes;
 
     /// Like `empty_for_setting`, but uses a default settings objects.
     /// Most games have empty setting objects, so explicitly passing in settings is unnecessary.
     fn empty() -> Self::EmptyRes {
-        Self::empty_for_settings(Self::Settings::default())
+        Self::empty_for_settings(Self::SettingsRef::default())
     }
 
     /// The starting position of the game.
@@ -324,18 +325,13 @@ pub trait Board:
     /// This always returns the same position, even when there are technically multiple starting positions.
     /// For example, the `Chessboard` implementation supports (D)FRC, but `startpos()` still only returns
     /// the standard chess start pos
-    fn startpos_for_settings(settings: Self::Settings) -> Self;
-
-    /// The starting position for the current board's settings.
-    fn startpos_with_current_settings(&self) -> Self {
-        Self::startpos_for_settings(self.settings())
-    }
+    fn startpos_for_settings(settings: Self::SettingsRef) -> Self;
 
     /// Like [`Self::startpos_for_settings()`] with default settings.
     /// Most boards have empty settings, so explicitly passing in settings is unnecessary.
     /// Usually, `startpos()` returns the same as `default()`, but this isn't enforced.
     fn startpos() -> Self {
-        Self::startpos_for_settings(Self::Settings::default())
+        Self::startpos_for_settings(Self::SettingsRef::default())
     }
 
     /// Constructs a specific, well-known position from its name, such as 'kiwipete' in chess.
@@ -364,7 +360,9 @@ pub trait Board:
     /// implementation. Not all implementation have to support this function or all symmetries, so it returns a `Res`.
     fn random_pos(rng: &mut impl Rng, strictness: Strictness, symmetry: Option<Symmetry>) -> Res<Self>;
 
-    fn settings(&self) -> Self::Settings;
+    fn settings(&self) -> &Self::Settings;
+
+    fn settings_ref(&self) -> Self::SettingsRef;
 
     /// Returns a board in the startpos of the variant corresponding to the `name`.
     /// `_additional` can be used to modify the variant, e.g. to set the board size in mnk games.
@@ -583,7 +581,7 @@ pub trait Board:
     /// Like [`Self::from_fen`], but changes the `input` argument to contain the remaining input instead of panicking when there's
     /// any remaining input after reading the fen.
     fn read_fen_and_advance_input(input: &mut Tokens, strictness: Strictness) -> Res<Self> {
-        Self::read_fen_and_advance_input_for(input, strictness, &Self::Settings::default())
+        Self::read_fen_and_advance_input_for(input, strictness, Self::SettingsRef::default())
     }
 
     /// Like [`Self::read_fen_and_advance_input`], but if the input doesn't contain any leading settings information
@@ -591,7 +589,7 @@ pub trait Board:
     fn read_fen_and_advance_input_for(
         input: &mut Tokens,
         strictness: Strictness,
-        settings: &Self::Settings,
+        settings: Self::SettingsRef,
     ) -> Res<Self>;
 
     /// Returns true iff the board should be flipped when viewed from the second player's perspective.
@@ -642,8 +640,8 @@ pub trait BoardHelpers: Board {
 
     fn color_names(&self) -> [String; 2] {
         [
-            Self::Color::first().name(&self.settings()).as_ref().to_string(),
-            Self::Color::second().name(&self.settings()).as_ref().to_string(),
+            Self::Color::first().name(&self.settings()).to_string(),
+            Self::Color::second().name(&self.settings()).to_string(),
         ]
     }
 

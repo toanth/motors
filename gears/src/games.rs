@@ -85,9 +85,9 @@ pub trait Color: Debug + Default + Copy + Clone + PartialEq + Eq + Send + Hash +
     }
 
     fn from_name(name: &str, settings: &<Self::Board as Board>::Settings) -> Option<Self> {
-        if Self::first().name(settings).as_ref().eq_ignore_ascii_case(name) {
+        if Self::first().name(settings).eq_ignore_ascii_case(name) {
             Some(Self::first())
-        } else if Self::second().name(settings).as_ref().eq_ignore_ascii_case(name) {
+        } else if Self::second().name(settings).eq_ignore_ascii_case(name) {
             Some(Self::second())
         } else {
             let mut chars = name.chars();
@@ -106,7 +106,7 @@ pub trait Color: Debug + Default + Copy + Clone + PartialEq + Eq + Send + Hash +
 
     fn to_char(self, _settings: &<Self::Board as Board>::Settings) -> char;
 
-    fn name(self, _settings: &<Self::Board as Board>::Settings) -> impl AsRef<str>;
+    fn name(self, _settings: &<Self::Board as Board>::Settings) -> &str;
 }
 
 /// Common parts of colored and uncolored piece types
@@ -437,7 +437,7 @@ impl Display for PosHash {
     }
 }
 
-pub trait Settings: Eq + Debug + Default {
+pub trait Settings: Debug {
     fn text(&self) -> Option<String> {
         None
     }

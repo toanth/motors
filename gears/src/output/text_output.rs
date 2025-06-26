@@ -423,7 +423,7 @@ impl<'a, B: RectangularBoard> AbstractPrettyBoardPrinter for PrettyBoardPrinter<
     }
 
     fn side_to_move(&self) -> String {
-        self.board.active_player().name(&self.board.settings()).as_ref().to_string()
+        self.board.active_player().name(&self.board.settings()).to_string()
     }
 
     fn settings_text(&self) -> Option<String> {

@@ -591,7 +591,7 @@ impl FairyBoard {
             bb.insert_moves(moves, pos, piece);
         };
         self.gen_attacks_impl(f, self.active_player(), AttackMode::All);
-        self.rules.0.moves_filter.apply(moves, self);
+        self.rules().moves_filter.apply(moves, self);
     }
 
     fn gen_attacks_impl<F: FnMut(FairyPiece, &PieceAttackBB, &FairyBoard)>(
@@ -691,7 +691,7 @@ impl UnverifiedFairyBoard {
                 let piece = self.piece_on(sq);
                 // `contains` because e.g. 'rook (promoted)' should also match, and there aren't really any piece names that
                 // "accidentally" contain 'rook'.
-                if piece.color() == Some(color) && piece.uncolored().get(&self.rules).name.contains("rook") {
+                if piece.color() == Some(color) && piece.uncolored().get(self.rules()).name.contains("rook") {
                     return Ok(file);
                 }
             }
@@ -699,7 +699,7 @@ impl UnverifiedFairyBoard {
             for file in ((king_sq.file() + 1)..self.size.width.get()).rev() {
                 let sq = FairySquare::from_rank_file(king_sq.rank(), file);
                 let piece = self.piece_on(sq);
-                if piece.color() == Some(color) && piece.uncolored().get(&self.rules).name.contains("rook") {
+                if piece.color() == Some(color) && piece.uncolored().get(self.rules()).name.contains("rook") {
                     return Ok(file);
                 }
             }
@@ -708,7 +708,7 @@ impl UnverifiedFairyBoard {
         bail!(
             "No rook found for {0} to castle {1}side: When using X-FEN castling rights (i.e., 'kqKQ' letters), \
             the rook piece must be named exactly 'rook'. Use the file letter instead to allow castling with other pieces",
-            color.name(&self.rules).bold(),
+            color.name(self.rules()).bold(),
             side.bold()
         )
     }

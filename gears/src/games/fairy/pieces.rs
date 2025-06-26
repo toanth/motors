@@ -31,7 +31,7 @@ use crate::games::fairy::attacks::{
     RequiredForAttack, SliderDirections,
 };
 use crate::games::fairy::moves::FairyMove;
-use crate::games::fairy::rules::RulesRef;
+use crate::games::fairy::rules::Rules;
 use crate::games::fairy::{FairyBitboard, FairyBoard, FairyColor, FairySize, RawFairyBitboard};
 use crate::games::{
     AbstractPieceType, CharType, Color, ColoredPieceType, Height, NUM_CHAR_TYPES, NUM_COLORS, PieceType, Width,
@@ -64,8 +64,8 @@ impl PieceId {
     pub fn as_u8(self) -> u8 {
         self.0
     }
-    pub fn get(self, rules: &RulesRef) -> &Piece {
-        &rules.0.pieces[self.val()]
+    pub fn get(self, rules: &Rules) -> &Piece {
+        &rules.pieces[self.val()]
     }
 }
 
@@ -74,20 +74,20 @@ impl AbstractPieceType<FairyBoard> for PieceId {
         Self(u8::MAX)
     }
 
-    fn non_empty(settings: &RulesRef) -> impl Iterator<Item = Self> {
-        (0..settings.0.pieces.len()).map(Self::new)
+    fn non_empty(settings: &Rules) -> impl Iterator<Item = Self> {
+        (0..settings.pieces.len()).map(Self::new)
     }
 
-    fn to_char(self, typ: CharType, rules: &RulesRef) -> char {
+    fn to_char(self, typ: CharType, rules: &Rules) -> char {
         self.get(rules).uncolored_symbol[typ as usize]
     }
 
-    fn from_char(c: char, rules: &RulesRef) -> Option<Self> {
-        rules.0.matching_piece_ids(|p| p.uncolored_symbol.contains(&c)).next()
+    fn from_char(c: char, rules: &Rules) -> Option<Self> {
+        rules.matching_piece_ids(|p| p.uncolored_symbol.contains(&c)).next()
     }
 
     #[allow(refining_impl_trait)]
-    fn name(&self, settings: &RulesRef) -> String {
+    fn name(&self, settings: &Rules) -> String {
         self.get(settings).name.clone()
     }
 
@@ -136,9 +136,8 @@ impl AbstractPieceType<FairyBoard> for ColoredPieceId {
         Self { id: PieceId::empty(), color: None }
     }
 
-    fn non_empty(settings: &RulesRef) -> impl Iterator<Item = Self> {
+    fn non_empty(settings: &Rules) -> impl Iterator<Item = Self> {
         settings
-            .0
             .pieces
             .iter()
             .enumerate()
@@ -157,7 +156,7 @@ impl AbstractPieceType<FairyBoard> for ColoredPieceId {
             .flatten()
     }
 
-    fn to_char(self, typ: CharType, rules: &RulesRef) -> char {
+    fn to_char(self, typ: CharType, rules: &Rules) -> char {
         if let Some(color) = self.color {
             self.id.get(rules).player_symbol[color.idx()][typ as usize]
         } else if self == Self::empty() {
@@ -167,8 +166,8 @@ impl AbstractPieceType<FairyBoard> for ColoredPieceId {
         }
     }
 
-    fn from_char(c: char, rules: &RulesRef) -> Option<Self> {
-        let found = rules.0.pieces().find(|(_id, p)| p.player_symbol.iter().any(|s| s.contains(&c)));
+    fn from_char(c: char, rules: &Rules) -> Option<Self> {
+        let found = rules.pieces().find(|(_id, p)| p.player_symbol.iter().any(|s| s.contains(&c)));
         if let Some((id, p)) = found {
             if p.player_symbol[CharType::Ascii].contains(&c) {
                 Some(Self { id, color: Some(FairyColor::first()) })
@@ -176,11 +175,11 @@ impl AbstractPieceType<FairyBoard> for ColoredPieceId {
                 Some(Self { id, color: Some(FairyColor::second()) })
             }
         } else {
-            rules.0.matching_piece_ids(|p| p.uncolored_symbol.contains(&c)).next().map(|id| Self { id, color: None })
+            rules.matching_piece_ids(|p| p.uncolored_symbol.contains(&c)).next().map(|id| Self { id, color: None })
         }
     }
 
-    fn name(&self, settings: &RulesRef) -> impl AsRef<str> {
+    fn name(&self, settings: &Rules) -> impl AsRef<str> {
         if let Some(color) = self.color {
             format!("{0} {1}", color.name(settings), self.id.name(settings))
         } else {
@@ -212,19 +211,19 @@ impl ColoredPieceType<FairyBoard> for ColoredPieceId {
         self.id.val()
     }
 
-    fn make_promoted(&mut self, rules: &RulesRef) -> Res<()> {
+    fn make_promoted(&mut self, rules: &Rules) -> Res<()> {
         let Some(promoted) = self.id.get(rules).promotions.promoted_version else {
             bail!(
                 "The piece '{0}' can't be marked as having been promoted. Current variant: {1}",
                 self.name(rules).as_ref().bold(),
-                rules.0.name.bold()
+                rules.name.bold()
             )
         };
         self.id = promoted;
         Ok(())
     }
 
-    fn is_promoted(&self, rules: &RulesRef) -> bool {
+    fn is_promoted(&self, rules: &Rules) -> bool {
         self.id.get(rules).promotions.promoted_from.is_some()
     }
 }

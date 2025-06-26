@@ -49,6 +49,7 @@ use std::cmp::Ordering;
 use std::fmt;
 use std::fmt::{Debug, Formatter};
 use std::hash::{Hash, Hasher};
+use std::ops::Deref;
 use std::sync::{Arc, LazyLock};
 
 /// Modifications that can apply to a square, such as a piece on that square being promoted in crazyhouse.
@@ -402,7 +403,7 @@ impl GameEndEager {
             }
             AdditionalCounter => {
                 for i in 0..2 {
-                    if pos.additional_ctrs[i] >= pos.rules.0.ctr_threshold[i].unwrap_or(AdditionalCtrT::MAX) {
+                    if pos.additional_ctrs[i] >= pos.rules().ctr_threshold[i].unwrap_or(AdditionalCtrT::MAX) {
                         return true;
                     }
                 }
@@ -519,7 +520,7 @@ impl FilterMovesCondition {
             FilterMovesCondition::NoFilter => return,
             FilterMovesCondition::Any(condition) => {
                 if list.iter_moves().any(|m| {
-                    condition.applies(*m) && (pos.rules.0.legality == Legal || pos.is_pseudolegal_move_legal(*m))
+                    condition.applies(*m) && (pos.rules().legality == Legal || pos.is_pseudolegal_move_legal(*m))
                 }) {
                     list.filter_moves(|m| condition.applies(*m));
                 }
@@ -533,30 +534,36 @@ impl FilterMovesCondition {
 /// they are created once and stored behind an [`Arc`] that all boards have one copy of.
 #[must_use]
 #[derive(Debug, Arbitrary)]
-pub(super) struct Rules {
-    pub pieces: Vec<Piece>,
-    pub colors: [ColorInfo; NUM_COLORS],
-    pub starting_pieces_in_hand: [[u8; MAX_NUM_PIECE_TYPES]; NUM_COLORS],
-    pub game_end_eager: Vec<(GameEndEager, GameEndRes)>,
-    pub game_end_no_moves: Vec<(NoMovesCondition, GameEndRes)>,
-    pub startpos_fen_part: String, // doesn't include the rules
-    pub empty_board: EmptyBoard,
+pub struct Rules {
+    pub(super) pieces: Vec<Piece>,
+    pub(super) colors: [ColorInfo; NUM_COLORS],
+    pub(super) starting_pieces_in_hand: [[u8; MAX_NUM_PIECE_TYPES]; NUM_COLORS],
+    pub(super) game_end_eager: Vec<(GameEndEager, GameEndRes)>,
+    pub(super) game_end_no_moves: Vec<(NoMovesCondition, GameEndRes)>,
+    pub(super) startpos_fen_part: String, // doesn't include the rules
+    pub(super) empty_board: EmptyBoard,
     /// setting this to [`Legal`] can be a speedup, but setting it to [`PseudoLegal`] is always correct.
-    pub legality: Legality,
-    pub moves_filter: FilterMovesCondition,
-    pub size: GridSize,
-    pub has_ep: bool,
-    pub has_fen_hand_info: bool, // false for e.g. mnk games, which have a hand, but don't include that in the FEN.
-    pub has_castling: bool,
-    pub store_last_move: bool,
-    pub ctr_threshold: [Option<AdditionalCtrT>; NUM_COLORS],
-    pub effect_rules: EffectRules, // TODO: Remove?
-    pub check_rules: CheckRules,
-    pub name: String,
-    pub fen_part: RulesFenPart,
-    pub num_royals: [NumRoyals; NUM_COLORS],
-    pub must_preserve_own_king: [bool; NUM_COLORS],
-    pub observers: Observers,
+    pub(super) legality: Legality,
+    pub(super) moves_filter: FilterMovesCondition,
+    pub(super) size: GridSize,
+    pub(super) has_ep: bool,
+    pub(super) has_fen_hand_info: bool, // false for e.g. mnk games, which have a hand, but don't include that in the FEN.
+    pub(super) has_castling: bool,
+    pub(super) store_last_move: bool,
+    pub(super) ctr_threshold: [Option<AdditionalCtrT>; NUM_COLORS],
+    pub(super) effect_rules: EffectRules, // TODO: Remove?
+    pub(super) check_rules: CheckRules,
+    pub(super) name: String,
+    pub(super) fen_part: RulesFenPart,
+    pub(super) num_royals: [NumRoyals; NUM_COLORS],
+    pub(super) must_preserve_own_king: [bool; NUM_COLORS],
+    pub(super) observers: Observers,
+}
+
+impl Settings for Rules {
+    fn text(&self) -> Option<String> {
+        Some(format!("Variant: {}", self.name))
+    }
 }
 
 impl Rules {
@@ -933,7 +940,7 @@ impl Rules {
 
 #[must_use]
 #[derive(Clone, Arbitrary)]
-pub struct RulesRef(pub(super) Arc<Rules>);
+pub struct RulesRef(Arc<Rules>);
 
 impl RulesRef {
     pub(super) fn new(rules: Rules) -> Self {
@@ -942,6 +949,10 @@ impl RulesRef {
 
     pub fn empty_pos(&self) -> UnverifiedFairyBoard {
         (self.0.empty_board.0)(self)
+    }
+
+    pub fn get(&self) -> &Rules {
+        Arc::deref(&self.0)
     }
 }
 
@@ -970,12 +981,6 @@ impl Eq for RulesRef {}
 impl Hash for RulesRef {
     fn hash<H: Hasher>(&self, state: &mut H) {
         (&self.0.name, &self.0.fen_part).hash(state);
-    }
-}
-
-impl Settings for RulesRef {
-    fn text(&self) -> Option<String> {
-        Some(format!("Variant: {}", self.0.name))
     }
 }
 

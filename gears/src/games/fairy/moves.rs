@@ -24,7 +24,7 @@ use crate::games::fairy::moves::MoveEffect::{
     SetEp,
 };
 use crate::games::fairy::pieces::{ColoredPieceId, PieceId};
-use crate::games::fairy::rules::RulesRef;
+use crate::games::fairy::rules::Rules;
 use crate::games::fairy::{
     FairyBitboard, FairyBoard, FairyColor, FairySize, FairySquare, RawFairyBitboard, Side, effects,
 };
@@ -122,8 +122,8 @@ impl FairyMove {
 impl Move<FairyBoard> for FairyMove {
     type Underlying = u32;
 
-    fn legality(rules: &RulesRef) -> Legality {
-        rules.0.legality
+    fn legality(rules: &Rules) -> Legality {
+        rules.legality
     }
 
     fn src_square_in(self, pos: &FairyBoard) -> Option<FairySquare> {
@@ -293,7 +293,7 @@ fn effects_for(mov: FairyMove, pos: &mut FairyBoard, r: EffectRules) {
     let from = mov.from.square(pos.size());
     let to = mov.dest(pos.size());
     let piece = mov.piece(pos);
-    let piece_rules = &pos.rules().clone().pieces[piece.uncolor().val()];
+    let piece_rules = &pos.rules().pieces[piece.uncolor().val()];
     let mut set_ep = None;
     let mut captured = None;
     if mov.is_capture() {
@@ -358,6 +358,7 @@ fn effects_for(mov: FairyMove, pos: &mut FairyBoard, r: EffectRules) {
         let bb = FairyBitboard::single_piece_for(to, pos.size()).extended_moore_neighbors(r.conversion_radius);
         SetColorTo(bb.raw(), pos.active_player()).apply(pos);
     }
+    let piece_rules = &pos.rules().pieces[piece.uncolor().val()];
     if (r.reset_draw_counter_on_capture && mov.is_capture()) || piece_rules.resets_draw_counter.reset(mov) {
         ResetDrawCtr.apply(pos);
     }
@@ -458,17 +459,17 @@ impl FairyBoard {
         if !self.can_make_move(mov) {
             return None;
         }
-        let rules = self.rules().clone();
         self.0.draw_counter += 1; // do this before an effect could reset it to zero
-        effects_for(mov, &mut self, rules.effect_rules);
-        if rules.store_last_move {
+        let effect_rules = self.rules().effect_rules;
+        effects_for(mov, &mut self, effect_rules);
+        if self.rules().store_last_move {
             self.0.last_move = mov;
         }
         self.end_move()
     }
 
     pub(super) fn end_move(mut self) -> Option<Self> {
-        if self.settings().0.must_preserve_own_king[self.active.idx()] && self.royal_bb_for(self.active).is_zero() {
+        if self.settings().must_preserve_own_king[self.active.idx()] && self.royal_bb_for(self.active).is_zero() {
             return None;
         }
         self.adjust_castling_rights();

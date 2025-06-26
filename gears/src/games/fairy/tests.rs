@@ -231,12 +231,9 @@ mod general {
         let pos = FairyBoard::from_fen_for("kingofthehill", "8/8/3k4/8/8/4K3/8/8 b - - 99 6", Strict).unwrap();
         let new_pos = pos.clone().make_move_from_str("d6e5").unwrap();
         assert_eq!(new_pos.player_result_slow(&ZobristHistory::default()), Some(Lose));
-        let settings = pos.settings();
+        let queen = ColoredPieceId::from_name("Q", pos.settings()).unwrap();
         let pos = pos
-            .place_piece(FairyPiece::new(
-                ColoredPieceId::from_name("Q", &settings).unwrap(),
-                FairySquare::algebraic('h', 5).unwrap(),
-            ))
+            .place_piece(FairyPiece::new(queen, FairySquare::algebraic('h', 5).unwrap()))
             .unwrap()
             .verify(Strict)
             .unwrap();
@@ -333,7 +330,7 @@ mod general {
         let pos = pos.flip_side_to_move().unwrap();
         for m in pos.legal_moves_slow() {
             if m.src_square_in(&pos).is_none() {
-                assert_eq!(m.piece(&pos).name(&pos.rules).as_ref(), "white pawn");
+                assert_eq!(m.piece(&pos).name(pos.rules()).as_ref(), "white pawn");
             }
         }
         let pos = FairyBoard::from_fen("crazyhouse 7n/5p2/6p1/8/8/k7/7p/1K1Q4[] b - - 1 1", Strict).unwrap();

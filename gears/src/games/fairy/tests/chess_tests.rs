@@ -50,7 +50,7 @@ fn chess_invariants(board: &UnverifiedFairyBoard) {
     assert_eq!(board.mask_bb, 0xffff_ffff_ffff_ffff);
     let both = board.color_bitboards[0] & board.color_bitboards[1];
     assert!(both.is_zero());
-    let rules = board.rules.0.clone();
+    let rules = board.rules();
     assert!(rules.has_ep);
     assert_eq!(rules.startpos_fen_part, chess::START_FEN);
 }
