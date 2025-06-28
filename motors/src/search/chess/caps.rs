@@ -1035,6 +1035,9 @@ impl Caps {
                     if in_check {
                         reduction -= 1;
                     }
+                    if best_move.is_null() {
+                        reduction += 1;
+                    }
                 }
                 // Futility Reduction: If this move is not a TT move, good SEE capture or killer, and our eval is significantly
                 // less than alpha, reduce.
