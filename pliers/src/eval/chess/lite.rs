@@ -16,8 +16,9 @@ use gears::games::chess::see::SEE_SCORES;
 use gears::games::chess::squares::{ChessSquare, NUM_SQUARES};
 use gears::games::chess::{ChessColor, Chessboard};
 use gears::general::common::StaticallyNamedEntity;
+use motors::eval::SingleFeatureScore;
 use motors::eval::chess::FileOpenness::*;
-use motors::eval::chess::lite::GenericLiTEval;
+use motors::eval::chess::lite::{GenericLiTEval, NUM_SAFE_SQUARE_ENTRIES};
 use motors::eval::chess::lite_values::{LiteValues, MAX_MOBILITY};
 use motors::eval::chess::{FileOpenness, NUM_PAWN_SHIELD_CONFIGURATIONS};
 use std::fmt;
@@ -55,6 +56,7 @@ pub enum LiteFeatureSubset {
     PawnProtection,
     PawnAttacks,
     PawnAdvanceThreat,
+    SafeSquares,
     Mobility,
     Threat,
     Defense,
@@ -91,6 +93,7 @@ impl FeatureSubSet for LiteFeatureSubset {
             PawnProtection => NUM_CHESS_PIECES,
             PawnAttacks => NUM_CHESS_PIECES,
             PawnAdvanceThreat => NUM_CHESS_PIECES,
+            SafeSquares => NUM_SAFE_SQUARE_ENTRIES,
             Mobility => (MAX_MOBILITY + 1) * (NUM_CHESS_PIECES - 1),
             Threat => (NUM_CHESS_PIECES - 1) * NUM_CHESS_PIECES,
             Defense => (NUM_CHESS_PIECES - 1) * NUM_CHESS_PIECES,
@@ -205,6 +208,9 @@ impl FeatureSubSet for LiteFeatureSubset {
             }
             PawnAdvanceThreat => {
                 write!(f, "const PAWN_ADVANCE_THREAT: [PhasedScore; NUM_CHESS_PIECES] = ")?;
+            }
+            SafeSquares => {
+                write!(f, "const SAFE_SQUARES: [PhasedScore; NUM_SAFE_SQUARE_ENTRIES] = ")?;
             }
             Mobility => {
                 writeln!(f, "\npub const MAX_MOBILITY: usize = 7 + 7 + 7 + 6;")?;
@@ -438,6 +444,10 @@ impl LiteValues for LiTETrace {
 
     fn check_stm() -> SingleFeature {
         SingleFeature::new(CheckStm, 0)
+    }
+
+    fn safe_squares(num_squares: usize) -> SingleFeatureScore<Self::Score> {
+        SingleFeature::new(SafeSquares, num_squares)
     }
 }
 

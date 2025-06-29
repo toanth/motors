@@ -65,6 +65,8 @@ pub const TEMPO: Score = Score(10);
 /// Includes a phase for the empty piece to simplify the implementation
 const PIECE_PHASE: [PhaseType; NUM_CHESS_PIECES + 1] = [0, 1, 1, 2, 4, 0, 0];
 
+pub const NUM_SAFE_SQUARE_ENTRIES: usize = 11;
+
 fn openness(ray: ChessBitboard, our_pawns: ChessBitboard, their_pawns: ChessBitboard) -> FileOpenness {
     if (ray & our_pawns).is_zero() && (ray & their_pawns).is_zero() {
         Open
@@ -310,7 +312,12 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
         score
     }
 
-    fn mobility_and_threats(state: &mut EvalState<Tuned>, pos: &Chessboard, us: ChessColor) -> Tuned::Score {
+    fn mobility_and_threats_for(
+        state: &mut EvalState<Tuned>,
+        pos: &Chessboard,
+        us: ChessColor,
+        all_attacks: &mut ChessBitboard,
+    ) -> Tuned::Score {
         let mut score = Tuned::Score::default();
         let generator = pos.slider_generator();
 
@@ -326,9 +333,7 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
         if (pawn_attacks & king_zone).has_set_bit() {
             score += Tuned::king_zone_attack(Pawn);
         }
-        let mut all_attacks = pawn_attacks;
-        // let pawn_king_attacks = (pawn_attacks & king_zone).num_ones();
-        // score += Tuned::king_zone_attack(Pawn) * pawn_king_attacks;
+        *all_attacks = pawn_attacks;
         for piece in ChessPieceType::pieces() {
             let protected_by_pawns = pawn_attacks & pos.col_piece_bb(us, piece);
             score += Tuned::pawn_protection(piece) * protected_by_pawns.num_ones();
@@ -340,7 +345,7 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
         for piece in ChessPieceType::non_pawn_pieces() {
             for square in pos.col_piece_bb(us, piece).ones() {
                 let attacks = Chessboard::threatening_attacks(square, piece, us, &generator);
-                all_attacks |= attacks;
+                *all_attacks |= attacks;
                 let attacks_no_pawn_recapture = attacks & !attacked_by_pawn;
                 let mobility = (attacks_no_pawn_recapture & !pos.player_bb(us)).num_ones();
                 score += Tuned::mobility(piece, mobility);
@@ -364,18 +369,29 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
                 }
             }
         }
+
+        score
+    }
+
+    fn mobility_and_threats(state: &mut EvalState<Tuned>, pos: &Chessboard) -> Tuned::Score {
+        let mut attacks = [ChessBitboard::default(); 2];
+        let mut score = Self::mobility_and_threats_for(state, pos, White, &mut attacks[White]);
+        score -= Self::mobility_and_threats_for(state, pos, Black, &mut attacks[Black]);
+        score +=
+            Tuned::safe_squares((NUM_SAFE_SQUARE_ENTRIES - 1).min((attacks[White] & !attacks[Black]).num_ones() / 4));
+        score -=
+            Tuned::safe_squares((NUM_SAFE_SQUARE_ENTRIES - 1).min((attacks[Black] & !attacks[White]).num_ones() / 4));
         score
     }
 
     // should be called last because it uses information set by other functions
     fn recomputed_every_time(state: &mut EvalState<Tuned>, pos: &Chessboard) -> Tuned::Score {
-        let mut score = Tuned::Score::default();
         state.stm_bonus = [Tuned::Score::default(), Tuned::Score::default()];
+        let mut score = Self::mobility_and_threats(state, pos);
         for color in ChessColor::iter() {
             score += Self::bishop_pair(pos, color);
             score += Self::bad_bishop(pos, color);
             score += Self::open_lines(pos, color);
-            score += Self::mobility_and_threats(state, pos, color);
             score += Self::pins_and_discovered_checks(state, pos, color);
             score = -score;
         }
