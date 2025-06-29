@@ -49,7 +49,7 @@ spsa_params! [
     lmp_blunder_base: isize = 2; 0..=32; step=1;
     lmp_blunder_scale: isize = 1; 0..=16; step=1;
     lmp_base: isize = 4; 0..=64; step=1;
-    lmp_scale: isize = 5; 0..=32; step=1;
+    lmp_scale: isize = 2; 0..=32; step=1;
     lmp_fail_low_div: isize = 2; 2..=16; step=1;
     max_move_loop_pruning_depth: isize = 6; 1..=16; step=1;
     lmr_min_uninteresting: isize = 3; 0..=16; step=1;

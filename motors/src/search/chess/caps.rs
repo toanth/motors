@@ -947,7 +947,7 @@ impl Caps {
                 let mut lmp_threshold = if we_blundered {
                     cc::lmp_blunder_base() + cc::lmp_blunder_scale() * depth
                 } else {
-                    cc::lmp_base() + cc::lmp_scale() * depth
+                    cc::lmp_base() + cc::lmp_scale() * depth * depth
                 };
                 // LMP faster if we expect to fail low anyway
                 if expected_node_type == FailLow {
