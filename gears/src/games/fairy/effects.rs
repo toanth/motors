@@ -272,7 +272,7 @@ impl Event for ConvertAll {
 
 impl Event for ConvertOne {
     fn execute(self, pos: &mut FairyBoard) {
-        let bb = FairyBitboard::single_piece_for(self.square, pos.size).raw();
+        let bb = FairyBitboard::single_piece_for(self.square, pos.size()).raw();
         pos.0.color_bitboards[0] ^= bb;
         pos.0.color_bitboards[1] ^= bb;
     }
@@ -342,7 +342,7 @@ impl Observers {
     pub fn atomic(pawn: PieceId) -> Self {
         let mut res = Self::chess();
         let explosion = move |event: Capture, pos: &mut FairyBoard| {
-            let bb = FairyBitboard::single_piece_for(event.square, pos.size);
+            let bb = FairyBitboard::single_piece_for(event.square, pos.size());
             // Could use precomputed king attacks for this
             let bb = (bb | (bb.moore_neighbors() & !pos.piece_bb(pawn))).raw();
             pos.emit(RemoveAll { bb });
@@ -351,18 +351,15 @@ impl Observers {
         res
     }
 
-    pub fn crazyhouse() -> Self {
-        let mut res = Self::chess();
+    pub fn add_captured_to_hand() -> Box<ObsFn<Capture>> {
         let add_to_hand = |event: Capture, pos: &mut FairyBoard| {
             let mut piece = event.captured.uncolor();
-            if let Some(pawn) = piece.get(pos.rules()).promotions.promoted_from {
-                piece = pawn;
-                debug_assert!(piece.get(pos.rules()).promotions.promoted_version.is_none());
+            if let Some(unpromoted) = piece.get(pos.rules()).promotions.promoted_from {
+                piece = unpromoted;
             }
             pos.emit(AddPieceToHand { piece, color: pos.active_player() })
         };
-        res.capture.push(Box::new(add_to_hand));
-        res
+        Box::new(add_to_hand)
     }
 
     pub fn n_check() -> Self {
@@ -374,10 +371,22 @@ impl Observers {
         res
     }
 
+    pub fn crazyhouse() -> Self {
+        let mut res = Self::chess();
+        res.capture.push(Self::add_captured_to_hand());
+        res
+    }
+
+    pub fn shogi() -> Self {
+        let mut res = Self::chess();
+        res.capture.push(Self::add_captured_to_hand());
+        res
+    }
+
     pub fn ataxx() -> Self {
         let mut res = Self::default();
         let place_piece_fn = |event: PlaceSinglePiece, pos: &mut FairyBoard| {
-            let bb = FairyBitboard::single_piece_for(event.square, pos.size);
+            let bb = FairyBitboard::single_piece_for(event.square, pos.size());
             // Could use precomputed attacks for this
             let bb = bb.moore_neighbors().raw();
             pos.emit(ConvertAll { bb });

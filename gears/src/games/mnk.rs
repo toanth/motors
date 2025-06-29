@@ -308,7 +308,7 @@ impl MnkSettings {
     pub fn check_invariants(self) -> bool {
         self.height <= 26
             && self.width < MAX_WIDTH as DimT
-            && self.height * self.width <= 128
+            && self.height.saturating_mul(self.width) <= 128
             && self.height * self.width >= 1
             && self.k <= min(self.height, self.width)
             && self.k >= 1
@@ -1007,9 +1007,11 @@ mod test {
     }
 
     #[test]
-    #[should_panic]
     fn dimension_test_invalid_board_too_large() {
-        _ = MnkSettings::new(Height(12), Width(11), 6);
+        let input = "20 20 6";
+        let mut words = tokens(input);
+        let first = words.next().unwrap();
+        assert!(MnkSettings::from_input(first, &mut words).is_err());
     }
 
     // Only covers very basic cases, perft is used for mor more complex cases

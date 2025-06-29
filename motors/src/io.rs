@@ -282,12 +282,17 @@ pub struct EngineUGI<B: Board> {
 
 impl<B: Board> AbstractRun for EngineUGI<B> {
     fn run(&mut self) -> Quitting {
+        // this can happen if the user ran a command via cli argument before starting the uci loop
+        if let Quit(quitting) = &self.state.status {
+            return *quitting;
+        }
         self.ugi_loop()
     }
 
     fn handle_input(&mut self, input: &str) -> Res<()> {
         handle_ugi_input(self, tokens(input), &B::game_name())
     }
+
     fn quit(&mut self) -> Res<()> {
         self.handle_quit(QuitProgram)
     }
@@ -295,6 +300,8 @@ impl<B: Board> AbstractRun for EngineUGI<B> {
 
 // A free function so that it does not depend on a generic parameter
 fn handle_ugi_input(ugi: &mut dyn AbstractEngineUgi, mut words: Tokens, game_name: &str) -> Res<()> {
+    // Set the start time as early as possible so that we don't overestimate the remaining time
+    ugi.go_state_mut().limit_mut().start_time = Instant::now();
     ugi.write_ugi_input(words.clone());
     if ugi.fuzzing_mode() {
         ugi.write_ugi(&format_args!("Fuzzing input: [{}]", words.clone().join(" ")));
@@ -401,6 +408,9 @@ impl<B: Board> EngineUGI<B> {
         if res.debug_mode() {
             res.handle_debug(&mut tokens(""))?;
         }
+        if let Some(cmd) = opts.cmd {
+            res.handle_input(&cmd)?;
+        }
         Ok(res)
     }
 
@@ -430,7 +440,7 @@ impl<B: Board> EngineUGI<B> {
         }
         loop {
             input.set_interactive(self.state.protocol == Interactive, self);
-            self.state.go_state.pos = self.state.pos().clone();
+            self.state.go_state.pos = self.state.pos().clone(); // set here because it's needed for autocompletion
             let input = match input.get_line(self) {
                 Ok(input) => input,
                 Err(err) => {
@@ -438,8 +448,6 @@ impl<B: Board> EngineUGI<B> {
                     break;
                 }
             };
-            // Set the start time as early as possible so that we don't overestimate the remaining time
-            self.state.go_state.generic.limit.start_time = Instant::now();
             self.failed_cmd = None;
             let res = handle_ugi_input(self, tokens(&input), &game_name);
             match res {

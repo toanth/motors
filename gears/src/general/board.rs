@@ -926,10 +926,8 @@ pub fn position_fen_part<B: RectangularBoard>(f: &mut Formatter<'_>, pos: &B) ->
                     write!(f, "{empty_ctr}")?;
                 }
                 empty_ctr = 0;
-                write!(f, "{}", piece.to_char(CharType::Ascii, &pos.settings()))?;
-                if piece.colored_piece_type().is_promoted(&pos.settings()) {
-                    write!(f, "~")?;
-                }
+                // TODO: Allow outputting shogi-style promotion modifiers
+                piece.colored_piece_type().write_in_fen(&pos.settings(), f)?;
             }
         }
         if empty_ctr > 0 {
@@ -964,32 +962,37 @@ fn read_position_fen_impl<B: RectangularBoard>(
     board: &mut B::Unverified,
     lines_read: &mut usize,
 ) -> Res<()> {
+    const SHOGI_PROMO: char = '+';
+    const CH_PROMO: u8 = b'~';
     let mut square = 0;
     for (line, line_num) in lines.zip(0_usize..) {
         *lines_read += 1;
-        let mut skipped_digits = 0;
         let square_before_line = square;
         debug_assert_eq!(square_before_line, line_num * board.size().width().val());
 
-        let handle_skipped = |digit_in_line, skipped_digits, idx: &mut usize| {
-            if skipped_digits > 0 {
-                let num_skipped = line[digit_in_line - skipped_digits..digit_in_line].parse::<usize>()?;
-                if num_skipped == 0 {
+        let handle_skipped = |digits_start: Option<usize>, digits_end, idx: &mut usize| {
+            if let Some(start) = digits_start {
+                let num = line[start..digits_end].trim_end_matches(SHOGI_PROMO).parse::<usize>()?;
+                if num == 0 {
                     bail!("FEN position can't contain the number 0".to_string())
                 }
-                *idx = idx.saturating_add(num_skipped);
+                *idx = idx.saturating_add(num);
             }
             Ok(())
         };
         let mut skip = false;
+        let mut shogi_promo = false;
+        let mut digit_start = None;
 
         for (i, c) in line.char_indices() {
             if skip {
                 skip = false;
                 continue;
-            }
-            if c.is_ascii_digit() {
-                skipped_digits += 1;
+            } else if c.is_ascii_digit() {
+                digit_start = Some(digit_start.unwrap_or(i));
+                continue;
+            } else if c == SHOGI_PROMO {
+                shogi_promo = true;
                 continue;
             }
             let Some(mut symbol) = ColPieceTypeOf::<B>::from_char(c, &board.settings()) else {
@@ -999,23 +1002,39 @@ fn read_position_fen_impl<B: RectangularBoard>(
                     c.to_string().red()
                 )
             };
-            handle_skipped(i, skipped_digits, &mut square)?;
-            skipped_digits = 0;
+            handle_skipped(digit_start, i, &mut square)?;
+            digit_start = None;
             if square >= board.size().num_squares() {
                 bail!(
                     "FEN position contains more than {square} squares, but the board only has {0} squares",
                     board.size().num_squares()
                 );
             }
-            if line.bytes().nth(i + 1).is_some_and(|c| c == b'~') {
-                symbol.make_promoted(&board.settings())?;
+            if line.bytes().nth(i + 1).is_some_and(|c| c == CH_PROMO) {
+                symbol.make_promoted(&board.settings()).map_err(|err| {
+                    let modifier = String::from_utf8(vec![CH_PROMO]).unwrap();
+                    anyhow!(
+                        "{err} (the trailing '{0}' in '{1}' is interpreted as crazyhouse-style promotion modifier)",
+                        modifier.bold(),
+                        format!("{c}{modifier}").red()
+                    )
+                })?;
                 skip = true;
+            } else if shogi_promo {
+                symbol.make_promoted(board.settings()).map_err(|err| {
+                    anyhow!(
+                        "{err} (the leading '{0}' in '{1}' is interpreted as shogi-style promotion modifier)",
+                        SHOGI_PROMO.to_string().bold(),
+                        format!("{SHOGI_PROMO}{c}").red()
+                    )
+                })?;
+                shogi_promo = false;
             }
 
             board.place_piece(board.size().idx_to_coordinates(square as DimT).flip_up_down(board.size()), symbol);
             square += 1;
         }
-        handle_skipped(line.len(), skipped_digits, &mut square)?;
+        handle_skipped(digit_start, line.len(), &mut square)?;
         let line_len = square - square_before_line;
         if line_len != board.size().width().val() {
             bail!("Line '{line}' has incorrect width: {line_len}, should be {0}", board.size().width().val());
@@ -1130,14 +1149,16 @@ pub(crate) fn read_single_move_number<B: RectangularBoard>(
     strictness: Strictness,
 ) -> Res<()> {
     let fullmove_nr = words.next().unwrap_or("");
-    if let Ok(fullmove_nr) = fullmove_nr.parse::<NonZeroUsize>() {
-        board.set_ply_since_start(ply_counter_from_fullmove_nr(fullmove_nr, board.active_player().is_first()))?;
-        Ok(())
-    } else if strictness != Strict {
-        Ok(())
-    } else {
-        bail!("FEN doesn't contain a valid fullmove counter, but that is required in strict mode")
-    }
+    let fullmove_nr = match fullmove_nr.parse::<NonZeroUsize>() {
+        Ok(n) => n,
+        Err(_) => {
+            if strictness == Strict {
+                bail!("FEN doesn't contain a valid fullmove counter, but that is required in strict mode")
+            }
+            NonZeroUsize::new(1).unwrap()
+        }
+    };
+    board.set_ply_since_start(ply_counter_from_fullmove_nr(fullmove_nr, board.active_player().is_first()))
 }
 
 struct ChildrenIter<'a, B: Board> {

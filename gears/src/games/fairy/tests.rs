@@ -192,7 +192,7 @@ mod general {
     fn simple_shatranj_startpos_test() {
         let pos = FairyBoard::variant_simple("shatranj").unwrap();
         let as_fen = pos.fen_no_rules();
-        assert_eq!(as_fen, pos.rules().startpos_fen_part);
+        assert_eq!(as_fen, pos.rules().format_rules.startpos_fen);
         let size = pos.size();
         assert_eq!(size, GridSize::new(Height(8), Width(8)));
         assert_eq!(pos.royal_bb().num_ones(), 2);
@@ -369,6 +369,25 @@ mod general {
     }
 
     #[test]
+    fn simple_shogi_test() {
+        let pos = FairyBoard::variant_simple("shogi").unwrap();
+        assert_eq!(pos.fen_no_rules(), "lnsgkgsnl/1r5b1/ppppppppp/9/9/9/PPPPPPPPP/1B5R1/LNSGKGSNL[] w - 1");
+        assert_eq!(pos.num_legal_moves(), 30);
+        let pos = FairyBoard::from_fen_for("shogi", "8k/9/7P1/9/6K2/9/9/9/9[G] w - 1", Strict).unwrap();
+        assert!(pos.player_result_slow(&NoHistory::default()).is_none());
+        assert_eq!(pos.num_legal_moves(), 88);
+        let pos = pos.make_move_from_str("G@h8").unwrap();
+        assert_eq!(pos.player_result_slow(&NoHistory::default()), Some(Lose));
+        let pos = FairyBoard::from_fen_for(
+            "shogi",
+            "lnsgkgsnl/1r5B1/pppppp1pp/9/6p2/2P6/PP1PPPPPP/7R1/LNSGKGSNL[B] w - 3",
+            Strict,
+        )
+        .unwrap();
+        assert_eq!(pos.num_legal_moves(), 94);
+    }
+
+    #[test]
     fn simple_ataxx_test() {
         for pos in AtaxxBoard::bench_positions() {
             let fen = pos.as_fen();
@@ -418,8 +437,8 @@ mod general {
     #[test]
     fn simple_mnk_perft_test() {
         for mnk_pos in MNKBoard::bench_positions() {
-            let fairy_pos = FairyBoard::from_fen_for("mnk", &mnk_pos.as_fen(), Strict).unwrap();
             println!("{mnk_pos}");
+            let fairy_pos = FairyBoard::from_fen_for("mnk", &mnk_pos.as_fen(), Strict).unwrap();
             let max = if cfg!(debug_assertions) { 4 } else { 6 };
             for i in 1..max {
                 let depth = Depth::new(i);

@@ -115,6 +115,7 @@ impl Display for EngineOptionType {
 
 #[derive(Debug, Eq, PartialEq, Clone, Hash, EnumIter)]
 #[must_use]
+// TODO: UCI_Chess960
 pub enum EngineOptionName {
     Hash,
     Threads,

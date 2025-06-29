@@ -12,7 +12,7 @@ use std::ops::{
 use derive_more::{
     BitAnd, BitAndAssign, BitOr, BitOrAssign, BitXor, BitXorAssign, Not, Shl, ShlAssign, Shr, ShrAssign, Sub,
 };
-use num::traits::WrappingSub;
+use num::traits::{WrappingMul, WrappingSub};
 use num::{PrimInt, Unsigned};
 use strum_macros::EnumIter;
 
@@ -155,6 +155,7 @@ pub trait RawBitboard:
     + PrimInt
     + From<u8>
     + WrappingSub
+    + WrappingMul
     + BitAndAssign
     + BitOrAssign
     + BitXorAssign
@@ -163,6 +164,7 @@ pub trait RawBitboard:
     + Unsigned
     + Display
     + Debug
+    + std::fmt::LowerHex
 {
     type WithRev: WithRev<RawBitboard = Self>;
 
@@ -227,6 +229,15 @@ pub trait RawBitboard:
     #[inline]
     fn one_indices(self) -> BitIterator<Self> {
         BitIterator(self)
+    }
+
+    // TODO: Use more frequently
+    fn intersects(self, other: Self) -> bool {
+        (self & other).has_set_bit()
+    }
+
+    fn shift<const UP: bool>(self, amount: usize) -> Self {
+        if UP { self << amount } else { self >> amount }
     }
 }
 
@@ -536,6 +547,28 @@ pub trait Bitboard<R: RawBitboard, C: RectangularCoordinates>:
     }
 
     #[inline]
+    fn ranks_containing(self) -> Self {
+        let file_0 = Self::file_0_for(self.size());
+        let max_file = file_0 << (self.internal_width() - 1);
+        let containing = (self | max_file) - file_0;
+        let rows_max = (containing | self) & max_file;
+        let rows_min = rows_max >> (self.internal_width() - 1);
+        (rows_max - rows_min) | rows_max
+    }
+
+    #[inline]
+    fn files_containing(self) -> Self {
+        let w = self.size().internal_width();
+        let bb = self.raw();
+        Self::new(fill_file::<R, false>(bb, w) | fill_file::<R, true>(bb, w), self.size())
+    }
+
+    #[inline]
+    fn is_bit_set(self, c: C) -> bool {
+        self.is_bit_set_at(self.size().internal_key(c))
+    }
+
+    #[inline]
     fn ones(self) -> impl Iterator<Item = C> {
         self.one_indices().map(move |i| self.size().to_coordinates_unchecked(i))
     }
@@ -550,6 +583,7 @@ pub trait Bitboard<R: RawBitboard, C: RectangularCoordinates>:
     }
 
     fn format(self, f: &mut Formatter<'_>) -> fmt::Result {
+        writeln!(f)?;
         for row in (0..self.size().height().val()).rev() {
             for column in 0..self.size().width().val() {
                 let idx = row * self.size().internal_width() + column;
@@ -559,6 +593,26 @@ pub trait Bitboard<R: RawBitboard, C: RectangularCoordinates>:
         }
         Ok(())
     }
+}
+
+#[inline]
+fn fill_file<R: RawBitboard, const UP: bool>(mut bb: R, w: usize) -> R {
+    let max_shift = size_of::<R>() * 8 - 1;
+    bb |= bb.shift::<UP>(1 * w);
+    bb |= bb.shift::<UP>(2 * w);
+    if 4 * w > max_shift {
+        return bb;
+    }
+    bb |= bb.shift::<UP>(4 * w);
+    if 8 * w > max_shift {
+        return bb;
+    }
+    bb |= bb.shift::<UP>(8 * w);
+    if 16 * w > max_shift {
+        return bb;
+    }
+    bb |= bb.shift::<UP>(16 * w);
+    bb
 }
 
 pub trait KnownSizeBitboard<R: RawBitboard, C: RectangularCoordinates<Size: KnownSize<C>>>: Bitboard<R, C> {
@@ -573,11 +627,6 @@ pub trait KnownSizeBitboard<R: RawBitboard, C: RectangularCoordinates<Size: Know
     #[inline]
     fn idx_of(c: C) -> usize {
         C::Size::default().internal_key(c)
-    }
-
-    #[inline]
-    fn is_bit_set(self, c: C) -> bool {
-        self.is_bit_set_at(Self::idx_of(c))
     }
 
     #[inline]
@@ -734,7 +783,7 @@ impl<const H: usize, const W: usize> KnownSizeBitboard<RawStandardBitboard, Smal
 // This makes comparisons fast but shifts responsibility to the user to properly zero out those,
 // which can be confusing. TODO: Change?
 /// Despite the name, it's technically possible to instantiate this generic struct with a `KnownSize`.
-#[derive(Default, Copy, Clone, PartialEq, Eq, Debug)]
+#[derive(Default, Copy, Clone, PartialEq, Eq)]
 #[must_use]
 pub struct DynamicallySizedBitboard<R: RawBitboard, C: RectangularCoordinates> {
     raw: R,
@@ -746,6 +795,15 @@ impl<'a, R: RawBitboard, C: RectangularCoordinates> Arbitrary<'a> for Dynamicall
     fn arbitrary(u: &mut Unstructured<'a>) -> arbitrary::Result<Self> {
         let (raw, size) = u.arbitrary::<(R, C::Size)>()?;
         Ok(Self { raw, size })
+    }
+}
+
+impl<R: RawBitboard, C: RectangularCoordinates> Debug for DynamicallySizedBitboard<R, C> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        f.debug_struct("DynamicallySizedBitboard")
+            .field("raw", &format_args!("{:#x}", self.raw))
+            .field("size", &self.size)
+            .finish()
     }
 }
 
@@ -1128,6 +1186,8 @@ mod tests {
     use crate::games::{Height, Width};
     use crate::general::bitboards::chessboard::{ATAXX_LEAPERS, ChessBitboard, KINGS};
     use crate::general::squares::{GridCoordinates, GridSize};
+    use rand::rngs::StdRng;
+    use rand::{Rng, SeedableRng, random};
 
     #[test]
     fn precomputed_test() {
@@ -1183,6 +1243,56 @@ mod tests {
         assert_eq!(remove_ones_below!(0x12345, 0, u32), 0x12345);
         assert_eq!(remove_ones_below!(0x12345, 1, u128), 0x12344);
         // assert_eq!(remove_ones_below!(0x12345, 127, u64), 0);
+    }
+
+    #[test]
+    fn ranks_containing_test() {
+        assert_eq!(ChessBitboard::new(0).ranks_containing(), ChessBitboard::new(0));
+        assert_eq!(ChessBitboard::new(1).ranks_containing(), ChessBitboard::rank_0());
+        assert_eq!(ChessBitboard::new(1 << 12).ranks_containing(), ChessBitboard::rank(1));
+        assert_eq!(
+            ChessBitboard::new(0x20_00_ff_00_00_81).ranks_containing(),
+            ChessBitboard::rank(0) | ChessBitboard::rank(3) | ChessBitboard::rank(5)
+        );
+    }
+
+    #[test]
+    fn files_containing_test() {
+        assert_eq!(
+            ChessBitboard::new(0x6_94_04).files_containing() & ChessBitboard::rank_0(),
+            ChessBitboard::new(0x96)
+        );
+        assert_eq!(ChessBitboard::new(0).files_containing(), ChessBitboard::new(0));
+        assert_eq!(ChessBitboard::new(1).files_containing(), ChessBitboard::file_0());
+        assert_eq!(ChessBitboard::new(1 << 12).files_containing(), ChessBitboard::file(4));
+    }
+
+    #[test]
+    fn files_ranks_containing_test() {
+        let seed = random();
+        let mut rng = StdRng::seed_from_u64(seed);
+        let size = GridSize::new(Height(rng.random_range(3..=12)), Width(rng.random_range(2..=10)));
+        let bb =
+            rng.random::<u128>() & rng.random::<u128>() & rng.random::<u128>().remove_ones_above(size.num_squares());
+        let bb = MnkBitboard::new(bb, size);
+        let files = bb.files_containing();
+        let ranks = bb.ranks_containing();
+        let w = size.internal_width();
+        println!("{seed}\n{w}\n{bb}\n{files}\n{ranks}");
+        for sq in 0..size.num_squares() {
+            let mut exp_rank = false;
+            let mut exp_file = false;
+            for s2 in 0..size.num_squares() {
+                if s2 % w == sq % w && bb.is_bit_set_at(s2) {
+                    exp_file = true;
+                }
+                if s2 / w == sq / w && bb.is_bit_set_at(s2) {
+                    exp_rank = true;
+                }
+            }
+            assert_eq!(files.is_bit_set_at(sq), exp_file, "{sq}");
+            assert_eq!(ranks.is_bit_set_at(sq), exp_rank, "{sq}");
+        }
     }
 
     #[test]

@@ -24,7 +24,7 @@ use crate::games::fairy::moves::MoveEffect::{
     SetEp,
 };
 use crate::games::fairy::pieces::{ColoredPieceId, PieceId};
-use crate::games::fairy::rules::Rules;
+use crate::games::fairy::rules::{PromoMoveChar, Rules};
 use crate::games::fairy::{
     FairyBitboard, FairyBoard, FairyColor, FairySize, FairySquare, RawFairyBitboard, Side, effects,
 };
@@ -70,10 +70,9 @@ impl FairyMove {
         let (discriminant, val) = match kind {
             MoveKind::Normal => (0, 1), // ensure that the default value of `FairyMove` is never legal
             MoveKind::Drop(val) => (1, val),
-            MoveKind::ChangePiece(val) => (2, val),
+            MoveKind::Promotion(val) => (2, val),
             MoveKind::Castle(side) => (3, side as u8),
-            MoveKind::Conversion => (4, 0),
-            MoveKind::DoublePawnPush => (5, 0),
+            MoveKind::DoublePawnPush => (4, 0),
         };
         let discriminant = discriminant | ((is_capture as u16) << 7);
         ((val as u16) << 8) | discriminant
@@ -86,10 +85,9 @@ impl FairyMove {
         match discriminant {
             0 => (MoveKind::Normal, is_capture),
             1 => (MoveKind::Drop(val), is_capture),
-            2 => (MoveKind::ChangePiece(val), is_capture),
+            2 => (MoveKind::Promotion(val), is_capture),
             3 => (MoveKind::Castle(Side::from_repr(val as usize).unwrap()), is_capture),
-            4 => (MoveKind::Conversion, is_capture),
-            5 => (MoveKind::DoublePawnPush, is_capture),
+            4 => (MoveKind::DoublePawnPush, is_capture),
             _ => unreachable!(),
         }
     }
@@ -188,12 +186,16 @@ fn format_move_compact(f: &mut Formatter<'_>, mov: FairyMove, pos: &FairyBoard) 
     let from = mov.from.square(size);
     let to = mov.to.square(size);
     Some(match mov.kind() {
-        MoveKind::Normal | MoveKind::DoublePawnPush | MoveKind::Conversion => {
+        MoveKind::Normal | MoveKind::DoublePawnPush => {
             write!(f, "{from}{to}")
         }
-        MoveKind::ChangePiece(new_piece) => {
+        MoveKind::Promotion(new_piece) => {
             let piece = ColoredPieceId::from_u8(new_piece).to_uncolored_idx();
-            write!(f, "{from}{to}{}", pos.rules().pieces.get(piece)?.uncolored_symbol[Ascii].to_ascii_lowercase())
+            let promo_char = match pos.rules().format_rules.promo_move_char {
+                PromoMoveChar::Piece => pos.rules().pieces.get(piece)?.uncolored_symbol[Ascii].to_ascii_lowercase(),
+                PromoMoveChar::Plus => '+',
+            };
+            write!(f, "{from}{to}{promo_char}")
         }
         MoveKind::Castle(side) => {
             let rook_sq = pos.0.castling_info.player(pos.active_player()).rook_sq(side)?;
@@ -332,7 +334,7 @@ fn effects_for(mov: FairyMove, pos: &mut FairyBoard, r: EffectRules) {
             PlaceSinglePiece(to, col_piece).apply(pos);
             RemovePieceFromHand(piece, pos.active_player()).apply(pos);
         }
-        MoveKind::ChangePiece(new_piece) => {
+        MoveKind::Promotion(new_piece) => {
             RemoveSinglePiece(from, piece).apply(pos);
             let piece = ColoredPieceId::from_u8(new_piece);
             PlaceSinglePiece(to, piece).apply(pos);
@@ -347,11 +349,6 @@ fn effects_for(mov: FairyMove, pos: &mut FairyBoard, r: EffectRules) {
             RemoveSinglePiece(rook_sq, rook).apply(pos);
             PlaceSinglePiece(to, piece).apply(pos);
             PlaceSinglePiece(castling_info.rook_dest_sq(side).unwrap(), rook).apply(pos);
-        }
-        // TODO: Remove
-        MoveKind::Conversion => {
-            let bb = FairyBitboard::single_piece_for(to, pos.size()).extended_moore_neighbors(r.conversion_radius);
-            SetColorTo(bb.raw(), pos.active_player()).apply(pos);
         }
     }
     if r.conversion_radius > 0 {
@@ -491,7 +488,7 @@ impl FairyBoard {
             for side in Side::iter() {
                 let info = self.castling_info.player(color);
                 let Some(sq) = info.rook_sq(side) else { continue };
-                if !self.player_bb(color).is_bit_set_at(self.size.internal_key(sq)) {
+                if !self.player_bb(color).is_bit_set_at(self.size().internal_key(sq)) {
                     self.0.castling_info.unset(color, side);
                 }
             }

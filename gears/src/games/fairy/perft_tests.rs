@@ -27,6 +27,8 @@ mod tests {
     use std::time::Instant;
 
     fn test_pos(pos: FairyBoard, fen: &str, expected: &[u64], start_time: Instant, max_nodes: u64) {
+        println!("{pos}");
+        assert_eq!(FairyBoard::from_fen(&pos.as_fen(), Relaxed).unwrap(), pos);
         for (i, &expected) in expected.iter().enumerate() {
             if expected > max_nodes {
                 break;
@@ -80,6 +82,7 @@ mod tests {
             ("mnk 6 7 4", vec![42, 1722, 68_880, 2_686_320]),
             ("large_mnk", vec![121, 14_520, 1_727_880]),
             ("mnk 6 7 4 7/4O2/X2X1X1/O1XX1O1/OXOOOX1/OOXXOX1 x 11", vec![22, 462, 9240, 170_240, 3_050_784]),
+            ("cfour startpos", vec![7, 49, 343, 2401, 16_807, 117_649, 823_536, 5_673_234, 39_394_572]),
             (
                 "cfour 7 7 3 7/7/7/7/7/1X3O1/XOXXOO1 X",
                 vec![7, 49, 259, 1372, 6804, 30_889, 145_533, 611_261, 2_702_712],
@@ -121,6 +124,34 @@ mod tests {
                 "antichess rnb1kbnr/ppp2ppp/4P3/3Q4/8/8/PPP1PqPP/RNB1KBNR w - - 0 1",
                 vec![3, 17, 121, 611, 3501, 21338, 133_659, 1_059_417, 12_193_381],
             ),
+            ("crazyhouse K1QQQQ1Q/Q7/Q7/6Q1/1Q6/7Q/Q6B/1QQQQQnk[PNBRQ] w - - 0 1", vec![444, 0, 0]),
+            // TODO: Different FEN formats like sfen for some of the shogi positions
+            ("shogi startpos", vec![30, 900, 25_470, 719_731, 19_861_490 /*, 547_581_517*/]),
+            (
+                // " shogi 8l/1l+R2P3/p2pBG1pp/kps1p4/Nn1P2G2/P1P1P2PP/1PS6/1KSG3+r1/LN2+p3L w Sbgn3p 124",
+                " shogi 8l/1l+R2P3/p2pBG1pp/kps1p4/Nn1P2G2/P1P1P2PP/1PS6/1KSG3+r1/LN2+p3L[Sbgnppp] b - 124",
+                vec![178, 18_041, 2_552_846],
+            ),
+            (
+                "shogi lnsgkgsnl/1r7/p1ppp1bpp/1p3pp2/7P1/2P6/PP1PPPP1P/1B3S1R1/LNSGKG1NL[] b - 9",
+                // "shogi lnsgkgsnl/1r7/p1ppp1bpp/1p3pp2/7P1/2P6/PP1PPPP1P/1B3S1R1/LNSGKG1NL b - 9",
+                vec![38, 1180, 41_578, 1_317_297],
+            ),
+            (
+                // "shogi l4S2l/4g1gs1/5p1p1/pr2N1pkp/4Gn3/PP3PPPP/2GPP4/1K7/L3r+s2L w BS2N5Pb 1",
+                "shogi l4S2l/4g1gs1/5p1p1/pr2N1pkp/4Gn3/PP3PPPP/2GPP4/1K7/L3r+s2L[BSNNPPPPPb] b - 1",
+                vec![98, 15850, 1_114_656],
+            ),
+            (
+                // "shogi 6n1l/2+S1k4/2lp4p/1np1B2b1/3PP4/1N1S3rP/1P2+pPP+p1/1p1G5/3KG2r1 b GSN2L4Pgs2p 1",
+                "shogi 6n1l/2+S1k4/2lp4p/1np1B2b1/3PP4/1N1S3rP/1P2+pPP+p1/1p1G5/3KG2r1[GSNLLPPPPgspp] w - 1",
+                vec![246, 41_605, 8_420_492],
+            ),
+            (
+                "shogi l6nl/5+P1gk/2np1S3/p1p4Pp/3P2Sp1/1PPb2P1P/P5GS1/R8/LN4bKL[RGgsnppppp] b - 1",
+                vec![207, 28_684, 4_809_015],
+            ),
+            // todo: pawn drop mate rule, repetition and perpetual (not as a perft test)
         ];
         let old = FairyBoard::default();
         for (testcase, res) in fens {

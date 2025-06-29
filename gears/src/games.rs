@@ -209,6 +209,12 @@ pub trait ColoredPieceType<B: Board>: AbstractPieceType<B> {
         if let Some(color) = self.color() { Self::new(!color, self.uncolor()) } else { self }
     }
 
+    /// Usually, this simply writes the ascii char, but some variants require additional chars to
+    /// express piece modifiers
+    fn write_in_fen(self, settings: &B::Settings, f: &mut Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.to_char(Ascii, settings))
+    }
+
     /// This method is used when parsing FENs and only does something in some fairy variants.
     fn make_promoted(&mut self, rules: &B::Settings) -> Res<()> {
         bail!(
@@ -220,8 +226,8 @@ pub trait ColoredPieceType<B: Board>: AbstractPieceType<B> {
 
     /// Like [`Self::make_promoted`], this method is used to for FENs.
     /// For example, in crazyhouse, a promoted piece is suffixed with a '~'.
-    fn is_promoted(&self, _rules: &B::Settings) -> bool {
-        false
+    fn promoted_from(&self, _rules: &B::Settings) -> Option<Self::Uncolored> {
+        None
     }
 }
 

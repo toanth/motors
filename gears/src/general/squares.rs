@@ -171,6 +171,11 @@ impl GridSize {
         Self { height, width }
     }
 
+    /// 9 x 9
+    pub fn shogi() -> Self {
+        Self::new(Height(9), Width(9))
+    }
+
     /// 8 x 8
     pub const fn chess() -> Self {
         Self::new(Height(8), Width(8))

@@ -44,15 +44,15 @@ use std::str::FromStr;
 use strum::IntoEnumIterator;
 
 fn chess_invariants(board: &UnverifiedFairyBoard) {
-    assert_eq!(board.size.num_squares(), 64);
-    assert_eq!(board.size, GridSize::chess());
+    assert_eq!(board.size().num_squares(), 64);
+    assert_eq!(board.size(), GridSize::chess());
     assert!(board.neutral_bb.is_zero());
     assert_eq!(board.mask_bb, 0xffff_ffff_ffff_ffff);
     let both = board.color_bitboards[0] & board.color_bitboards[1];
     assert!(both.is_zero());
     let rules = board.rules();
     assert!(rules.has_ep);
-    assert_eq!(rules.startpos_fen_part, chess::START_FEN);
+    assert_eq!(rules.format_rules.startpos_fen, chess::START_FEN);
 }
 
 #[test]
@@ -203,6 +203,7 @@ fn weird_fen_test() {
     // assert!(FairyBoard::from_fen(fen, Relaxed).is_err());
     let fen = "1nbqkbnr/ppppppp1/8/r5Pp/6K1/8/PPPP1PPP/RNBQ1BNR w k - 0 2";
     assert!(FairyBoard::from_fen(fen, Strict).is_ok());
+    // TODO: Disambiguated x fen tests from chess tests, test that output also works correctly
 }
 
 #[test]
@@ -281,7 +282,7 @@ fn capture_only_test() {
     let tactical = board.tactical_pseudolegal();
     assert_eq!(tactical.len(), 0); // for now, only captures count as tactical in fairy chess
     for m in tactical {
-        assert!(matches!(m.kind(), MoveKind::ChangePiece(_)));
+        assert!(matches!(m.kind(), MoveKind::Promotion(_)));
         assert!(!m.is_capture());
         assert_eq!(m.piece(&board).name(&board.settings()).as_ref(), "black pawn");
     }

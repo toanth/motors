@@ -132,8 +132,8 @@ impl<B: Board> TTEntry<B> {
 
     #[cfg(feature = "unsafe")]
     fn pack_into(self, entry: &AtomicTTEntry) {
-        debug_assert_eq!(size_of::<Self>(), 128 / 8);
-        debug_assert_eq!(size_of::<AtomicTTEntry>(), size_of::<Self>());
+        assert_eq!(size_of::<Self>(), 128 / 8);
+        assert_eq!(size_of::<AtomicTTEntry>(), size_of::<Self>());
         // `transmute_copy` is needed because otherwise the compiler complains that the sizes might not match.
         // SAFETY: Both types have the same size and all bit patterns are valid
         let e = unsafe { transmute_copy::<Self, u128>(&self) };
@@ -162,8 +162,8 @@ impl<B: Board> TTEntry<B> {
 
     #[cfg(feature = "unsafe")]
     fn unpack(packed: &AtomicTTEntry) -> Self {
-        debug_assert_eq!(size_of::<Self>(), 128 / 8);
-        debug_assert_eq!(size_of::<AtomicTTEntry>(), size_of::<Self>());
+        assert_eq!(size_of::<Self>(), 128 / 8);
+        assert_eq!(size_of::<AtomicTTEntry>(), size_of::<Self>());
         let hash = packed.hash.load(Relaxed) as u128;
         let val = ((packed.rest.load(Relaxed) as u128) << 64) | hash;
         // SAFETY: Both types have the same size and all bit patterns are valid
