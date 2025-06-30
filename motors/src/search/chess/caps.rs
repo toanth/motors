@@ -19,7 +19,7 @@ use crate::send_debug_msg;
 use gears::PlayerResult::{Lose, Win};
 use gears::arrayvec::ArrayVec;
 use gears::games::chess::moves::ChessMove;
-use gears::games::chess::pieces::ChessPieceType::Pawn;
+use gears::games::chess::pieces::ChessPieceType::{Pawn, Queen};
 use gears::games::chess::see::SeeScore;
 use gears::games::chess::squares::NUM_SQUARES;
 use gears::games::chess::{ChessColor, Chessboard, MAX_CHESS_MOVES_IN_POS, unverified::UnverifiedChessboard};
@@ -1029,7 +1029,10 @@ impl Caps {
                     if we_blundered {
                         reduction += 1;
                     }
-                    if new_pos.is_in_check() {
+                    // TODO: Different fractional reductions
+                    if new_pos.is_in_check()
+                        || (new_pos.threats() & new_pos.col_piece_bb(new_pos.active_player(), Queen)).has_set_bit()
+                    {
                         reduction -= 1;
                     }
                     if in_check {
