@@ -115,12 +115,14 @@ impl Display for EngineOptionType {
 
 #[derive(Debug, Eq, PartialEq, Clone, Hash, EnumIter)]
 #[must_use]
-// TODO: UCI_Chess960
 pub enum EngineOptionName {
     Hash,
     Threads,
     Ponder,
     MultiPv,
+    // This exists even if the current game isn't chess, because typically GUIs query the options once at startup,
+    // so we don't want to prevent a GUI from setting that option if the initial game isn't chess.
+    UCIChess960,
     UCIVariant,
     UciElo,
     UCIOpponent,
@@ -153,6 +155,7 @@ impl NamedEntity for EngineOptionName {
                 "Pondering mode. Pondering is supported even without this option, so it has no effect"
             }
             EngineOptionName::MultiPv => "The number of Principal Variation (PV) lines to output",
+            EngineOptionName::UCIChess960 => "Always output castling moves in Chess960 format (king captures rook)",
             EngineOptionName::UCIVariant => "Changes the current variant for 'fairy', e.g. 'chess' or 'shatranj'",
             EngineOptionName::UciElo => "Limit strength to this elo. Currently not supported",
             EngineOptionName::UCIOpponent => "The opponent. Currently only used to output the name in PGNs",
@@ -190,6 +193,7 @@ impl EngineOptionName {
             EngineOptionName::Threads => "Threads",
             EngineOptionName::Ponder => "Ponder",
             EngineOptionName::MultiPv => "MultiPV",
+            EngineOptionName::UCIChess960 => "UCI_Chess960",
             EngineOptionName::UCIVariant => "UCI_Variant",
             EngineOptionName::UciElo => "UCI_Elo",
             EngineOptionName::UCIOpponent => "UCI_Opponent",

@@ -110,6 +110,7 @@ impl<B: Board> GenericTests<B> {
     fn basic_test() {
         assert!(!B::bench_positions().is_empty());
         for pos in B::bench_positions() {
+            println!("{pos}");
             let ply = pos.halfmove_ctr_since_start();
             // use a new hash set per position because bench positions can be only one ply away from each other
             let mut hashes = HashSet::new();

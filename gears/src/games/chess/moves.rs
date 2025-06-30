@@ -234,7 +234,7 @@ impl Move<Chessboard> for ChessMove {
             return write!(f, "0000");
         }
         let mut to = self.dest_square();
-        if self.is_castle() && board.castling.default_uci_castling_move_fmt() {
+        if self.is_castle() && !board.settings().is_set(ChessSettings::dfrc_flag()) {
             let rank = self.src_square().rank();
             if self.flags() == CastleKingside {
                 to = ChessSquare::from_rank_file(rank, G_FILE_NUM);
@@ -1089,11 +1089,11 @@ impl<'a> MoveParser<'a> {
 mod tests {
     use crate::games::Board;
     use crate::games::chess::ChessColor::White;
-    use crate::games::chess::Chessboard;
     use crate::games::chess::castling::CastleRight::Queenside;
     use crate::games::chess::moves::ChessMove;
     use crate::games::chess::pieces::ChessPieceType;
     use crate::games::chess::squares::ChessSquare;
+    use crate::games::chess::{ChessSettings, Chessboard, UCI_CHESS960};
     use crate::games::generic_tests;
     use crate::general::bitboards::RawBitboard;
     use crate::general::board::BoardHelpers;
@@ -1105,6 +1105,7 @@ mod tests {
     use crate::output::pgn::parse_pgn;
     use crate::search::Depth;
     use itertools::Itertools;
+    use std::sync::atomic::Ordering;
 
     type GenericTests = generic_tests::GenericTests<Chessboard>;
 
@@ -1208,9 +1209,10 @@ mod tests {
 
     #[test]
     fn castle_test() {
+        assert!(!UCI_CHESS960.load(Ordering::Relaxed));
         let p = Chessboard::chess_960_startpos(42).unwrap();
         let p = p.remove_piece(ChessSquare::from_chars('f', '1').unwrap()).unwrap().verify(Strict).unwrap();
-        assert!(!p.castling.is_x_fen());
+        assert!(p.settings().is_set(ChessSettings::shredder_fen_flag()));
         assert!(p.debug_verify_invariants(Strict).is_ok());
         let p2 = Chessboard::from_fen("bb1r2kr/p1ppppp1/1n2qn2/8/8/8/PPPPPPP1/BB1RQNKR b KQkq - 0 1", Relaxed).unwrap();
         let tests: &[(Chessboard, &[&str], u64)] = &[
@@ -1218,18 +1220,15 @@ mod tests {
             (p, &["0-0", "g1h1"], 8953),
             (p2, &["0-0", "0-0-0", "g8h8", "g8c8", "g8d8"], 57107), // TODO: Allow `g8g8` for castling?
         ];
-        for (pos, moves, perft_nodes) in tests {
+        for (i, (pos, moves, perft_nodes)) in tests.iter().enumerate() {
             for mov in *moves {
                 let mov = ChessMove::from_text(mov, pos).unwrap();
                 assert!(mov.is_castle());
                 assert!(!mov.is_capture(pos));
                 assert!(pos.make_move(mov).unwrap().debug_verify_invariants(Strict).is_ok());
                 assert_eq!(pos.piece_type_on(mov.dest_square()), ChessPieceType::Rook);
-                if *pos == p2 {
-                    assert!(!pos.castling.default_uci_castling_move_fmt());
-                } else {
-                    assert_eq!(pos.castling.is_x_fen(), pos.castling.default_uci_castling_move_fmt());
-                }
+                assert_eq!(i != 0, pos.settings.is_set(ChessSettings::dfrc_flag()));
+                assert_eq!(*pos == p, pos.settings.is_set(ChessSettings::shredder_fen_flag()));
             }
             let perft_res = perft(Depth::new(3), *pos, false);
             assert_eq!(perft_res.nodes, *perft_nodes);
@@ -1242,7 +1241,7 @@ mod tests {
                 .collect_vec()
         };
         let pos = Chessboard::from_name("kiwipete").unwrap();
-        assert!(pos.castling.default_uci_castling_move_fmt());
+        assert!(!pos.settings.is_set(ChessSettings::dfrc_flag()));
         let moves = castling(pos);
         assert_eq!(moves.len(), 2);
         assert_eq!(moves[0], "e1c1");
@@ -1250,17 +1249,18 @@ mod tests {
         // same as kiwipete, but in  shredder FEN notation
         let pos = Chessboard::from_fen("r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w HAha - 0 1", Strict)
             .unwrap();
-        assert!(!pos.castling.default_uci_castling_move_fmt());
+        assert!(!pos.settings.is_set(ChessSettings::dfrc_flag()));
+        assert!(pos.settings.is_set(ChessSettings::shredder_fen_flag()));
         let moves = castling(pos);
         assert_eq!(moves.len(), 2);
-        assert_eq!(moves[0], "e1a1");
-        assert_eq!(moves[1], "e1h1");
+        assert_eq!(moves[0], "e1c1");
+        assert_eq!(moves[1], "e1g1");
         // same as kiwipete, but the king is moved one file to the right
         let fen = "r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R4K1R w KQkq - 1 2";
         assert!(Chessboard::from_fen(fen, Strict).is_err());
         let pos = Chessboard::from_fen(fen, Relaxed).unwrap();
-        assert!(pos.castling.is_x_fen());
-        assert!(!pos.castling.default_uci_castling_move_fmt());
+        assert!(pos.settings.is_set(ChessSettings::dfrc_flag()));
+        assert!(!pos.settings.is_set(ChessSettings::shredder_fen_flag()));
         let moves = castling(pos);
         assert_eq!(moves.len(), 2);
         assert_eq!(moves[0], "f1a1");

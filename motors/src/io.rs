@@ -43,6 +43,7 @@ use gears::Quitting::QuitProgram;
 use gears::cli::select_game;
 use gears::colored::Color::Red;
 use gears::colored::Colorize;
+use gears::games::chess::UCI_CHESS960;
 use gears::games::{CharType, Color, ColoredPiece, ColoredPieceType, OutputList};
 use gears::general::board::Strictness::{Relaxed, Strict};
 use gears::general::board::{Board, BoardHelpers, ColPieceTypeOf, Strictness, Symmetry, UnverifiedBoard};
@@ -78,6 +79,8 @@ use std::fmt::{Debug, Display, Formatter, Write};
 use std::ops::{Deref, DerefMut};
 use std::rc::Rc;
 use std::str::FromStr;
+use std::sync::atomic::Ordering;
+use std::sync::atomic::Ordering::SeqCst;
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::thread::sleep;
 use std::time::{Duration, Instant};
@@ -138,7 +141,7 @@ struct EngineGameState<B: Board> {
     /// This temporary engine is largely ignored for most functionality, and at most one engine is allowed to search at the same time.
     temp_engine: Option<EngineWrapper<B>>,
     /// This doesn't have to be the UGI engine name. It often isn't, especially when two engines with
-    /// the same name play against each other, such as in a SPRT. It should be unique, however
+    /// the same name play against each other, such as in a SPRT. It should ideally be unique
     /// (the `monitors` client ensures that, but another GUI might not).
     display_name: String,
     opponent_name: Option<String>,
@@ -556,6 +559,7 @@ impl<B: Board> EngineUGI<B> {
             MultiPv => {
                 self.multi_pv = parse_int_from_str(&value, "multipv")?;
             }
+            UCIChess960 => UCI_CHESS960.store(parse_bool_from_str(&value, "UCI_Chess960")?, SeqCst),
             UCIVariant => self.set_variant(&mut tokens(&value))?,
             UCIOpponent => {
                 let mut words = value.split_whitespace();
@@ -1096,6 +1100,8 @@ impl<B: Board> EngineUGI<B> {
                 }),
                 EngineOptionName::Ponder => Check(UgiCheck { val: self.allow_ponder, default: Some(false) }),
                 MultiPv => Spin(UgiSpin { val: 1, default: Some(1), min: Some(1), max: Some(256) }),
+                // We accept chess960 positions even if the option is false, but we want to treat startpos as non-chess960 by default
+                UCIChess960 => Check(UgiCheck { val: UCI_CHESS960.load(Ordering::Relaxed), default: Some(false) }),
                 UCIVariant => {
                     if let Some(variants) = B::list_variants() {
                         Combo(UgiCombo {

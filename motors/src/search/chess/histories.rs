@@ -25,7 +25,7 @@ use gears::games::chess::squares::{ChessSquare, NUM_SQUARES};
 use gears::games::chess::{ChessColor, Chessboard};
 use gears::games::{Color, NUM_COLORS};
 use gears::general::bitboards::chessboard::ChessBitboard;
-use gears::general::bitboards::{Bitboard, KnownSizeBitboard, RawBitboard};
+use gears::general::bitboards::{Bitboard, RawBitboard};
 use gears::general::board::Board;
 use gears::general::moves::Move;
 use gears::itertools::Itertools;

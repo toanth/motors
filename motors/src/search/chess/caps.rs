@@ -40,7 +40,7 @@ use gears::search::NodeType::*;
 use gears::search::*;
 use gears::ugi::EngineOptionName::*;
 use gears::ugi::EngineOptionType::Check;
-use gears::ugi::{EngineOption, EngineOptionName, EngineOptionType, UgiCheck};
+use gears::ugi::{EngineOptionName, EngineOptionType};
 
 /// The maximum value of the `depth` parameter, i.e. the maximum number of Iterative Deepening iterations.
 const DEPTH_SOFT_LIMIT: Depth = Depth::new(225);
@@ -285,11 +285,7 @@ impl Engine<Chessboard> for Caps {
     }
 
     fn engine_info(&self) -> EngineInfo {
-        let mut options = vec![EngineOption {
-            name: Other("UCI_Chess960".to_string()),
-            value: Check(UgiCheck { val: true, default: Some(true) }),
-        }];
-        options.append(&mut cc::ugi_options());
+        let options = cc::ugi_options();
         EngineInfo::new(
             self,
             self.eval.as_ref(),

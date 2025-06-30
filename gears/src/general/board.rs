@@ -1147,18 +1147,24 @@ pub(crate) fn read_single_move_number<B: RectangularBoard>(
     words: &mut Tokens,
     board: &mut B::Unverified,
     strictness: Strictness,
+    plyctr_fallback: Option<usize>,
 ) -> Res<()> {
     let fullmove_nr = words.next().unwrap_or("");
-    let fullmove_nr = match fullmove_nr.parse::<NonZeroUsize>() {
-        Ok(n) => n,
-        Err(_) => {
-            if strictness == Strict {
-                bail!("FEN doesn't contain a valid fullmove counter, but that is required in strict mode")
+    let plyctr = || {
+        let fullmove_nr = match fullmove_nr.parse::<NonZeroUsize>() {
+            Ok(n) => n,
+            Err(_) => {
+                if strictness == Strict {
+                    bail!("FEN doesn't contain a valid fullmove counter, but that is required in strict mode")
+                } else if let Some(plyctr) = plyctr_fallback {
+                    return Ok(plyctr);
+                }
+                NonZeroUsize::new(1).unwrap()
             }
-            NonZeroUsize::new(1).unwrap()
-        }
+        };
+        Ok(ply_counter_from_fullmove_nr(fullmove_nr, board.active_player().is_first()))
     };
-    board.set_ply_since_start(ply_counter_from_fullmove_nr(fullmove_nr, board.active_player().is_first()))
+    board.set_ply_since_start(plyctr()?)
 }
 
 struct ChildrenIter<'a, B: Board> {

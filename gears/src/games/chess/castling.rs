@@ -2,6 +2,7 @@ use anyhow::{anyhow, bail};
 use arbitrary::Arbitrary;
 use std::fmt;
 use std::fmt::Formatter;
+use std::sync::atomic::Ordering::Relaxed;
 use strum::IntoEnumIterator;
 use strum_macros::EnumIter;
 
@@ -12,7 +13,7 @@ use crate::games::chess::pieces::ColoredChessPieceType;
 use crate::games::chess::squares::{
     A_FILE_NUM, C_FILE_NUM, ChessSquare, D_FILE_NUM, E_FILE_NUM, F_FILE_NUM, G_FILE_NUM, H_FILE_NUM, NUM_COLUMNS,
 };
-use crate::games::chess::{ChessColor, Chessboard};
+use crate::games::chess::{ChessColor, ChessSettings, Chessboard, UCI_CHESS960};
 use crate::games::{Board, Color, ColoredPieceType, DimT, char_to_file, file_to_char};
 use crate::general::bitboards::RawBitboard;
 use crate::general::board::Strictness::Strict;
@@ -52,23 +53,12 @@ impl CastleRight {
 /// X-FENs are disambiguated as described on wikipedia.
 /// More compact representations (fitting into 8 bits) are possible because e.g. queenside castling to the h file
 /// is impossible, but don't really seem worth it because the size of the [`Chessboard`] doesn't change anyway.
-#[derive(Default, Debug, Copy, Clone, Arbitrary)]
+
+#[derive(Default, Debug, Copy, Clone, Eq, PartialEq, Arbitrary)]
 #[must_use]
-pub struct CastlingFlags(u32);
+pub struct CastlingFlags(u16);
 
-impl PartialEq for CastlingFlags {
-    fn eq(&self, other: &Self) -> bool {
-        let ignore_format = (1 << X_FEN_FLAG_SHIFT) | (1 << COMPACT_CASTLING_MOVE_SHIFT);
-        self.0 | ignore_format == other.0 | ignore_format
-    }
-}
-
-impl Eq for CastlingFlags {}
-
-const CASTLE_RIGHTS_SHIFT: usize = 32 - 4;
-const X_FEN_FLAG_SHIFT: usize = 16;
-const COMPACT_CASTLING_MOVE_SHIFT: usize = 17;
-
+const CASTLE_RIGHTS_SHIFT: usize = 12;
 impl CastlingFlags {
     pub(super) const fn for_startpos() -> Self {
         let mut res = Self(0);
@@ -76,24 +66,12 @@ impl CastlingFlags {
         res.set_castle_right_impl(Black, Queenside, 0);
         res.set_castle_right_impl(White, Kingside, 7);
         res.set_castle_right_impl(Black, Kingside, 7);
-        res.0 |= 1 << X_FEN_FLAG_SHIFT;
         res
     }
 
     #[must_use]
     pub fn allowed_castling_directions(self) -> usize {
         (self.0 >> CASTLE_RIGHTS_SHIFT) as usize
-    }
-
-    /// This is set on finding the letter `q` or `k` in the FEN castling description
-    pub fn is_x_fen(&self) -> bool {
-        (self.0 >> X_FEN_FLAG_SHIFT) & 1 == 1
-    }
-
-    /// This is set alongside is_x_fen, but additionally requires that the castling rights look like normal chess:
-    /// All castling rooks must be on the a and h files, and the king must be on the e file.
-    pub fn default_uci_castling_move_fmt(&self) -> bool {
-        (self.0 >> COMPACT_CASTLING_MOVE_SHIFT) & 1 == 1
     }
 
     const fn shift(color: ChessColor, castle_right: CastleRight) -> usize {
@@ -113,20 +91,26 @@ impl CastlingFlags {
         1 == 1 & (self.0 >> (CASTLE_RIGHTS_SHIFT + color as usize * 2 + castle_right as usize))
     }
 
-    const fn set_castle_right_impl(&mut self, color: ChessColor, castle_right: CastleRight, file: u32) {
+    const fn set_castle_right_impl(&mut self, color: ChessColor, castle_right: CastleRight, file: u16) {
         self.0 |= file << Self::shift(color, castle_right);
         self.0 |= 1 << (CASTLE_RIGHTS_SHIFT + color as usize * 2 + castle_right as usize);
-        if file != 0 && file != 7 {
-            self.0 &= !(1 << COMPACT_CASTLING_MOVE_SHIFT);
-        }
     }
 
-    pub fn set_castle_right(&mut self, color: ChessColor, castle_right: CastleRight, file: DimT) -> Res<()> {
+    pub fn set_castle_right(
+        &mut self,
+        color: ChessColor,
+        castle_right: CastleRight,
+        file: DimT,
+        settings: &mut ChessSettings,
+    ) -> Res<()> {
         debug_assert!((file as usize) < NUM_COLUMNS);
         if self.can_castle(color, castle_right) {
             bail!("Trying to set the {color} {castle_right} castle right twice");
         }
-        self.set_castle_right_impl(color, castle_right, u32::from(file));
+        self.set_castle_right_impl(color, castle_right, u16::from(file));
+        if file != A_FILE_NUM && file != H_FILE_NUM {
+            settings.set_flag(ChessSettings::dfrc_flag(), true);
+        }
         Ok(())
     }
 
@@ -140,7 +124,12 @@ impl CastlingFlags {
         self.0 &= !(0x3f << (color as usize * 6));
     }
 
-    pub fn parse_castling_rights(mut self, rights: &str, board: &Chessboard, strictness: Strictness) -> Res<Self> {
+    pub(super) fn parse_castling_rights(
+        mut self,
+        rights: &str,
+        board: &mut Chessboard,
+        strictness: Strictness,
+    ) -> Res<Self> {
         self.0 = 0;
         if rights == "-" {
             return Ok(self);
@@ -150,8 +139,11 @@ impl CastlingFlags {
             bail!("Invalid castling rights string: '{rights}' is more than 4 characters long");
         }
 
-        // output compact castling moves as `<king square><dest square>`. Can get overridden below
-        self.0 |= 1 << COMPACT_CASTLING_MOVE_SHIFT;
+        let mut settings = board.settings;
+        // will be overwritten when we find an incompatible castling right char
+        settings.set_flag(ChessSettings::shredder_fen_flag(), true);
+        // Can later be set to true when we try to add a non-corner castling rook or non-e file king
+        settings.set_flag(ChessSettings::dfrc_flag(), false);
 
         for c in rights.chars() {
             let color = if c.is_ascii_uppercase() { White } else { Black };
@@ -183,35 +175,31 @@ impl CastlingFlags {
                     Queenside => A_FILE_NUM,
                     Kingside => H_FILE_NUM,
                 };
+                let rook_on = |file: DimT| {
+                    board.is_piece_on(ChessSquare::from_rank_file(rank, file), ColoredChessPieceType::new(color, Rook))
+                };
                 if strictness == Strict
-                    && (!board.is_piece_on(
-                        ChessSquare::from_rank_file(rank, strict_file),
-                        ColoredChessPieceType::new(color, Rook),
-                    ) || board.king_square(color).file() != E_FILE_NUM)
+                    && !UCI_CHESS960.load(Relaxed)
+                    && (!rook_on(strict_file) || board.king_square(color).file() != E_FILE_NUM)
                 {
                     bail!(
-                        "In strict mode, normal chess ('q' and 'k') castle rights can only be used for rooks on the a or h files and a king on the e file"
+                        "In strict mode, X-FEN chess castle rights ('q' and 'k') can only be used for rooks on the a or h files and\
+                        a king on the e file unless the UCI_Chess960 option is set"
                     )
                 }
-                self.0 |= 1 << X_FEN_FLAG_SHIFT;
+                settings.set_flag(ChessSettings::shredder_fen_flag(), false);
                 match side {
                     Queenside => {
                         for file in A_FILE_NUM..king_file {
-                            if board.is_piece_on(
-                                ChessSquare::from_rank_file(rank, file),
-                                ColoredChessPieceType::new(color, Rook),
-                            ) {
-                                return self.set_castle_right(color, side, file);
+                            if rook_on(file) {
+                                return self.set_castle_right(color, side, file, &mut settings);
                             }
                         }
                     }
                     Kingside => {
                         for file in (king_file..=H_FILE_NUM).rev() {
-                            if board.is_piece_on(
-                                ChessSquare::from_rank_file(rank, file),
-                                ColoredChessPieceType::new(color, Rook),
-                            ) {
-                                return self.set_castle_right(color, side, file);
+                            if rook_on(file) {
+                                return self.set_castle_right(color, side, file, &mut settings);
                             }
                         }
                     }
@@ -222,62 +210,61 @@ impl CastlingFlags {
                 'q' => find_rook(Queenside)?,
                 'k' => find_rook(Kingside)?,
                 x @ 'a'..='h' => {
+                    // verifying the UnverifiedChessboard will ensure there actually is a rook there.
                     let file = char_to_file(x);
-                    self.set_castle_right(color, side(file), file)?;
+                    self.set_castle_right(color, side(file), file, &mut settings)?;
                 }
                 x => bail!("invalid character in castling rights: '{x}'"),
             }
         }
-        if !self.is_x_fen() {
-            self.0 &= !(1 << COMPACT_CASTLING_MOVE_SHIFT);
-        }
         for color in ChessColor::iter() {
-            if (self.can_castle(color, Kingside) || self.can_castle(color, Queenside))
-                && board.king_square(color).file() != E_FILE_NUM
-            {
-                self.0 &= !(1 << COMPACT_CASTLING_MOVE_SHIFT);
+            let can_castle = self.can_castle(color, Kingside) || self.can_castle(color, Queenside);
+            if can_castle && board.king_square(color).file() != E_FILE_NUM {
+                settings.set_flag(ChessSettings::dfrc_flag(), true);
             }
         }
+        board.settings = settings;
         Ok(self)
     }
 
     pub(super) fn write_castle_rights(self, f: &mut Formatter, pos: &Chessboard) -> fmt::Result {
-        let mut has_castling_righs = false;
+        let mut has_castling_rights = false;
+        let settings = pos.settings;
         // Always output chess960 castling rights. FEN output isn't necessary for UCI
         // and almost all tools support chess960 FEN notation.
         for color in ChessColor::iter() {
             for side in CastleRight::iter().rev() {
                 if self.can_castle(color, side) {
-                    has_castling_righs = true;
+                    has_castling_rights = true;
                     let rook_file = self.rook_start_file(color, side);
-                    let found_rook = |file: DimT| {
+                    let rook_on = |file: DimT| {
                         pos.is_piece_on(
                             ChessSquare::from_rank_file(color as DimT * 7, file),
                             ColoredChessPieceType::new(color, Rook),
                         )
                     };
                     let mut file_char;
-                    if self.is_x_fen() {
+                    if settings.is_set(ChessSettings::shredder_fen_flag()) {
+                        file_char = file_to_char(rook_file)
+                    } else {
                         file_char = if side == Kingside { 'k' } else { 'q' };
                         match side {
                             Queenside => {
                                 for test_file in A_FILE_NUM..rook_file {
-                                    if found_rook(test_file) {
+                                    if rook_on(test_file) {
                                         file_char = file_to_char(rook_file)
                                     }
                                 }
                             }
                             Kingside => {
                                 for test_file in ((rook_file + 1)..=H_FILE_NUM).rev() {
-                                    if found_rook(test_file) {
+                                    if rook_on(test_file) {
                                         file_char = file_to_char(rook_file)
                                     }
                                 }
                             }
                         }
-                    } else {
-                        file_char = file_to_char(rook_file)
-                    };
+                    }
                     if color == White {
                         file_char = file_char.to_ascii_uppercase();
                     }
@@ -285,7 +272,7 @@ impl CastlingFlags {
                 }
             }
         }
-        if !has_castling_righs {
+        if !has_castling_rights {
             write!(f, "-")?;
         }
         Ok(())

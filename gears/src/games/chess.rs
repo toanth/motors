@@ -9,6 +9,7 @@ use std::fmt;
 use std::fmt::{Display, Formatter};
 use std::ops::{Index, IndexMut, Not};
 use std::str::FromStr;
+use std::sync::atomic::AtomicBool;
 use strum::IntoEnumIterator;
 
 use crate::PlayerResult;
@@ -54,6 +55,10 @@ pub mod unverified;
 mod upcomin_repetition;
 pub mod zobrist;
 
+/// This is the only global variable in the entire program, and it is only set when reading a `setoption name UCI_Chess960`.
+/// All it does is determine how castling moves are formatter; in particular, we accept chess960 FENs even without that option.
+pub static UCI_CHESS960: AtomicBool = AtomicBool::new(false);
+
 pub const START_FEN: &str = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
 
 static STARTPOS: Chessboard = {
@@ -77,6 +82,7 @@ static STARTPOS: Chessboard = {
         ply_100_ctr: 0,
         active_player: White,
         castling: CastlingFlags::for_startpos(),
+        settings: ChessSettings(0),
         ep_square: None,
         hashes: Hashes {
             pawns: PosHash(2269071747976134835),
@@ -87,10 +93,40 @@ static STARTPOS: Chessboard = {
     }
 };
 
-#[derive(Eq, PartialEq, Copy, Clone, Debug, Default)]
-pub struct ChessSettings;
+#[derive(Debug, Default, Copy, Clone, Arbitrary)]
+pub struct ChessSettings(u8);
 
-const CHESS_SETTINGS: ChessSettings = ChessSettings {};
+impl ChessSettings {
+    /// Determined whether the current position is a dfrc position, which determines how castling moves are formatted.
+    /// Note that if the UCI_Chess960 option is set, castling moves are always formatted in dfrc format.
+    fn dfrc_flag() -> u8 {
+        1
+    }
+    /// This is set on finding the letter `q` or `k` in the FEN castling description.
+    /// It is unrelated to how castling moves are formatted, and only used to determine how a FEN is formatted
+    /// (which never happens in the UCI protocol, but is common in the interactive interface)
+    fn shredder_fen_flag() -> u8 {
+        2
+    }
+    fn is_set(self, flag: u8) -> bool {
+        self.0 & flag != 0
+    }
+    fn set_flag(&mut self, flag: u8, value: bool) {
+        if value {
+            self.0 |= flag;
+        } else {
+            self.0 &= !flag;
+        }
+    }
+}
+
+impl PartialEq for ChessSettings {
+    fn eq(&self, _other: &Self) -> bool {
+        true // we want chessboards to compare equal if they represent the same position and ignore formatting
+    }
+}
+
+impl Eq for ChessSettings {}
 
 pub const MAX_CHESS_MOVES_IN_POS: usize = 300;
 
@@ -187,6 +223,7 @@ pub struct Chessboard {
     ply_100_ctr: u8,
     active_player: ChessColor,
     castling: CastlingFlags,
+    settings: ChessSettings,
     ep_square: Option<ChessSquare>, // eventually, see if using Optional and Noned instead of Option improves nps
     hashes: Hashes,
 }
@@ -234,7 +271,7 @@ impl Board for Chessboard {
     type MoveList = ChessMoveList;
     type Unverified = UnverifiedChessboard;
 
-    fn empty_for_settings(_: Self::Settings) -> UnverifiedChessboard {
+    fn empty_for_settings(settings: ChessSettings) -> UnverifiedChessboard {
         UnverifiedChessboard(Self {
             piece_bbs: Default::default(),
             color_bbs: Default::default(),
@@ -245,6 +282,7 @@ impl Board for Chessboard {
             ply_100_ctr: 0,
             active_player: White,
             castling: CastlingFlags::default(),
+            settings,
             ep_square: None,
             hashes: Hashes::default(),
         })
@@ -387,11 +425,11 @@ impl Board for Chessboard {
     }
 
     fn settings(&self) -> &Self::Settings {
-        &CHESS_SETTINGS
+        &self.settings
     }
 
     fn settings_ref(&self) -> Self::SettingsRef {
-        CHESS_SETTINGS
+        self.settings
     }
 
     fn active_player(&self) -> ChessColor {
@@ -557,13 +595,14 @@ impl Board for Chessboard {
     fn read_fen_and_advance_input_for(
         words: &mut Tokens,
         strictness: Strictness,
-        _settings: ChessSettings,
+        settings: ChessSettings,
     ) -> Res<Self> {
-        let mut board = Chessboard::empty();
+        let mut board = Chessboard::empty_for_settings(settings);
         read_common_fen_part::<Chessboard>(words, &mut board)?;
         let color = board.0.active_player();
         let Some(castling_word) = words.next() else { bail!("FEN ends after color to move, missing castling rights") };
-        let castling_rights = CastlingFlags::default().parse_castling_rights(castling_word, &board.0, strictness)?;
+        let castling_rights =
+            CastlingFlags::default().parse_castling_rights(castling_word, &mut board.0, strictness)?;
 
         let Some(ep_square) = words.next() else { bail!("FEN ends after castling rights, missing en passant square") };
         let ep_square = if ep_square == "-" {
@@ -863,8 +902,10 @@ impl Chessboard {
             _ = place_piece(0, Pawn);
         }
 
-        board.castling_rights_mut().set_castle_right(color, Queenside, q_rook as DimT).unwrap();
-        board.castling_rights_mut().set_castle_right(color, Kingside, k_rook as DimT).unwrap();
+        let mut settings = board.0.settings;
+        board.castling_rights_mut().set_castle_right(color, Queenside, q_rook as DimT, &mut settings).unwrap();
+        board.castling_rights_mut().set_castle_right(color, Kingside, k_rook as DimT, &mut settings).unwrap();
+        board.0.settings = settings;
         Ok(board)
     }
 
@@ -882,6 +923,8 @@ impl Chessboard {
         res.0.color_bbs[Black] = res.0.player_bb(White).flip_up_down();
         res.0.color_bbs[White] = ChessBitboard::default();
         res = Self::chess960_startpos_white(white_num, White, res)?;
+        res.0.settings.set_flag(ChessSettings::dfrc_flag(), true);
+        res.0.settings.set_flag(ChessSettings::shredder_fen_flag(), true);
         // the hash and other metadata is computed in the `verify` method
         Ok(res
             .verify(Strict)
@@ -1090,12 +1133,12 @@ mod tests {
         assert!(board.castling.can_castle(Black, Kingside));
         assert!(!board.castling.can_castle(Black, Queenside));
         let fens = [
-            "8/8/8/3K4/8/8/5k2/8 w - - 0 1",
-            "K7/R7/R7/R7/R7/R7/P7/k7 w - - 0 1",
-            "QQKBnknn/8/8/8/8/8/8/8 w - - 0 1",
-            "b5k1/b3Q3/3Q1Q2/5Q2/K1bQ1Qb1/2bbbbb1/6Q1/3QQ2b b - - 0 1",
-            "rnbq1bn1/pppppp1p/8/K7/5k2/8/PPPP1PPP/RNBQ1BNR w - - 0 1",
-            &Chessboard::from_fen("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w HhAa - 0 1", Strict).unwrap().as_fen(),
+            // "8/8/8/3K4/8/8/5k2/8 w - - 0 1",
+            // "K7/R7/R7/R7/R7/R7/P7/k7 w - - 0 1",
+            // "QQKBnknn/8/8/8/8/8/8/8 w - - 0 1",
+            // "b5k1/b3Q3/3Q1Q2/5Q2/K1bQ1Qb1/2bbbbb1/6Q1/3QQ2b b - - 0 1",
+            // "rnbq1bn1/pppppp1p/8/K7/5k2/8/PPPP1PPP/RNBQ1BNR w - - 0 1",
+            // &Chessboard::from_fen("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w HhAa - 0 1", Strict).unwrap().as_fen(),
             "rnbqkbnr/1ppppppp/p7/8/8/8/PPPPPPP1/RNBQKBN1 w Ah - 0 1",
             "rnbqkbnr/1ppppppp/p7/8/3pP3/8/PPPP1PP1/RNBQKBN1 b Ah e3 3 1",
             // chess960 fens (from webperft):

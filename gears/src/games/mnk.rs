@@ -537,11 +537,11 @@ impl Board for MNKBoard {
 
     fn bench_positions() -> Vec<Self> {
         let fens = &[
-            // "3 3 3 3/3/3 x",
-            // "5 5 4 X4/5/O2X1/O1X2/O4 x",
-            // "9 9 2 8X/9/9/9/9/9/9/9/9 o",
-            // "9 11 5 O1O3O4/9X1/7O3/7X3/11/4XX5/X7X2/OO3O4X/OX8X o",
-            // "20 5 4 5/5/5/5/1O3/5/5/5/5/5/1O3/X1X2/4O/1O3/5/5/1X2X/X4/5/5 o",
+            "3 3 3 3/3/3 x",
+            "5 5 4 X4/5/O2X1/O1X2/O4 x",
+            "9 9 2 8X/9/9/9/9/9/9/9/9 o",
+            "9 11 5 O1O3O4/9X1/7O3/7X3/11/4XX5/X7X2/OO3O4X/OX8X o",
+            "20 5 4 5/5/5/5/1O3/5/5/5/5/5/1O3/X1X2/4O/1O3/5/5/1X2X/X4/5/5 o",
             "1 25 1 25 x",
             "3 26 2 26/26/10X15 o",
             "3 26 2 3X5O2XO12/7O12O2X1X/O9X6X8 o",
@@ -756,8 +756,7 @@ impl Board for MNKBoard {
             // doesn't change the board.
             ply += 1;
         }
-        board.set_ply_since_start(ply)?;
-        read_single_move_number::<MNKBoard>(words, &mut board, strictness)?;
+        read_single_move_number::<MNKBoard>(words, &mut board, strictness, Some(ply))?;
 
         board.0.last_move = None;
 
@@ -828,8 +827,7 @@ impl MNKBoard {
             // doesn't change the board.
             ply += 1;
         }
-        board.set_ply_since_start(ply)?;
-        read_single_move_number::<MNKBoard>(words, &mut board, strictness)?;
+        read_single_move_number::<MNKBoard>(words, &mut board, strictness, Some(ply))?;
 
         board.0.last_move = None;
 

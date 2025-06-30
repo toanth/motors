@@ -905,7 +905,7 @@ impl Board for FairyBoard {
         if board.rules().format_rules.has_halfmove_ctr {
             read_two_move_numbers::<Self>(input, &mut board, strictness)?;
         } else {
-            read_single_move_number::<Self>(input, &mut board, strictness)?;
+            read_single_move_number::<Self>(input, &mut board, strictness, None)?;
         }
         if trailing_counters {
             board.read_ctrs(input, false)?;
