@@ -87,9 +87,9 @@ pub struct LeapingBitboards(Arc<[RawFairyBitboard]>);
 fn leaper(n: usize, m: usize, rider: bool, size: FairySize) -> Arc<[RawFairyBitboard]> {
     let mut res = vec![RawFairyBitboard::default(); size.num_squares()];
     let (n, m) = (n.min(m), n.max(m));
-    for idx in 0..size.num_squares() {
+    for (idx, elem) in res.iter_mut().enumerate() {
         let bb = precompute_leaper_attacks!(idx, n, m, rider, size.width.val(), u128);
-        res[idx] = bb;
+        *elem = bb;
     }
     Arc::from(res)
 }
@@ -105,10 +105,10 @@ impl LeapingBitboards {
         size: FairySize,
     ) -> Self {
         let mut res = vec![RawFairyBitboard::default(); size.num_squares()];
-        for idx in 0..size.num_squares() {
+        for (idx, elem) in res.iter_mut().enumerate() {
             let sq = size.idx_to_coordinates(idx as DimT);
             let bb = leaper_attack_range(horizontal_range.clone(), vertical_range.clone(), sq, size);
-            res[idx] = bb;
+            *elem = bb;
         }
         LeapingBitboards(Arc::from(res))
     }
@@ -795,7 +795,7 @@ impl UnverifiedFairyBoard {
             ensure!(
                 entry.is_none(),
                 "Attempting to set the same castle right twice for player {0} and file '{1}' ({side})",
-                color.name(&self.settings()),
+                color.name(self.settings()),
                 b'a' + file
             );
             info.players[color.idx()].sides[side as usize] = Some(move_info);

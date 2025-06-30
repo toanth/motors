@@ -1073,7 +1073,7 @@ pub(super) fn coords_options<B: Board>(pos: &B, ac_coords: bool, only_occupied: 
         if pos.is_empty(c) {
             cmd.help_text = Some("Currently empty".to_string());
         } else {
-            cmd.help_text = Some(format!("Currently occupied by: {}", piece.name(&pos.settings()).as_ref()));
+            cmd.help_text = Some(format!("Currently occupied by: {}", piece.name(pos.settings()).as_ref()));
         }
         if ac_coords {
             cmd.sub_commands = SubCommandsFn(Some(Box::new(|state| state.coords_subcmds(false, false))))
@@ -1086,10 +1086,10 @@ pub(super) fn coords_options<B: Board>(pos: &B, ac_coords: bool, only_occupied: 
 pub(super) fn piece_options<B: Board>(pos: &B) -> CommandList {
     let mut res = vec![];
     let settings = pos.settings();
-    for p in ColPieceTypeOf::<B>::non_empty(&settings) {
-        let n = Name::from_name(p.name(&settings).as_ref());
+    for p in ColPieceTypeOf::<B>::non_empty(settings) {
+        let n = Name::from_name(p.name(settings).as_ref());
         let mut cmd = named_entity_to_command(&n);
-        let list = [p.to_char(Ascii, &settings), p.to_char(Unicode, &settings)];
+        let list = [p.to_char(Ascii, settings), p.to_char(Unicode, settings)];
         for c in list.iter().sorted().dedup() {
             cmd.other_names.push(c.to_string());
         }

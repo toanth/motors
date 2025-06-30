@@ -191,9 +191,9 @@ where
         if !self.is_empty(square) {
             bail!(
                 "Can't place a {0} on {1} because there is already a {2} there",
-                piece.name(&self.settings()).as_ref().red(),
+                piece.name(self.settings()).as_ref().red(),
                 square.to_string().red(),
-                self.piece_on(square).colored_piece_type().name(&self.settings()).as_ref().bold()
+                self.piece_on(square).colored_piece_type().name(self.settings()).as_ref().bold()
             )
         }
         self.place_piece(square, piece);
@@ -437,7 +437,7 @@ pub trait Board:
     /// unlike `gen_pseudolegal` (which can't know if there are no legal moves).
     fn legal_moves_slow(&self) -> Self::MoveList {
         let mut res = self.pseudolegal_moves();
-        if Self::Move::legality(&self.settings()) == PseudoLegal {
+        if Self::Move::legality(self.settings()) == PseudoLegal {
             res.filter_moves(|m| self.is_pseudolegal_move_legal(*m));
         }
         if res.num_moves() == 0 && self.no_moves_result().is_none() {
@@ -455,7 +455,7 @@ pub trait Board:
     /// Returns the number of legal moves. Automatically falls back to [`Self::num_pseudolegal_moves`] for games
     /// with legal movegen.
     fn num_legal_moves(&self) -> usize {
-        if Self::Move::legality(&self.settings()) == Legal {
+        if Self::Move::legality(self.settings()) == Legal {
             let res = self.num_pseudolegal_moves();
             if res == 0 && self.no_moves_result().is_none() { 1 } else { res }
         } else {
@@ -515,7 +515,7 @@ pub trait Board:
     /// Expects a pseudolegal move and returns if this move is also legal, which means that playing it with
     /// `make_move` returns `Some(new_board)`
     fn is_pseudolegal_move_legal(&self, mov: Self::Move) -> bool {
-        Self::Move::legality(&self.settings()) == Legal || self.clone().make_move(mov).is_some()
+        Self::Move::legality(self.settings()) == Legal || self.clone().make_move(mov).is_some()
     }
 
     /// Returns the result (win/draw/loss), if any, but doesn't necessarily catch all game-ending conditions.
@@ -635,13 +635,13 @@ pub trait BoardHelpers: Board {
 
     /// For each color, returns a single ASCII char decribing it, e.g. `w` and `b` for black.
     fn color_chars(&self) -> [char; 2] {
-        [Self::Color::first().to_char(&self.settings()), Self::Color::second().to_char(&self.settings())]
+        [Self::Color::first().to_char(self.settings()), Self::Color::second().to_char(self.settings())]
     }
 
     fn color_names(&self) -> [String; 2] {
         [
-            Self::Color::first().name(&self.settings()).to_string(),
-            Self::Color::second().name(&self.settings()).to_string(),
+            Self::Color::first().name(self.settings()).to_string(),
+            Self::Color::second().name(self.settings()).to_string(),
         ]
     }
 
@@ -927,7 +927,7 @@ pub fn position_fen_part<B: RectangularBoard>(f: &mut Formatter<'_>, pos: &B) ->
                 }
                 empty_ctr = 0;
                 // TODO: Allow outputting shogi-style promotion modifiers
-                piece.colored_piece_type().write_in_fen(&pos.settings(), f)?;
+                piece.colored_piece_type().write_in_fen(pos.settings(), f)?;
             }
         }
         if empty_ctr > 0 {
@@ -943,7 +943,7 @@ pub fn position_fen_part<B: RectangularBoard>(f: &mut Formatter<'_>, pos: &B) ->
 
 pub fn common_fen_part<B: RectangularBoard>(f: &mut Formatter<'_>, pos: &B) -> fmt::Result {
     position_fen_part(f, pos)?;
-    write!(f, " {}", pos.active_player().to_char(&pos.settings()))
+    write!(f, " {}", pos.active_player().to_char(pos.settings()))
 }
 
 pub fn simple_fen<T: RectangularBoard>(f: &mut Formatter<'_>, pos: &T, halfmove: bool, fullmove: bool) -> fmt::Result {
@@ -995,7 +995,7 @@ fn read_position_fen_impl<B: RectangularBoard>(
                 shogi_promo = true;
                 continue;
             }
-            let Some(mut symbol) = ColPieceTypeOf::<B>::from_char(c, &board.settings()) else {
+            let Some(mut symbol) = ColPieceTypeOf::<B>::from_char(c, board.settings()) else {
                 bail!(
                     "Invalid character in {0} FEN position description (not a piece): {1}",
                     B::game_name(),
@@ -1010,8 +1010,8 @@ fn read_position_fen_impl<B: RectangularBoard>(
                     board.size().num_squares()
                 );
             }
-            if line.bytes().nth(i + 1).is_some_and(|c| c == CH_PROMO) {
-                symbol.make_promoted(&board.settings()).map_err(|err| {
+            if line.as_bytes().get(i + 1).copied().is_some_and(|c| c == CH_PROMO) {
+                symbol.make_promoted(board.settings()).map_err(|err| {
                     let modifier = String::from_utf8(vec![CH_PROMO]).unwrap();
                     anyhow!(
                         "{err} (the trailing '{0}' in '{1}' is interpreted as crazyhouse-style promotion modifier)",
@@ -1094,7 +1094,7 @@ pub(crate) fn read_common_fen_part<B: RectangularBoard>(words: &mut Tokens, boar
     let Some(active) = words.next() else {
         bail!("{0} FEN ends after the position description and doesn't include the active player", B::game_name())
     };
-    let [c1, c2] = [B::Color::first().to_char(&board.settings()), B::Color::second().to_char(&board.settings())];
+    let [c1, c2] = [B::Color::first().to_char(board.settings()), B::Color::second().to_char(board.settings())];
     ensure!(
         active.chars().count() == 1,
         "Expected a single char to describe the active player ('{0}' or '{1}'), got '{2}'",
@@ -1102,7 +1102,7 @@ pub(crate) fn read_common_fen_part<B: RectangularBoard>(words: &mut Tokens, boar
         c2.to_string().bold(),
         active.red()
     );
-    let Some(active) = B::Color::from_char(active.chars().next().unwrap(), &board.settings()) else {
+    let Some(active) = B::Color::from_char(active.chars().next().unwrap(), board.settings()) else {
         bail!(
             "Expected '{0}' or '{1}' for the color, not '{2}'",
             c1.to_string().bold(),

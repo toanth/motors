@@ -19,7 +19,7 @@ use crate::general::board::{
     BitboardBoard, BoardHelpers, PieceTypeOf, SelfChecks, Strictness, Symmetry, UnverifiedBoard, simple_fen,
 };
 use crate::general::common::{Res, StaticallyNamedEntity, Tokens, ith_one_u64};
-use crate::general::move_list::{EagerNonAllocMoveList, MoveList};
+use crate::general::move_list::{InplaceMoveList, MoveList};
 use crate::general::moves::Move;
 use crate::general::squares::SquareColor::White;
 use crate::general::squares::{SmallGridSize, SmallGridSquare, SquareColor};
@@ -142,7 +142,7 @@ impl StaticallyNamedEntity for AtaxxBoard {
 type AtaxxPiece = GenericPiece<AtaxxBoard, ColoredAtaxxPieceType>;
 
 // for some reason, Chessboard::MoveList can be ambiguous? This should fix that
-pub type AtaxxMoveList = EagerNonAllocMoveList<AtaxxBoard, MAX_ATAXX_MOVES_IN_POS>;
+pub type AtaxxMoveList = InplaceMoveList<AtaxxBoard, MAX_ATAXX_MOVES_IN_POS>;
 
 impl Board for AtaxxBoard {
     // TODO: This is not a useful board state since neither player can make any moves

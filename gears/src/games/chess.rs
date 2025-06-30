@@ -36,7 +36,7 @@ use crate::general::board::{
     position_fen_part, read_common_fen_part, read_two_move_numbers,
 };
 use crate::general::common::{EntityList, Res, StaticallyNamedEntity, Tokens, parse_int_from_str};
-use crate::general::move_list::{EagerNonAllocMoveList, MoveList};
+use crate::general::move_list::{InplaceMoveList, MoveList};
 use crate::general::squares::{RectangularCoordinates, SquareColor};
 use crate::output::OutputOpts;
 use crate::output::text_output::{
@@ -131,7 +131,7 @@ impl Eq for ChessSettings {}
 pub const MAX_CHESS_MOVES_IN_POS: usize = 300;
 
 // for some reason, Chessboard::MoveList can be ambiguous? This should fix that
-pub type ChessMoveList = EagerNonAllocMoveList<Chessboard, MAX_CHESS_MOVES_IN_POS>;
+pub type ChessMoveList = InplaceMoveList<Chessboard, MAX_CHESS_MOVES_IN_POS>;
 
 impl Settings for ChessSettings {}
 
@@ -670,12 +670,12 @@ impl Board for Chessboard {
                     }
                 } else {
                     let c = if piece_to_char.unwrap_or(CharType::Ascii) == CharType::Ascii {
-                        piece.to_char(CharType::Ascii, &pos.settings())
+                        piece.to_char(CharType::Ascii, pos.settings())
                     } else {
                         // uncolored because some fonts have trouble with black pawns, and some make white pieces hard to see
-                        piece.uncolored().to_char(CharType::Unicode, &pos.settings())
+                        piece.uncolored().to_char(CharType::Unicode, pos.settings())
                     };
-                    let s = format!("{c:^0$}", width);
+                    let s = format!("{c:^width$}");
                     s.color(display_color(piece.color().unwrap())).to_string()
                 }
             }),

@@ -45,7 +45,7 @@ pub enum AtaxxPieceType {
 
 impl Display for AtaxxPieceType {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.to_char(CharType::Unicode, &AtaxxSettings::default()))
+        write!(f, "{}", self.to_char(CharType::Unicode, &AtaxxSettings))
     }
 }
 
@@ -107,7 +107,7 @@ pub enum ColoredAtaxxPieceType {
 
 impl Display for ColoredAtaxxPieceType {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.to_char(CharType::Unicode, &AtaxxSettings::default()))
+        write!(f, "{}", self.to_char(CharType::Unicode, &AtaxxSettings))
     }
 }
 

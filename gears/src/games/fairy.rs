@@ -45,7 +45,7 @@ use crate::general::common::Description::NoDescription;
 use crate::general::common::{
     EntityList, GenericSelect, Res, StaticallyNamedEntity, Tokens, parse_int_from_str, select_name_static, tokens,
 };
-use crate::general::move_list::{EagerNonAllocMoveList, MoveList};
+use crate::general::move_list::{MoveList, SboMoveList};
 use crate::general::moves::Move;
 use crate::general::squares::{GridCoordinates, GridSize, RectangularCoordinates, SquareColor};
 use crate::output::OutputOpts;
@@ -76,10 +76,10 @@ const MAX_NUM_PIECE_TYPES: usize = 16;
 pub type FairySquare = GridCoordinates;
 pub type FairySize = GridSize;
 
-/// Maximum number of pseudolegal moves in a position
-const MAX_MOVES: usize = 1024;
+/// If there are more moves than this, the move list allocates
+const MAX_NO_ALLOC_MOVES: usize = 250; // should result in a SmallVec of size <= 1024
 
-type FairyMoveList = EagerNonAllocMoveList<FairyBoard, MAX_MOVES>;
+type FairyMoveList = SboMoveList<FairyBoard, MAX_NO_ALLOC_MOVES>;
 
 #[derive(Debug, Default, Copy, Clone, Eq, PartialEq, Hash, Arbitrary)]
 #[must_use]
@@ -520,7 +520,7 @@ impl UnverifiedBoard<FairyBoard> for UnverifiedFairyBoard {
                 digit_start = Some(digit_start.unwrap_or(i));
                 continue;
             }
-            let Some(piece) = ColoredPieceId::from_char(c, &self.rules()) else {
+            let Some(piece) = ColoredPieceId::from_char(c, self.rules()) else {
                 bail!(
                     "Expected a fairy piece, but '{0}' is not a valid FEN piece character for the current variant ({1})",
                     c.to_string().bold(),
@@ -1037,7 +1037,7 @@ impl Display for NoRulesFenFormatter<'_> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         let pos = self.0;
         position_fen_part(f, pos)?;
-        write!(f, " {} ", pos.active_player().to_char(&pos.settings()))?;
+        write!(f, " {} ", pos.active_player().to_char(pos.settings()))?;
         if pos.rules().has_castling {
             pos.0.castling_info.write_fen_part(f)?;
         }

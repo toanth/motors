@@ -382,7 +382,7 @@ impl NoMovesCondition {
                 };
                 // we can't simply use `legal_moves()` here because that already handles no legal moves
                 let mut pseudolegal = new_pos.pseudolegal_moves();
-                if FairyMove::legality(&pos.settings()) == PseudoLegal {
+                if FairyMove::legality(pos.settings()) == PseudoLegal {
                     MoveList::<FairyBoard>::filter_moves(&mut pseudolegal, |m: &mut FairyMove| {
                         new_pos.is_pseudolegal_move_legal(*m)
                     });
@@ -573,7 +573,7 @@ pub enum FilterMovesCondition {
 impl FilterMovesCondition {
     pub fn apply<T: MoveList<FairyBoard>>(&self, list: &mut T, pos: &FairyBoard) {
         match self {
-            FilterMovesCondition::NoFilter => return,
+            FilterMovesCondition::NoFilter => (),
             FilterMovesCondition::Any(condition) => {
                 if list.iter_moves().any(|m| {
                     condition.applies(*m) && (pos.rules().legality == Legal || pos.is_pseudolegal_move_legal(*m))

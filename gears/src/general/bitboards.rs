@@ -598,7 +598,7 @@ pub trait Bitboard<R: RawBitboard, C: RectangularCoordinates>:
 #[inline]
 fn fill_file<R: RawBitboard, const UP: bool>(mut bb: R, w: usize) -> R {
     let max_shift = size_of::<R>() * 8 - 1;
-    bb |= bb.shift::<UP>(1 * w);
+    bb |= bb.shift::<UP>(w);
     bb |= bb.shift::<UP>(2 * w);
     if 4 * w > max_shift {
         return bb;

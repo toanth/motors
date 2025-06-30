@@ -414,7 +414,7 @@ mod general {
     fn simple_mnk_test() {
         let pos = FairyBoard::from_fen("tictactoe 3 3 3 3/3/3 x 1", Strict).unwrap();
         assert_eq!(pos.size(), GridSize::tictactoe());
-        assert_eq!(pos.active_player(), FairyColor::from_char('x', &pos.settings()).unwrap());
+        assert_eq!(pos.active_player(), FairyColor::from_char('x', pos.settings()).unwrap());
         assert!(pos.royal_bb().is_zero());
         assert_eq!(pos.empty_bb().num_ones(), 9);
         assert_eq!(pos.num_legal_moves(), 9);

@@ -277,9 +277,9 @@ impl Move<Chessboard> for ChessMove {
             Pawn => {}
             uncolored => {
                 let piece_char = if format == Standard {
-                    uncolored.to_char(CharType::Ascii, &board.settings())
+                    uncolored.to_char(CharType::Ascii, board.settings())
                 } else {
-                    piece.to_char(CharType::Unicode, &board.settings())
+                    piece.to_char(CharType::Unicode, board.settings())
                 };
                 write!(f, "{piece_char}")?;
             }
@@ -304,9 +304,9 @@ impl Move<Chessboard> for ChessMove {
         if self.is_promotion() {
             write!(f, "=")?;
             let promo_char = if format == Standard {
-                self.flags().promo_piece().to_char(CharType::Ascii, &board.settings())
+                self.flags().promo_piece().to_char(CharType::Ascii, board.settings())
             } else {
-                self.flags().promo_piece().to_char(CharType::Unicode, &board.settings())
+                self.flags().promo_piece().to_char(CharType::Unicode, board.settings())
             };
             write!(f, "{promo_char}")?;
         }

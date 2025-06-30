@@ -405,7 +405,7 @@ impl<'a, B: RectangularBoard> AbstractPrettyBoardPrinter for PrettyBoardPrinter<
         let square = B::Coordinates::from_rank_file(rank, file);
         let piece = self.board.colored_piece_on(square);
         let Simple(piece_to_char, char_type) = &self.print_type else { unreachable!() };
-        let piece_char = (piece_to_char)(piece, *char_type, &self.board.settings());
+        let piece_char = (piece_to_char)(piece, *char_type, self.board.settings());
         let square_color = square.square_color();
         let empty = self.board.is_empty(square);
         let is_first_player = piece.color().map(|c| c.is_first());
@@ -423,7 +423,7 @@ impl<'a, B: RectangularBoard> AbstractPrettyBoardPrinter for PrettyBoardPrinter<
     }
 
     fn side_to_move(&self) -> String {
-        self.board.active_player().name(&self.board.settings()).to_string()
+        self.board.active_player().name(self.board.settings()).to_string()
     }
 
     fn settings_text(&self) -> Option<String> {
@@ -789,9 +789,9 @@ impl<B: RectangularBoard> BoardFormatter<B> for DefaultBoardFormatter<B> {
         let c = if piece.is_empty() {
             if self.pos.background_color(square) == Black { '*' } else { ' ' }
         } else {
-            piece.to_display_char(self.piece_to_char, &self.pos.settings())
+            piece.to_display_char(self.piece_to_char, self.pos.settings())
         };
-        let c = format!("{c:^0$}", width);
+        let c = format!("{c:^width$}");
 
         let Some(color) = piece.color() else {
             return c.dimmed().to_string();

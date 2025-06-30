@@ -21,7 +21,7 @@ use crate::general::board::{
 };
 use crate::general::common::*;
 use crate::general::hq::BitReverseSliderGenerator;
-use crate::general::move_list::{EagerNonAllocMoveList, MoveList};
+use crate::general::move_list::{InplaceMoveList, MoveList};
 use crate::general::moves::Legality::Legal;
 use crate::general::moves::{Legality, Move, UntrustedMove};
 use crate::general::squares::{GridCoordinates, GridSize, RectangularCoordinates, SquareColor};
@@ -489,7 +489,7 @@ impl Board for MNKBoard {
 
     type Move = FillSquare;
 
-    type MoveList = EagerNonAllocMoveList<Self, 128>;
+    type MoveList = InplaceMoveList<Self, 128>;
 
     type Unverified = UnverifiedMnkBoard;
 
@@ -743,8 +743,7 @@ impl Board for MNKBoard {
         let Some(first) = words.peek().copied() else {
             bail!("Empty mnk fen".to_string());
         };
-        let settings =
-            if first.parse::<usize>().is_ok() { MnkSettings::from_input(first, words)? } else { settings.clone() };
+        let settings = if first.parse::<usize>().is_ok() { MnkSettings::from_input(first, words)? } else { settings };
 
         let board = MNKBoard::empty_for_settings(settings);
         let mut board = UnverifiedMnkBoard::new(board);

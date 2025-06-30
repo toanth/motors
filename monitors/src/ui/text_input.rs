@@ -342,7 +342,7 @@ impl<B: Board> TextInputThread<B> {
         if !client.state.get_player(side).is_engine() {
             bail!(
                 "The {} player is a human and not an engine, so they can't be stopped",
-                side.name(&client.match_state().board.settings())
+                side.name(client.match_state().board.settings())
             )
         }
         match client.active_player() {
@@ -352,7 +352,7 @@ impl<B: Board> TextInputThread<B> {
                     client.stop_thinking(side, Play);
                     Ok(())
                 } else {
-                    bail!("The {} player is not currently thinking", p.name(&client.match_state().board.settings()))
+                    bail!("The {} player is not currently thinking", p.name(client.match_state().board.settings()))
                 }
             }
         }
@@ -525,7 +525,7 @@ impl<B: Board> TextInputThread<B> {
         if !client.state.get_player_mut(player).is_engine() {
             bail!(
                 "The {} player is not an engine and can't receive UGI commands",
-                player.name(&client.match_state().board.settings())
+                player.name(client.match_state().board.settings())
             )
         }
         client.send_ugi_message(player, words.join(" ").as_str().trim());

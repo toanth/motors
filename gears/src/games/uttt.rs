@@ -40,7 +40,7 @@ use crate::general::board::{
     read_common_fen_part, simple_fen,
 };
 use crate::general::common::{EntityList, Res, StaticallyNamedEntity, Tokens, ith_one_u64, ith_one_u128, parse_int};
-use crate::general::move_list::{EagerNonAllocMoveList, MoveList};
+use crate::general::move_list::{InplaceMoveList, MoveList};
 use crate::general::moves::Legality::Legal;
 use crate::general::moves::{Legality, Move, UntrustedMove};
 use crate::general::squares::{RectangularCoordinates, SmallGridSize, SmallGridSquare, SquareColor};
@@ -132,7 +132,7 @@ pub enum UtttPieceType {
 
 impl Display for UtttPieceType {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.to_char(CharType::Ascii, &UtttSettings::default()))
+        write!(f, "{}", self.to_char(CharType::Ascii, &UtttSettings))
     }
 }
 
@@ -191,7 +191,7 @@ pub enum ColoredUtttPieceType {
 
 impl Display for ColoredUtttPieceType {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.to_char(CharType::Ascii, &UtttSettings::default()))
+        write!(f, "{}", self.to_char(CharType::Ascii, &UtttSettings))
     }
 }
 
@@ -361,7 +361,7 @@ impl Move<UtttBoard> for UtttMove {
     }
 }
 
-pub type UtttMoveList = EagerNonAllocMoveList<UtttBoard, 81>;
+pub type UtttMoveList = InplaceMoveList<UtttBoard, 81>;
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Hash, Arbitrary)]
 #[must_use]
@@ -513,7 +513,7 @@ impl UtttBoard {
     }
 
     // Ideally, this would be an associated const, but Rust's restrictions around const fns would make that ugly.
-    // But hopefully, the compiler will constant fold this anyway
+    // But hopefully, the compiler will constant-fold this anyway
     fn won_masks() -> [UtttSubBitboard; 8] {
         [
             UtttSubBitboard::diagonal(UtttSubSquare::from_rank_file(1, 1))
@@ -572,12 +572,12 @@ impl UtttBoard {
             if c == ' ' {
                 continue;
             }
-            let symbol = ColoredUtttPieceType::from_char(c, &board.settings()).unwrap();
+            let symbol = ColoredUtttPieceType::from_char(c, board.settings()).unwrap();
             let square = UtttSquare::from_bb_idx(idx);
             debug_assert!(board.check_coordinates(square).is_ok());
             board.place_piece(square, symbol);
             if c.is_uppercase() {
-                board.0.active = UtttColor::from_char(c, &UtttSettings::default()).unwrap().other();
+                board.0.active = UtttColor::from_char(c, &UtttSettings).unwrap().other();
                 let mov = board.last_move_mut();
                 if *mov != UtttMove::NULL {
                     bail!(
@@ -595,7 +595,7 @@ impl UtttBoard {
         let mut res = String::with_capacity(Self::NUM_SQUARES);
         for i in 0..Self::NUM_SQUARES {
             let square = UtttSquare::from_bb_idx(i);
-            let mut c = self.colored_piece_on(square).to_char(CharType::Ascii, &self.settings());
+            let mut c = self.colored_piece_on(square).to_char(CharType::Ascii, self.settings());
             if c == '.' {
                 c = ' ';
             }
@@ -610,7 +610,7 @@ impl UtttBoard {
     #[must_use]
     pub fn yet_another_fen_format(&self) -> String {
         let mut res = String::new();
-        res.push(self.active.to_char(&UtttSettings::default()).to_ascii_uppercase());
+        res.push(self.active.to_char(&UtttSettings).to_ascii_uppercase());
         res.push(';');
         for sub_board in UtttSubSquare::iter() {
             let c = if sub_board == self.last_move.dest_square().sub_square() && self.is_sub_board_open(sub_board) {
@@ -628,8 +628,7 @@ impl UtttBoard {
         for sub_board in UtttSubSquare::iter() {
             for sub_square in UtttSubSquare::iter() {
                 let sq = UtttSquare::new(sub_board, sub_square);
-                let c =
-                    self.colored_piece_on(sq).symbol.to_char(CharType::Ascii, &self.settings()).to_ascii_uppercase();
+                let c = self.colored_piece_on(sq).symbol.to_char(CharType::Ascii, self.settings()).to_ascii_uppercase();
                 res.push(c);
             }
             res.push('/');

@@ -123,7 +123,7 @@ impl<B: Board> GenericTests<B> {
                 // in some bench positions, the game is already won
                 continue;
             }
-            if B::Move::legality(&pos.settings()) == Legal {
+            if B::Move::legality(pos.settings()) == Legal {
                 assert_eq!(pos.legal_moves_slow().into_iter().count(), pos.pseudolegal_moves().into_iter().count());
             }
             for mov in pos.legal_moves_slow() {

@@ -1512,7 +1512,7 @@ impl<B: Board> AbstractEngineUgiState for EngineUGI<B> {
     fn handle_place_piece(&mut self, words: &mut Tokens) -> Res<()> {
         let pos = self.state.pos();
         let settings = pos.settings();
-        let piece = ColPieceTypeOf::<B>::from_words(words, &settings)?;
+        let piece = ColPieceTypeOf::<B>::from_words(words, settings)?;
         let Some(coords) = words.next() else { bail!("Missing square from which to remove a piece") };
         let coords = B::Coordinates::from_str(coords)?;
         let piece = B::Piece::new(piece, coords);
@@ -1876,7 +1876,7 @@ fn show_eval_pos<B: Board>(pos: &B, last: Option<B::Move>, eval: Box<dyn Eval<B>
                 return default;
             };
             let piece =
-                format!("{}:", piece.to_char(CharType::Ascii, &p.settings()).to_string().color(display_color(color)));
+                format!("{}:", piece.to_char(CharType::Ascii, p.settings()).to_string().color(display_color(color)));
             let score = match p.clone().remove_piece(coords).unwrap().verify(Relaxed) {
                 Ok(pos) => {
                     let diff = eval_pos - eval.borrow_mut().eval(&pos, 0, pos.active_player());
@@ -1945,7 +1945,7 @@ fn compare_splitperft<B: Board>(ugi: &mut EngineUGI<B>, perft_res: SplitPerftRes
     } else {
         ugi.write_message(Warning, &format_args!("There were {0} errors: ", errors.len().to_string().bold()));
         for line in errors {
-            ugi.write_ugi(&format_args!("{}", line));
+            ugi.write_ugi(&format_args!("{line}"));
         }
     }
     Ok(())

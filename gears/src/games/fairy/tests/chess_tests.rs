@@ -87,7 +87,7 @@ fn startpos_test() {
     assert_eq!(board.ply_since_start, 0);
     assert_eq!(board.draw_counter, 0);
     assert!(board.ep.is_none());
-    assert_eq!(board.active_player(), FairyColor::from_name("white", &board.settings()).unwrap());
+    assert_eq!(board.active_player(), FairyColor::from_name("white", board.settings()).unwrap());
     for c in FairyColor::iter() {
         for side in Side::iter() {
             assert!(board.castling_info.can_castle(c, side));
@@ -264,7 +264,7 @@ fn mate_test() {
         if !board.is_pseudolegal_move_legal(mov) {
             continue;
         }
-        let checkmates = mov.piece(&board).name(&board.settings()).as_ref() == "white rook"
+        let checkmates = mov.piece(&board).name(board.settings()).as_ref() == "white rook"
             && mov.dest_square_in(&board) == FairySquare::from_rank_file(7, G_FILE_NUM);
         assert_eq!(board.is_game_won_after_slow(mov, NoHistory::default()), checkmates);
         let new_board = board.clone().make_move(mov).unwrap();
@@ -284,7 +284,7 @@ fn capture_only_test() {
     for m in tactical {
         assert!(matches!(m.kind(), MoveKind::Promotion(_)));
         assert!(!m.is_capture());
-        assert_eq!(m.piece(&board).name(&board.settings()).as_ref(), "black pawn");
+        assert_eq!(m.piece(&board).name(board.settings()).as_ref(), "black pawn");
     }
 }
 

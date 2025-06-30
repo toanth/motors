@@ -29,7 +29,7 @@ use gears::general::board::Strictness::Strict;
 use gears::general::board::{BitboardBoard, UnverifiedBoard};
 use gears::general::common::Description::NoDescription;
 use gears::general::common::{Res, StaticallyNamedEntity, parse_bool_from_str, parse_int_from_str, select_name_static};
-use gears::general::move_list::EagerNonAllocMoveList;
+use gears::general::move_list::InplaceMoveList;
 use gears::general::moves::{Move, UntrustedMove};
 use gears::itertools::Itertools;
 use gears::score::{
@@ -411,7 +411,7 @@ impl Caps {
         let mut soft_limit_scale = 1.0;
 
         self.multi_pvs.resize(multi_pv, PVData::default());
-        let mut chosen_at_depth = EagerNonAllocMoveList::<Chessboard, { DEPTH_SOFT_LIMIT.get() }>::default();
+        let mut chosen_at_depth = InplaceMoveList::<Chessboard, { DEPTH_SOFT_LIMIT.get() }>::default();
 
         for depth in 1..=max_depth {
             self.statistics.next_id_iteration();
