@@ -297,7 +297,7 @@ mod general {
         .unwrap();
         let num_moves = pos.num_legal_moves();
         assert_eq!(num_moves, 128);
-        let pos = pos.flip_side_to_move().unwrap();
+        let pos = pos.make_nullmove().unwrap();
         assert_eq!(pos.fen_no_rules(), "2kr1bQ~r/ppp1pp2/2n5/8/2q3b1/8/PPPP2PP/RNBQK1NR[NPPPbp] w KQ - 0 9");
         assert_eq!(pos, FairyBoard::from_fen(&pos.as_fen(), Strict).unwrap());
         assert_eq!(pos.num_legal_moves(), 99);
@@ -327,7 +327,7 @@ mod general {
             }
         }
         let pos = pos.make_move_from_str("h7g8q").unwrap();
-        let pos = pos.flip_side_to_move().unwrap();
+        let pos = pos.make_nullmove().unwrap();
         for m in pos.legal_moves_slow() {
             if m.src_square_in(&pos).is_none() {
                 assert_eq!(m.piece(&pos).name(pos.rules()).as_ref(), "white pawn");
@@ -385,6 +385,15 @@ mod general {
         )
         .unwrap();
         assert_eq!(pos.num_legal_moves(), 94);
+        let pos = FairyBoard::from_fen_for("shogi", "8k/7P1/7+L1/9/9/9/7+l1/9/8K[PRp] w - 1", Strict).unwrap();
+        assert!(pos.player_result_slow(&NoHistory::default()).is_none());
+        assert!(pos.clone().make_move_from_str("P@i7").is_ok());
+        assert!(pos.clone().make_move_from_str("P@i8").is_err());
+        assert!(pos.clone().make_move_from_str("R@i8").is_ok());
+        assert!(pos.clone().make_move_from_str("R@i2").is_ok());
+        let pos = pos.make_nullmove().unwrap();
+        let pos = pos.make_move_from_str("P@i2").unwrap();
+        assert_eq!(pos.num_legal_moves(), 1);
     }
 
     #[test]

@@ -15,10 +15,11 @@
  *  You should have received a copy of the GNU General Public License
  *  along with Gears. If not, see <https://www.gnu.org/licenses/>.
  */
-use crate::games::ColoredPieceType;
-use crate::games::fairy::pieces::{ColoredPieceId, PieceId};
+use crate::games::fairy::moves::FairyMove;
+use crate::games::fairy::pieces::{ColoredPieceId, PieceId, SHOGI_PAWN_IDX};
 use crate::games::fairy::rules::GameEndEager;
 use crate::games::fairy::{FairyBitboard, FairyBoard, FairyColor, FairySquare, RawFairyBitboard, Side};
+use crate::games::{ColoredPieceType, NoHistory};
 use crate::general::bitboards::Bitboard;
 use crate::general::board::{Board, UnverifiedBoard};
 use arbitrary::{Arbitrary, Unstructured};
@@ -34,13 +35,14 @@ pub trait Event: Copy {
         // default implementation: Do nothing
     }
 
-    fn notify(self, observers: &Observers, pos: &mut FairyBoard);
+    fn notify(self, observers: &Observers, pos: &mut FairyBoard) -> Option<()>;
 }
 
-fn notify<T: Event>(observers: &[Box<ObsFn<T>>], event: T, pos: &mut FairyBoard) {
+fn notify<T: Event>(observers: &[Box<ObsFn<T>>], event: T, pos: &mut FairyBoard) -> Option<()> {
     for observer in observers {
-        observer(event, pos);
+        observer(event, pos)?;
     }
+    Some(())
 }
 
 #[derive(Debug, Copy, Clone)]
@@ -49,6 +51,8 @@ pub struct NoMoves;
 #[derive(Debug, Copy, Clone)]
 pub struct InCheck {
     pub color: FairyColor,
+    #[allow(unused)]
+    pub last_move: FairyMove,
 }
 
 #[derive(Debug, Copy, Clone)]
@@ -131,21 +135,26 @@ pub struct MovePiece {
     pub piece: ColoredPieceId,
 }
 
+#[derive(Debug, Copy, Clone)]
+pub struct AfterMove {
+    pub last_move: FairyMove,
+}
+
 impl Event for NoMoves {
-    fn notify(self, observers: &Observers, pos: &mut FairyBoard) {
-        notify(observers.no_moves.as_slice(), self, pos);
+    fn notify(self, observers: &Observers, pos: &mut FairyBoard) -> Option<()> {
+        notify(observers.no_moves.as_slice(), self, pos)
     }
 }
 
 impl Event for InCheck {
-    fn notify(self, observers: &Observers, pos: &mut FairyBoard) {
-        notify(observers.in_check.as_slice(), self, pos);
+    fn notify(self, observers: &Observers, pos: &mut FairyBoard) -> Option<()> {
+        notify(observers.in_check.as_slice(), self, pos)
     }
 }
 
 impl<'a> Event for GameEndEagerEvent<'a> {
-    fn notify(self, observers: &Observers, pos: &mut FairyBoard) {
-        notify(observers.game_end_eager.as_slice(), self, pos);
+    fn notify(self, observers: &Observers, pos: &mut FairyBoard) -> Option<()> {
+        notify(observers.game_end_eager.as_slice(), self, pos)
     }
 }
 
@@ -154,7 +163,7 @@ impl Event for ResetDrawCtr {
         pos.0.draw_counter = 0;
     }
 
-    fn notify(self, observers: &Observers, pos: &mut FairyBoard) {
+    fn notify(self, observers: &Observers, pos: &mut FairyBoard) -> Option<()> {
         notify(observers.reset_draw_ctr.as_slice(), self, pos)
     }
 }
@@ -164,7 +173,7 @@ impl Event for PlaceSinglePiece {
         pos.0.place_piece(self.square, self.piece);
     }
 
-    fn notify(self, observers: &Observers, pos: &mut FairyBoard) {
+    fn notify(self, observers: &Observers, pos: &mut FairyBoard) -> Option<()> {
         notify(observers.place_single_piece.as_slice(), self, pos)
     }
 }
@@ -174,7 +183,7 @@ impl Event for RemoveSinglePiece {
         pos.0.remove_piece(self.square);
     }
 
-    fn notify(self, observers: &Observers, pos: &mut FairyBoard) {
+    fn notify(self, observers: &Observers, pos: &mut FairyBoard) -> Option<()> {
         notify(observers.remove_single_piece.as_slice(), self, pos)
     }
 }
@@ -184,7 +193,7 @@ impl Event for RemoveAll {
         pos.0.remove_all_pieces(self.bb);
     }
 
-    fn notify(self, observers: &Observers, pos: &mut FairyBoard) {
+    fn notify(self, observers: &Observers, pos: &mut FairyBoard) -> Option<()> {
         notify(observers.remove_all.as_slice(), self, pos)
     }
 }
@@ -194,7 +203,7 @@ impl Event for SetEp {
         pos.0.ep = Some(self.square);
     }
 
-    fn notify(self, observers: &Observers, pos: &mut FairyBoard) {
+    fn notify(self, observers: &Observers, pos: &mut FairyBoard) -> Option<()> {
         notify(observers.set_ep.as_slice(), self, pos)
     }
 }
@@ -204,7 +213,7 @@ impl Event for ResetEp {
         pos.0.ep = None;
     }
 
-    fn notify(self, observers: &Observers, pos: &mut FairyBoard) {
+    fn notify(self, observers: &Observers, pos: &mut FairyBoard) -> Option<()> {
         notify(observers.reset_ep.as_slice(), self, pos)
     }
 }
@@ -214,7 +223,7 @@ impl Event for RemoveCastlingRight {
         pos.0.castling_info.unset(self.color, self.side)
     }
 
-    fn notify(self, observers: &Observers, pos: &mut FairyBoard) {
+    fn notify(self, observers: &Observers, pos: &mut FairyBoard) -> Option<()> {
         notify(observers.remove_castling_right.as_slice(), self, pos)
     }
 }
@@ -225,7 +234,7 @@ impl Event for RemovePieceFromHand {
         pos.0.in_hand[self.color][self.piece.val()] -= 1;
     }
 
-    fn notify(self, observers: &Observers, pos: &mut FairyBoard) {
+    fn notify(self, observers: &Observers, pos: &mut FairyBoard) -> Option<()> {
         notify(observers.remove_piece_from_hand.as_slice(), self, pos)
     }
 }
@@ -236,13 +245,13 @@ impl Event for AddPieceToHand {
         *val = val.saturating_add(1);
     }
 
-    fn notify(self, observers: &Observers, pos: &mut FairyBoard) {
+    fn notify(self, observers: &Observers, pos: &mut FairyBoard) -> Option<()> {
         notify(observers.add_piece_to_hand.as_slice(), self, pos)
     }
 }
 
 impl Event for Capture {
-    fn notify(self, observers: &Observers, pos: &mut FairyBoard) {
+    fn notify(self, observers: &Observers, pos: &mut FairyBoard) -> Option<()> {
         notify(observers.capture.as_slice(), self, pos)
     }
 }
@@ -254,7 +263,7 @@ impl Event for Promote {
         // so executing this has no effect
     }
 
-    fn notify(self, observers: &Observers, pos: &mut FairyBoard) {
+    fn notify(self, observers: &Observers, pos: &mut FairyBoard) -> Option<()> {
         notify(observers.promote.as_slice(), self, pos)
     }
 }
@@ -265,7 +274,7 @@ impl Event for ConvertAll {
         pos.0.color_bitboards[1] ^= self.bb;
     }
 
-    fn notify(self, observers: &Observers, pos: &mut FairyBoard) {
+    fn notify(self, observers: &Observers, pos: &mut FairyBoard) -> Option<()> {
         notify(observers.convert_all.as_slice(), self, pos)
     }
 }
@@ -277,47 +286,54 @@ impl Event for ConvertOne {
         pos.0.color_bitboards[1] ^= bb;
     }
 
-    fn notify(self, observers: &Observers, pos: &mut FairyBoard) {
+    fn notify(self, observers: &Observers, pos: &mut FairyBoard) -> Option<()> {
         notify(observers.convert_one.as_slice(), self, pos)
     }
 }
 
 impl Event for MovePiece {
-    fn notify(self, observers: &Observers, pos: &mut FairyBoard) {
+    fn notify(self, observers: &Observers, pos: &mut FairyBoard) -> Option<()> {
         notify(observers.move_piece.as_slice(), self, pos)
     }
 }
 
+impl Event for AfterMove {
+    fn notify(self, observers: &Observers, pos: &mut FairyBoard) -> Option<()> {
+        notify(observers.finish_move.as_slice(), self, pos)
+    }
+}
+
 #[allow(type_alias_bounds)]
-type ObsFn<T: Event> = dyn Fn(T, &mut FairyBoard) + Sync + Send;
+type ObsFn<T: Event> = dyn Fn(T, &mut FairyBoard) -> Option<()> + Sync + Send;
 
 #[allow(type_alias_bounds)]
 type ObsList<T: Event> = Vec<Box<ObsFn<T>>>;
 
-type GameEndEagerObsFn = dyn Fn(GameEndEagerEvent<'_>, &mut FairyBoard) + Sync + Send;
+type GameEndEagerObsFn = dyn Fn(GameEndEagerEvent<'_>, &mut FairyBoard) -> Option<()> + Sync + Send;
 
 /// Observers are meant for custom hooks that trigger additional effects on certain events.
 /// However, since they're comparatively slow and hard to configure at runtime (can't create new functions at runtime),
 /// many of the common effects, such as removing a piece when it is captured, are still hardcoded.
 #[derive(Default)]
 pub struct Observers {
-    no_moves: ObsList<NoMoves>,
-    in_check: ObsList<InCheck>,
-    game_end_eager: Vec<Box<GameEndEagerObsFn>>,
-    reset_draw_ctr: ObsList<ResetDrawCtr>,
-    place_single_piece: ObsList<PlaceSinglePiece>,
-    remove_single_piece: ObsList<RemoveSinglePiece>,
-    remove_all: ObsList<RemoveAll>,
-    set_ep: ObsList<SetEp>,
-    reset_ep: ObsList<ResetEp>,
-    remove_castling_right: ObsList<RemoveCastlingRight>,
-    remove_piece_from_hand: ObsList<RemovePieceFromHand>,
-    add_piece_to_hand: ObsList<AddPieceToHand>,
-    capture: ObsList<Capture>,
-    promote: ObsList<Promote>,
-    convert_one: ObsList<ConvertOne>,
-    convert_all: ObsList<ConvertAll>,
-    move_piece: ObsList<MovePiece>,
+    pub(super) no_moves: ObsList<NoMoves>,
+    pub(super) in_check: ObsList<InCheck>,
+    pub(super) game_end_eager: Vec<Box<GameEndEagerObsFn>>,
+    pub(super) reset_draw_ctr: ObsList<ResetDrawCtr>,
+    pub(super) place_single_piece: ObsList<PlaceSinglePiece>,
+    pub(super) remove_single_piece: ObsList<RemoveSinglePiece>,
+    pub(super) remove_all: ObsList<RemoveAll>,
+    pub(super) set_ep: ObsList<SetEp>,
+    pub(super) reset_ep: ObsList<ResetEp>,
+    pub(super) remove_castling_right: ObsList<RemoveCastlingRight>,
+    pub(super) remove_piece_from_hand: ObsList<RemovePieceFromHand>,
+    pub(super) add_piece_to_hand: ObsList<AddPieceToHand>,
+    pub(super) capture: ObsList<Capture>,
+    pub(super) promote: ObsList<Promote>,
+    pub(super) convert_one: ObsList<ConvertOne>,
+    pub(super) convert_all: ObsList<ConvertAll>,
+    pub(super) move_piece: ObsList<MovePiece>,
+    pub(super) finish_move: ObsList<AfterMove>,
 }
 
 impl Debug for Observers {
@@ -345,7 +361,7 @@ impl Observers {
             let bb = FairyBitboard::single_piece_for(event.square, pos.size());
             // Could use precomputed king attacks for this
             let bb = (bb | (bb.moore_neighbors() & !pos.piece_bb(pawn))).raw();
-            pos.emit(RemoveAll { bb });
+            pos.emit(RemoveAll { bb })
         };
         res.capture.push(Box::new(explosion));
         res
@@ -366,6 +382,7 @@ impl Observers {
         let mut res = Self::chess();
         let incr_check_ctr = |event: InCheck, pos: &mut FairyBoard| {
             pos.0.additional_ctrs[event.color] += 1;
+            Some(())
         };
         res.in_check.push(Box::new(incr_check_ctr));
         res
@@ -380,6 +397,18 @@ impl Observers {
     pub fn shogi() -> Self {
         let mut res = Self::chess();
         res.capture.push(Self::add_captured_to_hand());
+        let no_pawn_drop_mate = |event: AfterMove, pos: &mut FairyBoard| {
+            let m = event.last_move;
+            if m.piece(pos).uncolor().val() == SHOGI_PAWN_IDX
+                && m.is_drop()
+                && pos.is_in_check()
+                && pos.is_game_lost_slow(&NoHistory::default())
+            {
+                return None;
+            }
+            Some(())
+        };
+        res.finish_move.push(Box::new(no_pawn_drop_mate));
         res
     }
 
@@ -389,7 +418,7 @@ impl Observers {
             let bb = FairyBitboard::single_piece_for(event.square, pos.size());
             // Could use precomputed attacks for this
             let bb = bb.moore_neighbors().raw();
-            pos.emit(ConvertAll { bb });
+            pos.emit(ConvertAll { bb })
         };
         res.place_single_piece.push(Box::new(place_piece_fn));
         res
@@ -401,11 +430,11 @@ impl Observers {
 }
 
 impl FairyBoard {
-    pub fn emit<E: Event>(&mut self, e: E) {
+    pub fn emit<E: Event>(&mut self, e: E) -> Option<()> {
         e.execute(self);
         // unfortunately, this Arc clone is necessary to satisfy the borrow checker -- TODO: maybe find a way to avoid that
         let rules = self.rules.clone();
         let observers = &rules.get().observers;
-        e.notify(observers, self);
+        e.notify(observers, self)
     }
 }

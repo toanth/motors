@@ -151,7 +151,7 @@ mod tests {
                 "shogi l6nl/5+P1gk/2np1S3/p1p4Pp/3P2Sp1/1PPb2P1P/P5GS1/R8/LN4bKL[RGgsnppppp] b - 1",
                 vec![207, 28_684, 4_809_015],
             ),
-            // todo: pawn drop mate rule, repetition and perpetual (not as a perft test)
+            ("shogi k8/9/N1+L6/9/9/3b5/p6+s1/9/8K[SPnp] w - 1", vec![148, 20_760, 1_661_131]),
         ];
         let old = FairyBoard::default();
         for (testcase, res) in fens {

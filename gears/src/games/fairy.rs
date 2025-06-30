@@ -829,7 +829,7 @@ impl Board for FairyBoard {
 
     fn make_nullmove(mut self) -> Option<Self> {
         self.0.last_move = FairyMove::default();
-        self.end_move()
+        self.end_move(FairyMove::default())
     }
 
     fn is_move_pseudolegal(&self, mov: Self::Move) -> bool {

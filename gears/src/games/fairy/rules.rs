@@ -377,7 +377,7 @@ impl NoMovesCondition {
             InCheck => pos.is_in_check(),
             NotInCheck => !pos.is_in_check(),
             NoMovesCondition::NoOpponentMoves => {
-                let Some(new_pos) = pos.clone().flip_side_to_move() else {
+                let Some(new_pos) = pos.clone().flip_side_to_move(FairyMove::default()) else {
                     return false;
                 };
                 // we can't simply use `legal_moves()` here because that already handles no legal moves
@@ -1021,7 +1021,7 @@ impl Rules {
         // shogi doesn't actually have ep captures, but this makes FENs contain a `-`, which they for some reason have to
         // in the standard FEN format cutechess uses TODO: fairy sf's fen output also contains another - and a repetition clock, so accept that...
         rules.has_ep = true;
-        rules.observers = Observers::crazyhouse();
+        rules.observers = Observers::shogi();
         // TODO: this is incorrect. As far as my current understanding goes, a fourfold repetition is a draw,
         // but if the last 4 moves have all been checks and the same position, the checking player loses
         rules.game_end_eager =

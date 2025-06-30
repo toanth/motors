@@ -18,7 +18,7 @@
 use crate::games::CharType::Ascii;
 use crate::games::fairy::Side::{Kingside, Queenside};
 use crate::games::fairy::attacks::{EffectRules, MoveKind};
-use crate::games::fairy::effects::InCheck;
+use crate::games::fairy::effects::{AfterMove, InCheck};
 use crate::games::fairy::moves::MoveEffect::{
     PlaceSinglePiece, RemoveCastlingRight, RemovePieceFromHand, RemoveSinglePiece, ResetDrawCtr, ResetEp, SetColorTo,
     SetEp,
@@ -114,6 +114,10 @@ impl FairyMove {
 
     pub fn is_capture(self) -> bool {
         Self::unpack(self.packed).1
+    }
+
+    pub fn is_drop(self) -> bool {
+        self.from.0 == DimT::MAX
     }
 }
 
@@ -291,7 +295,7 @@ impl MoveEffect {
     }
 }
 
-fn effects_for(mov: FairyMove, pos: &mut FairyBoard, r: EffectRules) {
+fn effects_for(mov: FairyMove, pos: &mut FairyBoard, r: EffectRules) -> Option<()> {
     let from = mov.from.square(pos.size());
     let to = mov.dest(pos.size());
     let piece = mov.piece(pos);
@@ -382,8 +386,9 @@ fn effects_for(mov: FairyMove, pos: &mut FairyBoard, r: EffectRules) {
     }
     if mov.is_capture() {
         let event = effects::Capture { square: to, captured: captured.unwrap() };
-        pos.emit(event);
+        pos.emit(event)?;
     }
+    Some(())
 }
 
 impl FairyBoard {
@@ -458,14 +463,14 @@ impl FairyBoard {
         }
         self.0.draw_counter += 1; // do this before an effect could reset it to zero
         let effect_rules = self.rules().effect_rules;
-        effects_for(mov, &mut self, effect_rules);
+        effects_for(mov, &mut self, effect_rules)?;
         if self.rules().store_last_move {
             self.0.last_move = mov;
         }
-        self.end_move()
+        self.end_move(mov)
     }
 
-    pub(super) fn end_move(mut self) -> Option<Self> {
+    pub(super) fn end_move(mut self, mov: FairyMove) -> Option<Self> {
         if self.settings().must_preserve_own_king[self.active.idx()] && self.royal_bb_for(self.active).is_zero() {
             return None;
         }
@@ -473,10 +478,10 @@ impl FairyBoard {
         for c in FairyColor::iter() {
             self.0.in_check[c] = self.compute_is_in_check(c);
             if self.in_check[c] {
-                self.emit(InCheck { color: c })
+                self.emit(InCheck { color: c, last_move: mov })?;
             }
         }
-        self.flip_side_to_move()
+        self.flip_side_to_move(mov)
     }
 
     fn adjust_castling_rights(&mut self) {
@@ -496,17 +501,23 @@ impl FairyBoard {
     }
 
     /// Called at the end of [`Self::make_nullmove`] and [`Self::make_move`].
-    pub fn flip_side_to_move(mut self) -> Option<Self> {
-        self.0.active = !self.0.active;
-        self.0.hash = self.compute_hash();
-        self.0.ply_since_start += 1;
+    /// `last_move` might be a null move
+    pub(super) fn flip_side_to_move(mut self, last_move: FairyMove) -> Option<Self> {
+        self.flip_stm_unchecked();
         if !self.rules().check_rules.satisfied(&self) {
             return None;
         }
+        self.emit(AfterMove { last_move })?;
         if cfg!(debug_assertions) {
             // unlike `debug_assert!(.is_ok())`, this prints the error in case of a failure
             _ = self.0.clone().verify_with_level(Verify, Relaxed).unwrap();
         }
         Some(self)
+    }
+
+    fn flip_stm_unchecked(&mut self) {
+        self.0.active = !self.0.active;
+        self.0.hash = self.compute_hash();
+        self.0.ply_since_start += 1;
     }
 }

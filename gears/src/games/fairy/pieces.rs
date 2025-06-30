@@ -340,6 +340,8 @@ pub(super) const CHESS_QUEEN_IDX: usize = 4;
 #[allow(unused)]
 pub(super) const CHESS_KING_IDX: usize = 5;
 
+pub(super) const SHOGI_PAWN_IDX: usize = 0;
+
 /// This struct defines the rules for a single piece.
 // Cloning a piece uses copy-on-write semantics for attack bitboards
 #[derive(Debug, Clone, Arbitrary)]

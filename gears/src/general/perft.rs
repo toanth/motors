@@ -40,6 +40,9 @@ pub struct SplitPerftRes<B: Board> {
 
 impl<B: Board> Display for SplitPerftRes<B> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        for child in &self.children {
+            write!(f, "\n{0}\t{1}", child.0.compact_formatter(&self.pos), child.1)?;
+        }
         write!(
             f,
             "info depth {depth} nodes {nodes} time {time} nps {nps} children {children}",
@@ -49,9 +52,6 @@ impl<B: Board> Display for SplitPerftRes<B> {
             nps = self.perft_res.nodes * 1_000_000 / self.perft_res.time.as_micros().max(1) as u64,
             children = self.children.len(),
         )?;
-        for child in &self.children {
-            write!(f, "\n{0}\t{1}", child.0.compact_formatter(&self.pos), child.1)?;
-        }
         Ok(())
     }
 }
