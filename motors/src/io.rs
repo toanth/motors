@@ -335,7 +335,7 @@ fn handle_ugi_input(ugi: &mut dyn AbstractEngineUgi, mut words: Tokens, game_nam
     };
 
     // this does all the actual work of executing the command
-    () = cmd.func()(ugi.upcast_mut(), words, first_word)?;
+    () = cmd.func()(ugi, words, first_word)?;
 
     if let Some(remaining) = words.next() {
         // can't reuse cmd because the borrow checker complains
@@ -1607,8 +1607,6 @@ impl<B: Board> AbstractEngineUgiState for EngineUGI<B> {
 
 /// Trait to reduce code duplication. Unlike `AbstractEngineUgiState`, this is not implemented by the auto complete state.
 trait AbstractEngineUgi: AbstractEngineUgiState {
-    fn upcast_mut(&mut self) -> &mut dyn AbstractEngineUgiState;
-
     fn abstract_ugi_pos_state(&self) -> &dyn AbstractUgiPosState;
 
     fn all_commands(&self) -> &AllCommands;
@@ -1640,10 +1638,6 @@ trait AbstractEngineUgi: AbstractEngineUgiState {
 }
 
 impl<B: Board> AbstractEngineUgi for EngineUGI<B> {
-    fn upcast_mut(&mut self) -> &mut dyn AbstractEngineUgiState {
-        self
-    }
-
     fn abstract_ugi_pos_state(&self) -> &dyn AbstractUgiPosState {
         self.state.abstract_pos_state()
     }
