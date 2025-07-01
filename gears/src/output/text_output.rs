@@ -1,7 +1,7 @@
 use crate::GameState;
 use crate::MatchStatus::*;
-use crate::games::{CharType, Color, ColoredPiece, Coordinates, DimT, Settings};
-use crate::general::board::{Board, BoardHelpers, RectangularBoard};
+use crate::games::{AbstractPieceType, CharType, Color, ColoredPiece, ColoredPieceType, Coordinates, DimT, Settings};
+use crate::general::board::{Board, BoardHelpers, ColPieceTypeOf, RectangularBoard};
 use crate::general::common::{NamedEntity, Res};
 use crate::general::move_list::MoveList;
 use crate::general::moves::ExtendedFormat::Alternative;
@@ -381,6 +381,7 @@ trait AbstractPrettyBoardPrinter {
     fn get_height(&self) -> usize {
         self.height() as usize
     }
+    fn max_piece_width(&self) -> usize;
     fn fen(&self) -> String;
     fn side_to_move(&self) -> String;
     fn settings_text(&self) -> Option<String>;
@@ -411,11 +412,17 @@ impl<'a, B: RectangularBoard> AbstractPrettyBoardPrinter for PrettyBoardPrinter<
         let is_first_player = piece.color().map(|c| c.is_first());
         SquareInfo { piece_char, square_color, empty, is_first_player }
     }
+
     fn width(&self) -> DimT {
         self.board.width()
     }
+
     fn height(&self) -> DimT {
         self.board.height()
+    }
+
+    fn max_piece_width(&self) -> usize {
+        ColPieceTypeOf::<B>::max_num_chars(self.board.settings())
     }
 
     fn fen(&self) -> String {
@@ -431,8 +438,8 @@ impl<'a, B: RectangularBoard> AbstractPrettyBoardPrinter for PrettyBoardPrinter<
     }
 
     fn formatter(&self) -> &dyn AbstractBoardFormatter {
-        let PrintType::Formatter(formatter) = &self.print_type else { unreachable!() };
-        formatter.upcast()
+        let PrintType::Formatter(formatter) = self.print_type else { unreachable!() };
+        formatter
     }
 }
 
@@ -585,10 +592,10 @@ fn write_horizontal_bar(
     printer: &dyn AbstractPrettyBoardPrinter,
     colors: &[Vec<Option<colored::Color>>],
     flip: bool,
+    sq_width: usize,
 ) -> String {
     use fmt::Write;
     let fmt = printer.formatter();
-    let sq_width = fmt.overwrite_width().unwrap_or(3);
     // let flip = fmt.flip_board() && B::should_flip_visually();
     let y_spacer = y % fmt.vertical_spacer_interval() == 0;
     let mut res = "    ".to_string();
@@ -640,7 +647,7 @@ fn write_horizontal_bar(
 // most of this function deals with coloring the frame of a square
 fn display_board_pretty_impl(printer: &dyn AbstractPrettyBoardPrinter, flip: bool) -> String {
     let fmt = printer.formatter();
-    let sq_width = fmt.overwrite_width().unwrap_or(3);
+    let sq_width = fmt.overwrite_width().unwrap_or(3) + printer.max_piece_width().saturating_sub(1);
     let mut colors = vec![vec![None; printer.get_width() + 1]; printer.get_height() + 1];
     #[allow(clippy::needless_range_loop)]
     for y in 0..printer.get_height() {
@@ -654,7 +661,7 @@ fn display_board_pretty_impl(printer: &dyn AbstractPrettyBoardPrinter, flip: boo
     }
     let mut res: Vec<String> = vec![];
     for y in 0..printer.get_height() {
-        res.push(write_horizontal_bar(y, printer, &colors, flip));
+        res.push(write_horizontal_bar(y, printer, &colors, flip, sq_width));
         let mut line = format!(" {:>2} ", (y + 1)).dimmed().to_string();
         for x in 0..printer.get_width() {
             let mut col = colors[y][x];
@@ -673,7 +680,7 @@ fn display_board_pretty_impl(printer: &dyn AbstractPrettyBoardPrinter, flip: boo
         );
         res.push(line);
     }
-    res.push(write_horizontal_bar(printer.get_height(), printer, &colors, flip));
+    res.push(write_horizontal_bar(printer.get_height(), printer, &colors, flip, sq_width));
     if !flip {
         res.reverse();
     }
@@ -718,9 +725,6 @@ pub trait AbstractBoardFormatter {
     fn vertical_spacer_interval(&self) -> usize;
 
     fn overwrite_width(&self) -> Option<usize>;
-
-    // TODO: This will become unnecessary in Rust 1.86
-    fn upcast(&self) -> &dyn AbstractBoardFormatter;
 }
 
 pub trait BoardFormatter<B: Board>: AbstractBoardFormatter {
@@ -777,28 +781,26 @@ impl<B: RectangularBoard> AbstractBoardFormatter for DefaultBoardFormatter<B> {
     fn overwrite_width(&self) -> Option<usize> {
         None
     }
-
-    fn upcast(&self) -> &dyn AbstractBoardFormatter {
-        self
-    }
 }
 
 impl<B: RectangularBoard> BoardFormatter<B> for DefaultBoardFormatter<B> {
     fn display_piece(&self, square: B::Coordinates, width: usize) -> String {
         let piece = self.pos.colored_piece_on(square);
-        let c = if piece.is_empty() {
-            if self.pos.background_color(square) == Black { '*' } else { ' ' }
+        let sq = if piece.is_empty() {
+            let c = if self.pos.background_color(square) == Black { '*' } else { ' ' };
+            format!("{c:^width$}")
         } else {
-            piece.to_display_char(self.piece_to_char, self.pos.settings())
+            format!(
+                "{:^width$}",
+                piece.colored_piece_type().str_formatter(self.pos.settings(), self.piece_to_char, true).to_string()
+            )
         };
-        let c = format!("{c:^width$}");
-
         let Some(color) = piece.color() else {
-            return c.dimmed().to_string();
+            return sq.dimmed().to_string();
         };
         // some (but not all) terminals have trouble with colored bold symbols, and using `bold` would remove the color in some cases.
-        // For some reason, only using the ansi colore codes (.green(), .red(), etc) creates these problems, but true colors work fine
-        c.color(display_color(color)).to_string()
+        // For some reason, only using the ansi color codes (.green(), .red(), etc) creates these problems, but true colors work fine
+        sq.color(display_color(color)).to_string()
     }
 
     fn frame_color(&self, square: B::Coordinates) -> Option<colored::Color> {
@@ -851,10 +853,6 @@ impl<B: Board> AbstractBoardFormatter for AdaptFormatter<B> {
 
     fn overwrite_width(&self) -> Option<usize> {
         self.square_width
-    }
-
-    fn upcast(&self) -> &dyn AbstractBoardFormatter {
-        self
     }
 }
 

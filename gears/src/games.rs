@@ -130,6 +130,10 @@ pub trait AbstractPieceType<B: Board>: Eq + Copy + Debug + Default {
     /// Takes a board parameter because the `FairyBoard` pieces can change based on the rules
     fn from_char(c: char, _settings: &B::Settings) -> Option<Self>;
 
+    fn max_num_chars(_settings: &B::Settings) -> usize {
+        1
+    }
+
     /// Names for colored pieces don't have to (but can) include the color, i.e. `x` and `o` could be named `"x"` and `"o"` but
     /// white and black pawn could both be named `"pawn"`, but also `"white pawn"` and `"black pawn"`.
     fn name(&self, _settings: &B::Settings) -> impl AsRef<str>;
@@ -211,8 +215,27 @@ pub trait ColoredPieceType<B: Board>: AbstractPieceType<B> {
 
     /// Usually, this simply writes the ascii char, but some variants require additional chars to
     /// express piece modifiers
-    fn write_in_fen(self, settings: &B::Settings, f: &mut Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.to_char(Ascii, settings))
+    fn write_as_str(
+        self,
+        settings: &B::Settings,
+        char_type: CharType,
+        display_pretty: bool,
+        f: &mut Formatter<'_>,
+    ) -> fmt::Result {
+        if display_pretty {
+            write!(f, "{}", self.to_display_char(char_type, settings))
+        } else {
+            write!(f, "{}", self.to_char(char_type, settings))
+        }
+    }
+
+    fn str_formatter(
+        self,
+        settings: &B::Settings,
+        char_type: CharType,
+        display_pretty: bool,
+    ) -> ColPieceTypeFormatter<B, Self> {
+        ColPieceTypeFormatter { piece: self, char_type, display_pretty, settings }
     }
 
     /// This method is used when parsing FENs and only does something in some fairy variants.
@@ -228,6 +251,20 @@ pub trait ColoredPieceType<B: Board>: AbstractPieceType<B> {
     /// For example, in crazyhouse, a promoted piece is suffixed with a '~'.
     fn promoted_from(&self, _rules: &B::Settings) -> Option<Self::Uncolored> {
         None
+    }
+}
+
+#[derive(Debug)]
+pub struct ColPieceTypeFormatter<'a, B: Board, T: ColoredPieceType<B>> {
+    piece: T,
+    settings: &'a B::Settings,
+    char_type: CharType,
+    display_pretty: bool,
+}
+
+impl<B: Board, T: ColoredPieceType<B>> Display for ColPieceTypeFormatter<'_, B, T> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        self.piece.write_as_str(self.settings, self.char_type, self.display_pretty, f)
     }
 }
 

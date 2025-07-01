@@ -93,6 +93,10 @@ impl AbstractPieceType<FairyBoard> for PieceId {
         self.get(settings).name.clone()
     }
 
+    fn max_num_chars(settings: &Rules) -> usize {
+        if settings.pieces.iter().any(|p| p.promotions.promoted_from.is_some()) { 2 } else { 1 }
+    }
+
     fn to_uncolored_idx(self) -> usize {
         self.val()
     }
@@ -189,6 +193,10 @@ impl AbstractPieceType<FairyBoard> for ColoredPieceId {
         }
     }
 
+    fn max_num_chars(settings: &Rules) -> usize {
+        PieceId::max_num_chars(settings)
+    }
+
     fn to_uncolored_idx(self) -> usize {
         self.id.val()
     }
@@ -213,17 +221,26 @@ impl ColoredPieceType<FairyBoard> for ColoredPieceId {
         self.id.val()
     }
 
-    fn write_in_fen(mut self, rules: &Rules, f: &mut Formatter<'_>) -> fmt::Result {
+    fn write_as_str(
+        mut self,
+        rules: &Rules,
+        char_type: CharType,
+        display_pretty: bool,
+        f: &mut Formatter<'_>,
+    ) -> fmt::Result {
+        let to_c = |p: Self| {
+            if display_pretty { p.to_char(char_type, rules) } else { p.to_display_char(char_type, rules) }
+        };
         if let Some(unpromoted) = self.promoted_from(rules) {
             match rules.format_rules.promo_fen_modifier {
-                PromoFenModifier::Crazyhouse => write!(f, "{}~", self.to_char(CharType::Ascii, rules)),
+                PromoFenModifier::Crazyhouse => write!(f, "{}~", to_c(self)),
                 PromoFenModifier::Shogi => {
                     self.id = unpromoted;
-                    write!(f, "+{}", self.to_char(CharType::Ascii, rules))
+                    write!(f, "+{}", to_c(self))
                 }
             }
         } else {
-            write!(f, "{}", self.to_char(CharType::Ascii, rules))
+            write!(f, "{}", to_c(self))
         }
     }
 

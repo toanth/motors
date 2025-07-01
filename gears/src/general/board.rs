@@ -926,8 +926,7 @@ pub fn position_fen_part<B: RectangularBoard>(f: &mut Formatter<'_>, pos: &B) ->
                     write!(f, "{empty_ctr}")?;
                 }
                 empty_ctr = 0;
-                // TODO: Allow outputting shogi-style promotion modifiers
-                piece.colored_piece_type().write_in_fen(pos.settings(), f)?;
+                piece.colored_piece_type().write_as_str(pos.settings(), CharType::Ascii, false, f)?;
             }
         }
         if empty_ctr > 0 {

@@ -43,8 +43,9 @@ use gears::Quitting::QuitProgram;
 use gears::cli::select_game;
 use gears::colored::Color::Red;
 use gears::colored::Colorize;
+use gears::games::CharType::Ascii;
 use gears::games::chess::UCI_CHESS960;
-use gears::games::{CharType, Color, ColoredPiece, ColoredPieceType, OutputList};
+use gears::games::{AbstractPieceType, Color, ColoredPiece, ColoredPieceType, OutputList};
 use gears::general::board::Strictness::{Relaxed, Strict};
 use gears::general::board::{Board, BoardHelpers, ColPieceTypeOf, Strictness, Symmetry, UnverifiedBoard};
 use gears::general::common::Description::{NoDescription, WithDescription};
@@ -1867,6 +1868,7 @@ fn show_eval_pos<B: Board>(pos: &B, last: Option<B::Move>, eval: Box<dyn Eval<B>
     let formatter = pos.pretty_formatter(None, last, OutputOpts::default());
     let eval_pos = eval.borrow_mut().eval(pos, 0, pos.active_player());
     let p = pos.clone();
+    let piece_width = ColPieceTypeOf::<B>::max_num_chars(pos.settings());
     let mut formatter = AdaptFormatter {
         underlying: formatter,
         color_frame: Box::new(|_, col| col),
@@ -1875,8 +1877,14 @@ fn show_eval_pos<B: Board>(pos: &B, last: Option<B::Move>, eval: Box<dyn Eval<B>
             let Some(color) = piece.color() else {
                 return default;
             };
-            let piece =
-                format!("{}:", piece.to_char(CharType::Ascii, p.settings()).to_string().color(display_color(color)));
+            let piece = format!(
+                "{:piece_width$}:",
+                piece
+                    .colored_piece_type()
+                    .str_formatter(p.settings(), Ascii, true)
+                    .to_string()
+                    .color(display_color(color))
+            );
             let score = match p.clone().remove_piece(coords).unwrap().verify(Relaxed) {
                 Ok(pos) => {
                     let diff = eval_pos - eval.borrow_mut().eval(&pos, 0, pos.active_player());
