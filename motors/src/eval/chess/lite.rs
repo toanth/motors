@@ -148,7 +148,7 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
         let pawns = pos.col_piece_bb(color, Pawn);
         for bishop in pos.col_piece_bb(color, Bishop).ones() {
             let sq_color = bishop.square_color();
-            score += Tuned::bad_bishop((COLORED_SQUARES[sq_color as usize] & pawns).num_ones());
+            score += Tuned::bad_bishop((COLORED_SQUARES[sq_color as usize] & pawns).num_ones().min(8));
         }
         score
     }

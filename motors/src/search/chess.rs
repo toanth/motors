@@ -215,6 +215,11 @@ mod tests {
         assert_eq!(res.score, SCORE_LOST + 2);
         let expected_move = ChessMove::from_compact_text("h1g1", &board).unwrap();
         assert_eq!(res.chosen_move, expected_move);
+        // caused a crash once
+        let fen = "8/2k5/8/4P3/PPPP1PPP/PPPPPPPP/PPPPPPPP/QQQQKQQQ b - - 0 1";
+        let board = Chessboard::from_fen(fen, Relaxed).unwrap();
+        let res = engine.search_with_new_tt(board, SearchLimit::depth(Depth::new(8)));
+        assert!(res.score <= Score(7000), "{}", res.score);
     }
 
     #[test]
