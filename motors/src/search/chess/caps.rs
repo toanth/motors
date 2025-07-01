@@ -966,7 +966,10 @@ impl Caps {
                 // PVS SEE pruning: Don't play moves with bad SEE scores at low depth.
                 // Be less aggressive with pruning captures to avoid overlooking tactics.
                 let bad_tactical = move_score < MoveScore(-HIST_DIVISOR * 8);
-                let see_threshold = if bad_tactical { (-50 * depth * depth) as i32 } else { -80 * depth as i32 };
+                let mut see_threshold = if bad_tactical { (-50 * depth * depth) as i32 } else { -80 * depth as i32 };
+                let hist_score = if bad_tactical { 0 } else { move_score.0 };
+                // Idea from calvin (and probably other engines): Adjust see pruning threshold based on history
+                see_threshold -= (hist_score as i32) / 8;
                 if move_score < KILLER_SCORE && depth <= 8 && !pos.see_at_least(mov, SeeScore(see_threshold)) {
                     continue;
                 }
