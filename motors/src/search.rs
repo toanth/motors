@@ -24,7 +24,7 @@ use gears::output::Message::Warning;
 use gears::rand::SeedableRng;
 use gears::rand::prelude::StdRng;
 use gears::score::{MAX_BETA, MIN_ALPHA, NO_SCORE_YET, SCORE_WON, Score, ScoreT};
-use gears::search::{Depth, NodeType, NodesLimit, SearchInfo, SearchLimit, SearchResult, TimeControl};
+use gears::search::{Budget, DepthPly, NodeType, NodesLimit, SearchInfo, SearchLimit, SearchResult, TimeControl};
 use gears::ugi::{EngineOption, EngineOptionName, EngineOptionType};
 use std::collections::HashMap;
 use std::fmt;
@@ -64,7 +64,7 @@ pub struct EngineInfo {
     engine: Name,
     eval: Option<Name>,
     version: String,
-    default_bench_depth: Depth,
+    default_bench_depth: DepthPly,
     default_bench_nodes: NodesLimit,
     options: HashMap<EngineOptionName, EngineOptionType>,
     max_threads: usize,
@@ -104,7 +104,7 @@ impl EngineInfo {
         engine: &E,
         eval: &dyn Eval<B>,
         version: &str,
-        default_bench_depth: Depth,
+        default_bench_depth: DepthPly,
         default_bench_nodes: NodesLimit,
         max_threads: Option<usize>,
         options: Vec<EngineOption>,
@@ -132,7 +132,7 @@ impl EngineInfo {
         &self.eval
     }
 
-    pub fn default_bench_depth(&self) -> Depth {
+    pub fn default_bench_depth(&self) -> DepthPly {
         self.default_bench_depth
     }
 
@@ -157,14 +157,14 @@ impl EngineInfo {
 pub struct BenchResult {
     pub nodes: u64,
     pub time: Duration,
-    pub max_depth: Depth,
-    pub depth: Option<Depth>,
+    pub max_iterations: DepthPly,
+    pub depth: Option<DepthPly>,
     pub pv_score_hash: u64,
 }
 
 impl Default for BenchResult {
     fn default() -> Self {
-        Self { nodes: 0, time: Duration::default(), depth: None, max_depth: Depth::new(0), pv_score_hash: 0 }
+        Self { nodes: 0, time: Duration::default(), depth: None, max_iterations: DepthPly::new(0), pv_score_hash: 0 }
     }
 }
 
@@ -174,7 +174,7 @@ impl Display for BenchResult {
         writeln!(
             f,
             "{depth}max depth {0}, time {2} ms, {1} nodes, {3} nps, hash {4:X}",
-            self.max_depth.get(),
+            self.max_iterations.get(),
             Colorize::bold(self.nodes.to_string().as_str()),
             self.time.as_millis().to_string().color(Red),
             (self.nodes as f64 / self.time.as_millis() as f64 * 1000.0).round().to_string().color(Red),
@@ -390,11 +390,11 @@ pub trait Engine<B: Board>: StaticallyNamedEntity + Send + 'static {
         self.engine_info().default_bench_nodes
     }
 
-    fn default_bench_depth(&self) -> Depth {
+    fn default_bench_depth(&self) -> DepthPly {
         self.engine_info().default_bench_depth
     }
 
-    fn max_bench_depth(&self) -> Depth;
+    fn max_bench_depth(&self) -> DepthPly;
 
     fn search_state_dyn(&self) -> &dyn AbstractSearchState<B>;
 
@@ -520,20 +520,20 @@ pub trait NormalEngine<B: Board>: Engine<B> {
         elapsed: Duration,
         soft_limit: Duration,
         soft_nodes: u64,
-        depth: isize,
-        max_soft_depth: isize,
-        mate_depth: Depth,
+        iter: isize,
+        max_soft_iter: isize,
+        mate_depth: DepthPly,
     ) -> bool
     where
         Self: Sized,
     {
         let state = self.search_state();
-        depth > 1
+        iter > 1
             && (elapsed >= soft_limit
             // even in a multipv search, we stop as soon as a single mate is found
             || state.best_score() >= Score(SCORE_WON.0 - mate_depth.get() as ScoreT))
             || state.uci_nodes() >= soft_nodes
-            || depth > max_soft_depth
+            || iter > max_soft_iter
     }
 }
 
@@ -822,8 +822,9 @@ pub struct SearchState<B: Board, E: SearchStackEntry<B>, C: CustomInfo<B>> {
     excluded_moves: Vec<B::Move>,
     multi_pvs: Vec<PVData<B>>,
     current_pv_num: usize,
-    // This is the point at which the search actually started.
-    // The `limit` (part of `params`) has the point when the search was requested
+    // The internal engine depth (if applicable) is represented as `Budget` and can be fractional.
+    // This is different from the UCI "depth", expressed as `DepthPly`, which is the ID loop counter for a/b engines with ID.
+    budget: Budget,
     execution_start_time: Instant,
     last_msg_time: Instant,
     statistics: Statistics,
@@ -889,10 +890,10 @@ impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo<B>> AbstractSearchState<B> 
         // contains only invalid moves. Search must be able to deal with this, but we still add an empty multipv entry
         self.multi_pvs.resize_with(parameters.num_multi_pv.max(1), PVData::default);
         // If only one move can be played, immediately return it without doing a real search to make the engine appear
-        // smarter, and perform better on lichess when it's up against an opponent with pondering enabled.
+        // smarter, and perform better in cases like lichess when it's up against an opponent with pondering enabled.
         // However, don't do this if the engine is used for analysis.
         if num_moves == 1 && parameters.limit.is_only_time_based() {
-            parameters.limit.depth = Depth::new(1);
+            parameters.limit.depth = DepthPly::new(1);
         }
         self.params = parameters;
         // it's possible that a stop command has already been received and handled, which means the stop flag
@@ -952,7 +953,7 @@ impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo<B>> AbstractSearchState<B> 
         BenchResult {
             nodes: self.uci_nodes(),
             time: self.execution_start_time().elapsed(),
-            max_depth: self.depth(),
+            max_iterations: self.iterations(),
             depth: None,
             pv_score_hash: hash,
         }
@@ -961,7 +962,8 @@ impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo<B>> AbstractSearchState<B> 
     fn to_search_info(&self) -> SearchInfo<'_, B> {
         let mut res = SearchInfo {
             best_move_of_all_pvs: self.best_move(),
-            depth: self.depth(),
+            iterations: self.iterations(),
+            budget: self.budget,
             seldepth: self.seldepth(),
             time: self.execution_start_time().elapsed(),
             nodes: NodesLimit::new(self.uci_nodes()).unwrap(),
@@ -1013,11 +1015,11 @@ impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo<B>> SearchState<B, E, C> {
         self.tt().estimate_hashfull::<B>(age)
     }
 
-    fn depth(&self) -> Depth {
-        self.search_params().atomic.depth()
+    fn iterations(&self) -> DepthPly {
+        self.search_params().atomic.iterations()
     }
 
-    fn seldepth(&self) -> Depth {
+    fn seldepth(&self) -> DepthPly {
         self.search_params().atomic.seldepth()
     }
 
@@ -1083,8 +1085,8 @@ impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo<B>> SearchState<B, E, C> {
         }
     }
 
-    fn new(max_depth: Depth) -> Self {
-        Self::new_with(vec![E::default(); max_depth.get() + 1], C::default())
+    fn new(max_ply: DepthPly) -> Self {
+        Self::new_with(vec![E::default(); max_ply.get() + 1], C::default())
     }
 
     fn new_with(search_stack: Vec<E>, custom: C) -> Self {
@@ -1100,6 +1102,7 @@ impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo<B>> SearchState<B, E, C> {
             params,
             excluded_moves: vec![],
             current_pv_num: 0,
+            budget: Budget::new(0),
             execution_start_time: now,
             last_msg_time: now,
             age: Age::default(),
@@ -1231,7 +1234,7 @@ fn single_bench<B: Board>(
     let res = engine.bench(pos.clone(), limit, tt, additional_pvs);
     total.nodes += res.nodes;
     total.time += res.time;
-    total.max_depth = total.max_depth.max(res.max_depth);
+    total.max_iterations = total.max_iterations.max(res.max_iterations);
     res.pv_score_hash.hash(hasher);
 }
 
@@ -1247,7 +1250,6 @@ mod tests {
         for p in B::bench_positions() {
             let res = engine.bench(p.clone(), SearchLimit::nodes_(1), tt.clone(), 0);
             assert!(res.depth.is_none(), "{res}");
-            assert!(res.max_depth.get() <= 1 + 1, "{res}"); // possible extensions
             assert!(res.nodes <= 100, "{res}"); // TODO: Assert exactly 1
             let params =
                 SearchParams::new_unshared(p.clone(), SearchLimit::depth_(1), ZobristHistory::default(), tt.clone());

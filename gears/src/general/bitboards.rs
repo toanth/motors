@@ -1272,8 +1272,9 @@ mod tests {
         let seed = random();
         let mut rng = StdRng::seed_from_u64(seed);
         let size = GridSize::new(Height(rng.random_range(3..=12)), Width(rng.random_range(2..=10)));
-        let bb =
-            rng.random::<u128>() & rng.random::<u128>() & rng.random::<u128>().remove_ones_above(size.num_squares());
+        let bb = rng.random::<u128>()
+            & rng.random::<u128>()
+            & rng.random::<u128>().remove_ones_above(size.num_squares() - 1);
         let bb = MnkBitboard::new(bb, size);
         let files = bb.files_containing();
         let ranks = bb.ranks_containing();

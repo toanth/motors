@@ -22,7 +22,7 @@ use gears::cli::{ArgIter, Game, get_next_arg, get_next_int, parse_output};
 use gears::colored::Colorize;
 use gears::general::common::anyhow::bail;
 use gears::general::common::{Res, parse_int_from_str};
-use gears::search::Depth;
+use gears::search::DepthPly;
 use std::env;
 use std::process::exit;
 use std::str::FromStr;
@@ -63,26 +63,26 @@ impl EngineOpts {
     }
 }
 
-fn parse_depth(args: &mut ArgIter) -> Res<Option<Depth>> {
+fn parse_depth(args: &mut ArgIter) -> Res<Option<DepthPly>> {
     if let Some(next) = args.peek() {
         if next == "-d" || next == "--depth" {
             _ = args.next();
             if args.peek().is_some_and(|a| a != "default") {
-                return Ok(Some(Depth::try_new(get_next_int(args, "depth")?)?));
+                return Ok(Some(DepthPly::try_new(get_next_int(args, "depth")?)?));
             }
         } else if let Ok(val) = parse_int_from_str(next, "bench depth") {
             _ = args.next();
-            return Ok(Some(Depth::try_new(val)?));
+            return Ok(Some(DepthPly::try_new(val)?));
         }
     }
     Ok(None)
 }
 
-fn parse_bench(args: &mut ArgIter) -> Res<Option<Depth>> {
+fn parse_bench(args: &mut ArgIter) -> Res<Option<DepthPly>> {
     parse_depth(args)
 }
 
-fn parse_perft(args: &mut ArgIter) -> Res<Option<Depth>> {
+fn parse_perft(args: &mut ArgIter) -> Res<Option<DepthPly>> {
     parse_depth(args)
 }
 

@@ -22,7 +22,7 @@ mod tests {
     use crate::general::board::BoardHelpers;
     use crate::general::board::Strictness::Relaxed;
     use crate::general::perft::perft;
-    use crate::search::Depth;
+    use crate::search::DepthPly;
     use crate::ugi::load_ugi_pos_simple;
     use std::time::Instant;
 
@@ -34,7 +34,7 @@ mod tests {
                 break;
             }
             let i = i + 1;
-            let depth = Depth::new(i);
+            let depth = DepthPly::new(i);
             let res = perft(depth, pos.clone(), true);
             assert_eq!(res.depth, depth);
             assert_eq!(res.nodes, expected, "depth {i}, fen '{fen}' ({pos})");

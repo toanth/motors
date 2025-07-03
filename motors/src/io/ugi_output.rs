@@ -32,7 +32,7 @@ use gears::output::{Message, OutputBox, OutputOpts};
 use gears::score::{SCORE_LOST, SCORE_WON, Score};
 use gears::search::MpvType::{MainOfMultiple, OnlyLine, SecondaryLine};
 use gears::search::NodeType::*;
-use gears::search::{Depth, MpvType, NodeType, NodesLimit, SearchInfo, SearchResult};
+use gears::search::{Budget, DepthPly, MpvType, NodeType, NodesLimit, SearchInfo, SearchResult};
 use gears::{GameState, colored, colorgrad};
 use indicatif::{ProgressBar, ProgressStyle};
 use std::fmt::Write;
@@ -42,8 +42,9 @@ use std::{fmt, mem};
 
 #[derive(Debug)]
 struct TypeErasedSearchInfo {
-    depth: Depth,
-    seldepth: Depth,
+    budget: Budget,
+    iterations: DepthPly,
+    seldepth: DepthPly,
     time: Duration,
     nodes: NodesLimit,
     pv_num: usize,
@@ -56,7 +57,8 @@ struct TypeErasedSearchInfo {
 impl TypeErasedSearchInfo {
     fn new<B: Board>(info: SearchInfo<B>) -> Self {
         Self {
-            depth: info.depth,
+            budget: info.budget,
+            iterations: info.iterations,
             seldepth: info.seldepth,
             time: info.time,
             nodes: info.nodes,
@@ -71,12 +73,12 @@ impl TypeErasedSearchInfo {
     fn effective_branching_factor(&self) -> f64 {
         // this method of computing the effective branching factor is somewhat flawed, but it's what most engines do,
         // so for the sake of comparability we do this as well
-        let depth = self.depth.get() as u64;
-        if depth == 0 {
+        let iters = self.iterations.get() as u64;
+        if iters == 0 {
             return 0.0; // I hate NaNs.
         }
         // subtract the depth to not count the root node, which means the branching factor for depth 1 is the number of legal moves
-        ((self.nodes.get() - depth) as f64 / self.num_threads).powf(1.0 / depth as f64)
+        ((self.nodes.get() - iters) as f64 / self.num_threads).powf(1.0 / iters as f64)
     }
 }
 
@@ -175,7 +177,9 @@ impl TypeErasedUgiOutput {
 
         let important = mpv_type != SecondaryLine && exact;
 
-        if mpv_type != SecondaryLine && self.previous_exact_info.as_ref().is_some_and(|i| i.depth != info.depth - 1) {
+        if mpv_type != SecondaryLine
+            && self.previous_exact_info.as_ref().is_some_and(|i| i.iterations != info.iterations - 1)
+        {
             self.previous_exact_info = None;
         }
 
@@ -215,7 +219,7 @@ impl TypeErasedUgiOutput {
             multipv = multipv.dimmed().to_string();
         }
 
-        let mut iter = format!("{:>3}", info.depth);
+        let mut iter = format!("{:>3}", info.iterations);
         if !exact {
             iter = iter.dimmed().to_string();
             // use color_for_score instead of `.green()` etc because some terminals struggle with non-true colors and dimmed/bold text.
@@ -228,13 +232,14 @@ impl TypeErasedUgiOutput {
             iter = iter.bold().to_string();
         }
         let complete = if info.bound.is_some() { "   ".to_string() } else { "(*)".dimmed().to_string() };
+        let budget = info.budget;
         let seldepth = info.seldepth;
 
         let [r, g, b, _] = self.alt_grad.at(0.5 - info.hashfull as f32 / 1000.0).to_rgba8();
         let tt = format!("{:5.1}", info.hashfull as f64 / 10.0).to_string().color(TrueColor { r, g, b }).dimmed();
         let branching = format!("{:>6.2}", info.effective_branching_factor()).dimmed();
         format!(
-            " {iter}{complete} {seldepth:>3} {multipv} {score:>8}  {time}{s}{nodes}{diff_string}  {nps}{M}  {branching} {tt}{p}  {pv}",
+            " {iter}{complete} {budget:>5}/{seldepth:<3} {multipv} {score:>8}  {time}{s}{nodes}{diff_string}  {nps}{M}  {branching} {tt}{p}  {pv}",
             s = if in_seconds { "s" } else { "m" }.dimmed(),
             M = "M".dimmed(),
             p = "%".dimmed(),

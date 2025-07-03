@@ -22,7 +22,7 @@ use gears::general::common::{
 use gears::general::moves::Move;
 use gears::output::Message::*;
 use gears::score::{SCORE_LOST, SCORE_WON, Score, ScoreT};
-use gears::search::{Depth, NodeType, NodesLimit, SearchInfo, SearchLimit};
+use gears::search::{Budget, DepthPly, NodeType, NodesLimit, SearchInfo, SearchLimit};
 use gears::ugi::EngineOptionType::*;
 use gears::ugi::{EngineOption, EngineOptionName, UgiCheck, UgiCombo, UgiSpin, UgiString};
 use gears::{AdjudicationReason, GameOver, GameOverReason, MatchStatus, PlayerResult, player_res_to_match_res};
@@ -104,8 +104,9 @@ impl EngineStatus {
 #[must_use]
 pub struct OwnedSearchInfo<B: Board> {
     pub best_move_of_all_pvs: B::Move,
-    pub depth: Depth,
-    pub seldepth: Depth,
+    pub iterations: DepthPly,
+    pub budget: Budget,
+    pub seldepth: DepthPly,
     pub time: Duration,
     pub nodes: NodesLimit,
     pub pv_num: usize,
@@ -122,8 +123,9 @@ impl<B: Board> Default for OwnedSearchInfo<B> {
     fn default() -> Self {
         Self {
             best_move_of_all_pvs: B::Move::default(),
-            depth: Depth::default(),
-            seldepth: Depth::default(),
+            iterations: DepthPly::default(),
+            budget: Budget::default(),
+            seldepth: DepthPly::default(),
             time: Duration::default(),
             nodes: NodesLimit::MAX,
             pv_num: 1,
@@ -148,7 +150,8 @@ impl<B: Board> OwnedSearchInfo<B> {
     pub fn to_search_info(&self) -> SearchInfo<'_, B> {
         SearchInfo {
             best_move_of_all_pvs: self.best_move_of_all_pvs,
-            depth: self.depth,
+            iterations: self.iterations,
+            budget: self.budget,
             seldepth: self.seldepth,
             time: self.time,
             nodes: self.nodes,
@@ -526,8 +529,8 @@ impl<B: Board> InputThread<B> {
             let key = key.unwrap();
             let Some(value) = words.next() else { bail!("info line ends after '{key}', expected a value") };
             match key {
-                "depth" => res.depth = Depth::try_new(parse_int_from_str(value, "depth")?)?,
-                "seldepth" => res.seldepth = Depth::try_new(parse_int_from_str(value, "seldepth")?)?,
+                "depth" => res.iterations = DepthPly::try_new(parse_int_from_str(value, "depth")?)?,
+                "seldepth" => res.seldepth = DepthPly::try_new(parse_int_from_str(value, "seldepth")?)?,
                 "time" => {
                     res.time = parse_duration_ms(&mut tokens(value), "time")?;
                 }

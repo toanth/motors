@@ -25,7 +25,7 @@ use crate::general::squares::SquareColor::White;
 use crate::general::squares::{SmallGridSize, SmallGridSquare, SquareColor};
 use crate::output::OutputOpts;
 use crate::output::text_output::{BoardFormatter, DefaultBoardFormatter, board_to_string, display_board_pretty};
-use crate::search::Depth;
+use crate::search::DepthPly;
 use anyhow::{bail, ensure};
 use arbitrary::Arbitrary;
 use itertools::Itertools;
@@ -338,8 +338,8 @@ impl Board for AtaxxBoard {
         Self::Piece::new(typ, coordinates)
     }
 
-    fn default_perft_depth(&self) -> Depth {
-        Depth::new(5)
+    fn default_perft_depth(&self) -> DepthPly {
+        DepthPly::new(5)
     }
 
     fn gen_pseudolegal<T: MoveList<Self>>(&self, moves: &mut T) {
@@ -667,7 +667,7 @@ mod tests {
         let pos = AtaxxBoard::from_fen("7/7/7/7/-------/-------/--x3o x 1 2", Strict).unwrap();
         let expected = [1, 2, 3, 3, 4, 5, 5, 3, 3, 3, 2, 3, 3, 2, 3, 3, 2, 3, 3, 2, 3, 3, 2, 3, 3, 2, 3, 3, 2, 3, 3];
         for (i, &nodes) in expected.iter().enumerate() {
-            let res = perft(Depth::new(i), pos, false);
+            let res = perft(DepthPly::new(i), pos, false);
             assert_eq!(res.nodes, nodes, "Depth {i}: {pos}");
         }
     }

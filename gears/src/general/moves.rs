@@ -55,6 +55,10 @@ where
 {
     type Underlying: PrimInt + Into<u64>;
 
+    fn num_bits() -> usize {
+        8 * size_of::<Self::Underlying>()
+    }
+
     fn is_null(self) -> bool {
         self == Self::default()
     }

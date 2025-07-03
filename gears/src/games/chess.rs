@@ -42,7 +42,8 @@ use crate::output::OutputOpts;
 use crate::output::text_output::{
     AdaptFormatter, BoardFormatter, DefaultBoardFormatter, board_to_string, display_board_pretty, display_color,
 };
-use crate::search::Depth;
+use crate::score::PhaseType;
+use crate::search::DepthPly;
 
 pub mod castling;
 mod movegen;
@@ -481,8 +482,8 @@ impl Board for Chessboard {
         ChessPieceType::from_idx(self.piece_bbs.iter().position(|bb| bb.is_bit_set_at(idx)).unwrap_or(NUM_CHESS_PIECES))
     }
 
-    fn default_perft_depth(&self) -> Depth {
-        Depth::new(5)
+    fn default_perft_depth(&self) -> DepthPly {
+        DepthPly::new(5)
     }
 
     fn gen_pseudolegal<T: MoveList<Self>>(&self, moves: &mut T) {
@@ -954,7 +955,19 @@ impl Chessboard {
             "dfrc<M>".bold()
         )
     }
+
+    /// The startpos has a phase of 24, but larger values are possible
+    pub fn phase(&self) -> PhaseType {
+        let mut phase = 0;
+        for piece in ChessPieceType::non_king_pieces() {
+            phase += self.piece_bb(piece).num_ones() as isize * CHESS_PIECE_PHASE[piece as usize];
+        }
+        phase
+    }
 }
+
+/// Includes a phase for the empty piece to simplify the implementation
+pub const CHESS_PIECE_PHASE: [PhaseType; NUM_CHESS_PIECES + 1] = [0, 1, 1, 2, 4, 0, 0];
 
 impl Display for Chessboard {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
@@ -1046,7 +1059,7 @@ mod tests {
     use crate::general::board::Strictness::Relaxed;
     use crate::general::moves::Move;
     use crate::general::perft::perft;
-    use crate::search::Depth;
+    use crate::search::DepthPly;
 
     use super::*;
 
@@ -1197,7 +1210,7 @@ mod tests {
         let board = Chessboard::from_fen(fen, Relaxed).unwrap();
         let moves = board.pseudolegal_moves();
         assert_eq!(moves.len(), 265);
-        let perft_res = perft(Depth::new(1), board, false);
+        let perft_res = perft(DepthPly::new(1), board, false);
         assert_eq!(perft_res.nodes, 265);
     }
 
@@ -1205,36 +1218,36 @@ mod tests {
     fn simple_perft_test() {
         let endgame_fen = "6k1/8/6K1/8/3B1N2/8/8/7R w - - 0 1";
         let board = Chessboard::from_fen(endgame_fen, Relaxed).unwrap();
-        let perft_res = perft(Depth::new(1), board, false);
-        assert_eq!(perft_res.depth, Depth::new(1));
+        let perft_res = perft(DepthPly::new(1), board, false);
+        assert_eq!(perft_res.depth, DepthPly::new(1));
         assert_eq!(perft_res.nodes, 5 + 7 + 13 + 14);
         assert!(perft_res.time.as_millis() <= 1);
         let board = Chessboard::default();
-        let perft_res = perft(Depth::new(1), board, true);
-        assert_eq!(perft_res.depth, Depth::new(1));
+        let perft_res = perft(DepthPly::new(1), board, true);
+        assert_eq!(perft_res.depth, DepthPly::new(1));
         assert_eq!(perft_res.nodes, 20);
         assert!(perft_res.time.as_millis() <= 2);
-        let perft_res = perft(Depth::new(2), board, false);
-        assert_eq!(perft_res.depth, Depth::new(2));
+        let perft_res = perft(DepthPly::new(2), board, false);
+        assert_eq!(perft_res.depth, DepthPly::new(2));
         assert_eq!(perft_res.nodes, 20 * 20);
         assert!(perft_res.time.as_millis() <= 20);
 
         let board =
             Chessboard::from_fen("r1bqkbnr/1pppNppp/p1n5/8/8/8/PPPPPPPP/R1BQKBNR b KQkq - 0 3", Strict).unwrap();
-        let perft_res = perft(Depth::new(1), board, true);
+        let perft_res = perft(DepthPly::new(1), board, true);
         assert_eq!(perft_res.nodes, 26);
-        assert_eq!(perft(Depth::new(3), board, true).nodes, 16790);
+        assert_eq!(perft(DepthPly::new(3), board, true).nodes, 16790);
 
         let board =
             Chessboard::from_fen("rbbqn1kr/pp2p1pp/6n1/2pp1p2/2P4P/P7/BP1PPPP1/R1BQNNKR w HAha - 0 9", Strict).unwrap();
-        let perft_res = perft(Depth::new(4), board, false);
+        let perft_res = perft(DepthPly::new(4), board, false);
         assert_eq!(perft_res.nodes, 890_435);
 
         // DFRC
         let board =
             Chessboard::from_fen("r1q1k1rn/1p1ppp1p/1npb2b1/p1N3p1/8/1BP4P/PP1PPPP1/1RQ1KRBN w BFag - 0 9", Strict)
                 .unwrap();
-        assert_eq!(perft(Depth::new(4), board, false).nodes, 1_187_103);
+        assert_eq!(perft(DepthPly::new(4), board, false).nodes, 1_187_103);
     }
 
     #[test]
@@ -1398,7 +1411,7 @@ mod tests {
         let fen = "q2k2q1/2nqn2b/1n1P1n1b/2rnr2Q/1NQ1QN1Q/3Q3B/2RQR2B/Q2K2Q1 w - - 0 1";
         let board = Chessboard::from_fen(fen, Strict).unwrap();
         assert_eq!(board.active_player, White);
-        assert_eq!(perft(Depth::new(3), board, true).nodes, 568_299);
+        assert_eq!(perft(DepthPly::new(3), board, true).nodes, 568_299);
         // not a legal chess position, but the board should support this
         let fen = "RRRRRRRR/RRRRRRRR/BBBBBBBB/BBBBBBBB/QQQQQQQQ/QQQQQQQQ/QPPPPPPP/K6k b - - 0 1";
         assert!(Chessboard::from_fen(fen, Strict).is_err());
@@ -1488,7 +1501,7 @@ mod tests {
         let new_pos = pos.make_move_from_str("c5").unwrap();
         assert_eq!(new_pos.ep_square, Some(ChessSquare::from_str("c6").unwrap()));
         _ = new_pos.debug_verify_invariants(Strict).unwrap();
-        let perft = perft(Depth::new(4), pos, true);
+        let perft = perft(DepthPly::new(4), pos, true);
         assert_eq!(perft.nodes, 5020);
     }
 

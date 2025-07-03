@@ -154,7 +154,7 @@ impl ChessMove {
 
     #[inline]
     pub fn is_capture(self, board: &Chessboard) -> bool {
-        self.is_ep() || self.is_non_ep_capture(board)
+        self.is_non_ep_capture(board) || self.is_ep()
     }
 
     pub fn is_ep(self) -> bool {
@@ -1103,7 +1103,7 @@ mod tests {
     use crate::general::moves::Move;
     use crate::general::perft::perft;
     use crate::output::pgn::parse_pgn;
-    use crate::search::Depth;
+    use crate::search::DepthPly;
     use itertools::Itertools;
     use std::sync::atomic::Ordering;
 
@@ -1230,7 +1230,7 @@ mod tests {
                 assert_eq!(i != 0, pos.settings.is_set(ChessSettings::dfrc_flag()));
                 assert_eq!(*pos == p, pos.settings.is_set(ChessSettings::shredder_fen_flag()));
             }
-            let perft_res = perft(Depth::new(3), *pos, false);
+            let perft_res = perft(DepthPly::new(3), *pos, false);
             assert_eq!(perft_res.nodes, *perft_nodes);
         }
         let castling = |pos: Chessboard| {
@@ -1286,7 +1286,7 @@ Na3 ♞a6 2. ♘a3c4 a6c5 3. Na5 Nb3 4. Nc6 Nf6 5. Nf3 Ne4 6. Nh4 Ng5 7. Ng6 Nf3
         let data = parse_pgn::<Chessboard>(pgn, Strict, None).unwrap();
         let pos = data.game.board;
         assert_eq!(pos.as_fen(), "rQ1Q1Q2/q6k/3Q3b/q5QK/1Q1Q1B2/6q1/1Q1q4/qqqQq1qR b - - 0 64");
-        let perft_res = perft(Depth::new(3), pos, true);
+        let perft_res = perft(DepthPly::new(3), pos, true);
         assert_eq!(perft_res.nodes, 492194);
     }
 }

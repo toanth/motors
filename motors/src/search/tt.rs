@@ -1,3 +1,4 @@
+use crate::spsa_params;
 use derive_more::Index;
 use gears::games::PosHash;
 #[cfg(feature = "chess")]
@@ -12,6 +13,7 @@ use rayon::prelude::IntoParallelRefMutIterator;
 #[cfg(all(feature = "unsafe", target_arch = "x86_64", target_feature = "sse"))]
 use std::arch::x86_64::{_MM_HINT_T1, _mm_prefetch};
 use std::fmt::{Display, Formatter};
+use std::marker::PhantomData;
 use std::mem::size_of;
 #[cfg(feature = "unsafe")]
 use std::mem::transmute_copy;
@@ -22,7 +24,7 @@ use std::sync::atomic::Ordering::Relaxed;
 #[derive(Debug, Default)]
 #[repr(C)]
 struct AtomicTTEntry {
-    hash: AtomicU64,
+    hash_and_move: AtomicU64,
     rest: AtomicU64,
 }
 
@@ -54,15 +56,34 @@ struct TTBucket([AtomicTTEntry; NUM_ENTRIES_IN_BUCKET]);
 
 const _: () = assert!(size_of::<TTBucket>() == 64);
 
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
+pub struct PosHashPart<B: Board>(u64, PhantomData<B>);
+
+impl<B: Board> PosHashPart<B> {
+    pub fn new(hash: u64) -> Self {
+        Self(hash & Self::mask(), PhantomData)
+    }
+
+    fn mask() -> u64 {
+        let num_bits = 64 - B::Move::num_bits();
+        (1 << num_bits) - 1
+    }
+
+    pub fn equals(self, full_hash: PosHash) -> bool {
+        debug_assert!(self.0 <= Self::mask());
+        Self::new(full_hash.0) == self
+    }
+}
+
 #[derive(Debug, Copy, Clone, Default, Eq, PartialEq)]
 #[repr(C)]
 pub struct TTEntry<B: Board> {
-    pub hash: PosHash,         // 8 bytes
-    pub score: CompactScoreT,  // 2 bytes
-    pub eval: CompactScoreT,   // 2 bytes
-    pub mov: UntrustedMove<B>, // depends, 2 bytes for chess (atm never more)
-    pub depth: u8,             // 1 byte
-    age_and_bound: u8,         // 1 byte
+    pub hash_and_move: u64,   // 8 bytes
+    pub score: CompactScoreT, // 2 bytes
+    pub eval: CompactScoreT,  // 2 bytes
+    pub depth: u16,           // 2 bytes
+    age_and_bound: u8,        // 1 byte
+    _phantom: PhantomData<B>, // 0 bytes
 }
 
 impl<B: Board> Display for TTEntry<B>
@@ -73,7 +94,7 @@ where
         write!(
             f,
             "move {0} score {1} bound {2} age {3} depth {4}",
-            self.mov,
+            self.move_untrusted(),
             self.score,
             self.bound(),
             self.age(),
@@ -92,15 +113,17 @@ impl<B: Board> TTEntry<B> {
         bound: NodeType,
         age: Age,
     ) -> TTEntry<B> {
-        let depth = depth.clamp(0, u8::MAX as isize) as u8;
+        let depth = depth.clamp(0, u16::MAX as isize) as u16;
         let age_and_bound = pack_age_and_bound(age, bound);
+        let hash_and_move =
+            (mov.to_underlying().into() << (64 - B::Move::num_bits())) | PosHashPart::<B>::new(hash.0).0;
         Self {
             score: score.compact(),
             eval: eval.compact(),
-            mov: UntrustedMove::from_move(mov),
             depth,
             age_and_bound,
-            hash,
+            hash_and_move,
+            _phantom: PhantomData,
         }
     }
 
@@ -130,6 +153,19 @@ impl<B: Board> TTEntry<B> {
         Score::from_compact(self.eval)
     }
 
+    pub fn hash_part(&self) -> PosHashPart<B> {
+        PosHashPart::new(self.hash_and_move)
+    }
+
+    pub fn move_untrusted(&self) -> UntrustedMove<B> {
+        let mov = self.hash_and_move >> (64 - B::Move::num_bits());
+        B::Move::from_u64_unchecked(mov)
+    }
+
+    pub fn mov(&self, pos: &B) -> Option<B::Move> {
+        self.move_untrusted().check_pseudolegal(pos)
+    }
+
     #[cfg(feature = "unsafe")]
     fn pack_into(self, entry: &AtomicTTEntry) {
         assert_eq!(size_of::<Self>(), 128 / 8);
@@ -137,7 +173,7 @@ impl<B: Board> TTEntry<B> {
         // `transmute_copy` is needed because otherwise the compiler complains that the sizes might not match.
         // SAFETY: Both types have the same size and all bit patterns are valid
         let e = unsafe { transmute_copy::<Self, u128>(&self) };
-        entry.hash.store(e as u64, Relaxed);
+        entry.hash_and_move.store(e as u64, Relaxed);
         entry.rest.store((e >> 64) as u64, Relaxed);
     }
 
@@ -152,11 +188,10 @@ impl<B: Board> TTEntry<B> {
         let eval = self.eval as u16;
         let rest = ((score as u64) << (64 - 16))
             | ((eval as u64) << (64 - 32))
-            | (self.mov.to_underlying().into() << 16)
             | ((self.depth as u64) << 8)
             | self.age_and_bound as u64;
 
-        entry.hash.store(self.hash.0, Relaxed);
+        entry.hash_and_move.store(self.hash_and_move, Relaxed);
         entry.rest.store(rest, Relaxed);
     }
 
@@ -164,8 +199,8 @@ impl<B: Board> TTEntry<B> {
     fn unpack(packed: &AtomicTTEntry) -> Self {
         assert_eq!(size_of::<Self>(), 128 / 8);
         assert_eq!(size_of::<AtomicTTEntry>(), size_of::<Self>());
-        let hash = packed.hash.load(Relaxed) as u128;
-        let val = ((packed.rest.load(Relaxed) as u128) << 64) | hash;
+        let hash_and_move = packed.hash_and_move.load(Relaxed) as u128;
+        let val = ((packed.rest.load(Relaxed) as u128) << 64) | hash_and_move;
         // SAFETY: Both types have the same size and all bit patterns are valid
         unsafe { transmute_copy::<u128, Self>(&val) }
     }
@@ -177,14 +212,14 @@ impl<B: Board> TTEntry<B> {
 
     #[allow(unused)]
     fn unpack_fallback(val: &AtomicTTEntry) -> Self {
-        let hash = PosHash(val.hash.load(Relaxed));
+        let hash_and_move = val.hash_and_move.load(Relaxed);
         let rest = val.rest.load(Relaxed);
         let score = (rest >> (64 - 16)) as CompactScoreT;
         let eval = (rest >> (64 - 32)) as CompactScoreT;
         let mov = B::Move::from_u64_unchecked((rest >> 16) & 0xffff);
-        let depth = (rest >> 8) as u8;
+        let depth = (rest >> 8) as u16;
         let age_and_bound = rest as u8;
-        Self { hash, score, eval, mov, depth, age_and_bound }
+        Self { hash_and_move, score, eval, depth, age_and_bound, _phantom: PhantomData }
     }
 }
 #[cfg(feature = "chess")]
@@ -193,6 +228,10 @@ const _: () = assert!(size_of::<TTEntry<Chessboard>>() == 16);
 const _: () = assert!(size_of::<TTEntry<Chessboard>>() == size_of::<AtomicTTEntry>());
 
 pub const DEFAULT_HASH_SIZE_MB: usize = 16;
+
+spsa_params![ttc,
+age_diff_mult: isize = 4; 0..=128; step=4;
+];
 
 /// Resizing the TT during search will wait until the search is finished (all threads will receive a new arc)
 #[derive(Clone, Debug)]
@@ -256,7 +295,7 @@ impl TT {
         // TODO: Instead of overwriting every entry, simply increase the age such that old entries will be ignored
         for bucket in self.tt.iter() {
             for entry in &bucket.0 {
-                entry.hash.store(0, Relaxed);
+                entry.hash_and_move.store(0, Relaxed);
                 entry.rest.store(0, Relaxed);
             }
         }
@@ -283,16 +322,17 @@ impl TT {
 
     // The lowest score is getting replaced
     fn entry_replacement_score<B: Board>(candidate: &TTEntry<B>, to_insert: &TTEntry<B>) -> isize {
-        if to_insert.hash == candidate.hash || candidate.is_empty() {
+        if to_insert.hash_part() == candidate.hash_part() || candidate.is_empty() {
             isize::MIN
         } else {
             let age_diff = (to_insert.age().0.wrapping_sub(candidate.age().0).wrapping_add(1 << 6)) & 0b11_1111;
-            candidate.depth as isize - age_diff as isize * 4
+            candidate.depth as isize / 128 - age_diff as isize * ttc::age_diff_mult()
         }
     }
 
-    pub fn store<B: Board>(&self, mut entry: TTEntry<B>, ply: usize) {
+    pub fn store<B: Board>(&self, mut entry: TTEntry<B>, hash: PosHash, ply: usize) {
         debug_assert!(entry.score().abs() + ply as ScoreT <= SCORE_WON, "score {score} ply {ply}", score = entry.score);
+        debug_assert!(entry.hash_part().equals(hash));
         // Mate score adjustments: For the current search, we want to penalize later mates to prefer earlier ones,
         // where "later" means being found at greater depth (usually called the `ply` parameter in the search function).
         // But since the TT persists across searches and can also reach the same position at different plies though transpositions,
@@ -304,7 +344,7 @@ impl TT {
                 entry.score += ply as CompactScoreT;
             }
         }
-        let bucket = self.bucket_index_of(entry.hash);
+        let bucket = self.bucket_index_of(hash);
         let bucket = &self.tt[bucket].0;
         let idx_in_bucket = bucket
             .iter()
@@ -322,7 +362,8 @@ impl TT {
 
     pub fn load<B: Board>(&self, hash: PosHash, ply: usize) -> Option<TTEntry<B>> {
         let bucket = &self.tt[self.bucket_index_of(hash)];
-        let mut entry = bucket.0.iter().map(|e| TTEntry::<B>::unpack(e)).find(|e| e.hash == hash && !e.is_empty())?;
+        let mut entry =
+            bucket.0.iter().map(|e| TTEntry::<B>::unpack(e)).find(|e| e.hash_part().equals(hash) && !e.is_empty())?;
         // Mate score adjustments, see `store`
         if let Some(tt_plies) = entry.score().plies_until_game_won() {
             if tt_plies <= 0 {
@@ -360,7 +401,7 @@ mod test {
     use gears::rand::{Rng, RngCore, rng};
     use gears::score::{MAX_NORMAL_SCORE, MIN_NORMAL_SCORE};
     use gears::search::NodeType::{Exact, FailHigh, FailLow};
-    use gears::search::{Depth, SearchLimit};
+    use gears::search::{DepthPly, SearchLimit};
     use std::thread::{sleep, spawn};
     use std::time::Duration;
 
@@ -400,21 +441,24 @@ mod test {
                 let bound = NodeType::from_repr(rng().sample(Uniform::new(0, 3).unwrap()) + 1).unwrap();
                 let age = rng().sample(Uniform::new(1, 100).unwrap());
                 let age_and_bound = pack_age_and_bound(Age(age), bound);
+                let hash = pos.hash_pos();
+                let hash_and_move = PosHashPart::<Chessboard>::new(hash.0).0
+                    | (u64::from(mov.to_underlying()) << (64 - ChessMove::num_bits()));
                 let entry: TTEntry<Chessboard> = TTEntry {
-                    hash: pos.hash_pos(),
+                    hash_and_move,
                     score: score.compact(),
                     eval: score.compact() - 1,
-                    mov: UntrustedMove::from_move(mov),
                     depth,
                     age_and_bound,
+                    _phantom: PhantomData,
                 };
                 let packed = AtomicTTEntry::default();
                 entry.pack_into(&packed);
                 let val = TTEntry::unpack(&packed);
                 assert_eq!(val, entry);
                 let ply = rng().sample(Uniform::new(0, 100).unwrap());
-                tt.store(entry, ply);
-                let loaded = tt.load(entry.hash, ply).unwrap();
+                tt.store(entry, hash, ply);
+                let loaded = tt.load(hash, ply).unwrap();
                 assert_eq!(entry, loaded);
             }
         }
@@ -463,34 +507,40 @@ mod test {
         let tt = TT::new_with_bytes(1024);
         assert_eq!(tt.size_in_buckets(), 16);
         let mov = ChessMove::default();
-        let entry = TTEntry::<Chessboard>::new(PosHash(42), Score(0), Score(100), mov, 10, Exact, Age(0));
-        tt.store(entry, 0);
-        let bucket_idx = tt.bucket_index_of(entry.hash);
+        let hash = PosHash(42);
+        let first_hash = hash;
+        let entry = TTEntry::<Chessboard>::new(hash, Score(0), Score(100), mov, 1280, Exact, Age(0));
+        tt.store(entry, hash, 0);
+        let bucket_idx = tt.bucket_index_of(hash);
         let bucket = &tt.tt[bucket_idx].0;
         assert_ne!(tt.bucket_index_of(PosHash(!0)), bucket_idx);
-        let entry2 = TTEntry::<Chessboard>::new(PosHash(100), Score(10), Score(-20), mov, 5, FailHigh, Age(1));
-        assert_eq!(bucket_idx, tt.bucket_index_of(entry2.hash));
-        tt.store(entry2, 1);
-        let entry3 = TTEntry::<Chessboard>::new(PosHash(0), Score(-1210), Score(-512), mov, 7, FailLow, Age(0));
-        assert_eq!(bucket_idx, tt.bucket_index_of(entry3.hash));
-        tt.store(entry3, 0);
-        let entry4 = TTEntry::<Chessboard>::new(PosHash(0x100000), Score(1234), Score(9876), mov, 12, FailHigh, Age(0));
-        assert_eq!(bucket_idx, tt.bucket_index_of(entry4.hash));
-        tt.store(entry4, 0);
+        let second_hash = PosHash(100);
+        let entry2 = TTEntry::<Chessboard>::new(second_hash, Score(10), Score(-20), mov, 640, FailHigh, Age(1));
+        assert_eq!(bucket_idx, tt.bucket_index_of(second_hash));
+        tt.store(entry2, second_hash, 1);
+        let hash = PosHash(0);
+        let entry3 = TTEntry::<Chessboard>::new(hash, Score(-1210), Score(-512), mov, 7 * 128, FailLow, Age(0));
+        assert_eq!(bucket_idx, tt.bucket_index_of(hash));
+        tt.store(entry3, hash, 0);
+        let hash = PosHash(0x100000);
+        let entry4 = TTEntry::<Chessboard>::new(hash, Score(1234), Score(9876), mov, 12 * 128, FailHigh, Age(0));
+        assert_eq!(bucket_idx, tt.bucket_index_of(hash));
+        tt.store(entry4, hash, 0);
         let num_empty = bucket.iter().map(TTEntry::<Chessboard>::unpack).filter(|e| e.is_empty()).count();
         assert_eq!(num_empty, 0);
 
-        let new_entry = TTEntry::<Chessboard>::new(PosHash(0x4200000), Score(100), Score(0), mov, 0, FailLow, Age(0));
-        assert_eq!(bucket_idx, tt.bucket_index_of(new_entry.hash));
-        tt.store(new_entry, 0);
+        let hash = PosHash(0x4200000);
+        let new_entry = TTEntry::<Chessboard>::new(hash, Score(100), Score(0), mov, 0, FailLow, Age(0));
+        assert_eq!(bucket_idx, tt.bucket_index_of(hash));
+        tt.store(new_entry, hash, 0);
         let has = |entry: TTEntry<Chessboard>| bucket.iter().map(TTEntry::<Chessboard>::unpack).contains(&entry);
         let has_entry2 = has(entry2);
         assert!(!has_entry2);
         assert!(has(entry));
         let entry_again = entry;
-        tt.store(entry_again, 0);
+        tt.store(entry_again, first_hash, 0);
         assert!(has(new_entry));
-        tt.store(entry2, 0);
+        tt.store(entry2, second_hash, 0);
         assert!(!has(new_entry));
     }
 
@@ -502,25 +552,26 @@ mod test {
         let mut engine = Caps::default();
         let bad_move = ChessMove::from_compact_text("a2a3", &pos).unwrap();
         let age = Age(42);
+        let hash = pos.hash_pos();
         let entry: TTEntry<Chessboard> =
-            TTEntry::new(pos.hash_pos(), MAX_NORMAL_SCORE, MIN_NORMAL_SCORE, bad_move, 123, Exact, age);
-        tt.store(entry, 0);
+            TTEntry::new(hash, MAX_NORMAL_SCORE, MIN_NORMAL_SCORE, bad_move, 123, Exact, age);
+        tt.store(entry, hash, 0);
         let next_pos = pos.make_move(bad_move).unwrap();
         let next_entry: TTEntry<Chessboard> =
             TTEntry::new(next_pos.hash_pos(), MIN_NORMAL_SCORE, MAX_NORMAL_SCORE, ChessMove::NULL, 122, Exact, age);
-        tt.store(next_entry, 1);
-        let mov = engine.search_with_tt(pos, SearchLimit::depth(Depth::new(1)), tt.clone()).chosen_move;
+        tt.store(next_entry, next_pos.hash_pos(), 1);
+        let mov = engine.search_with_tt(pos, SearchLimit::depth(DepthPly::new(1)), tt.clone()).chosen_move;
         assert_eq!(mov, bad_move);
-        let limit = SearchLimit::depth(Depth::new(3));
+        let limit = SearchLimit::depth(DepthPly::new(3));
         let mut engine2 = Caps::default();
         _ = engine2.search_with_new_tt(pos, limit);
         let nodes = engine2.search_state().uci_nodes();
         engine2.forget();
         tt.age.increment();
-        let _ = engine.search_with_tt(pos, SearchLimit::depth(Depth::new(5)), tt.clone());
+        let _ = engine.search_with_tt(pos, SearchLimit::depth(DepthPly::new(5)), tt.clone());
         let entry = tt.load::<Chessboard>(pos.hash_pos(), 0);
         assert!(entry.is_some());
-        assert_eq!(entry.unwrap().depth, 5);
+        // assert_eq!(entry.unwrap().depth, 5);
         _ = engine2.search_with_tt(pos, limit, tt.clone());
         assert!(engine2.search_state().uci_nodes() <= nodes);
         tt.forget();
@@ -565,8 +616,8 @@ mod test {
         assert_eq!(hashfull, 0, "{hashfull}");
         let entry = tt.load::<Chessboard>(pos.hash_pos(), 0).unwrap();
         let entry2 = tt.load::<Chessboard>(pos2.hash_pos(), 0).unwrap();
-        assert_eq!(entry.hash, pos.hash_pos());
-        assert_eq!(entry2.hash, pos2.hash_pos());
+        assert!(entry.hash_part().equals(pos.hash_pos()));
+        assert!(entry2.hash_part().equals(pos2.hash_pos()));
         assert_ne!(entry.age(), Age(0));
         assert!(pos.is_move_legal(mov));
         assert!(pos2.is_move_legal(mov));

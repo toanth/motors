@@ -50,7 +50,7 @@ use crate::general::moves::Move;
 use crate::general::squares::{GridCoordinates, GridSize, RectangularCoordinates, SquareColor};
 use crate::output::OutputOpts;
 use crate::output::text_output::{BoardFormatter, DefaultBoardFormatter, board_to_string, display_board_pretty};
-use crate::search::Depth;
+use crate::search::DepthPly;
 use anyhow::{bail, ensure};
 use arbitrary::Arbitrary;
 use colored::Colorize;
@@ -793,8 +793,8 @@ impl Board for FairyBoard {
         }
     }
 
-    fn default_perft_depth(&self) -> Depth {
-        Depth::new(3)
+    fn default_perft_depth(&self) -> DepthPly {
+        DepthPly::new(3)
     }
 
     fn cannot_call_movegen(&self) -> bool {

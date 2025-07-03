@@ -30,7 +30,7 @@ use gears::general::move_list::MoveList;
 use gears::itertools::Itertools;
 use gears::score::{SCORE_LOST, SCORE_WON, Score};
 use gears::search::NodeType::Exact;
-use gears::search::{Depth, NodesLimit, SearchInfo, SearchResult};
+use gears::search::{Budget, DepthPly, NodesLimit, SearchInfo, SearchResult};
 use std::cmp::min;
 use std::fmt::Display;
 use std::time::Instant;
@@ -336,8 +336,8 @@ impl<B: Board> Engine<B> for ProofNumberSearcher<B> {
         Score(0)
     }
 
-    fn max_bench_depth(&self) -> Depth {
-        Depth::new(1)
+    fn max_bench_depth(&self) -> DepthPly {
+        DepthPly::new(1)
     }
 
     fn search_state_dyn(&self) -> &dyn AbstractSearchState<B> {
@@ -349,7 +349,7 @@ impl<B: Board> Engine<B> for ProofNumberSearcher<B> {
     }
 
     fn engine_info(&self) -> EngineInfo {
-        EngineInfo::new(self, &RandEval::default(), "0.1", Depth::new(1), NodesLimit::new(1).unwrap(), None, vec![])
+        EngineInfo::new(self, &RandEval::default(), "0.1", DepthPly::new(1), NodesLimit::new(1).unwrap(), None, vec![])
     }
 
     fn set_eval(&mut self, _eval: Box<dyn Eval<B>>) {
@@ -373,8 +373,9 @@ impl<B: Board> Engine<B> for ProofNumberSearcher<B> {
             if let Some(mut o) = self.params.thread_type.output() {
                 let info = SearchInfo {
                     best_move_of_all_pvs: mov,
-                    depth: Depth::new(1),
-                    seldepth: Depth::new(1),
+                    iterations: DepthPly::new(1),
+                    budget: Budget::new(1),
+                    seldepth: DepthPly::new(1),
                     time: self.start_time.elapsed(),
                     nodes: NodesLimit::new(self.params.atomic.nodes()).unwrap(),
                     pv_num: 0,

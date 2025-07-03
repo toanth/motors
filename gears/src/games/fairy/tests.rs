@@ -38,7 +38,7 @@ mod general {
     use crate::general::moves::Move;
     use crate::general::perft::perft;
     use crate::general::squares::GridSize;
-    use crate::search::Depth;
+    use crate::search::DepthPly;
     use crate::{GameOverReason, GameResult, MatchResult};
     use itertools::Itertools;
     use rand::SeedableRng;
@@ -114,7 +114,7 @@ mod general {
             println!("{chess_pos}");
             let max = if cfg!(debug_assertions) { 3 } else { 5 };
             for i in 1..max {
-                let depth = Depth::new(i);
+                let depth = DepthPly::new(i);
                 let chess_perft = perft(depth, chess_pos, false);
                 let fairy_perft = perft(depth, fairy_pos.clone(), false);
                 assert_eq!(chess_perft.depth, fairy_perft.depth);
@@ -411,8 +411,8 @@ mod general {
             assert_eq!(fairy_pos.active_player_bb().num_ones(), pos.active_player_bb().num_ones());
             assert_eq!(fairy_pos.num_legal_moves(), pos.num_legal_moves());
             for i in 1..=3 {
-                let perft_res = perft(Depth::new(i), pos, false);
-                let fairy_perft_res = perft(Depth::new(i), fairy_pos.clone(), false);
+                let perft_res = perft(DepthPly::new(i), pos, false);
+                let fairy_perft_res = perft(DepthPly::new(i), fairy_pos.clone(), false);
                 assert_eq!(perft_res.depth, fairy_perft_res.depth, "{i} {pos}");
                 assert_eq!(perft_res.nodes, fairy_perft_res.nodes, "{i} {pos}");
             }
@@ -450,11 +450,11 @@ mod general {
             let fairy_pos = FairyBoard::from_fen_for("mnk", &mnk_pos.as_fen(), Strict).unwrap();
             let max = if cfg!(debug_assertions) { 4 } else { 6 };
             for i in 1..max {
-                let depth = Depth::new(i);
+                let depth = DepthPly::new(i);
                 let mnk_perft = perft(depth, mnk_pos, false);
                 let fairy_perft = perft(depth, fairy_pos.clone(), false);
                 assert_eq!(mnk_perft.depth, fairy_perft.depth);
-                assert_eq!(mnk_perft.nodes, fairy_perft.nodes, "Depth {i}, pos: {mnk_pos}");
+                assert_eq!(mnk_perft.nodes, fairy_perft.nodes, "DepthPly {i}, pos: {mnk_pos}");
             }
         }
     }
