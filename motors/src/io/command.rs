@@ -38,7 +38,7 @@ use gears::general::moves::{ExtendedFormat, Move};
 use gears::itertools::Itertools;
 use gears::output::Message::Warning;
 use gears::output::OutputOpts;
-use gears::search::{Depth, NodesLimit, SearchLimit};
+use gears::search::{DepthPly, NodesLimit, SearchLimit};
 use gears::ugi::{EngineOption, EngineOptionType, only_load_ugi_position};
 use std::fmt;
 use std::fmt::{Debug, Display, Formatter};
@@ -547,12 +547,12 @@ pub struct GenericGoState {
     pub strictness: Strictness,
     pub override_hash_size: Option<usize>,
     pub engine_name: Option<String>,
-    default_bench_depth: Depth,
-    default_perft_depth: Depth,
+    default_bench_depth: DepthPly,
+    default_perft_depth: DepthPly,
 }
 
 impl<B: Board> GoState<B> {
-    pub fn default_depth_limit(ugi: &EngineUGI<B>, search_type: SearchType) -> Depth {
+    pub fn default_depth_limit(ugi: &EngineUGI<B>, search_type: SearchType) -> DepthPly {
         match search_type {
             Bench => ugi.state.engine.get_engine_info().default_bench_depth(),
             Perft | SplitPerft => ugi.state.pos().default_perft_depth(),
@@ -582,8 +582,8 @@ impl<B: Board> GoState<B> {
         strictness: Strictness,
         move_overhead: Duration,
         search_type: SearchType,
-        default_bench_depth: Depth,
-        default_perft_depth: Depth,
+        default_bench_depth: DepthPly,
+        default_perft_depth: DepthPly,
     ) -> Self {
         Self {
             generic: GenericGoState {
@@ -613,7 +613,7 @@ impl<B: Board> GoState<B> {
 pub(super) fn accept_depth(limit: &mut SearchLimit, words: &mut Tokens) -> Res<()> {
     if let Some(word) = words.peek() {
         if let Ok(number) = parse_int_from_str(word, "depth") {
-            limit.depth = Depth::try_new(number)?;
+            limit.depth = DepthPly::try_new(number)?;
             _ = words.next();
         }
     }
@@ -622,7 +622,7 @@ pub(super) fn accept_depth(limit: &mut SearchLimit, words: &mut Tokens) -> Res<(
 
 pub(super) fn depth_cmd() -> Command {
     command!(depth | d, All, "Maximum search depth in plies (a.k.a. half-moves)", |state, words, _| {
-        state.go_state_mut().limit_mut().depth = Depth::try_new(parse_int(words, "depth number")?)?;
+        state.go_state_mut().limit_mut().depth = DepthPly::try_new(parse_int(words, "depth number")?)?;
         Ok(())
     })
 }
@@ -723,7 +723,7 @@ pub(super) fn go_options_impl(
             ),
             command!(mate | m, All, "Maximum depth in moves until a mate has to be found", |state, words, _| {
                 let depth: isize = parse_int(words, "mate move count")?;
-                state.go_state_mut().limit_mut().mate = Depth::try_new(depth * 2)?; // 'mate' is given in moves instead of plies
+                state.go_state_mut().limit_mut().mate = DepthPly::try_new(depth * 2)?; // 'mate' is given in moves instead of plies
                 Ok(())
             }),
             command!(movetime | mt | time, All, "Maximum time in ms", |state, words, _| {

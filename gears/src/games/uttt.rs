@@ -48,7 +48,7 @@ use crate::output::OutputOpts;
 use crate::output::text_output::{
     AdaptFormatter, BoardFormatter, DefaultBoardFormatter, board_to_string, display_board_pretty, p1_color, p2_color,
 };
-use crate::search::Depth;
+use crate::search::DepthPly;
 use anyhow::bail;
 use arbitrary::Arbitrary;
 use colored::Colorize;
@@ -781,8 +781,8 @@ impl Board for UtttBoard {
         }
     }
 
-    fn default_perft_depth(&self) -> Depth {
-        Depth::new(5)
+    fn default_perft_depth(&self) -> DepthPly {
+        DepthPly::new(5)
     }
 
     fn cannot_call_movegen(&self) -> bool {

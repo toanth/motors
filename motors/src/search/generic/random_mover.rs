@@ -11,7 +11,7 @@ use crate::search::{AbstractSearchState, EmptySearchStackEntry, Engine, EngineIn
 use gears::general::common::StaticallyNamedEntity;
 use gears::score::Score;
 use gears::search::NodeType::Exact;
-use gears::search::{Depth, NodesLimit, SearchInfo, SearchResult};
+use gears::search::{Budget, DepthPly, NodesLimit, SearchInfo, SearchResult};
 
 pub trait SeedRng: Rng + SeedableRng {}
 
@@ -30,7 +30,7 @@ impl<B: Board, R: SeedRng> Debug for RandomMover<B, R> {
 
 impl<B: Board, R: SeedRng> Default for RandomMover<B, R> {
     fn default() -> Self {
-        Self { rng: R::seed_from_u64(rng().next_u64()), state: SearchState::new(Depth::new(1)) }
+        Self { rng: R::seed_from_u64(rng().next_u64()), state: SearchState::new(DepthPly::new(1)) }
     }
 }
 
@@ -71,8 +71,8 @@ impl<B: Board, R: SeedRng + Clone + Send + 'static> Engine<B> for RandomMover<B,
     type SearchStackEntry = EmptySearchStackEntry;
     type CustomInfo = NoCustomInfo;
 
-    fn max_bench_depth(&self) -> Depth {
-        Depth::new(1)
+    fn max_bench_depth(&self) -> DepthPly {
+        DepthPly::new(1)
     }
 
     fn engine_info(&self) -> EngineInfo {
@@ -80,7 +80,7 @@ impl<B: Board, R: SeedRng + Clone + Send + 'static> Engine<B> for RandomMover<B,
             self,
             &RandEval::default(),
             "0.1.0",
-            Depth::new(1),
+            DepthPly::new(1),
             NodesLimit::new(1).unwrap(),
             Some(1),
             vec![],
@@ -116,8 +116,9 @@ impl<B: Board, R: SeedRng + Clone + Send + 'static> Engine<B> for RandomMover<B,
     fn search_info(&self) -> SearchInfo<B> {
         SearchInfo {
             best_move_of_all_pvs: self.state.best_move(),
-            depth: Depth::new(0),
-            seldepth: Depth::new(0),
+            iterations: DepthPly::new(0),
+            budget: Budget::new(0),
+            seldepth: DepthPly::new(0),
             time: Duration::default(),
             nodes: NodesLimit::new(1).unwrap(),
             pv_num: 1,

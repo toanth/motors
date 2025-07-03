@@ -34,7 +34,7 @@ use crate::general::moves::Move;
 use crate::general::squares::{RectangularCoordinates, RectangularSize, SquareColor};
 use crate::output::OutputOpts;
 use crate::output::text_output::BoardFormatter;
-use crate::search::Depth;
+use crate::search::DepthPly;
 use crate::{GameOver, GameOverReason, MatchResult, PlayerResult, player_res_to_match_res};
 use anyhow::{anyhow, bail, ensure};
 use arbitrary::Arbitrary;
@@ -398,11 +398,11 @@ pub trait Board:
     /// Returns the default depth that should be used for perft if not otherwise specified.
     /// Takes in a reference to self because some boards have a size determined at runtime,
     /// and the default perft depth can change depending on that (or even depending on the current position)
-    fn default_perft_depth(&self) -> Depth;
+    fn default_perft_depth(&self) -> DepthPly;
 
     /// Returns the maximum perft depth possible, i.e., perft depth will be clamped to this value.
-    fn max_perft_depth() -> Depth {
-        Depth::new(20)
+    fn max_perft_depth() -> DepthPly {
+        DepthPly::new(20)
     }
 
     /// Most games (e.g., chess) don't need any special checks for game-over conditions in perft, but some should explicitly test

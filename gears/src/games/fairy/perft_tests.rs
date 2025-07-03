@@ -21,7 +21,7 @@ mod tests {
     use crate::games::fairy::FairyBoard;
     use crate::general::board::Strictness::Relaxed;
     use crate::general::perft::perft;
-    use crate::search::Depth;
+    use crate::search::DepthPly;
     use crate::ugi::load_ugi_pos_simple;
 
     #[test]
@@ -63,7 +63,7 @@ mod tests {
             let pos = load_ugi_pos_simple(testcase, Relaxed, &old).unwrap();
             let max = if cfg!(debug_assertions) { 3 } else { 100 };
             for (i, &expected) in res.iter().take(max).enumerate() {
-                let depth = Depth::new(i + 1);
+                let depth = DepthPly::new(i + 1);
                 let res = perft(depth, pos.clone(), true);
                 assert_eq!(res.depth, depth);
                 assert_eq!(res.nodes, expected, "{i} {testcase} ({pos})");

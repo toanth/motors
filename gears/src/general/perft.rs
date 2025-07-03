@@ -1,6 +1,6 @@
 use crate::general::board::{Board, BoardHelpers};
 use crate::general::moves::Move;
-use crate::search::Depth;
+use crate::search::DepthPly;
 use colored::Colorize;
 use itertools::Itertools;
 use rayon::iter::ParallelIterator;
@@ -15,7 +15,7 @@ use std::time::{Duration, Instant};
 pub struct PerftRes {
     pub time: Duration,
     pub nodes: u64, // Can't use NodesLimit because it's possible to have 0 leafs at the given depth
-    pub depth: Depth,
+    pub depth: DepthPly,
 }
 
 impl Display for PerftRes {
@@ -72,7 +72,7 @@ fn do_perft<B: Board>(depth: usize, pos: B) -> u64 {
     nodes
 }
 
-pub fn perft<B: Board>(depth: Depth, pos: B, parallelize: bool) -> PerftRes {
+pub fn perft<B: Board>(depth: DepthPly, pos: B, parallelize: bool) -> PerftRes {
     let depth = depth.min(B::max_perft_depth());
     let start = Instant::now();
     let nodes = if depth.get() == 0 {
@@ -87,7 +87,7 @@ pub fn perft<B: Board>(depth: Depth, pos: B, parallelize: bool) -> PerftRes {
     PerftRes { time, nodes, depth }
 }
 
-pub fn split_perft<B: Board>(depth: Depth, pos: B, parallelize: bool) -> SplitPerftRes<B> {
+pub fn split_perft<B: Board>(depth: DepthPly, pos: B, parallelize: bool) -> SplitPerftRes<B> {
     assert!(depth.get() > 0);
     let depth = depth.min(B::max_perft_depth());
     let mut nodes = 0;
@@ -120,7 +120,7 @@ pub fn split_perft<B: Board>(depth: Depth, pos: B, parallelize: bool) -> SplitPe
     SplitPerftRes { perft_res, children, pos }
 }
 
-pub fn perft_for<B: Board>(depth: Depth, positions: &[B], parallelize: bool) -> PerftRes {
+pub fn perft_for<B: Board>(depth: DepthPly, positions: &[B], parallelize: bool) -> PerftRes {
     let mut res = PerftRes { time: Duration::default(), nodes: 0, depth };
     for pos in positions {
         let depth = if depth.get() == 0 || depth >= B::max_perft_depth() { pos.default_perft_depth() } else { depth };
@@ -140,7 +140,7 @@ struct PerftState<B: Board> {
 
 #[derive(Debug, Eq, PartialEq, Clone)]
 pub struct PosIter<B: Board> {
-    depth: Depth,
+    depth: DepthPly,
     states: Vec<PerftState<B>>,
     only_leaves: bool,
 }
@@ -183,7 +183,7 @@ impl<B: Board> Iterator for PosIter<B> {
     }
 }
 
-pub fn all_positions_at<B: Board>(depth: Depth, pos: B) -> PosIter<B> {
+pub fn all_positions_at<B: Board>(depth: DepthPly, pos: B) -> PosIter<B> {
     let moves = pos.pseudolegal_moves().into_iter().collect();
     let state = PerftState { pos, moves };
     PosIter { depth, states: vec![state], only_leaves: false }
@@ -199,7 +199,7 @@ impl<B: Board> Hash for HashWrapper<B> {
     }
 }
 
-pub fn num_unique_positions_at<B: Board>(depth: Depth, pos: B) -> usize {
+pub fn num_unique_positions_at<B: Board>(depth: DepthPly, pos: B) -> usize {
     if depth.get() == 0 {
         return 1;
     }
@@ -223,30 +223,30 @@ mod tests {
     #[test]
     fn all_positions_at_mnk_test() {
         let pos = MNKBoard::from_name("tictactoe").unwrap();
-        let root = all_positions_at(Depth::new(0), pos);
+        let root = all_positions_at(DepthPly::new(0), pos);
         assert_eq!(root.count(), 1);
-        let children = all_positions_at(Depth::new(1), pos);
+        let children = all_positions_at(DepthPly::new(1), pos);
         assert_eq!(children.count(), 9);
-        let grand_children = all_positions_at(Depth::new(2), pos);
+        let grand_children = all_positions_at(DepthPly::new(2), pos);
         assert_eq!(grand_children.count(), 9 * 8 + 9);
-        let depth_3 = all_positions_at(Depth::new(3), pos);
+        let depth_3 = all_positions_at(DepthPly::new(3), pos);
         assert_eq!(depth_3.count(), 9 * 8 * 7 + 9 * 8 + 9);
-        assert_eq!(all_positions_at(Depth::new(9), pos).count(), all_positions_at(Depth::new(10), pos).count());
+        assert_eq!(all_positions_at(DepthPly::new(9), pos).count(), all_positions_at(DepthPly::new(10), pos).count());
     }
 
     #[test]
     fn num_unique_positions_in_tictactoe_test() {
         let pos = MNKBoard::default();
-        let res = num_unique_positions_at(Depth::new(9), pos);
-        assert_eq!(res, num_unique_positions_at(Depth::new(10), pos));
-        assert_eq!(res, num_unique_positions_at(Depth::new(11), pos));
+        let res = num_unique_positions_at(DepthPly::new(9), pos);
+        assert_eq!(res, num_unique_positions_at(DepthPly::new(10), pos));
+        assert_eq!(res, num_unique_positions_at(DepthPly::new(11), pos));
     }
 
     #[test]
     fn num_unique_positions_at_chess_test() {
         let pos = Chessboard::from_name("mate_in_1").unwrap();
-        assert_eq!(num_unique_positions_at(Depth::new(0), pos), 1);
-        assert_eq!(num_unique_positions_at(Depth::new(1), pos), 23 + 1);
-        assert_eq!(num_unique_positions_at(Depth::new(2), pos), 53 + 23 + 1);
+        assert_eq!(num_unique_positions_at(DepthPly::new(0), pos), 1);
+        assert_eq!(num_unique_positions_at(DepthPly::new(1), pos), 23 + 1);
+        assert_eq!(num_unique_positions_at(DepthPly::new(2), pos), 53 + 23 + 1);
     }
 }
