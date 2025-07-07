@@ -29,17 +29,18 @@ mod general {
     use crate::games::fairy::attacks::MoveKind;
     use crate::games::fairy::moves::FairyMove;
     use crate::games::fairy::pieces::ColoredPieceId;
-    use crate::games::fairy::rules::FenFormat;
     use crate::games::fairy::{FairyBoard, FairyCastleInfo, FairyColor, FairyPiece, FairySquare};
     use crate::games::mnk::MNKBoard;
     use crate::games::{AbstractPieceType, BoardHistory, Color, Height, NoHistory, Width, ZobristHistory, chess};
     use crate::general::bitboards::{Bitboard, RawBitboard};
     use crate::general::board::Strictness::{Relaxed, Strict};
     use crate::general::board::{BitboardBoard, Board, BoardHelpers, UnverifiedBoard};
+    use crate::general::common::tokens;
     use crate::general::moves::Move;
     use crate::general::perft::perft;
     use crate::general::squares::GridSize;
     use crate::search::DepthPly;
+    use crate::ugi::Protocol::USI;
     use crate::{GameOverReason, GameResult, MatchResult};
     use itertools::Itertools;
     use rand::SeedableRng;
@@ -371,7 +372,7 @@ mod general {
 
     #[test]
     fn simple_shogi_test() {
-        let pos = FairyBoard::variant_simple("shogi").unwrap();
+        let pos = FairyBoard::variant_for("shogi", &mut tokens(""), USI).unwrap();
         assert_eq!(pos.fen_no_rules(), "lnsgkgsnl/1r5b1/ppppppppp/9/9/9/PPPPPPPPP/1B5R1/LNSGKGSNL b - 1");
         assert_eq!(pos.num_legal_moves(), 30);
         let pos = FairyBoard::from_fen_for("shogi", "8k/9/7P1/9/6K2/9/9/9/9[G] w - 1", Strict).unwrap();
@@ -387,12 +388,10 @@ mod general {
         .unwrap();
         assert_eq!(pos.num_legal_moves(), 94);
         let pos = FairyBoard::from_fen_for("shogi", "8k/7P1/7+L1/9/9/9/7+l1/9/8K[PRp] w - 1", Strict).unwrap();
-        let mut pos2 = FairyBoard::from_fen_for("shogi", "8k/7P1/7+L1/9/9/9/7+l1/9/8K b PRp 1", Strict).unwrap();
-        pos2.0.fen_format = FenFormat::Standard;
-        assert_eq!(pos, pos2);
-        pos2.0.fen_format = FenFormat::Sfen;
+        let pos2 = FairyBoard::from_fen_for("shogi", "8k/7P1/7+L1/9/9/9/7+l1/9/8K b PRp 1", Strict).unwrap();
+        assert_eq!(pos.legal_moves_slow(), pos2.legal_moves_slow());
         assert!(pos.player_result_slow(&NoHistory::default()).is_none());
-        assert!(pos2.clone().make_move_from_str("P*c1").is_ok());
+        assert!(pos2.clone().make_move_from_str("P*1c").is_ok());
         assert!(pos.clone().make_move_from_str("P@i7").is_ok());
         assert!(pos.clone().make_move_from_str("P@i8").is_err());
         assert!(pos.clone().make_move_from_str("R@i8").is_ok());

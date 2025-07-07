@@ -94,7 +94,7 @@ pub(super) trait AutoCompleteState: Debug {
 
 impl<B: Board> AutoCompleteState for ACState<B> {
     fn go_subcmds(&self, search_type: SearchType) -> CommandList {
-        go_options::<B>(Some(search_type))
+        go_options::<B>(Some(search_type), self.pos().settings_ref())
     }
     fn pos_subcmds(&self, accept_pos: bool) -> CommandList {
         position_options(Some(self.pos()), accept_pos)

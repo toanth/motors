@@ -52,6 +52,7 @@ use crate::general::squares::{GridCoordinates, GridSize, RectangularCoordinates,
 use crate::output::OutputOpts;
 use crate::output::text_output::{BoardFormatter, DefaultBoardFormatter, board_to_string, display_board_pretty};
 use crate::search::DepthPly;
+use crate::ugi::Protocol;
 use anyhow::{anyhow, bail, ensure};
 use arbitrary::Arbitrary;
 use colored::Colorize;
@@ -628,12 +629,13 @@ impl UnverifiedFairyBoard {
         if rules.format_rules.hand == FenHandInfo::None {
             return Ok(());
         }
-        if self.fen_pos_part_contains_hand() {
-            write!(f, "[")?;
-        }
+        let mut empty = true;
         for color in FairyColor::iter() {
             for (id, piece) in rules.pieces().rev() {
                 let mut count = self.in_hand[color][id.val()];
+                if count > 0 {
+                    empty = false;
+                }
                 if !self.fen_pos_part_contains_hand() && count > 1 {
                     write!(f, "{count}{}", piece.player_symbol[color][Ascii])?;
                 } else {
@@ -644,8 +646,8 @@ impl UnverifiedFairyBoard {
                 }
             }
         }
-        if self.fen_pos_part_contains_hand() {
-            write!(f, "]")?;
+        if empty && rules.format_rules.hand == FenHandInfo::SeparateToken {
+            write!(f, "-")?;
         }
         Ok(())
     }
@@ -741,11 +743,11 @@ impl Board for FairyBoard {
         self.rules.clone()
     }
 
-    fn variant(first: &str, rest: &mut Tokens) -> Res<FairyBoard> {
-        if first.is_empty() {
+    fn variant_for(name: &str, rest: &mut Tokens, proto: Protocol) -> Res<Self> {
+        if name.is_empty() {
             bail!("Missing name for fairy variant");
         };
-        let mut variant = Self::variant_from_name(first)?;
+        let mut variant = Self::variant_from_name(name, proto)?;
         let rest_copy = rest.clone();
         let res = variant.get().format_rules.read_rules_part(rest);
         if let Ok(Some(new)) = res {
@@ -891,7 +893,9 @@ impl Board for FairyBoard {
     fn read_fen_and_advance_input_for(input: &mut Tokens, strictness: Strictness, mut rules: RulesRef) -> Res<Self> {
         let variant_name = input.peek().copied().unwrap_or_default();
         // Different rules can have the same name, for example shogi in ugi and usi mode
-        if variant_name != rules.get().name {
+        if variant_name == rules.get().name {
+            _ = input.next();
+        } else {
             let variants = Self::variants();
             if let Some(v) = variants.iter().find(|v| v.name.eq_ignore_ascii_case(variant_name)) {
                 _ = input.next();
@@ -974,7 +978,7 @@ impl BitboardBoard for FairyBoard {
     }
 }
 
-type NameToVariant = GenericSelect<fn() -> RulesRef>;
+type NameToVariant = GenericSelect<Box<dyn Fn() -> RulesRef>>;
 
 impl Deref for FairyBoard {
     type Target = UnverifiedFairyBoard;
@@ -984,39 +988,46 @@ impl Deref for FairyBoard {
 }
 
 impl FairyBoard {
-    fn variants() -> EntityList<NameToVariant> {
+    fn variants_for(protocol: Protocol) -> EntityList<NameToVariant> {
         vec![
-            GenericSelect { name: "chess", val: || RulesRef::new(Rules::chess()) },
-            GenericSelect { name: "atomic", val: || RulesRef::new(Rules::atomic()) },
-            GenericSelect { name: "kingofthehill", val: || RulesRef::new(Rules::king_of_the_hill()) },
-            GenericSelect { name: "horde", val: || RulesRef::new(Rules::horde()) },
-            GenericSelect { name: "racingkings", val: || RulesRef::new(Rules::racing_kings(FairySize::chess())) },
-            GenericSelect { name: "crazyhouse", val: || RulesRef::new(Rules::crazyhouse()) },
-            GenericSelect { name: "3check", val: || RulesRef::new(Rules::n_check(3)) },
-            GenericSelect { name: "5check", val: || RulesRef::new(Rules::n_check(5)) },
-            GenericSelect { name: "antichess", val: || RulesRef::new(Rules::antichess()) },
-            GenericSelect { name: "shatranj", val: || RulesRef::new(Rules::shatranj()) },
-            // TODO: Set format based on USI mode, add testcases
-            GenericSelect { name: "shogi", val: || RulesRef::new(Rules::shogi(false)) },
-            GenericSelect { name: "shogi-usi", val: || RulesRef::new(Rules::shogi(true)) },
-            GenericSelect { name: "ataxx", val: || RulesRef::new(Rules::ataxx()) },
-            GenericSelect { name: "tictactoe", val: || RulesRef::new(Rules::tictactoe()) },
-            GenericSelect { name: "mnk", val: || RulesRef::new(Rules::mnk(GridSize::connect4(), 4)) },
-            GenericSelect { name: "cfour", val: || RulesRef::new(Rules::cfour(GridSize::connect4(), 4)) },
+            GenericSelect { name: "chess", val: Box::new(|| RulesRef::new(Rules::chess())) },
+            GenericSelect { name: "atomic", val: Box::new(|| RulesRef::new(Rules::atomic())) },
+            GenericSelect { name: "kingofthehill", val: Box::new(|| RulesRef::new(Rules::king_of_the_hill())) },
+            GenericSelect { name: "horde", val: Box::new(|| RulesRef::new(Rules::horde())) },
+            GenericSelect {
+                name: "racingkings",
+                val: Box::new(|| RulesRef::new(Rules::racing_kings(FairySize::chess()))),
+            },
+            GenericSelect { name: "crazyhouse", val: Box::new(|| RulesRef::new(Rules::crazyhouse())) },
+            GenericSelect { name: "3check", val: Box::new(|| RulesRef::new(Rules::n_check(3))) },
+            GenericSelect { name: "5check", val: Box::new(|| RulesRef::new(Rules::n_check(5))) },
+            GenericSelect { name: "antichess", val: Box::new(|| RulesRef::new(Rules::antichess())) },
+            GenericSelect { name: "shatranj", val: Box::new(|| RulesRef::new(Rules::shatranj())) },
+            GenericSelect {
+                name: "shogi",
+                val: Box::new(move || RulesRef::new(Rules::shogi(protocol == Protocol::USI))),
+            },
+            GenericSelect { name: "ataxx", val: Box::new(|| RulesRef::new(Rules::ataxx())) },
+            GenericSelect { name: "tictactoe", val: Box::new(|| RulesRef::new(Rules::tictactoe())) },
+            GenericSelect { name: "mnk", val: Box::new(|| RulesRef::new(Rules::mnk(GridSize::connect4(), 4))) },
+            GenericSelect { name: "cfour", val: Box::new(|| RulesRef::new(Rules::cfour(GridSize::connect4(), 4))) },
         ]
     }
 
-    fn variant_from_name(name: &str) -> Res<RulesRef> {
-        let create = select_name_static(name, Self::variants().iter(), "variant", "fairy", NoDescription)?.val;
-        Ok(create())
+    fn variants() -> EntityList<NameToVariant> {
+        Self::variants_for(Protocol::Interactive)
+    }
+
+    fn variant_from_name(name: &str, proto: Protocol) -> Res<RulesRef> {
+        Ok((select_name_static(name, Self::variants_for(proto).iter(), "variant", "fairy", NoDescription)?.val)())
     }
 
     pub fn variant_simple(name: &str) -> Res<Self> {
-        Self::variant(name, &mut tokens(""))
+        Self::variant_for(name, &mut tokens(""), Protocol::Interactive)
     }
 
     pub fn from_fen_for(variant: &str, fen: &str, strictness: Strictness) -> Res<Self> {
-        let variant = Self::variant_from_name(variant)?;
+        let variant = Self::variant_from_name(variant, Protocol::Interactive)?;
         Self::from_fen_for_rules(fen, strictness, variant)
     }
 
@@ -1079,7 +1090,7 @@ impl Display for NoRulesFenFormatter<'_> {
                 write!(f, " {}", pos.active_player().to_char(pos.settings()))?;
             }
             FenHandInfo::SeparateToken => {
-                write!(f, " {}", pos.active_player().to_char(pos.settings()))?;
+                write!(f, " {} ", pos.active_player().to_char(pos.settings()))?;
                 pos.write_fen_hand_part(f)?;
             }
         }

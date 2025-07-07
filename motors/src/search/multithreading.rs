@@ -16,8 +16,8 @@ use gears::general::moves::Move;
 use gears::output::Message::*;
 use gears::score::{NO_SCORE_YET, Score};
 use gears::search::{DepthPly, SearchLimit};
-use gears::ugi::EngineOptionName;
 use gears::ugi::EngineOptionName::{Hash, Threads};
+use gears::ugi::EngineOptionNameForProto;
 use std::fmt;
 use std::hint::spin_loop;
 use std::marker::PhantomData;
@@ -34,7 +34,7 @@ pub enum EngineReceives<B: Board> {
     // joins the thread
     Quit,
     Forget,
-    SetOption(EngineOptionName, String, Arc<Mutex<EngineInfo>>),
+    SetOption(EngineOptionNameForProto, String, Arc<Mutex<EngineInfo>>),
     Search(SearchParams<B>),
     SetEval(Box<dyn Eval<B>>),
     Print(Arc<Mutex<EngineInfo>>, B),
@@ -296,19 +296,19 @@ impl<B: Board> EngineThread<B> {
             Forget => {
                 self.engine.forget();
             }
-            SetOption(name, value, info) => match name {
+            SetOption(opt, value, info) => match opt.name {
                 Threads => panic!("This should have already been handled by the engine owner"),
                 _ => {
                     let mut guard = info.lock().unwrap();
-                    let Some(val) = guard.options.get_mut(&name) else {
+                    let Some(val) = guard.options.get_mut(&opt) else {
                         bail!(
                             "The engine '{0}' doesn't provide the option '{1}', so it can't be set to value '{2}'",
                             guard.engine.short_name().bold(),
-                            name.to_string().red(),
+                            opt.to_string().red(),
                             value.bold()
                         );
                     };
-                    self.engine.set_option(name, val, value)?
+                    self.engine.set_option(opt, val, value)?
                 }
             },
             Search(params) => {
@@ -512,15 +512,15 @@ impl<B: Board> EngineWrapper<B> {
         self.main_thread_data.atomic_search_data.resize_with(count, || Arc::new(AtomicSearchState::default()));
     }
 
-    pub fn set_option(&mut self, name: EngineOptionName, value: String) -> Res<()> {
-        if name == Threads {
+    pub fn set_option(&mut self, opt: EngineOptionNameForProto, value: String) -> Res<()> {
+        if opt.name == Threads {
             let count: usize = parse_int_from_str(&value, "num threads")?;
             let max = self.get_engine_info().max_threads;
             let count = set_num_threads(count, max, &self.main_thread_data.output)?;
             self.overwrite_num_threads = None;
             self.resize_threads(count);
             Ok(())
-        } else if name == Hash {
+        } else if opt.name == Hash {
             let size: usize = parse_int_from_str(&value, "hash size in MiB")?;
             // first, give back the memory of the old TT to avoid spikes in memory usage
             self.set_tt(TT::minimal());
@@ -528,11 +528,11 @@ impl<B: Board> EngineWrapper<B> {
             Ok(())
         } else {
             for aux in &mut self.auxiliary {
-                aux.send(SetOption(name.clone(), value.clone(), self.main_thread_data.engine_info.clone()))
+                aux.send(SetOption(opt.clone(), value.clone(), self.main_thread_data.engine_info.clone()))
                     .map_err(|err| anyhow!(err.to_string()))?;
             }
             self.main
-                .send(SetOption(name, value, self.main_thread_data.engine_info.clone()))
+                .send(SetOption(opt, value, self.main_thread_data.engine_info.clone()))
                 .map_err(|err| anyhow!(err.to_string()))
         }
     }

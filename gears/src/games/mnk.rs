@@ -28,6 +28,7 @@ use crate::general::squares::{GridCoordinates, GridSize, RectangularCoordinates,
 use crate::output::OutputOpts;
 use crate::output::text_output::{BoardFormatter, DefaultBoardFormatter, board_to_string, display_board_pretty};
 use crate::search::DepthPly;
+use crate::ugi::Protocol;
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Default)]
 #[must_use]
@@ -589,7 +590,7 @@ impl Board for MNKBoard {
         self.settings
     }
 
-    fn variant(first: &str, rest: &mut Tokens) -> Res<MNKBoard> {
+    fn variant_for(first: &str, rest: &mut Tokens, _proto: Protocol) -> Res<MNKBoard> {
         let settings = MnkSettings::from_input(first, rest)?;
         Ok(Self::startpos_for_settings(settings))
     }

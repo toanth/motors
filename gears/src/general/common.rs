@@ -264,13 +264,18 @@ impl Name {
 pub type EntityList<T> = Vec<T>;
 
 // TODO: Rework, description should be required
-#[derive(Debug)]
-pub struct GenericSelect<T: Debug> {
+pub struct GenericSelect<T> {
     pub name: &'static str,
     pub val: T, // can be a factory function / object in many cases
 }
 
-impl<T: Debug> NamedEntity for GenericSelect<T> {
+impl<T> Debug for GenericSelect<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "GenericSelect({})", self.name)
+    }
+}
+
+impl<T> NamedEntity for GenericSelect<T> {
     fn short_name(&self) -> String {
         self.name.to_string()
     }

@@ -205,7 +205,7 @@ pub fn ugi_commands() -> CommandList {
             --> |state| state.pos_subcmds(false)
         ),
         command!(
-            ugi | uci | uai,
+            ugi | uci | uai | usi,
             All,
             "Starts UGI mode, ends interactive mode (can be re-enabled with `interactive`)",
             |ugi, _, proto| ugi.handle_ugi(proto)
@@ -642,10 +642,8 @@ pub(super) fn depth_cmd() -> Command {
     })
 }
 
-pub(super) fn go_options<B: Board>(mode: Option<SearchType>) -> CommandList {
-    // TODO: This doesn't update the colors when they are changed at runtime in the Fairy board,
-    // so even though the FEN will parse e.g. x/o it'll still be wtime/btime.
-    let pos = B::default();
+pub(super) fn go_options<B: Board>(mode: Option<SearchType>, settings: B::SettingsRef) -> CommandList {
+    let pos = B::startpos_for_settings(settings);
     let mut res = go_options_impl(mode, pos.color_chars(), pos.color_names());
 
     // We don't want to allow `go e4` or `go moves e4` for two reasons: Because that's a bit confusing, and because it would make the number of
@@ -708,6 +706,15 @@ pub(super) fn go_options_impl(
                 func: |state, words, _| state.go_state_mut().set_time(words, false, true, "p2inc"),
                 sub_commands: SubCommandsFn::default(),
             },
+            command!(
+                byoyomi,
+                Custom,
+                "How many milliseconds the remaining time is allowed to go negative",
+                |state, words, _| {
+                    state.go_state_mut().limit_mut().byoyomi = parse_duration_ms(words, "byoyomi")?;
+                    Ok(())
+                }
+            ),
             command!(
                 time,
                 Custom,
@@ -927,7 +934,7 @@ macro_rules! pos_command {
 fn generic_position_options(accept_pos_word: bool) -> CommandList {
     let mut res = vec![
         pos_command!(
-            fen | f,
+            fen | f | sfen,
             All,
             "Load a positions from a FEN",
             |state, words, _| state.load_go_state_pos("fen", words),

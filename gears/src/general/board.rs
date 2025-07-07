@@ -35,6 +35,7 @@ use crate::general::squares::{RectangularCoordinates, RectangularSize, SquareCol
 use crate::output::OutputOpts;
 use crate::output::text_output::BoardFormatter;
 use crate::search::DepthPly;
+use crate::ugi::Protocol;
 use crate::{GameOver, GameOverReason, MatchResult, PlayerResult, player_res_to_match_res};
 use anyhow::{anyhow, bail, ensure};
 use arbitrary::Arbitrary;
@@ -301,7 +302,7 @@ pub trait Board:
     /// Should be either `Self::Unverified` or `Self`
     type EmptyRes: Into<Self::Unverified>;
     type Settings: Settings;
-    type SettingsRef: Default;
+    type SettingsRef: Default + Eq;
     type Coordinates: Coordinates;
     type Color: Color<Board = Self>;
     type Piece: ColoredPiece<Self>;
@@ -367,7 +368,11 @@ pub trait Board:
 
     /// Returns a board in the startpos of the variant corresponding to the `name`.
     /// `_additional` can be used to modify the variant, e.g. to set the board size in mnk games.
-    fn variant(name: &str, _additional: &mut Tokens) -> Res<Self> {
+    // fn variant(name: &str, _additional: &mut Tokens) -> Res<Self> {
+    //     bail!("The game {0} does not support any variants, including '{1}'", Self::game_name(), name.red())
+    // }
+
+    fn variant_for(name: &str, _additional: &mut Tokens, _proto: Protocol) -> Res<Self> {
         bail!("The game {0} does not support any variants, including '{1}'", Self::game_name(), name.red())
     }
 
@@ -1226,7 +1231,7 @@ pub(crate) fn read_common_fen_part<B: RectangularBoard>(words: &mut Tokens, boar
 }
 
 pub(crate) fn read_halfmove_clock<B: RectangularBoard>(words: &mut Tokens, board: &mut B::Unverified) -> Res<()> {
-    let halfmove_clock = words.peek().copied().unwrap_or("");
+    let Some(halfmove_clock) = words.peek().copied() else { return board.set_halfmove_repetition_clock(0) };
     let halfmove_clock = halfmove_clock.parse::<usize>()?;
     _ = words.next();
     board.set_halfmove_repetition_clock(halfmove_clock)?;

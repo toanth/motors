@@ -23,7 +23,6 @@ mod input;
 pub mod ugi_output;
 
 use crate::eval::Eval;
-use crate::io::Protocol::{Interactive, UGI};
 use crate::io::SearchType::*;
 use crate::io::ascii_art::print_as_ascii_art;
 use crate::io::cli::EngineOpts;
@@ -69,7 +68,11 @@ use gears::score::Score;
 use gears::search::{DepthPly, SearchLimit, TimeControl};
 use gears::ugi::EngineOptionName::*;
 use gears::ugi::EngineOptionType::*;
-use gears::ugi::{EngineOption, EngineOptionName, UgiCheck, UgiCombo, UgiSpin, UgiString, load_ugi_pos_simple};
+use gears::ugi::Protocol::{Interactive, UGI};
+use gears::ugi::{
+    EngineOption, EngineOptionName, EngineOptionNameForProto, Protocol, UgiCheck, UgiCombo, UgiSpin, UgiString,
+    load_ugi_pos_simple,
+};
 use gears::{
     AbstractRun, AbstractUgiPosState, GameState, MatchState, MatchStatus, PlayerResult, ProgramStatus, Quitting,
     UgiPosState, output_builder_from_str,
@@ -118,16 +121,6 @@ impl Display for SearchType {
             }
         )
     }
-}
-
-#[derive(Debug, Default, Copy, Clone, Eq, PartialEq, derive_more::Display, derive_more::FromStr)]
-pub enum Protocol {
-    #[default]
-    Interactive,
-    UGI,
-    UCI,
-    UAI,
-    USI,
 }
 
 #[derive(Debug)]
@@ -396,9 +389,14 @@ impl<B: Board> EngineUGI<B> {
         for builder in &mut selected_output_builders {
             output.lock().unwrap().additional_outputs.push(builder.for_engine(&state)?);
         }
+        let settings = state.pos().settings_ref();
         let mut res = Self {
             state,
-            commands: AllCommands { ugi: ugi_commands(), go: go_options::<B>(None), query: query_options::<B>() },
+            commands: AllCommands {
+                ugi: ugi_commands(),
+                go: go_options::<B>(None, settings),
+                query: query_options::<B>(),
+            },
             output,
             output_factories: Rc::new(all_output_builders),
             searcher_factories: Rc::new(all_searchers),
@@ -445,6 +443,11 @@ impl<B: Board> EngineUGI<B> {
         }
         loop {
             input.set_interactive(self.state.protocol == Interactive, self);
+            let settings = self.state.pos().settings_ref();
+            if settings != self.state.go_state.pos.settings_ref() {
+                // make sure that after updating the variant in fairy, wtime/btime names are updated (e.g. to xtime/otime)
+                self.commands.go = go_options::<B>(None, settings);
+            }
             self.state.go_state.pos = self.state.pos().clone(); // set here because it's needed for autocompletion
             let input = match input.get_line(self) {
                 Ok(input) => input,
@@ -550,8 +553,8 @@ impl<B: Board> EngineUGI<B> {
         )
     }
 
-    fn set_option(&mut self, name: EngineOptionName, value: String) -> Res<()> {
-        match name {
+    fn set_option(&mut self, name: EngineOptionNameForProto, value: String) -> Res<()> {
+        match name.name {
             EngineOptionName::Ponder => {
                 self.allow_ponder = parse_bool_from_str(&value, "ponder")?;
             }
@@ -600,7 +603,7 @@ impl<B: Board> EngineUGI<B> {
                 self.state
                     .engine
                     .set_option(name.clone(), value.clone())
-                    .or_else(|err| if name == Threads && value == "1" { Ok(()) } else { Err(err) })?;
+                    .or_else(|err| if name.name == Threads && value == "1" { Ok(()) } else { Err(err) })?;
             }
         }
         Ok(())
@@ -618,7 +621,7 @@ impl<B: Board> EngineUGI<B> {
                 let mut words = tokens(&name);
                 let name = words.next().unwrap_or_default();
                 let value = words.join(" ");
-                let name = EngineOptionName::from_str(name.trim()).unwrap();
+                let name = EngineOptionNameForProto::parse(name.trim(), self.protocol())?;
                 return self.set_option(name, value);
             }
             if next_word.eq_ignore_ascii_case("value") {
@@ -634,7 +637,7 @@ impl<B: Board> EngineUGI<B> {
             }
             value = value + " " + next_word;
         }
-        let name = EngineOptionName::from_str(name.trim()).unwrap();
+        let name = EngineOptionNameForProto::parse(name.trim(), self.protocol()).unwrap();
         self.set_option(name, value)
     }
 
@@ -1044,8 +1047,10 @@ impl<B: Board> EngineUGI<B> {
         // However, we make an exception for threads and hash
         self.state.engine = engine;
         // We set those options after changing the engine, so if we get an error this doesn't prevent us from using the new engine.
-        self.state.engine.set_option(Hash, hash.to_string())?;
-        self.state.engine.set_option(Threads, threads.to_string())?;
+        let h = EngineOptionNameForProto { name: Hash, proto: self.protocol() };
+        self.state.engine.set_option(h, hash.to_string())?;
+        let t = EngineOptionNameForProto { name: Threads, proto: self.protocol() };
+        self.state.engine.set_option(t, threads.to_string())?;
         self.write_engine_ascii_art();
         Ok(())
     }
@@ -1071,7 +1076,7 @@ impl<B: Board> EngineUGI<B> {
 
     fn set_variant(&mut self, words: &mut Tokens) -> Res<()> {
         let first = words.next().unwrap_or_default();
-        self.state.match_state.handle_variant(first, words)
+        self.state.match_state.handle_variant(first, words, self.protocol())
     }
 
     fn write_ugi_options(&self) -> String {
@@ -1156,7 +1161,8 @@ impl<B: Board> EngineUGI<B> {
                 }),
                 Other(_) => continue,
             };
-            res.push(EngineOption { name: opt, value });
+            let name = EngineOptionNameForProto { name: opt, proto: self.protocol() };
+            res.push(EngineOption { name, value });
         }
         res.extend(self.state.engine.get_engine_info().additional_options());
         res
@@ -1475,7 +1481,8 @@ impl<B: Board> AbstractEngineUgiState for EngineUGI<B> {
     #[cold]
     fn handle_assist(&mut self, words: &mut Tokens) -> Res<()> {
         if let Some(next) = words.next() {
-            self.set_option(RespondToMove, next.to_string())
+            let opt = EngineOptionNameForProto { name: RespondToMove, proto: self.protocol() };
+            self.set_option(opt, next.to_string())
         } else {
             self.play_engine_move(None)
         }

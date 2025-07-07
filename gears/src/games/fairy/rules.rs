@@ -1044,7 +1044,6 @@ impl Rules {
         rules
     }
 
-    // TODO: Take protocol mode enum instead, move that to gears
     pub fn shogi(usi: bool) -> Self {
         let mut rules = Self::shogi_impl(usi);
         rules.fallback = Some(Arc::new(Self::shogi_impl(!usi)));
@@ -1193,7 +1192,8 @@ impl Default for RulesRef {
 
 impl PartialEq for RulesRef {
     fn eq(&self, other: &Self) -> bool {
-        // if the fen prefix describing the rules is identical, so are the rules
+        // if the fen prefix describing the rules is identical, so are the rules, except for cases like usi-shogi vs ugi-shogi,
+        // which are handled by comparing the format rules
         self.0.name == other.0.name && self.0.format_rules == other.0.format_rules
     }
 }

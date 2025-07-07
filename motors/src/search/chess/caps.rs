@@ -28,7 +28,7 @@ use gears::general::bitboards::RawBitboard;
 use gears::general::board::Strictness::Strict;
 use gears::general::board::{BitboardBoard, UnverifiedBoard};
 use gears::general::common::Description::NoDescription;
-use gears::general::common::{Res, StaticallyNamedEntity, parse_bool_from_str, parse_int_from_str, select_name_static};
+use gears::general::common::{Res, StaticallyNamedEntity, parse_int_from_str, select_name_static};
 use gears::general::move_list::InplaceMoveList;
 use gears::general::moves::{Move, UntrustedMove};
 use gears::itertools::Itertools;
@@ -39,8 +39,7 @@ use gears::score::{
 use gears::search::NodeType::*;
 use gears::search::*;
 use gears::ugi::EngineOptionName::*;
-use gears::ugi::EngineOptionType::Check;
-use gears::ugi::{EngineOptionName, EngineOptionType};
+use gears::ugi::{EngineOptionNameForProto, EngineOptionType};
 
 /// By how much the fractional depth increases each ID iteration.
 const DEPTH_INCREMENT: usize = 128;
@@ -303,15 +302,14 @@ impl Engine<Chessboard> for Caps {
         )
     }
 
-    fn set_option(&mut self, option: EngineOptionName, old_value: &mut EngineOptionType, value: String) -> Res<()> {
-        let name = option.name().to_string();
-        if let Other(name) = &option {
-            if name.eq_ignore_ascii_case("uci_chess960") {
-                let Check(check) = old_value else { unreachable!() };
-                let value = parse_bool_from_str(&value, "UCI_Chess960")?;
-                check.val = value;
-                return Ok(());
-            }
+    fn set_option(
+        &mut self,
+        option: EngineOptionNameForProto,
+        _old_value: &mut EngineOptionType,
+        value: String,
+    ) -> Res<()> {
+        let name = option.to_string();
+        if let Other(name) = &option.name {
             if let Ok(val) = parse_int_from_str(&value, "spsa option value") {
                 if cc::set_value(name, val).is_ok() {
                     return Ok(());
@@ -399,14 +397,14 @@ impl NormalEngine<Chessboard> for Caps {
         &mut self.state
     }
 
-    fn time_up(&self, tc: TimeControl, fixed_time: Duration, elapsed: Duration) -> bool {
+    fn time_up(&self, tc: TimeControl, fixed_time: Duration, byoyomi: Duration, elapsed: Duration) -> bool {
         debug_assert_eq!(self.uci_nodes() % DEFAULT_CHECK_TIME_INTERVAL, 0);
         // TODO: Compute at the start of the search instead of every time:
         // Instead of storing a SearchLimit, store a different struct that contains soft and hard bounds
         let hard = (tc.remaining.saturating_sub(tc.increment)) * cc::inv_hard_limit_div() as u32 / 1024 + tc.increment;
         // Because fixed_time has been clamped to at most tc.remaining, this can never lead to timeouts
         // (assuming the move overhead is set correctly)
-        elapsed >= fixed_time.min(hard)
+        elapsed >= byoyomi + fixed_time.min(hard)
     }
 }
 
