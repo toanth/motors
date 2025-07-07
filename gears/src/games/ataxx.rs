@@ -429,10 +429,6 @@ impl Board for AtaxxBoard {
         Self::read_fen_impl(string, strictness)
     }
 
-    fn should_flip_visually() -> bool {
-        false
-    }
-
     fn as_diagram(&self, typ: CharType, flip: bool) -> String {
         board_to_string(self, AtaxxPiece::to_char, typ, flip)
     }

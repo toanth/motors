@@ -960,10 +960,6 @@ impl Board for UtttBoard {
         pos.verify_with_level(CheckFen, strictness)
     }
 
-    fn should_flip_visually() -> bool {
-        false
-    }
-
     fn as_diagram(&self, typ: CharType, flip: bool) -> String {
         board_to_string(self, UtttPiece::to_char, typ, flip)
     }

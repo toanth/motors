@@ -18,7 +18,7 @@
 use crate::PlayerResult::{Draw, Lose};
 use crate::games::{
     AbstractPieceType, BoardHistory, CharType, Color, ColoredPiece, ColoredPieceType, Coordinates, DimT, PosHash,
-    Settings, Size,
+    Settings, Size, file_to_char,
 };
 use crate::general::bitboards::{Bitboard, RawBitboard};
 use crate::general::board::SelfChecks::{Assertion, Verify};
@@ -254,14 +254,15 @@ where
 
     fn set_halfmove_repetition_clock(&mut self, ply: usize) -> Res<()>;
 
+    /// Returns true if the position word of a fen ends with '\[hand\]'
+    fn fen_pos_part_contains_hand(&self) -> bool {
+        false
+    }
+
     /// Loads the hand part of a FEN, which is relevant for fairy chess variants like crazyhouse.
     /// A member of this trait so that implementations can override it, but this method shouldn't need to be called directly.
     fn read_fen_hand_part(&mut self, _input: &str) -> Res<()> {
         bail!("FENs for the game '{}' do not contain a hand part", self.name())
-    }
-
-    fn write_fen_hand_part(&self, _f: &mut Formatter<'_>) -> fmt::Result {
-        Ok(())
     }
 
     // TODO: Also put more methods, like `as_fen`, in this trait?
@@ -592,9 +593,12 @@ pub trait Board:
         settings: Self::SettingsRef,
     ) -> Res<Self>;
 
-    /// Returns true iff the board should be flipped when viewed from the second player's perspective.
-    /// For example, this is the case for chess, but not for Ultimate Tic-Tac-Toe.
-    fn should_flip_visually() -> bool;
+    /// How the board should be displayed in diagrams and in pretty format.
+    /// Specifically, how and when it should be flipped and if the 2 axes should be labelled with letters or numbers.
+    /// By default, the board is always shown from the first player's POV. Files are labelled with letters and ranks with numbers.
+    fn axes_format(&self) -> AxesFormat {
+        AxesFormat::default()
+    }
 
     /// Returns an ASCII (or unicode) art representation of the board.
     /// This is not meant to return a FEN, but instead a diagram where the pieces
@@ -791,10 +795,6 @@ pub trait BoardHelpers: Board {
         res.set_ply_since_start(ply)?;
         Ok(res)
     }
-
-    fn write_fen_hand_part(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        Self::Unverified::new(self.clone()).write_fen_hand_part(f)
-    }
 }
 
 impl<B: Board> BoardHelpers for B {}
@@ -828,6 +828,108 @@ where
 
     fn idx_to_coordinates(&self, idx: DimT) -> Self::Coordinates {
         self.size().idx_to_coordinates(idx)
+    }
+}
+
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Hash, Arbitrary)]
+pub enum BoardOrientation {
+    Normal,    // the board as seen by the first player
+    PlayerPov, // the y-axis is flipped if the board is seen from the second player's POV
+}
+
+/// Whether to use letters ('a'..) or numbers (1..) for printing the rank / file, and whether those should be flipped so that
+/// they're counting right-to-left ur top-down instead of the usual direction.
+#[derive(Debug, Clone, Copy, Eq, PartialEq, Hash, Arbitrary)]
+pub enum AxisSymbol {
+    Letter,
+    LetterReversed,
+    Number,
+    NumberReversed,
+}
+
+/// How diagrams and pretty unicode/ascii representations should orient the board and display the axes.
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Hash, Arbitrary)]
+pub struct AxesFormat {
+    pub orientation: BoardOrientation,
+    pub x_axis_symbol: AxisSymbol,
+    pub y_axis_symbol: AxisSymbol,
+}
+
+impl Default for AxesFormat {
+    fn default() -> Self {
+        Self {
+            orientation: BoardOrientation::Normal,
+            x_axis_symbol: AxisSymbol::Letter,
+            y_axis_symbol: AxisSymbol::Number,
+        }
+    }
+}
+
+impl AxesFormat {
+    pub fn player_pov() -> Self {
+        let mut res = Self::default();
+        res.orientation = BoardOrientation::PlayerPov;
+        res
+    }
+
+    fn ith_entry_for(
+        self,
+        i: DimT,
+        max: DimT,
+        flip: bool,
+        axis: AxisSymbol,
+        fmt_width: Option<usize>,
+        center: bool,
+    ) -> impl Display {
+        let mut flip = flip && self.orientation == BoardOrientation::PlayerPov;
+        flip ^= matches!(axis, AxisSymbol::LetterReversed | AxisSymbol::NumberReversed);
+        let num = if flip { max - 1 - i } else { i };
+        match axis {
+            AxisSymbol::Letter | AxisSymbol::LetterReversed => {
+                let mut c = file_to_char(num);
+                if fmt_width.is_some() {
+                    c = c.to_ascii_uppercase();
+                }
+                AxisEntry::Char(c, fmt_width.unwrap_or_default(), center)
+            }
+            AxisSymbol::Number | AxisSymbol::NumberReversed => {
+                AxisEntry::Num(num + 1, fmt_width.unwrap_or_default(), center)
+            }
+        }
+    }
+
+    pub fn ith_x_axis_entry(self, i: DimT, width: DimT, sq_width: Option<usize>, flip: bool) -> impl Display {
+        self.ith_entry_for(i, width, flip, self.x_axis_symbol, sq_width, true)
+    }
+
+    pub fn ith_y_axis_entry(self, i: DimT, height: DimT, sq_width: Option<usize>, flip: bool) -> impl Display {
+        self.ith_entry_for(i, height, flip, self.y_axis_symbol, sq_width, false)
+    }
+}
+
+enum AxisEntry {
+    Char(char, usize, bool),
+    Num(DimT, usize, bool),
+}
+
+impl Display for AxisEntry {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        match *self {
+            AxisEntry::Char(x, w, center) => {
+                if center {
+                    write!(f, "{x:^w$}")
+                } else {
+                    write!(f, "{x:>w$}")
+                }
+            }
+            AxisEntry::Num(x, w, center) => {
+                if center {
+                    write!(f, "{x:^w$}")
+                } else {
+                    write!(f, "{x:>w$}")
+                }
+            }
+        }
     }
 }
 
@@ -936,7 +1038,6 @@ pub fn position_fen_part<B: RectangularBoard>(f: &mut Formatter<'_>, pos: &B) ->
             write!(f, "/")?;
         }
     }
-    pos.write_fen_hand_part(f)?;
     Ok(())
 }
 
@@ -1043,12 +1144,23 @@ fn read_position_fen_impl<B: RectangularBoard>(
 }
 
 pub(crate) fn read_position_fen<B: RectangularBoard>(mut position: &str, board: &mut B::Unverified) -> Res<()> {
-    if let Some((pos, hand)) = position.split_once('[') {
+    if board.fen_pos_part_contains_hand() {
+        let Some((pos, hand)) = position.split_once('[') else {
+            bail!(
+                "The position token of the FEN ('{0}') has to end with a hand part enclosed in [brackets]",
+                position.red()
+            );
+        };
         position = pos;
         let Some(hand) = hand.strip_suffix(']') else {
             bail!("If the position description of the FEN contains a '[', it must end with a ']'");
         };
         board.read_fen_hand_part(hand)?;
+    } else if position.ends_with(']') {
+        bail!(
+            "The position token of the FEN ('{0}') ends with a bracket, but this format is not supposed to contain a hand part",
+            position.red()
+        )
     }
     let lines = position.split('/');
     let mut num_lines = 0;
@@ -1113,6 +1225,14 @@ pub(crate) fn read_common_fen_part<B: RectangularBoard>(words: &mut Tokens, boar
     Ok(())
 }
 
+pub(crate) fn read_halfmove_clock<B: RectangularBoard>(words: &mut Tokens, board: &mut B::Unverified) -> Res<()> {
+    let halfmove_clock = words.peek().copied().unwrap_or("");
+    let halfmove_clock = halfmove_clock.parse::<usize>()?;
+    _ = words.next();
+    board.set_halfmove_repetition_clock(halfmove_clock)?;
+    Ok(())
+}
+
 pub(crate) fn read_two_move_numbers<B: RectangularBoard>(
     words: &mut Tokens,
     board: &mut B::Unverified,
@@ -1141,7 +1261,6 @@ pub(crate) fn read_two_move_numbers<B: RectangularBoard>(
     Ok(())
 }
 
-#[allow(unused)]
 pub(crate) fn read_single_move_number<B: RectangularBoard>(
     words: &mut Tokens,
     board: &mut B::Unverified,
@@ -1164,6 +1283,24 @@ pub(crate) fn read_single_move_number<B: RectangularBoard>(
         Ok(ply_counter_from_fullmove_nr(fullmove_nr, board.active_player().is_first()))
     };
     board.set_ply_since_start(plyctr()?)
+}
+
+pub(crate) fn read_move_number_in_ply<B: RectangularBoard>(
+    words: &mut Tokens,
+    board: &mut B::Unverified,
+    strictness: Strictness,
+) -> Res<()> {
+    let ply_ctr = words.next().unwrap_or_default();
+    let ctr = match ply_ctr.parse::<NonZeroUsize>() {
+        Ok(n) => n.get() - 1,
+        Err(_) => {
+            if strictness == Strict {
+                bail!("FEN doesn't contain a valid ply counter, but that is required in strict mode")
+            }
+            0
+        }
+    };
+    board.set_ply_since_start(ctr)
 }
 
 struct ChildrenIter<'a, B: Board> {

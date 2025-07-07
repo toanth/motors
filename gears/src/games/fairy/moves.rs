@@ -157,13 +157,22 @@ impl Move<FairyBoard> for FairyMove {
             return Ok((rest, Self::default()));
         }
         let moves = board.legal_moves_slow();
-        for m in moves {
+        let mut longest_match = (s, FairyMove::default());
+        for m in &moves {
             let as_string = m.compact_formatter(board).to_string();
             if let Some(remaining) = s.strip_prefix(&as_string) {
-                return Ok((remaining, m));
+                // it's common for a legal move to be a prefix of another legal move, e.g. in shogi-style promotions
+                if remaining.len() < longest_match.0.len() {
+                    longest_match = (remaining, *m);
+                }
             }
         }
-        bail!("No legal move matches '{}'", tokens(s).next().unwrap_or_default().red())
+        if longest_match.0.len() != s.len() {
+            return Ok(longest_match);
+        }
+        let moves_msg =
+            format!("There are {0} legal moves in this position (type 'show moves' to view them)", moves.len());
+        bail!("No legal move matches '{0}'. {1}", tokens(s).next().unwrap_or_default().red(), moves_msg.dimmed())
     }
 
     fn parse_extended_text<'a>(s: &'a str, board: &FairyBoard) -> Res<(&'a str, FairyMove)> {
@@ -189,6 +198,8 @@ fn format_move_compact(f: &mut Formatter<'_>, mov: FairyMove, pos: &FairyBoard) 
     let size = pos.size();
     let from = mov.from.square(size);
     let to = mov.to.square(size);
+    let from = pos.square_formatter(from);
+    let to = pos.square_formatter(to);
     Some(match mov.kind() {
         MoveKind::Normal | MoveKind::DoublePawnPush => {
             write!(f, "{from}{to}")
@@ -203,7 +214,7 @@ fn format_move_compact(f: &mut Formatter<'_>, mov: FairyMove, pos: &FairyBoard) 
         }
         MoveKind::Castle(side) => {
             let rook_sq = pos.0.castling_info.player(pos.active_player()).rook_sq(side)?;
-            write!(f, "{from}{rook_sq}")
+            write!(f, "{from}{}", pos.square_formatter(rook_sq))
         }
         MoveKind::Drop(piece) => {
             if pos.rules().pieces.iter().filter(|p| !p.uncolored).count() <= 1 {
@@ -212,7 +223,8 @@ fn format_move_compact(f: &mut Formatter<'_>, mov: FairyMove, pos: &FairyBoard) 
                 let piece = pos.rules().pieces.get(piece as usize)?;
                 // although lichess doesn't use `P` for pawn drops in their human-readable notation,
                 // fairy sf and cutechess do (at least in crazyhouse) in their UCI notation
-                write!(f, "{}@{to}", piece.uncolored_symbol[Ascii])
+                let drop_str = &pos.rules().format_rules.drop_str;
+                write!(f, "{}{drop_str}{to}", piece.uncolored_symbol[Ascii])
             }
         }
     })

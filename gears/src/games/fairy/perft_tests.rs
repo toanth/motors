@@ -28,7 +28,8 @@ mod tests {
 
     fn test_pos(pos: FairyBoard, fen: &str, expected: &[u64], start_time: Instant, max_nodes: u64) {
         println!("{pos}");
-        assert_eq!(FairyBoard::from_fen(&pos.as_fen(), Relaxed).unwrap(), pos);
+        let p2 = FairyBoard::from_fen(&pos.as_fen(), Relaxed).unwrap();
+        assert_eq!(p2, pos, "{p2}");
         for (i, &expected) in expected.iter().enumerate() {
             if expected > max_nodes {
                 break;
@@ -125,26 +126,21 @@ mod tests {
                 vec![3, 17, 121, 611, 3501, 21338, 133_659, 1_059_417, 12_193_381],
             ),
             ("crazyhouse K1QQQQ1Q/Q7/Q7/6Q1/1Q6/7Q/Q6B/1QQQQQnk[PNBRQ] w - - 0 1", vec![444, 0, 0]),
-            // TODO: Different FEN formats like sfen for some of the shogi positions
             ("shogi startpos", vec![30, 900, 25_470, 719_731, 19_861_490 /*, 547_581_517*/]),
             (
-                // " shogi 8l/1l+R2P3/p2pBG1pp/kps1p4/Nn1P2G2/P1P1P2PP/1PS6/1KSG3+r1/LN2+p3L w Sbgn3p 124",
-                " shogi 8l/1l+R2P3/p2pBG1pp/kps1p4/Nn1P2G2/P1P1P2PP/1PS6/1KSG3+r1/LN2+p3L[Sbgnppp] b - 124",
+                " shogi 8l/1l+R2P3/p2pBG1pp/kps1p4/Nn1P2G2/P1P1P2PP/1PS6/1KSG3+r1/LN2+p3L w Sbgn3p 124",
                 vec![178, 18_041, 2_552_846],
             ),
             (
                 "shogi lnsgkgsnl/1r7/p1ppp1bpp/1p3pp2/7P1/2P6/PP1PPPP1P/1B3S1R1/LNSGKG1NL[] b - 9",
-                // "shogi lnsgkgsnl/1r7/p1ppp1bpp/1p3pp2/7P1/2P6/PP1PPPP1P/1B3S1R1/LNSGKG1NL b - 9",
                 vec![38, 1180, 41_578, 1_317_297],
             ),
             (
-                // "shogi l4S2l/4g1gs1/5p1p1/pr2N1pkp/4Gn3/PP3PPPP/2GPP4/1K7/L3r+s2L w BS2N5Pb 1",
-                "shogi l4S2l/4g1gs1/5p1p1/pr2N1pkp/4Gn3/PP3PPPP/2GPP4/1K7/L3r+s2L[BSNNPPPPPb] b - 1",
+                "shogi l4S2l/4g1gs1/5p1p1/pr2N1pkp/4Gn3/PP3PPPP/2GPP4/1K7/L3r+s2L w BS2N5Pb 1",
                 vec![98, 15850, 1_114_656],
             ),
             (
-                // "shogi 6n1l/2+S1k4/2lp4p/1np1B2b1/3PP4/1N1S3rP/1P2+pPP+p1/1p1G5/3KG2r1 b GSN2L4Pgs2p 1",
-                "shogi 6n1l/2+S1k4/2lp4p/1np1B2b1/3PP4/1N1S3rP/1P2+pPP+p1/1p1G5/3KG2r1[GSNLLPPPPgspp] w - 1",
+                "shogi 6n1l/2+S1k4/2lp4p/1np1B2b1/3PP4/1N1S3rP/1P2+pPP+p1/1p1G5/3KG2r1 b GSN2L4Pgs2p 42",
                 vec![246, 41_605, 8_420_492],
             ),
             (
@@ -191,7 +187,7 @@ mod tests {
                 "crazyhouse r1bqk2r/pppp1ppp/2n1p3/4P3/1b1Pn3/2NB1N2/PPP2PPP/R1BQK2R[] b KQkq -",
                 vec![42, 1347, 58057, 2083382],
             ),
-            ("crazyhouse 4k3/1Q~6/8/8/4b3/8/Kpp5/8/ b - - 0 1", vec![20, 360, 5445, 132758]),
+            ("crazyhouse 4k3/1Q~6/8/8/4b3/8/Kpp5/8[] b - - 0 1", vec![20, 360, 5445, 132758]),
             ("horde 4k3/pp4q1/3P2p1/8/P3PP2/PPP2r2/PPP5/PPPP4 b - -", vec![30, 241, 6633, 56539]),
             ("horde k7/5p2/4p2P/3p2P1/2p2P2/1p2P2P/p2P2P1/2P2P2 w - -", vec![13, 172, 2205, 33781]),
             ("racingkings 4brn1/2K2k2/8/8/8/8/8/8 w - -", vec![6, 33, 178, 3151, 12981, 265932]),

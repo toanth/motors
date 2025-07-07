@@ -127,6 +127,7 @@ pub enum Protocol {
     UGI,
     UCI,
     UAI,
+    USI,
 }
 
 #[derive(Debug)]

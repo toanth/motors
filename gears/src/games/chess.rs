@@ -32,8 +32,8 @@ use crate::general::bitboards::{Bitboard, KnownSizeBitboard, RawBitboard, RawSta
 use crate::general::board::SelfChecks::CheckFen;
 use crate::general::board::Strictness::{Relaxed, Strict};
 use crate::general::board::{
-    BitboardBoard, BoardHelpers, NameToPos, PieceTypeOf, Strictness, Symmetry, UnverifiedBoard, board_from_name,
-    position_fen_part, read_common_fen_part, read_two_move_numbers,
+    AxesFormat, BitboardBoard, BoardHelpers, NameToPos, PieceTypeOf, Strictness, Symmetry, UnverifiedBoard,
+    board_from_name, position_fen_part, read_common_fen_part, read_two_move_numbers,
 };
 use crate::general::common::{EntityList, Res, StaticallyNamedEntity, Tokens, parse_int_from_str};
 use crate::general::move_list::{InplaceMoveList, MoveList};
@@ -635,8 +635,8 @@ impl Board for Chessboard {
         board.verify_with_level(CheckFen, strictness)
     }
 
-    fn should_flip_visually() -> bool {
-        true
+    fn axes_format(&self) -> AxesFormat {
+        AxesFormat::player_pov()
     }
 
     fn as_diagram(&self, typ: CharType, flip: bool) -> String {

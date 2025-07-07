@@ -319,7 +319,7 @@ pub fn parse_ugi_position_part<B: Board>(
     let mut original_tokens = tokens(&original_string);
     let res = B::read_fen_and_advance_input_for(&mut original_tokens, strictness, current_pos.settings_ref());
     *rest = copy;
-    let advance_by = rest.clone().count() - original_tokens.count();
+    let advance_by = rest.clone().count().saturating_sub(original_tokens.count());
     for _ in 0..advance_by {
         _ = rest.next().unwrap();
     }

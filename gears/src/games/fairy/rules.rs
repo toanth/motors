@@ -38,7 +38,7 @@ use crate::games::fairy::{
 use crate::games::mnk::{MNKBoard, MnkSettings};
 use crate::games::{BoardHistory, Color, DimT, NUM_COLORS, PosHash, Settings, chess, n_fold_repetition};
 use crate::general::bitboards::{Bitboard, RawBitboard};
-use crate::general::board::{BitboardBoard, Board, BoardHelpers};
+use crate::general::board::{AxesFormat, AxisSymbol, BitboardBoard, Board, BoardHelpers, BoardOrientation};
 use crate::general::common::{Res, Tokens};
 use crate::general::move_list::MoveList;
 use crate::general::moves::Legality::{Legal, PseudoLegal};
@@ -524,7 +524,6 @@ impl Arbitrary<'_> for EmptyBoard {
             additional_ctrs: [0; NUM_COLORS],
             active: FairyColor::arbitrary(u)?,
             castling_info: FairyCastleInfo::arbitrary(u)?,
-            fen_format: FenFormat::arbitrary(u)?,
             ep: Option::arbitrary(u)?,
             last_move: FairyMove::arbitrary(u)?,
             rules: Default::default(),
@@ -585,17 +584,6 @@ impl FilterMovesCondition {
     }
 }
 
-/// The board will first try to parse a FEN with the selected format (standard by default (TODO: Changeable with an uci option)),
-/// if that fails it will try the other format and change the selected format. The board is always written with the selected format.
-#[derive(Debug, Default, Copy, Clone, Eq, PartialEq, Hash, Arbitrary)]
-#[must_use]
-pub(super) enum FenFormat {
-    #[default]
-    Standard,
-    // e.g. sfen in shogi, but not shredder fen instead of x-fen in chess because that can be the same fen string
-    Alternative,
-}
-
 /// Pieces only contain promotion information if that is relevant for the game, so e.g. a chess queen that was promoted from
 /// a pawn is just a normal queen. For pieces with this information, this enum describes how the piece is formatted in a FEN.
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Hash, Arbitrary)]
@@ -617,7 +605,13 @@ pub(super) enum PromoMoveChar {
     Plus,
 }
 
-pub(super) const NUM_FEN_FORMATS: usize = 2;
+/// How the FEN counts the move number
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Hash, Arbitrary)]
+#[must_use]
+pub(super) enum MoveNumFmt {
+    Fullmove,
+    Halfmove,
+}
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Hash, Arbitrary)]
 #[must_use]
@@ -641,14 +635,16 @@ pub(super) struct FenFormatSpec {
 /// How to format FENs and moves.
 /// If parsing a FEN fails, the board switches the format and tries again, if that succeeds it keeps the new format.
 pub(super) struct FormatRules {
-    pub(super) has_halfmove_ctr: bool,
-    // TODO: Doens't really belong in format rules since it's just used to set up the startpos but doesn't depend on format rules
+    pub(super) has_halfmove_clock: bool,
+    pub(super) move_num_fmt: MoveNumFmt,
+    // TODO: Doesn't really belong in format rules since it's just used to set up the startpos but doesn't depend on format rules
     pub(super) startpos_fen: String, // doesn't include the rules
     pub(super) rules_part: FenRulesPart,
     pub(super) hand: FenHandInfo,
     pub(super) promo_fen_modifier: PromoFenModifier,
     pub(super) promo_move_char: PromoMoveChar,
-    // pub(super) formats: [FenFormatSpec; NUM_FEN_FORMATS],
+    pub(super) drop_str: String,
+    pub(super) axes_format: AxesFormat,
 }
 
 impl FormatRules {
@@ -700,6 +696,9 @@ impl FormatRules {
 #[derive(Debug, Arbitrary)]
 pub struct Rules {
     pub(super) format_rules: FormatRules,
+    /// When reading in a FEN fails, we try again with these fallback rules.
+    /// For example, this is used to support both UGI and USI formats for Shogi.
+    pub(super) fallback: Option<Arc<Rules>>,
     pub(super) pieces: Vec<Piece>,
     pub(super) colors: [ColorInfo; NUM_COLORS],
     pub(super) starting_pieces_in_hand: [[u8; MAX_NUM_PIECE_TYPES]; NUM_COLORS],
@@ -769,7 +768,6 @@ impl Rules {
             additional_ctrs: [0; NUM_COLORS],
             active: Default::default(),
             castling_info: FairyCastleInfo::new(size),
-            fen_format: FenFormat::Standard,
             ep: None,
             last_move: Default::default(),
             rules: rules.clone(),
@@ -808,16 +806,20 @@ impl Rules {
         let empty_func = Self::generic_empty_board;
         // let fen_format = FenFormatSpec { hand: FenHandInfo::None };
         let fen_rules = FormatRules {
-            has_halfmove_ctr: true,
+            has_halfmove_clock: true,
+            move_num_fmt: MoveNumFmt::Fullmove,
             startpos_fen: chess::START_FEN.to_string(),
             rules_part: FenRulesPart::None,
             // formats: [fen_format; 2],
             hand: FenHandInfo::None,
             promo_fen_modifier: PromoFenModifier::Crazyhouse,
             promo_move_char: PromoMoveChar::Piece,
+            drop_str: "@".to_string(),
+            axes_format: AxesFormat::player_pov(),
         };
         Self {
             format_rules: fen_rules,
+            fallback: None,
             pieces,
             colors,
             starting_pieces_in_hand: [[0; MAX_NUM_PIECE_TYPES]; NUM_COLORS],
@@ -948,6 +950,7 @@ impl Rules {
     pub fn crazyhouse() -> Self {
         let mut rules = Self::chess();
         rules.name = "crazyhouse".to_string();
+        rules.format_rules.startpos_fen = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR[] w KQkq - 0 1".to_string();
         rules.format_rules.hand = FenHandInfo::InBrackets;
         rules.observers = Observers::crazyhouse();
         for (i, p) in rules.pieces.iter_mut().enumerate() {
@@ -1003,17 +1006,17 @@ impl Rules {
         rules
     }
 
-    pub fn shogi() -> Self {
-        // TODO: The board is visualized flipped both horizontally and vertically, and moves also use that notation
+    fn shogi_impl(usi: bool) -> Self {
         let mut rules = Self::chess();
         rules.name = "shogi".to_string();
-        rules.format_rules.startpos_fen = "lnsgkgsnl/1r5b1/ppppppppp/9/9/9/PPPPPPPPP/1B5R1/LNSGKGSNL w - 1".to_string();
-        rules.format_rules.has_halfmove_ctr = false;
+        // Some of these settings will be overwritten below if `usi` is true.
+        rules.format_rules.startpos_fen =
+            "lnsgkgsnl/1r5b1/ppppppppp/9/9/9/PPPPPPPPP/1B5R1/LNSGKGSNL[] w - 1".to_string();
+        rules.format_rules.has_halfmove_clock = false;
         rules.format_rules.hand = FenHandInfo::InBrackets;
         rules.format_rules.promo_fen_modifier = PromoFenModifier::Shogi;
         rules.format_rules.promo_move_char = PromoMoveChar::Plus;
         rules.size = FairySize::shogi();
-        // TODO: Flip color chars when using sfens
         rules.colors[0] = ColorInfo { ascii_char: 'w', name: "sente".to_string() };
         rules.colors[1] = ColorInfo { ascii_char: 'b', name: "gote".to_string() };
         rules.pieces = Piece::shogi_pieces();
@@ -1027,6 +1030,24 @@ impl Rules {
         rules.game_end_eager =
             vec![(Repetition(4), Draw.but(GameEndRes::win()).if_eager(GameEndEager::InCheck(PlayerCond::Active)))];
         rules.game_end_no_moves = vec![(Always, InactivePlayerWin)];
+        if usi {
+            rules.colors.swap(0, 1);
+            rules.has_ep = false;
+            rules.format_rules.drop_str = "*".to_string();
+            rules.format_rules.hand = FenHandInfo::SeparateToken;
+            rules.format_rules.startpos_fen =
+                "lnsgkgsnl/1r5b1/ppppppppp/9/9/9/PPPPPPPPP/1B5R1/LNSGKGSNL b - 1".to_string();
+            rules.format_rules.axes_format.x_axis_symbol = AxisSymbol::NumberReversed;
+            rules.format_rules.axes_format.y_axis_symbol = AxisSymbol::LetterReversed;
+            rules.format_rules.move_num_fmt = MoveNumFmt::Halfmove;
+        }
+        rules
+    }
+
+    // TODO: Take protocol mode enum instead, move that to gears
+    pub fn shogi(usi: bool) -> Self {
+        let mut rules = Self::shogi_impl(usi);
+        rules.fallback = Some(Arc::new(Self::shogi_impl(!usi)));
         rules
     }
 
@@ -1037,16 +1058,25 @@ impl Rules {
         let gap = map.remove("gap").unwrap();
         let pieces = vec![piece, gap];
         let startpos_fen = AtaxxBoard::startpos().as_fen();
+        let axes_format = AxesFormat {
+            orientation: BoardOrientation::PlayerPov,
+            x_axis_symbol: AxisSymbol::NumberReversed,
+            y_axis_symbol: AxisSymbol::LetterReversed,
+        };
         let fen_rules = FormatRules {
             hand: FenHandInfo::None,
-            has_halfmove_ctr: true,
+            has_halfmove_clock: true,
+            move_num_fmt: MoveNumFmt::Fullmove,
             startpos_fen,
             rules_part: FenRulesPart::None,
             promo_fen_modifier: PromoFenModifier::Crazyhouse,
             promo_move_char: PromoMoveChar::Piece,
+            drop_str: "".to_string(),
+            axes_format,
         };
         Self {
             format_rules: fen_rules,
+            fallback: None,
             pieces,
             colors: Self::mnk_colors(),
             starting_pieces_in_hand: [[u8::MAX; MAX_NUM_PIECE_TYPES]; NUM_COLORS],
@@ -1084,14 +1114,18 @@ impl Rules {
         let startpos_fen = MNKBoard::startpos_for_settings(settings).as_fen();
         let fen_rules = FormatRules {
             hand: FenHandInfo::None,
-            has_halfmove_ctr: false,
+            has_halfmove_clock: false,
+            move_num_fmt: MoveNumFmt::Fullmove,
             startpos_fen,
             rules_part: FenRulesPart::Mnk(settings),
             promo_fen_modifier: PromoFenModifier::Crazyhouse,
             promo_move_char: PromoMoveChar::Piece,
+            drop_str: "".to_string(),
+            axes_format: AxesFormat::default(),
         };
         Self {
             format_rules: fen_rules,
+            fallback: None,
             pieces,
             colors: Self::mnk_colors(),
             starting_pieces_in_hand: [[u8::MAX; MAX_NUM_PIECE_TYPES]; NUM_COLORS],
@@ -1130,6 +1164,9 @@ pub struct RulesRef(Arc<Rules>);
 impl RulesRef {
     pub(super) fn new(rules: Rules) -> Self {
         Self(Arc::new(rules))
+    }
+    pub(super) fn from_arc(rules: Arc<Rules>) -> Self {
+        Self(rules)
     }
 
     pub fn empty_pos(&self) -> UnverifiedFairyBoard {

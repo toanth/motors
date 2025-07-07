@@ -28,8 +28,8 @@ use crate::PlayerResult;
 use crate::games::CharType::Ascii;
 use crate::games::fairy::moves::FairyMove;
 use crate::games::fairy::pieces::{ColoredPieceId, PieceId};
-use crate::games::fairy::rules::FenHandInfo;
-use crate::games::fairy::rules::{FenFormat, GameEndEager, NumRoyals, Rules, RulesRef};
+use crate::games::fairy::rules::{FenHandInfo, MoveNumFmt};
+use crate::games::fairy::rules::{GameEndEager, NumRoyals, Rules, RulesRef};
 use crate::games::{
     AbstractPieceType, BoardHistory, CharType, Color, ColoredPiece, ColoredPieceType, DimT, GenericPiece, NUM_COLORS,
     NoHistory, PosHash, Size,
@@ -38,8 +38,9 @@ use crate::general::bitboards::{Bitboard, DynamicallySizedBitboard, ExtendedRawB
 use crate::general::board::SelfChecks::CheckFen;
 use crate::general::board::Strictness::Strict;
 use crate::general::board::{
-    BitboardBoard, Board, BoardHelpers, BoardSize, ColPieceTypeOf, NameToPos, PieceTypeOf, SelfChecks, Strictness,
-    Symmetry, UnverifiedBoard, position_fen_part, read_common_fen_part, read_single_move_number, read_two_move_numbers,
+    AxesFormat, BitboardBoard, Board, BoardHelpers, BoardSize, ColPieceTypeOf, NameToPos, PieceTypeOf, SelfChecks,
+    Strictness, Symmetry, UnverifiedBoard, position_fen_part, read_common_fen_part, read_halfmove_clock,
+    read_move_number_in_ply, read_single_move_number,
 };
 use crate::general::common::Description::NoDescription;
 use crate::general::common::{
@@ -47,11 +48,11 @@ use crate::general::common::{
 };
 use crate::general::move_list::{MoveList, SboMoveList};
 use crate::general::moves::Move;
-use crate::general::squares::{GridCoordinates, GridSize, RectangularCoordinates, SquareColor};
+use crate::general::squares::{GridCoordinates, GridSize, RectangularCoordinates, RectangularSize, SquareColor};
 use crate::output::OutputOpts;
 use crate::output::text_output::{BoardFormatter, DefaultBoardFormatter, board_to_string, display_board_pretty};
 use crate::search::DepthPly;
-use anyhow::{bail, ensure};
+use anyhow::{anyhow, bail, ensure};
 use arbitrary::Arbitrary;
 use colored::Colorize;
 use itertools::Itertools;
@@ -238,6 +239,7 @@ impl FairyCastleInfo {
         self.unset(color, Side::Kingside);
     }
     pub fn write_fen_part(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        write!(f, " ")?;
         let mut can_castle = false;
         for color in FairyColor::iter() {
             for side in Side::iter() {
@@ -250,7 +252,7 @@ impl FairyCastleInfo {
         if !can_castle {
             write!(f, "-")?;
         }
-        write!(f, " ")
+        Ok(())
     }
 }
 
@@ -277,7 +279,6 @@ pub struct UnverifiedFairyBoard {
     additional_ctrs: [AdditionalCtrT; NUM_COLORS],
     active: FairyColor,
     castling_info: FairyCastleInfo,
-    fen_format: FenFormat,
     ep: Option<FairySquare>,
     last_move: FairyMove,
     hash: PosHash,
@@ -504,6 +505,10 @@ impl UnverifiedBoard<FairyBoard> for UnverifiedFairyBoard {
         Ok(())
     }
 
+    fn fen_pos_part_contains_hand(&self) -> bool {
+        self.rules().format_rules.hand == FenHandInfo::InBrackets
+    }
+
     fn read_fen_hand_part(&mut self, input: &str) -> Res<()> {
         ensure!(
             self.rules().format_rules.hand != FenHandInfo::None,
@@ -541,29 +546,6 @@ impl UnverifiedBoard<FairyBoard> for UnverifiedFairyBoard {
         }
         if digit_start.is_some() {
             bail!("FEN hand description '{}' ends with a number", input.red())
-        }
-        Ok(())
-    }
-
-    fn write_fen_hand_part(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        let rules = self.rules();
-        if rules.format_rules.hand == FenHandInfo::None {
-            return Ok(());
-        }
-        if rules.format_rules.hand == FenHandInfo::InBrackets {
-            write!(f, "[")?;
-        }
-        for color in FairyColor::iter() {
-            for (id, piece) in rules.pieces().rev() {
-                let mut count = self.in_hand[color][id.val()];
-                while count > 0 {
-                    write!(f, "{}", piece.player_symbol[color][Ascii])?;
-                    count -= 1;
-                }
-            }
-        }
-        if rules.format_rules.hand == FenHandInfo::InBrackets {
-            write!(f, "]")?;
         }
         Ok(())
     }
@@ -640,6 +622,33 @@ impl UnverifiedFairyBoard {
         _ = words.next();
         Ok(())
     }
+
+    fn write_fen_hand_part(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        let rules = self.rules();
+        if rules.format_rules.hand == FenHandInfo::None {
+            return Ok(());
+        }
+        if self.fen_pos_part_contains_hand() {
+            write!(f, "[")?;
+        }
+        for color in FairyColor::iter() {
+            for (id, piece) in rules.pieces().rev() {
+                let mut count = self.in_hand[color][id.val()];
+                if !self.fen_pos_part_contains_hand() && count > 1 {
+                    write!(f, "{count}{}", piece.player_symbol[color][Ascii])?;
+                } else {
+                    while count > 0 {
+                        write!(f, "{}", piece.player_symbol[color][Ascii])?;
+                        count -= 1;
+                    }
+                }
+            }
+        }
+        if self.fen_pos_part_contains_hand() {
+            write!(f, "]")?;
+        }
+        Ok(())
+    }
 }
 
 #[derive(Debug, Clone, Eq, PartialEq, Arbitrary)]
@@ -700,7 +709,8 @@ impl Board for FairyBoard {
     }
 
     fn startpos_for_settings(settings: RulesRef) -> Self {
-        Self::from_fen_for(&settings.get().name, &settings.get().format_rules.startpos_fen, Strict).unwrap()
+        let fen = settings.get().format_rules.startpos_fen.clone();
+        Self::from_fen_for_rules(&fen, Strict, settings).unwrap()
     }
 
     fn name_to_pos_map() -> EntityList<NameToPos> {
@@ -735,8 +745,7 @@ impl Board for FairyBoard {
         if first.is_empty() {
             bail!("Missing name for fairy variant");
         };
-        let mut variant =
-            (select_name_static(first, Self::variants().iter(), "variant", "fairy", NoDescription)?.val)();
+        let mut variant = Self::variant_from_name(first)?;
         let rest_copy = rest.clone();
         let res = variant.get().format_rules.read_rules_part(rest);
         if let Ok(Some(new)) = res {
@@ -879,16 +888,15 @@ impl Board for FairyBoard {
         self.hash
     }
 
-    // TODO: Eventually, FEN parsing should work like this: If the first token of the FEN is a recognized game name, like `chess`,
-    // that sets the variant and parses the FEN according to those rules. Otherwise, the variant is the same as the old one
-    // (which requires passing in an old board).
     fn read_fen_and_advance_input_for(input: &mut Tokens, strictness: Strictness, mut rules: RulesRef) -> Res<Self> {
-        let variants = Self::variants();
-        if let Some(v) =
-            variants.iter().find(|v| v.name.eq_ignore_ascii_case(input.peek().copied().unwrap_or_default()))
-        {
-            _ = input.next();
-            rules = (v.val)();
+        let variant_name = input.peek().copied().unwrap_or_default();
+        // Different rules can have the same name, for example shogi in ugi and usi mode
+        if variant_name != rules.get().name {
+            let variants = Self::variants();
+            if let Some(v) = variants.iter().find(|v| v.name.eq_ignore_ascii_case(variant_name)) {
+                _ = input.next();
+                rules = (v.val)();
+            }
         }
         let input_copy = input.clone();
         match rules.get().format_rules.read_rules_part(input) {
@@ -898,23 +906,28 @@ impl Board for FairyBoard {
                 *input = input_copy;
             }
         }
-        let mut board = FairyBoard::empty_for_settings(rules);
-        read_common_fen_part::<Self>(input, &mut board)?;
-        board.read_castling_and_ep_fen_parts(input, strictness)?;
-        let trailing_counters = board.rules().has_additional_ctr() && board.read_ctrs(input, true).is_err();
-        if board.rules().format_rules.has_halfmove_ctr {
-            read_two_move_numbers::<Self>(input, &mut board, strictness)?;
-        } else {
-            read_single_move_number::<Self>(input, &mut board, strictness, None)?;
+        let board = FairyBoard::empty_for_settings(rules.clone());
+        let input_copy = input.clone();
+        match board.read_fen_without_rules(input, strictness) {
+            Ok(res) => Ok(res),
+            Err(err) => {
+                *input = input_copy;
+                // We support loading both cutechess FENs and SFENs for shogi (and variants) without explicitly setting
+                // the protocol through a UGI option. Output will be based on input format, so if we receive an SFEN we
+                // will output FENs and moves in SFEN and USI format.
+                if let Some(rules) = rules.get().fallback.clone() {
+                    let rules = RulesRef::from_arc(rules);
+                    if let Ok(res) = Self::empty_for_settings(rules).read_fen_without_rules(input, strictness) {
+                        return Ok(res);
+                    }
+                }
+                Err(err)
+            }
         }
-        if trailing_counters {
-            board.read_ctrs(input, false)?;
-        }
-        board.verify_with_level(CheckFen, strictness)
     }
 
-    fn should_flip_visually() -> bool {
-        false
+    fn axes_format(&self) -> AxesFormat {
+        self.rules().format_rules.axes_format
     }
 
     fn as_diagram(&self, typ: CharType, flip: bool) -> String {
@@ -983,7 +996,9 @@ impl FairyBoard {
             GenericSelect { name: "5check", val: || RulesRef::new(Rules::n_check(5)) },
             GenericSelect { name: "antichess", val: || RulesRef::new(Rules::antichess()) },
             GenericSelect { name: "shatranj", val: || RulesRef::new(Rules::shatranj()) },
-            GenericSelect { name: "shogi", val: || RulesRef::new(Rules::shogi()) },
+            // TODO: Set format based on USI mode, add testcases
+            GenericSelect { name: "shogi", val: || RulesRef::new(Rules::shogi(false)) },
+            GenericSelect { name: "shogi-usi", val: || RulesRef::new(Rules::shogi(true)) },
             GenericSelect { name: "ataxx", val: || RulesRef::new(Rules::ataxx()) },
             GenericSelect { name: "tictactoe", val: || RulesRef::new(Rules::tictactoe()) },
             GenericSelect { name: "mnk", val: || RulesRef::new(Rules::mnk(GridSize::connect4(), 4)) },
@@ -991,16 +1006,32 @@ impl FairyBoard {
         ]
     }
 
+    fn variant_from_name(name: &str) -> Res<RulesRef> {
+        let create = select_name_static(name, Self::variants().iter(), "variant", "fairy", NoDescription)?.val;
+        Ok(create())
+    }
+
     pub fn variant_simple(name: &str) -> Res<Self> {
         Self::variant(name, &mut tokens(""))
     }
 
     pub fn from_fen_for(variant: &str, fen: &str, strictness: Strictness) -> Res<Self> {
-        if fen.starts_with(variant) {
-            Self::from_fen(fen, strictness)
-        } else {
-            Self::from_fen(&(variant.to_string() + " " + fen), strictness)
+        let variant = Self::variant_from_name(variant)?;
+        Self::from_fen_for_rules(fen, strictness, variant)
+    }
+
+    pub fn from_fen_for_rules(fen: &str, strictness: Strictness, rules: RulesRef) -> Res<Self> {
+        let mut words = tokens(fen);
+        let res = Self::read_fen_and_advance_input_for(&mut words, strictness, rules)
+            .map_err(|err| anyhow!("Failed to parse FEN '{}': {err}", fen.bold()))?;
+        if let Some(next) = words.next() {
+            return Err(anyhow!(
+                "Input `{0}' contained additional characters after FEN, starting with '{1}'",
+                fen.bold(),
+                next.red()
+            ));
         }
+        Ok(res)
     }
 
     pub fn fen_no_rules(&self) -> String {
@@ -1037,18 +1068,33 @@ impl Display for NoRulesFenFormatter<'_> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         let pos = self.0;
         position_fen_part(f, pos)?;
-        write!(f, " {} ", pos.active_player().to_char(pos.settings()))?;
+        match pos.rules().format_rules.hand {
+            FenHandInfo::None => {
+                write!(f, " {}", pos.active_player().to_char(pos.settings()))?;
+            }
+            FenHandInfo::InBrackets => {
+                write!(f, "[")?;
+                pos.write_fen_hand_part(f)?;
+                write!(f, "]")?;
+                write!(f, " {}", pos.active_player().to_char(pos.settings()))?;
+            }
+            FenHandInfo::SeparateToken => {
+                write!(f, " {}", pos.active_player().to_char(pos.settings()))?;
+                pos.write_fen_hand_part(f)?;
+            }
+        }
         if pos.rules().has_castling {
             pos.0.castling_info.write_fen_part(f)?;
         }
         if pos.rules().has_ep {
             if let Some(sq) = pos.0.ep {
-                write!(f, "{sq} ")?;
+                write!(f, " {sq}")?;
             } else {
-                write!(f, "- ")?;
+                write!(f, " -")?;
             }
         }
         if pos.rules().has_additional_ctr() {
+            write!(f, " ")?;
             if let Some(ctr) = pos.rules().ctr_threshold[0] {
                 write!(f, "{}", ctr - pos.additional_ctrs[0])?;
             }
@@ -1056,11 +1102,58 @@ impl Display for NoRulesFenFormatter<'_> {
             if let Some(ctr) = pos.rules().ctr_threshold[1] {
                 write!(f, "{}", ctr - pos.additional_ctrs[1])?;
             }
-            write!(f, " ")?;
         }
-        if pos.rules().format_rules.has_halfmove_ctr {
-            write!(f, "{} ", pos.ply_draw_clock())?;
+        if pos.rules().format_rules.has_halfmove_clock {
+            write!(f, " {}", pos.ply_draw_clock())?;
         }
-        write!(f, "{}", pos.fullmove_ctr_1_based())
+        let ctr = match pos.rules().format_rules.move_num_fmt {
+            MoveNumFmt::Fullmove => pos.fullmove_ctr_1_based(),
+            MoveNumFmt::Halfmove => pos.halfmove_ctr_since_start() + 1,
+        };
+        write!(f, " {ctr}")
+    }
+}
+
+impl UnverifiedFairyBoard {
+    fn read_fen_without_rules(mut self, input: &mut Tokens, strictness: Strictness) -> Res<FairyBoard> {
+        read_common_fen_part::<FairyBoard>(input, &mut self)?;
+        if self.rules().format_rules.hand == FenHandInfo::SeparateToken {
+            let Some(hand) = input.next() else {
+                bail!("Missing hand part");
+            };
+            self.read_fen_hand_part(hand)?;
+        }
+        // does nothing if the rules don't require these parts
+        self.read_castling_and_ep_fen_parts(input, strictness)?;
+        let trailing_counters = self.rules().has_additional_ctr() && self.read_ctrs(input, true).is_err();
+        if self.rules().format_rules.has_halfmove_clock {
+            read_halfmove_clock::<FairyBoard>(input, &mut self)?;
+        }
+        match self.rules().format_rules.move_num_fmt {
+            MoveNumFmt::Fullmove => read_single_move_number::<FairyBoard>(input, &mut self, strictness, None)?,
+            MoveNumFmt::Halfmove => read_move_number_in_ply::<FairyBoard>(input, &mut self, strictness)?,
+        }
+        if trailing_counters {
+            self.read_ctrs(input, false)?;
+        }
+        self.verify_with_level(CheckFen, strictness)
+    }
+
+    fn square_formatter(&self, sq: FairySquare) -> SquareFormatter {
+        SquareFormatter { sq, axes_format: self.rules().format_rules.axes_format, size: self.size() }
+    }
+}
+
+struct SquareFormatter {
+    sq: FairySquare,
+    axes_format: AxesFormat,
+    size: FairySize,
+}
+
+impl Display for SquareFormatter {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        let file = self.axes_format.ith_x_axis_entry(self.sq.file(), self.size.width().get(), None, false);
+        let rank = self.axes_format.ith_y_axis_entry(self.sq.rank(), self.size.height().get(), None, false);
+        write!(f, "{file}{rank}")
     }
 }
