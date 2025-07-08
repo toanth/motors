@@ -41,7 +41,7 @@ pub struct SplitPerftRes<B: Board> {
 impl<B: Board> Display for SplitPerftRes<B> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         for child in &self.children {
-            write!(f, "\n{0}\t{1}", child.0.compact_formatter(&self.pos), child.1)?;
+            writeln!(f, "{0}\t{1}", child.0.compact_formatter(&self.pos), child.1)?;
         }
         write!(
             f,
