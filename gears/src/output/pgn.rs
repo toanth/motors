@@ -81,13 +81,13 @@ pub fn match_to_pgn_string<B: Board>(m: &dyn GameState<B>) -> String {
         fen = m.initial_pos().as_fen(),
         p1 = m.player_name(B::Color::first()).unwrap_or("??".to_string()),
         p2 = m.player_name(B::Color::second()).unwrap_or("??".to_string()),
-        p1_name = B::Color::first().name(&board.settings()).as_ref(),
-        p2_name = B::Color::second().name(&board.settings()).as_ref(),
+        p1_name = B::Color::first().name(board.settings()),
+        p2_name = B::Color::second().name(board.settings()),
     );
     for (ply, mov) in m.move_history().iter().enumerate() {
         let mov_str = mov.extended_formatter(&board, Standard);
         if ply % 2 == 0 {
-            res += &format!("\n{}. {mov_str}", (ply + 1) / 2 + 1);
+            res += &format!("\n{}. {mov_str}", ply.div_ceil(2) + 1);
         } else {
             if ply == 0 && !m.initial_pos().active_player().is_first() {
                 res += &format!("\n1... {mov_str}");
@@ -123,7 +123,7 @@ impl Display for RoundNumber {
             Unimportant => "-".to_string(),
             Custom(s) => s.clone(),
         };
-        write!(f, "{}", s)
+        write!(f, "{s}")
     }
 }
 

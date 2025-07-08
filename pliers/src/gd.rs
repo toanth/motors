@@ -320,7 +320,7 @@ impl Entry {
     /// Create a `Vec` of entries from a slice of features and the phase, where each feature correspononds to two entries.
     pub fn from_features(features: &[Feature], phase: Float) -> Vec<Self> {
         features
-            .into_iter()
+            .iter()
             .flat_map(|&feature| {
                 [
                     Self::new(feature.idx() * 2, feature.float() * phase),
@@ -332,7 +332,7 @@ impl Entry {
 
     /// Create a `Vec` of entries from a slice of features, with a one-to-one correspondence.
     pub fn from_features_unphased(features: &[Feature]) -> Vec<Self> {
-        features.into_iter().map(|&feature| Self::new(feature.idx(), feature.float())).collect()
+        features.iter().map(|&feature| Self::new(feature.idx(), feature.float())).collect()
     }
 }
 
@@ -420,7 +420,7 @@ impl Dataset {
     }
 
     /// Converts the entire dataset into a single batch.
-    pub fn as_batch(&self) -> Batch {
+    pub fn as_batch(&self) -> Batch<'_> {
         Batch {
             datapoints: self.datapoints.as_slice(),
             entries: self.entries.as_slice(),
@@ -429,7 +429,7 @@ impl Dataset {
     }
 
     /// Turns a subset of the dataset into a batch.
-    pub fn batch(&self, start_idx: usize, end_idx: usize) -> Batch {
+    pub fn batch(&self, start_idx: usize, end_idx: usize) -> Batch<'_> {
         let end_idx = end_idx.min(self.datapoints.len());
         let datapoints = &self.datapoints[start_idx..end_idx];
         Batch { datapoints, entries: self.entries.as_slice(), weights_in_pos: self.weights_in_pos }
@@ -467,7 +467,7 @@ impl<'a> Batch<'a> {
     }
 
     /// A parallel iterator over all the data points.
-    pub fn par_datapoint_iter(&self) -> impl ParallelIterator<Item = DatapointRef<'a>> + Clone + Send + Sync + use<'a> {
+    pub fn par_datapoint_iter(&self) -> impl ParallelIterator<Item = DatapointRef<'a>> + Clone + Sync + use<'a> {
         let features = self.entries;
         self.datapoints.par_iter().map(move |datapoint| DatapointRef {
             entries: &features[datapoint.start_idx as usize..datapoint.end_idx as usize],

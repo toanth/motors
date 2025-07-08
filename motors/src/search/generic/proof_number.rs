@@ -302,7 +302,7 @@ impl<B: Board> AbstractSearchState<B> for ProofNumberSearcher<B> {
         BenchResult::default()
     }
 
-    fn to_search_info(&self) -> SearchInfo<B> {
+    fn to_search_info(&self) -> SearchInfo<'_, B> {
         SearchInfo::default()
     }
 

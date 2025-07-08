@@ -147,7 +147,7 @@ impl Chessboard {
     }
 }
 
-pub static UPCOMING_REPETITION_TABLE: LazyLock<UpcomingRepetitionTable> = LazyLock::new(|| calc_move_hash_table());
+pub static UPCOMING_REPETITION_TABLE: LazyLock<UpcomingRepetitionTable> = LazyLock::new(calc_move_hash_table);
 
 #[cfg(test)]
 mod tests {

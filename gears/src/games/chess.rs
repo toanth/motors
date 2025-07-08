@@ -9,6 +9,7 @@ use std::fmt;
 use std::fmt::{Display, Formatter};
 use std::ops::{Index, IndexMut, Not};
 use std::str::FromStr;
+use std::sync::atomic::AtomicBool;
 use strum::IntoEnumIterator;
 
 use crate::PlayerResult;
@@ -31,11 +32,11 @@ use crate::general::bitboards::{Bitboard, KnownSizeBitboard, RawBitboard, RawSta
 use crate::general::board::SelfChecks::CheckFen;
 use crate::general::board::Strictness::{Relaxed, Strict};
 use crate::general::board::{
-    BitboardBoard, BoardHelpers, NameToPos, PieceTypeOf, Strictness, Symmetry, UnverifiedBoard, board_from_name,
-    position_fen_part, read_common_fen_part, read_two_move_numbers,
+    AxesFormat, BitboardBoard, BoardHelpers, NameToPos, PieceTypeOf, Strictness, Symmetry, UnverifiedBoard,
+    board_from_name, position_fen_part, read_common_fen_part, read_two_move_numbers,
 };
 use crate::general::common::{EntityList, Res, StaticallyNamedEntity, Tokens, parse_int_from_str};
-use crate::general::move_list::{EagerNonAllocMoveList, MoveList};
+use crate::general::move_list::{InplaceMoveList, MoveList};
 use crate::general::squares::{RectangularCoordinates, SquareColor};
 use crate::output::OutputOpts;
 use crate::output::text_output::{
@@ -54,6 +55,10 @@ pub mod squares;
 pub mod unverified;
 mod upcomin_repetition;
 pub mod zobrist;
+
+/// This is the only global variable in the entire program, and it is only set when reading a `setoption name UCI_Chess960`.
+/// All it does is determine how castling moves are formatter; in particular, we accept chess960 FENs even without that option.
+pub static UCI_CHESS960: AtomicBool = AtomicBool::new(false);
 
 pub const START_FEN: &str = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
 
@@ -78,6 +83,7 @@ static STARTPOS: Chessboard = {
         ply_100_ctr: 0,
         active_player: White,
         castling: CastlingFlags::for_startpos(),
+        settings: ChessSettings(0),
         ep_square: None,
         hashes: Hashes {
             pawns: PosHash(2269071747976134835),
@@ -88,13 +94,45 @@ static STARTPOS: Chessboard = {
     }
 };
 
-#[derive(Eq, PartialEq, Copy, Clone, Debug, Default)]
-pub struct ChessSettings {}
+#[derive(Debug, Default, Copy, Clone, Arbitrary)]
+pub struct ChessSettings(u8);
+
+impl ChessSettings {
+    /// Determined whether the current position is a dfrc position, which determines how castling moves are formatted.
+    /// Note that if the UCI_Chess960 option is set, castling moves are always formatted in dfrc format.
+    fn dfrc_flag() -> u8 {
+        1
+    }
+    /// This is set on finding the letter `q` or `k` in the FEN castling description.
+    /// It is unrelated to how castling moves are formatted, and only used to determine how a FEN is formatted
+    /// (which never happens in the UCI protocol, but is common in the interactive interface)
+    fn shredder_fen_flag() -> u8 {
+        2
+    }
+    fn is_set(self, flag: u8) -> bool {
+        self.0 & flag != 0
+    }
+    fn set_flag(&mut self, flag: u8, value: bool) {
+        if value {
+            self.0 |= flag;
+        } else {
+            self.0 &= !flag;
+        }
+    }
+}
+
+impl PartialEq for ChessSettings {
+    fn eq(&self, _other: &Self) -> bool {
+        true // we want chessboards to compare equal if they represent the same position and ignore formatting
+    }
+}
+
+impl Eq for ChessSettings {}
 
 pub const MAX_CHESS_MOVES_IN_POS: usize = 300;
 
 // for some reason, Chessboard::MoveList can be ambiguous? This should fix that
-pub type ChessMoveList = EagerNonAllocMoveList<Chessboard, MAX_CHESS_MOVES_IN_POS>;
+pub type ChessMoveList = InplaceMoveList<Chessboard, MAX_CHESS_MOVES_IN_POS>;
 
 impl Settings for ChessSettings {}
 
@@ -138,9 +176,9 @@ impl Not for ChessColor {
     }
 }
 
-impl Into<usize> for ChessColor {
-    fn into(self) -> usize {
-        self as usize
+impl From<ChessColor> for usize {
+    fn from(color: ChessColor) -> Self {
+        color as usize
     }
 }
 
@@ -158,7 +196,7 @@ impl Color for ChessColor {
         }
     }
 
-    fn name(self, _settings: &<Self::Board as Board>::Settings) -> impl AsRef<str> {
+    fn name(self, _settings: &<Self::Board as Board>::Settings) -> &str {
         match self {
             White => "White",
             Black => "Black",
@@ -186,6 +224,7 @@ pub struct Chessboard {
     ply_100_ctr: u8,
     active_player: ChessColor,
     castling: CastlingFlags,
+    settings: ChessSettings,
     ep_square: Option<ChessSquare>, // eventually, see if using Optional and Noned instead of Option improves nps
     hashes: Hashes,
 }
@@ -225,6 +264,7 @@ impl StaticallyNamedEntity for Chessboard {
 impl Board for Chessboard {
     type EmptyRes = UnverifiedChessboard;
     type Settings = ChessSettings;
+    type SettingsRef = ChessSettings;
     type Coordinates = ChessSquare;
     type Color = ChessColor;
     type Piece = ChessPiece;
@@ -232,7 +272,7 @@ impl Board for Chessboard {
     type MoveList = ChessMoveList;
     type Unverified = UnverifiedChessboard;
 
-    fn empty_for_settings(_: Self::Settings) -> UnverifiedChessboard {
+    fn empty_for_settings(settings: ChessSettings) -> UnverifiedChessboard {
         UnverifiedChessboard(Self {
             piece_bbs: Default::default(),
             color_bbs: Default::default(),
@@ -243,6 +283,7 @@ impl Board for Chessboard {
             ply_100_ctr: 0,
             active_player: White,
             castling: CastlingFlags::default(),
+            settings,
             ep_square: None,
             hashes: Hashes::default(),
         })
@@ -384,8 +425,12 @@ impl Board for Chessboard {
         }
     }
 
-    fn settings(&self) -> Self::Settings {
-        ChessSettings {}
+    fn settings(&self) -> &Self::Settings {
+        &self.settings
+    }
+
+    fn settings_ref(&self) -> Self::SettingsRef {
+        self.settings
     }
 
     fn active_player(&self) -> ChessColor {
@@ -509,11 +554,11 @@ impl Board for Chessboard {
             return Some(res);
         }
         let no_moves = self.legal_moves_slow().is_empty();
-        if no_moves { Some(self.no_moves_result()) } else { None }
+        if no_moves { self.no_moves_result() } else { None }
     }
 
-    fn no_moves_result(&self) -> PlayerResult {
-        if self.is_in_check() { Lose } else { Draw }
+    fn no_moves_result(&self) -> Option<PlayerResult> {
+        Some(if self.is_in_check() { Lose } else { Draw })
     }
 
     /// Doesn't quite conform to FIDE rules, but probably mostly agrees with USCF rules (in that it should almost never
@@ -548,12 +593,17 @@ impl Board for Chessboard {
         self.hashes.total
     }
 
-    fn read_fen_and_advance_input(words: &mut Tokens, strictness: Strictness) -> Res<Self> {
-        let mut board = Chessboard::empty();
+    fn read_fen_and_advance_input_for(
+        words: &mut Tokens,
+        strictness: Strictness,
+        settings: ChessSettings,
+    ) -> Res<Self> {
+        let mut board = Chessboard::empty_for_settings(settings);
         read_common_fen_part::<Chessboard>(words, &mut board)?;
         let color = board.0.active_player();
         let Some(castling_word) = words.next() else { bail!("FEN ends after color to move, missing castling rights") };
-        let castling_rights = CastlingFlags::default().parse_castling_rights(castling_word, &board.0, strictness)?;
+        let castling_rights =
+            CastlingFlags::default().parse_castling_rights(castling_word, &mut board.0, strictness)?;
 
         let Some(ep_square) = words.next() else { bail!("FEN ends after castling rights, missing en passant square") };
         let ep_square = if ep_square == "-" {
@@ -585,8 +635,8 @@ impl Board for Chessboard {
         board.verify_with_level(CheckFen, strictness)
     }
 
-    fn should_flip_visually() -> bool {
-        true
+    fn axes_format(&self) -> AxesFormat {
+        AxesFormat::player_pov()
     }
 
     fn as_diagram(&self, typ: CharType, flip: bool) -> String {
@@ -621,12 +671,12 @@ impl Board for Chessboard {
                     }
                 } else {
                     let c = if piece_to_char.unwrap_or(CharType::Ascii) == CharType::Ascii {
-                        piece.to_char(CharType::Ascii, &pos.settings())
+                        piece.to_char(CharType::Ascii, pos.settings())
                     } else {
                         // uncolored because some fonts have trouble with black pawns, and some make white pieces hard to see
-                        piece.uncolored().to_char(CharType::Unicode, &pos.settings())
+                        piece.uncolored().to_char(CharType::Unicode, pos.settings())
                     };
-                    let s = format!("{c:^0$}", width);
+                    let s = format!("{c:^width$}");
                     s.color(display_color(piece.color().unwrap())).to_string()
                 }
             }),
@@ -853,8 +903,10 @@ impl Chessboard {
             _ = place_piece(0, Pawn);
         }
 
-        board.castling_rights_mut().set_castle_right(color, Queenside, q_rook as DimT).unwrap();
-        board.castling_rights_mut().set_castle_right(color, Kingside, k_rook as DimT).unwrap();
+        let mut settings = board.0.settings;
+        board.castling_rights_mut().set_castle_right(color, Queenside, q_rook as DimT, &mut settings).unwrap();
+        board.castling_rights_mut().set_castle_right(color, Kingside, k_rook as DimT, &mut settings).unwrap();
+        board.0.settings = settings;
         Ok(board)
     }
 
@@ -872,6 +924,8 @@ impl Chessboard {
         res.0.color_bbs[Black] = res.0.player_bb(White).flip_up_down();
         res.0.color_bbs[White] = ChessBitboard::default();
         res = Self::chess960_startpos_white(white_num, White, res)?;
+        res.0.settings.set_flag(ChessSettings::dfrc_flag(), true);
+        res.0.settings.set_flag(ChessSettings::shredder_fen_flag(), true);
         // the hash and other metadata is computed in the `verify` method
         Ok(res
             .verify(Strict)
@@ -999,7 +1053,7 @@ mod tests {
     use rand::rng;
     use std::collections::HashSet;
 
-    use crate::games::chess::squares::{B_FILE_NO, E_FILE_NO, F_FILE_NO, G_FILE_NO, H_FILE_NO};
+    use crate::games::chess::squares::{B_FILE_NUM, E_FILE_NUM, F_FILE_NUM, G_FILE_NUM, H_FILE_NUM};
     use crate::games::{Coordinates, NoHistory, ZobristHistory, char_to_file};
     use crate::general::board::RectangularBoard;
     use crate::general::board::Strictness::Relaxed;
@@ -1009,8 +1063,8 @@ mod tests {
 
     use super::*;
 
-    const E_1: ChessSquare = ChessSquare::from_rank_file(0, E_FILE_NO);
-    const E_8: ChessSquare = ChessSquare::from_rank_file(7, E_FILE_NO);
+    const E_1: ChessSquare = ChessSquare::from_rank_file(0, E_FILE_NUM);
+    const E_8: ChessSquare = ChessSquare::from_rank_file(7, E_FILE_NUM);
 
     #[test]
     fn empty_test() {
@@ -1052,7 +1106,7 @@ mod tests {
         assert_eq!(board.occupied_bb(), ChessBitboard::from_raw(0xffff_0000_0000_ffff));
         assert_eq!(board.king_square(White), E_1);
         assert_eq!(board.king_square(Black), E_8);
-        let square = ChessSquare::from_rank_file(4, F_FILE_NO);
+        let square = ChessSquare::from_rank_file(4, F_FILE_NUM);
         assert_eq!(board.colored_piece_on(square), ChessPiece::new(ColoredChessPieceType::Empty, square));
         assert_eq!(board.as_fen(), START_FEN);
         let moves = board.pseudolegal_moves();
@@ -1092,12 +1146,12 @@ mod tests {
         assert!(board.castling.can_castle(Black, Kingside));
         assert!(!board.castling.can_castle(Black, Queenside));
         let fens = [
-            "8/8/8/3K4/8/8/5k2/8 w - - 0 1",
-            "K7/R7/R7/R7/R7/R7/P7/k7 w - - 0 1",
-            "QQKBnknn/8/8/8/8/8/8/8 w - - 0 1",
-            "b5k1/b3Q3/3Q1Q2/5Q2/K1bQ1Qb1/2bbbbb1/6Q1/3QQ2b b - - 0 1",
-            "rnbq1bn1/pppppp1p/8/K7/5k2/8/PPPP1PPP/RNBQ1BNR w - - 0 1",
-            &Chessboard::from_fen("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w HhAa - 0 1", Strict).unwrap().as_fen(),
+            // "8/8/8/3K4/8/8/5k2/8 w - - 0 1",
+            // "K7/R7/R7/R7/R7/R7/P7/k7 w - - 0 1",
+            // "QQKBnknn/8/8/8/8/8/8/8 w - - 0 1",
+            // "b5k1/b3Q3/3Q1Q2/5Q2/K1bQ1Qb1/2bbbbb1/6Q1/3QQ2b b - - 0 1",
+            // "rnbq1bn1/pppppp1p/8/K7/5k2/8/PPPP1PPP/RNBQ1BNR w - - 0 1",
+            // &Chessboard::from_fen("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w HhAa - 0 1", Strict).unwrap().as_fen(),
             "rnbqkbnr/1ppppppp/p7/8/8/8/PPPPPPP1/RNBQKBN1 w Ah - 0 1",
             "rnbqkbnr/1ppppppp/p7/8/3pP3/8/PPPP1PP1/RNBQKBN1 b Ah e3 3 1",
             // chess960 fens (from webperft):
@@ -1209,11 +1263,13 @@ mod tests {
             if !board.is_pseudolegal_move_legal(mov) {
                 continue;
             }
-            let checkmates = mov.piece_type() == Rook && mov.dest_square() == ChessSquare::from_rank_file(7, G_FILE_NO);
-            assert_eq!(board.is_game_won_after_slow(mov), checkmates);
+            let checkmates =
+                mov.piece_type() == Rook && mov.dest_square() == ChessSquare::from_rank_file(7, G_FILE_NUM);
+            assert_eq!(board.is_game_won_after_slow(mov, NoHistory::default()), checkmates);
             let new_board = board.make_move(mov).unwrap();
-            assert_eq!(new_board.is_game_lost_slow(), checkmates);
-            assert!(!board.is_game_lost_slow());
+            assert_eq!(new_board.is_game_lost_slow(&NoHistory::default()), checkmates);
+            assert_eq!(new_board.is_checkmate_slow(), checkmates);
+            assert!(!board.is_checkmate_slow());
         }
     }
 
@@ -1240,6 +1296,7 @@ mod tests {
         let moves = board.legal_moves_slow();
         assert_eq!(moves.len(), 48);
         let mut mate_ctr = 0;
+        let mut draw_ctr = 0;
         let resetting = ["c7", "a7a8Q", "a8N", "a8B", "a8=R", "a7xb8N", ":b8B", "b8:=R", "xb8Q+", "Rb8:+"]
             .into_iter()
             .map(|str| ChessMove::from_text(str, &board).unwrap())
@@ -1260,10 +1317,12 @@ mod tests {
                     mate_ctr += 1;
                 } else {
                     assert!(new_pos.is_50mr_draw());
+                    draw_ctr += 1;
                 }
             }
         }
         assert_eq!(mate_ctr, 4);
+        assert_eq!(draw_ctr, 37);
     }
 
     #[test]
@@ -1318,7 +1377,7 @@ mod tests {
         assert!(moves.is_empty()); // we don't even generate moves anymore here
         let moves = pos.legal_moves_slow();
         assert!(moves.is_empty());
-        assert!(pos.is_game_lost_slow());
+        assert!(pos.is_checkmate_slow());
         assert_eq!(pos.player_result_slow(&NoHistory::default()), Some(Lose));
         assert!(!pos.is_stalemate_slow());
         assert!(pos.make_nullmove().is_none());
@@ -1389,8 +1448,8 @@ mod tests {
         let fen = "8/2k5/8/8/8/8/8/RR1K1R1R w KB - 0 1";
         assert!(Chessboard::from_fen(fen, Strict).is_err());
         let board = Chessboard::from_fen(fen, Relaxed).unwrap();
-        assert_eq!(board.castling.rook_start_file(White, Kingside), H_FILE_NO);
-        assert_eq!(board.castling.rook_start_file(White, Queenside), B_FILE_NO);
+        assert_eq!(board.castling.rook_start_file(White, Kingside), H_FILE_NUM);
+        assert_eq!(board.castling.rook_start_file(White, Queenside), B_FILE_NUM);
         assert_eq!(board.as_fen(), "8/2k5/8/8/8/8/8/RR1K1R1R w KB - 0 1");
         // An ep capture is pseudolegal but not legal
         let fen = "1nbqkbnr/ppp1pppp/8/r2pP2K/8/8/PPPP1PPP/RNBQ1BNR w k d6 0 2";

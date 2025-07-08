@@ -82,7 +82,7 @@ impl FromStr for GridCoordinates {
             bail!("Square doesn't start with an ASCII character");
         };
         let rank: usize = parse_int_from_str(rank, "rank (row)")?;
-        Self::algebraic_coordinates(file.chars().next().unwrap(), rank)
+        Self::algebraic(file.chars().next().unwrap(), rank)
     }
 }
 
@@ -104,7 +104,7 @@ impl Display for GridCoordinates {
 }
 
 impl GridCoordinates {
-    pub fn algebraic_coordinates(file: char, rank: usize) -> Res<Self> {
+    pub fn algebraic(file: char, rank: usize) -> Res<Self> {
         ensure!(file.is_ascii_alphabetic(), "file (column) '{}' must be a valid ascii letter", file.to_string().red());
         let column = char_to_file(file.to_ascii_lowercase());
         let rank = DimT::try_from(rank)?;
@@ -126,7 +126,7 @@ impl GridCoordinates {
     }
 }
 
-#[derive(Debug, Default, Copy, Clone, PartialEq, Eq, Hash, Arbitrary)]
+#[derive(Debug, Default, Copy, Clone, PartialEq, Eq, Ord, PartialOrd, Hash, Arbitrary)]
 pub struct CompactSquare(pub DimT);
 
 impl CompactSquare {
@@ -169,6 +169,11 @@ impl Display for GridSize {
 impl GridSize {
     pub const fn new(height: Height, width: Width) -> Self {
         Self { height, width }
+    }
+
+    /// 9 x 9
+    pub fn shogi() -> Self {
+        Self::new(Height(9), Width(9))
     }
 
     /// 8 x 8
@@ -346,7 +351,7 @@ impl<const H: usize, const W: usize, const INTERNAL_WIDTH: usize> SmallGridSquar
     }
 
     pub fn from_chars(file: char, rank: char) -> Res<Self> {
-        GridCoordinates::algebraic_coordinates(
+        GridCoordinates::algebraic(
             file,
             // + 1 because the rank number uses 1-based indices
             rank.to_digit(H as u32 + 1).ok_or_else(|| {

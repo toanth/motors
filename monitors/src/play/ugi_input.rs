@@ -3,7 +3,6 @@
 use std::fmt::{Display, Formatter};
 use std::io::{BufRead, BufReader};
 use std::process::ChildStdout;
-use std::str::FromStr;
 use std::sync::{Arc, Mutex, MutexGuard, Weak};
 use std::time::{Duration, Instant};
 
@@ -24,7 +23,8 @@ use gears::output::Message::*;
 use gears::score::{SCORE_LOST, SCORE_WON, Score, ScoreT};
 use gears::search::{Budget, DepthPly, NodeType, NodesLimit, SearchInfo, SearchLimit};
 use gears::ugi::EngineOptionType::*;
-use gears::ugi::{EngineOption, EngineOptionName, UgiCheck, UgiCombo, UgiSpin, UgiString};
+use gears::ugi::Protocol::Interactive;
+use gears::ugi::{EngineOption, EngineOptionNameForProto, UgiCheck, UgiCombo, UgiSpin, UgiString};
 use gears::{AdjudicationReason, GameOver, GameOverReason, MatchStatus, PlayerResult, player_res_to_match_res};
 // TODO: Does not currently handle engines that simply don't terminate the search (unless the user inputs 'stop')
 // (not receiving ugiok/uiok is handled, as is losing on time with a bestmove response,
@@ -147,7 +147,7 @@ impl<B: Board> Display for OwnedSearchInfo<B> {
 }
 
 impl<B: Board> OwnedSearchInfo<B> {
-    pub fn to_search_info(&self) -> SearchInfo<B> {
+    pub fn to_search_info(&self) -> SearchInfo<'_, B> {
         SearchInfo {
             best_move_of_all_pvs: self.best_move_of_all_pvs,
             iterations: self.iterations,
@@ -602,23 +602,23 @@ impl<B: Board> InputThread<B> {
         if word != "name" {
             bail!("expected 'name' after 'option', got '{word}'")
         }
-        let mut res = EngineOption::default();
         // TODO: Technically, the spec demands to accept multi-token names
         let Some(name) = option.next() else { bail!("Line ended after 'name', missing the option name") };
-        res.name = EngineOptionName::from_str(name)?;
+        let name = EngineOptionNameForProto::parse(name, Interactive)?;
         let Some(typ) = option.next() else { bail!("Line ended after option name, missing 'type'") };
         if typ != "type" {
             bail!("Expected 'type' after option name, got {typ}")
         }
         let Some(typ) = option.next() else { bail!("Line ended after 'type', missing the option type") };
-        match typ {
-            "check" => res.value = Check(UgiCheck::default()),
-            "spin" => res.value = Spin(UgiSpin::default()),
-            "combo" => res.value = Combo(UgiCombo::default()),
-            "button" => res.value = Button,
-            "string" => res.value = UString(UgiString::default()),
+        let value = match typ {
+            "check" => Check(UgiCheck::default()),
+            "spin" => Spin(UgiSpin::default()),
+            "combo" => Combo(UgiCombo::default()),
+            "button" => Button,
+            "string" => UString(UgiString::default()),
             x => bail!("Unrecognized option type {x}"),
-        }
+        };
+        let mut res = EngineOption { name, value };
         loop {
             let next = option.next();
             if next.is_none() {

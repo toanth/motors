@@ -19,7 +19,7 @@ use crate::general::board::{
     BitboardBoard, BoardHelpers, PieceTypeOf, SelfChecks, Strictness, Symmetry, UnverifiedBoard, simple_fen,
 };
 use crate::general::common::{Res, StaticallyNamedEntity, Tokens, ith_one_u64};
-use crate::general::move_list::{EagerNonAllocMoveList, MoveList};
+use crate::general::move_list::{InplaceMoveList, MoveList};
 use crate::general::moves::Move;
 use crate::general::squares::SquareColor::White;
 use crate::general::squares::{SmallGridSize, SmallGridSquare, SquareColor};
@@ -38,9 +38,9 @@ use std::ops::Not;
 type AtaxxBitboard = SmallGridBitboard<7, 7>;
 
 #[derive(Debug, Default, Copy, Clone, Eq, PartialEq)]
-pub struct AtaxxSettings {
-    pub blocked: AtaxxBitboard,
-}
+pub struct AtaxxSettings;
+
+const ATAXX_SETTINGS: AtaxxSettings = AtaxxSettings {};
 
 impl Settings for AtaxxSettings {}
 
@@ -64,9 +64,9 @@ impl Not for AtaxxColor {
     }
 }
 
-impl Into<usize> for AtaxxColor {
-    fn into(self) -> usize {
-        self as usize
+impl From<AtaxxColor> for usize {
+    fn from(value: AtaxxColor) -> Self {
+        value as usize
     }
 }
 
@@ -84,7 +84,7 @@ impl Color for AtaxxColor {
         }
     }
 
-    fn name(self, _settings: &<Self::Board as Board>::Settings) -> impl AsRef<str> {
+    fn name(self, _settings: &<Self::Board as Board>::Settings) -> &str {
         match self {
             X => "X",
             O => "O",
@@ -142,12 +142,13 @@ impl StaticallyNamedEntity for AtaxxBoard {
 type AtaxxPiece = GenericPiece<AtaxxBoard, ColoredAtaxxPieceType>;
 
 // for some reason, Chessboard::MoveList can be ambiguous? This should fix that
-pub type AtaxxMoveList = EagerNonAllocMoveList<AtaxxBoard, MAX_ATAXX_MOVES_IN_POS>;
+pub type AtaxxMoveList = InplaceMoveList<AtaxxBoard, MAX_ATAXX_MOVES_IN_POS>;
 
 impl Board for AtaxxBoard {
     // TODO: This is not a useful board state since neither player can make any moves
     type EmptyRes = AtaxxBoard;
     type Settings = AtaxxSettings;
+    type SettingsRef = AtaxxSettings;
     type Coordinates = AtaxxSquare;
     type Color = AtaxxColor;
     type Piece = AtaxxPiece;
@@ -284,8 +285,12 @@ impl Board for AtaxxBoard {
         }
     }
 
-    fn settings(&self) -> Self::Settings {
-        AtaxxSettings { blocked: self.blocked_bb() }
+    fn settings(&self) -> &AtaxxSettings {
+        &ATAXX_SETTINGS
+    }
+
+    fn settings_ref(&self) -> Self::SettingsRef {
+        ATAXX_SETTINGS
     }
 
     fn active_player(&self) -> AtaxxColor {
@@ -349,6 +354,10 @@ impl Board for AtaxxBoard {
         self.num_moves()
     }
 
+    fn has_no_legal_moves(&self) -> bool {
+        (self.active_player_bb().extended_moore_neighbors(2) & self.empty_bb()).is_zero()
+    }
+
     fn random_legal_move<R: Rng>(&self, rng: &mut R) -> Option<Self::Move> {
         self.pseudolegal_moves().choose(rng).copied()
     }
@@ -378,9 +387,9 @@ impl Board for AtaxxBoard {
         let color = self.active_player;
         if self.color_bb(color).is_zero() {
             return Some(Lose);
-        } else if self.empty.has_set_bit() {
+        } else if (self.color_bb(!color).extended_moore_neighbors(2) & self.empty_bb()).has_set_bit() {
             if self.ply_100_ctr >= 100 {
-                // losing on the 50mr threshold counts as losing
+                // losing on the 50mr threshold counts as losing, so we only test this if we'd otherwise continue playing
                 return Some(Draw);
             }
             return None;
@@ -400,8 +409,8 @@ impl Board for AtaxxBoard {
 
     /// If a player has no legal moves, a null move is generated, so this doesn't require any special handling during search.
     /// But if there are no pieces left, the player loses the game.
-    fn no_moves_result(&self) -> PlayerResult {
-        self.player_result_slow(&NoHistory::default()).unwrap()
+    fn no_moves_result(&self) -> Option<PlayerResult> {
+        self.player_result_slow(&NoHistory::default())
     }
 
     fn can_reasonably_win(&self, _player: AtaxxColor) -> bool {
@@ -412,12 +421,12 @@ impl Board for AtaxxBoard {
         self.hash_impl()
     }
 
-    fn read_fen_and_advance_input(string: &mut Tokens, strictness: Strictness) -> Res<Self> {
+    fn read_fen_and_advance_input_for(
+        string: &mut Tokens,
+        strictness: Strictness,
+        _settings: AtaxxSettings,
+    ) -> Res<Self> {
         Self::read_fen_impl(string, strictness)
-    }
-
-    fn should_flip_visually() -> bool {
-        true
     }
 
     fn as_diagram(&self, typ: CharType, flip: bool) -> String {
@@ -453,6 +462,14 @@ impl BitboardBoard for AtaxxBoard {
 
     fn player_bb(&self, color: Self::Color) -> Self::Bitboard {
         self.colors[color as usize]
+    }
+
+    fn empty_bb(&self) -> Self::Bitboard {
+        self.empty
+    }
+
+    fn neutral_bb(&self) -> Self::Bitboard {
+        !(self.empty | self.colors[0] | self.colors[1])
     }
 
     fn mask_bb(&self) -> Self::Bitboard {
@@ -510,7 +527,7 @@ impl UnverifiedBoard<AtaxxBoard> for UnverifiedAtaxxBoard {
         Ok(this)
     }
 
-    fn settings(&self) -> AtaxxSettings {
+    fn settings(&self) -> &AtaxxSettings {
         self.0.settings()
     }
 
@@ -582,6 +599,7 @@ mod tests {
     use super::*;
     use crate::general::board::Strictness::Relaxed;
     use crate::general::moves::Move;
+    use crate::general::perft::perft;
 
     #[test]
     fn startpos_test() {
@@ -607,7 +625,7 @@ mod tests {
         assert!(pos.debug_verify_invariants(Strict).is_ok());
         assert!(pos.color_bb(O).is_zero());
         assert!(pos.color_bb(X).is_zero());
-        assert!(pos.is_game_lost_slow());
+        assert!(pos.is_game_lost_slow(&NoHistory::default()));
         let moves = pos.legal_moves();
         assert!(moves.is_empty());
     }
@@ -638,5 +656,15 @@ mod tests {
         let pos = pos.make_move(mov).unwrap();
         assert!(AtaxxMove::from_extended_text("a3c5", &pos).is_err());
         assert!(AtaxxMove::from_text("a3b5", &pos).is_ok());
+    }
+
+    #[test]
+    fn perft_test() {
+        let pos = AtaxxBoard::from_fen("7/7/7/7/-------/-------/--x3o x 1 2", Strict).unwrap();
+        let expected = [1, 2, 3, 3, 4, 5, 5, 3, 3, 3, 2, 3, 3, 2, 3, 3, 2, 3, 3, 2, 3, 3, 2, 3, 3, 2, 3, 3, 2, 3, 3];
+        for (i, &nodes) in expected.iter().enumerate() {
+            let res = perft(DepthPly::new(i), pos, false);
+            assert_eq!(res.nodes, nodes, "Depth {i}: {pos}");
+        }
     }
 }

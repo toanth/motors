@@ -1,5 +1,6 @@
 use crate::general::board::Board;
 use arrayvec::ArrayVec;
+use smallvec::SmallVec;
 use std::fmt::Debug;
 
 /// A list of moves as returned by the board's `pseudolegal_moves`.
@@ -20,11 +21,14 @@ pub trait MoveList<B: Board>: IntoIterator<Item = B::Move, IntoIter: Send> + Deb
     fn filter_moves<F: Fn(&mut B::Move) -> bool>(&mut self, predicate: F);
 }
 
+#[allow(type_alias_bounds)]
+pub type MoveIter<B: Board> = <B::MoveList as IntoIterator>::IntoIter;
+
 /// A list of moves that is computed all at once and stored in-place.
 #[allow(type_alias_bounds)]
-pub type EagerNonAllocMoveList<B: Board, const N: usize> = ArrayVec<B::Move, N>;
+pub type InplaceMoveList<B: Board, const N: usize> = ArrayVec<B::Move, N>;
 
-impl<B: Board, const N: usize> MoveList<B> for EagerNonAllocMoveList<B, N> {
+impl<B: Board, const N: usize> MoveList<B> for InplaceMoveList<B, N> {
     fn add_move(&mut self, mov: B::Move) {
         self.push(mov);
     }
@@ -38,6 +42,37 @@ impl<B: Board, const N: usize> MoveList<B> for EagerNonAllocMoveList<B, N> {
     }
 
     fn iter_moves(&self) -> impl Iterator<Item = &B::Move> {
+        self.iter()
+    }
+
+    fn remove(&mut self, to_remove: B::Move) {
+        if let Some(idx) = self.iter().position(|m| *m == to_remove) {
+            _ = self.swap_remove(idx);
+        }
+    }
+
+    fn filter_moves<F: Fn(&mut B::Move) -> bool>(&mut self, predicate: F) {
+        self.retain(predicate)
+    }
+}
+
+#[allow(type_alias_bounds)]
+pub type SboMoveList<B: Board, const N: usize> = SmallVec<B::Move, N>;
+
+impl<B: Board, const N: usize> MoveList<B> for SboMoveList<B, N> {
+    fn add_move(&mut self, mov: B::Move) {
+        self.push(mov)
+    }
+
+    fn num_moves(&self) -> usize {
+        self.len()
+    }
+
+    fn swap_remove_move(&mut self, idx: usize) -> B::Move {
+        self.swap_remove(idx)
+    }
+
+    fn iter_moves(&self) -> impl Iterator<Item = &B::Move> + Send {
         self.iter()
     }
 

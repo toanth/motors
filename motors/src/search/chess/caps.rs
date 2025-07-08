@@ -28,8 +28,8 @@ use gears::general::bitboards::RawBitboard;
 use gears::general::board::Strictness::Strict;
 use gears::general::board::{BitboardBoard, UnverifiedBoard};
 use gears::general::common::Description::NoDescription;
-use gears::general::common::{Res, StaticallyNamedEntity, parse_bool_from_str, parse_int_from_str, select_name_static};
-use gears::general::move_list::EagerNonAllocMoveList;
+use gears::general::common::{Res, StaticallyNamedEntity, parse_int_from_str, select_name_static};
+use gears::general::move_list::InplaceMoveList;
 use gears::general::moves::{Move, UntrustedMove};
 use gears::itertools::Itertools;
 use gears::score::{
@@ -39,15 +39,13 @@ use gears::score::{
 use gears::search::NodeType::*;
 use gears::search::*;
 use gears::ugi::EngineOptionName::*;
-use gears::ugi::EngineOptionType::Check;
-use gears::ugi::{EngineOption, EngineOptionName, EngineOptionType, UgiCheck};
+use gears::ugi::{EngineOptionNameForProto, EngineOptionType};
 
 /// By how much the fractional depth increases each ID iteration.
 const DEPTH_INCREMENT: usize = 128;
 
 /// The maximum value of the uci `depth` parameter, i.e. the maximum number of Iterative Deepening iterations
 const ID_ITERS_SOFT_LIMIT: DepthPly = DepthPly::new(225);
-
 /// The maximum value of the `ply` parameter in main search, i.e. the maximum depth (in plies) before qsearch is reached
 const PLY_HARD_LIMIT: usize = 255;
 
@@ -190,7 +188,7 @@ pub struct Caps {
 impl Default for Caps {
     fn default() -> Self {
         // ensure the cycle detection table is initialized now so that we don't have to wait for that during search.
-        _ = Chessboard::force_init_upcoming_repetition_table();
+        Chessboard::force_init_upcoming_repetition_table();
         Self::with_eval(Box::new(DefaultEval::default()))
     }
 }
@@ -244,7 +242,7 @@ impl Engine<Chessboard> for Caps {
     }
 
     fn static_eval(&mut self, pos: &Chessboard, ply: usize) -> Score {
-        self.eval.eval(&pos, ply, self.params.pos.active_player())
+        self.eval.eval(pos, ply, self.params.pos.active_player())
     }
 
     fn max_bench_depth(&self) -> DepthPly {
@@ -262,13 +260,13 @@ impl Engine<Chessboard> for Caps {
     fn eval_move(&self, pos: &Chessboard, mov: ChessMove) -> Option<String> {
         debug_assert!(pos.is_move_pseudolegal(mov));
         let scorer = CapsMoveScorer { board: *pos, ply: 0 };
-        let (descr, hist_score) = if mov.is_tactical(&pos) {
+        let (descr, hist_score) = if mov.is_tactical(pos) {
             ("Capture History Score", self.capt_hist.get(mov, pos.threats(), pos.active_player()).0 as isize)
         } else {
             ("Main History Score", self.history.score(mov, pos.threats()))
         };
         let color = color_for_score(Score(hist_score as ScoreT), &score_gradient());
-        let hist_score = format!("{hist_score}").color(color);
+        let hist_score = hist_score.to_string().color(color);
         let move_score = scorer.complete_move_score(mov, &self.state);
         let move_type = if self
             .tt()
@@ -278,7 +276,7 @@ impl Engine<Chessboard> for Caps {
             "TT move"
         } else if move_score == KILLER_SCORE {
             "Killer move"
-        } else if mov.is_tactical(&pos) {
+        } else if mov.is_tactical(pos) {
             if move_score < MoveScore(0) { "Losing Tactical Move" } else { "Winning Tactical Move" }
         } else {
             "Quiet Move"
@@ -289,11 +287,9 @@ impl Engine<Chessboard> for Caps {
     }
 
     fn engine_info(&self) -> EngineInfo {
-        let mut options = vec![EngineOption {
-            name: Other("UCI_Chess960".to_string()),
-            value: Check(UgiCheck { val: true, default: Some(true) }),
-        }];
-        options.append(&mut cc::ugi_options());
+        let mut options = cc::ugi_options();
+        options.append(&mut lc::ugi_options());
+        options.append(&mut ttc::ugi_options());
         options.append(&mut lc::ugi_options());
         options.append(&mut ttc::ugi_options());
         EngineInfo::new(
@@ -307,17 +303,20 @@ impl Engine<Chessboard> for Caps {
         )
     }
 
-    fn set_option(&mut self, option: EngineOptionName, old_value: &mut EngineOptionType, value: String) -> Res<()> {
-        let name = option.name().to_string();
-        if let Other(name) = &option {
-            if name.eq_ignore_ascii_case("uci_chess960") {
-                let Check(check) = old_value else { unreachable!() };
-                let value = parse_bool_from_str(&value, "UCI_Chess960")?;
-                check.val = value;
-                return Ok(());
-            }
+    fn set_option(
+        &mut self,
+        option: EngineOptionNameForProto,
+        _old_value: &mut EngineOptionType,
+        value: String,
+    ) -> Res<()> {
+        let name = option.to_string();
+        if let Other(name) = &option.name {
             if let Ok(val) = parse_int_from_str(&value, "spsa option value") {
-                if let Ok(()) = cc::set_value(name, val) {
+                if cc::set_value(name, val).is_ok() {
+                    return Ok(());
+                } else if let Ok(()) = lc::set_value(name, val) {
+                    return Ok(());
+                } else if let Ok(()) = ttc::set_value(name, val) {
                     return Ok(());
                 } else if let Ok(()) = lc::set_value(name, val) {
                     return Ok(());
@@ -332,6 +331,12 @@ impl Engine<Chessboard> for Caps {
 
     fn print_spsa_params(&self) {
         for line in cc::ob_param_string() {
+            println!("{line}");
+        }
+        for line in lc::ob_param_string() {
+            println!("{line}");
+        }
+        for line in ttc::ob_param_string() {
             println!("{line}");
         }
         for line in lc::ob_param_string() {
@@ -403,14 +408,14 @@ impl NormalEngine<Chessboard> for Caps {
         &mut self.state
     }
 
-    fn time_up(&self, tc: TimeControl, fixed_time: Duration, elapsed: Duration) -> bool {
+    fn time_up(&self, tc: TimeControl, fixed_time: Duration, byoyomi: Duration, elapsed: Duration) -> bool {
         debug_assert_eq!(self.uci_nodes() % DEFAULT_CHECK_TIME_INTERVAL, 0);
         // TODO: Compute at the start of the search instead of every time:
         // Instead of storing a SearchLimit, store a different struct that contains soft and hard bounds
         let hard = (tc.remaining.saturating_sub(tc.increment)) * cc::inv_hard_limit_div() as u32 / 1024 + tc.increment;
         // Because fixed_time has been clamped to at most tc.remaining, this can never lead to timeouts
         // (assuming the move overhead is set correctly)
-        elapsed >= fixed_time.min(hard)
+        elapsed >= byoyomi + fixed_time.min(hard)
     }
 }
 
@@ -434,7 +439,7 @@ impl Caps {
         let mut soft_limit_scale = 1.0;
 
         self.multi_pvs.resize(multi_pv, PVData::default());
-        let mut chosen_at_iter = EagerNonAllocMoveList::<Chessboard, { ID_ITERS_SOFT_LIMIT.get() }>::default();
+        let mut chosen_at_iter = InplaceMoveList::<Chessboard, { ID_ITERS_SOFT_LIMIT.get() }>::default();
 
         for (iter, budget) in
             (cc::start_depth()..=(ID_ITERS_SOFT_LIMIT.get() * DEPTH_INCREMENT)).step_by(DEPTH_INCREMENT).enumerate()
@@ -1235,7 +1240,7 @@ impl Caps {
         );
 
         if self.search_stack[ply].tried_moves.is_empty() {
-            return Some(game_result_to_score(pos.no_moves_result(), ply));
+            return Some(game_result_to_score(pos.no_moves_result().unwrap(), ply));
         }
 
         let tt_entry: TTEntry<Chessboard> =
@@ -1682,7 +1687,7 @@ mod tests {
             let moves = pos.legal_moves_slow();
             let nodes = engine.search_state_dyn().uci_nodes() as usize;
             let num_moves = moves.len();
-            assert!(nodes >= num_moves + 1, "{nodes} {num_moves} {pos}"); // >= because of extensions and re-searches
+            assert!(nodes > num_moves, "{nodes} {num_moves} {pos}"); // > because of extensions and re-searches
             if let Some(tt) = tt.clone() {
                 for m in moves {
                     let new_pos = pos.make_move(m).unwrap();

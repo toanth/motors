@@ -43,6 +43,8 @@ pub struct EngineOpts {
 
     pub pos_name: Option<String>,
 
+    pub cmd: Option<String>,
+
     pub mode: Mode,
 }
 
@@ -55,6 +57,7 @@ impl EngineOpts {
             debug,
             interactive: true,
             pos_name: None,
+            cmd: None,
             mode: Engine,
         }
     }
@@ -107,6 +110,7 @@ fn parse_option(args: &mut ArgIter, opts: &mut EngineOpts) -> Res<()> {
         "-engine" | "-e" => opts.engine = get_next_arg(args, "engine")?,
         "-game" | "-g" => opts.game = Game::from_str(&get_next_arg(args, "engine")?.to_lowercase())?,
         "pos" | "-pos" | "position" | "-position" => opts.pos_name = Some(parse_pos(args)),
+        "command" | "-command" | "cmd" | "-cmd" => opts.cmd = Some(get_next_arg(args, "command")?),
         "-debug" | "-d" => opts.debug = true,
         "-non-interactive" => opts.interactive = false,
         "-additional-output" | "-output" | "-o" => parse_output(args, &mut opts.outputs)?,
@@ -142,6 +146,7 @@ fn print_help() {
     \n--{1} sets the engine, and optionally the eval. For example, `caps-lite` sets the default engine CAPS with the default eval LiTE,\
     and `random` sets the engine to be a random mover. Obviously, the engine must be valid for the selected game.\
     \n--{9} sets the position. Accepts the same syntax as UGI commands, e.g. 'position kiwipete' or 'p f <fen> m e2e4'. Ignored for 'bench'.\
+    Use quotes around the argument.\
     \n--{2} turns on debug mode, which makes the engine continue on errors and log all communications.\
     \n--{8} makes the engine start in non-interactive mode. Try this if the engine can't be used with a GUI. Setting the NO_COLOR environment variable also does this.\
     \n--{3} can be used to determine how the engine prints extra information; it's mostly useful for development but can also be used to export PGNs, for example.\

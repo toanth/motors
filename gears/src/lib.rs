@@ -17,8 +17,9 @@ use crate::general::common::{Res, Tokens, select_name_dyn};
 use crate::general::moves::Move;
 use crate::output::OutputBuilder;
 use crate::search::TimeControl;
-use crate::ugi::{ParseUgiPosState, parse_ugi_position_and_moves};
+use crate::ugi::{ParseUgiPosState, Protocol, parse_ugi_position_and_moves};
 use anyhow::{anyhow, bail};
+use arbitrary::Arbitrary;
 pub use arrayvec;
 pub use colored;
 use colored::Colorize;
@@ -102,7 +103,7 @@ impl MatchStatus {
 }
 
 /// Low-level result of a match from a `MatchManager`'s perspective
-#[derive(Copy, Clone, Eq, PartialEq, Debug)]
+#[derive(Copy, Clone, Eq, PartialEq, Debug, Arbitrary)]
 #[must_use]
 pub enum GameResult {
     P1Win,
@@ -119,10 +120,10 @@ const ABORTED: &str = "The game was aborted";
 impl Display for GameResult {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
-            GameResult::P1Win => write!(f, "{}", P1_VICTORY),
-            GameResult::P2Win => write!(f, "{}", P2_VICTORY),
-            GameResult::Draw => write!(f, "{}", DRAW),
-            Aborted => write!(f, "{}", ABORTED),
+            GameResult::P1Win => write!(f, "{P1_VICTORY}"),
+            GameResult::P2Win => write!(f, "{P2_VICTORY}"),
+            GameResult::Draw => write!(f, "{DRAW}"),
+            Aborted => write!(f, "{ABORTED}"),
         }
     }
 }
@@ -360,7 +361,7 @@ pub trait AbstractUgiPosState {
 
     fn clear_current_state(&mut self);
 
-    fn handle_variant(&mut self, first: &str, words: &mut Tokens) -> Res<()>;
+    fn handle_variant(&mut self, first: &str, words: &mut Tokens, protocol: Protocol) -> Res<()>;
 
     fn player_result(&self) -> Option<PlayerResult>;
 }
@@ -397,8 +398,8 @@ impl<B: Board> AbstractUgiPosState for UgiPosState<B> {
         self.status = Run(NotStarted);
     }
 
-    fn handle_variant(&mut self, first: &str, words: &mut Tokens) -> Res<()> {
-        self.board = B::variant(first, words)?;
+    fn handle_variant(&mut self, first: &str, words: &mut Tokens, protocol: Protocol) -> Res<()> {
+        self.board = B::variant_for(first, words, protocol)?;
         self.pos_before_moves = self.board.clone();
         self.mov_hist.clear();
         self.board_hist.clear();
@@ -562,8 +563,8 @@ impl<B: Board> MatchState<B> {
         Ok(())
     }
 
-    pub fn handle_variant(&mut self, first: &str, words: &mut Tokens) -> Res<()> {
-        self.current.handle_variant(first, words)
+    pub fn handle_variant(&mut self, first: &str, words: &mut Tokens, protocol: Protocol) -> Res<()> {
+        self.current.handle_variant(first, words, protocol)
     }
 }
 

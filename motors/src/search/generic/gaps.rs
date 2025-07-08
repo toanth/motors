@@ -225,7 +225,15 @@ impl<B: Board> Gaps<B> {
         }
         let node_type = best_score.node_type(alpha, beta);
         self.state.statistics.count_complete_node(MainSearch, node_type, depth, ply, num_children);
-        if num_children == 0 { game_result_to_score(pos.no_moves_result(), ply) } else { best_score }
+        if num_children == 0 {
+            if let Some(res) = pos.no_moves_result() {
+                return game_result_to_score(res, ply);
+            }
+            // if there are no legal moves, the player must pass, and this has to be legal.
+            let new_pos = pos.make_nullmove().unwrap();
+            best_score = self.negamax(new_pos, ply + 1, depth - 1, -beta, -alpha);
+        }
+        best_score
     }
 }
 

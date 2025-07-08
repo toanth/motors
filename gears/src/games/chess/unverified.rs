@@ -202,7 +202,7 @@ impl UnverifiedBoard<Chessboard> for UnverifiedChessboard {
         Ok(this)
     }
 
-    fn settings(&self) -> ChessSettings {
+    fn settings(&self) -> &ChessSettings {
         self.0.settings()
     }
 

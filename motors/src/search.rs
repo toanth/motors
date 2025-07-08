@@ -25,7 +25,7 @@ use gears::rand::SeedableRng;
 use gears::rand::prelude::StdRng;
 use gears::score::{MAX_BETA, MIN_ALPHA, NO_SCORE_YET, SCORE_WON, Score, ScoreT};
 use gears::search::{Budget, DepthPly, NodeType, NodesLimit, SearchInfo, SearchLimit, SearchResult, TimeControl};
-use gears::ugi::{EngineOption, EngineOptionName, EngineOptionType};
+use gears::ugi::{EngineOption, EngineOptionNameForProto, EngineOptionType};
 use std::collections::HashMap;
 use std::fmt;
 use std::fmt::{Debug, Display, Formatter};
@@ -66,7 +66,7 @@ pub struct EngineInfo {
     version: String,
     default_bench_depth: DepthPly,
     default_bench_nodes: NodesLimit,
-    options: HashMap<EngineOptionName, EngineOptionType>,
+    options: HashMap<EngineOptionNameForProto, EngineOptionType>,
     max_threads: usize,
     pub internal_state_description: Option<String>,
 }
@@ -421,12 +421,17 @@ pub trait Engine<B: Board>: StaticallyNamedEntity + Send + 'static {
 
     /// Returns a [`SearchInfo`] object with information about the search so far.
     /// Can be called during search, only returns the information regarding the current thread.
-    fn search_info(&self) -> SearchInfo<B> {
+    fn search_info(&self) -> SearchInfo<'_, B> {
         self.search_state_dyn().to_search_info()
     }
 
     /// Sets an option with the name 'option' to the value 'value'.
-    fn set_option(&mut self, option: EngineOptionName, old_value: &mut EngineOptionType, value: String) -> Res<()> {
+    fn set_option(
+        &mut self,
+        option: EngineOptionNameForProto,
+        old_value: &mut EngineOptionType,
+        value: String,
+    ) -> Res<()> {
         bail!(
             "The searcher '{name}' doesn't support setting custom options, including setting '{option}' to '{value}' \
             (Note: Some options, like 'Hash' and 'Threads', may still be supported but aren't handled by the searcher). \
@@ -486,8 +491,8 @@ pub trait NormalEngine<B: Board>: Engine<B> {
     where
         Self: Sized;
 
-    fn time_up(&self, tc: TimeControl, hard_limit: Duration, elapsed: Duration) -> bool {
-        elapsed >= hard_limit.min(tc.remaining / 32 + tc.increment / 2)
+    fn time_up(&self, tc: TimeControl, hard_limit: Duration, byoyomi: Duration, elapsed: Duration) -> bool {
+        elapsed >= byoyomi + hard_limit.min(tc.remaining / 32 + tc.increment / 2)
     }
 
     // Sensible default values, but engines may choose to check more/less frequently than every n nodes
@@ -508,7 +513,7 @@ pub trait NormalEngine<B: Board>: Engine<B> {
             return false;
         }
         let elapsed = self.search_state().start_time().elapsed();
-        if self.time_up(limit.tc, limit.fixed_time, elapsed) {
+        if self.time_up(limit.tc, limit.fixed_time, limit.byoyomi, elapsed) {
             self.search_state().stop_search();
             return true;
         }
@@ -600,6 +605,7 @@ impl<B: Board> SearchParams<B> {
         Self::create(pos, limit, history, tt, None, 0, atomic, Auxiliary)
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn with_output(
         pos: B,
         limit: SearchLimit,
@@ -958,7 +964,7 @@ impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo<B>> AbstractSearchState<B> 
         }
     }
 
-    fn to_search_info(&self) -> SearchInfo<B> {
+    fn to_search_info(&self) -> SearchInfo<'_, B> {
         let mut res = SearchInfo {
             best_move_of_all_pvs: self.best_move(),
             iterations: self.iterations(),

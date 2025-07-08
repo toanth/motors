@@ -59,7 +59,7 @@ mod tests {
 
     fn game_over_test<E: Engine<Chessboard>>(engine: &mut E) {
         let mated_pos = load_ugi_pos_simple("mate_in_1 moves h7a7", Strict, &Chessboard::default()).unwrap();
-        assert!(mated_pos.is_game_lost_slow());
+        assert!(mated_pos.is_checkmate_slow());
         for i in (1..123).step_by(11) {
             let res = engine.search_with_new_tt(mated_pos, SearchLimit::depth(DepthPly::new(i)));
             assert!(res.ponder_move.is_none());
@@ -218,7 +218,7 @@ mod tests {
         // caused a crash once
         let fen = "8/2k5/8/4P3/PPPP1PPP/PPPPPPPP/PPPPPPPP/QQQQKQQQ b - - 0 1";
         let board = Chessboard::from_fen(fen, Relaxed).unwrap();
-        let res = engine.search_with_new_tt(board, SearchLimit::depth(Depth::new(8)));
+        let res = engine.search_with_new_tt(board, SearchLimit::depth(DepthPly::new(8)));
         assert!(res.score <= Score(7000), "{}", res.score);
     }
 
@@ -308,7 +308,7 @@ mod tests {
             let second_best_move = ChessMove::from_extended_text("e1Q+", &pos).unwrap();
             assert_eq!(pv_data[1].pv.list.first(), Some(&second_best_move));
             assert!(pv_data[2].score >= Score(1000));
-            assert!(pv_data[2].pv.list.first().is_some());
+            assert!(!pv_data[2].pv.list.is_empty());
         }
     }
 

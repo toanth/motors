@@ -189,6 +189,23 @@ impl<'a, C: RectangularCoordinates, B: Bitboard<ExtendedRawBitboard, C>> BitReve
     }
 
     #[inline]
+    pub fn forward_attacks(&self, square: C, flip: bool) -> B {
+        let idx = self.size.internal_key(square);
+        let sq = self.data()[idx].square;
+        // this is also known as the `o ^ (o - 2r)` trick, <https://www.chessprogramming.org/Subtracting_a_Rook_from_a_Blocking_Piece>
+        let res = if !flip {
+            let ray = self.data()[idx].rays[Vertical as usize].bb();
+            let blockers = self.blockers.bb() & ray;
+            ((blockers.wrapping_sub(sq.bb() * 2)) ^ blockers) & ray
+        } else {
+            let ray = self.data()[idx].rays[Vertical as usize].rev_bb();
+            let blockers = self.blockers.rev_bb() & ray;
+            (((blockers.wrapping_sub(sq.rev_bb() * 2)) ^ blockers) & ray).reverse_bits()
+        };
+        B::new(res, self.size)
+    }
+
+    #[inline]
     pub fn horizontal_attacks(&self, square: C) -> B {
         let idx = self.size.internal_key(square);
         let res = self.hq(Horizontal, &self.data()[idx]);
@@ -259,11 +276,11 @@ pub trait WithRev: Debug + Copy + Clone + BitAnd<Output = Self> + BitOr<Output =
 
     fn bb(&self) -> Self::RawBitboard;
 
-    fn reversed_bb(&self) -> Self::RawBitboard;
+    fn rev_bb(&self) -> Self::RawBitboard;
 
     #[inline]
     fn finish(&self, rev: impl FnOnce(Self::RawBitboard) -> Self::RawBitboard) -> Self::RawBitboard {
-        self.bb() ^ rev(self.reversed_bb())
+        self.bb() ^ rev(self.rev_bb())
     }
 }
 
@@ -285,7 +302,7 @@ impl WithRev for U64AndRev {
     }
 
     #[inline]
-    fn reversed_bb(&self) -> Self::RawBitboard {
+    fn rev_bb(&self) -> Self::RawBitboard {
         self.0[1]
     }
 }
@@ -389,7 +406,7 @@ impl WithRev for U128AndRev {
         self.0[0]
     }
 
-    fn reversed_bb(&self) -> Self::RawBitboard {
+    fn rev_bb(&self) -> Self::RawBitboard {
         self.0[1]
     }
 }
@@ -512,6 +529,12 @@ mod tests {
 
     #[test]
     fn extended_test() {
+        // . x . . . . .
+        // . . . . . . .
+        // . . . . . x .
+        // . . x . . . .
+        // . . . . . . .
+        // . . . . . . .
         let blockers = STEPS_U128[10] << 16;
         let blockers = DynamicallySizedBitboard::new(blockers, GridSize::connect4());
         let generator = BitReverseSliderGenerator::new(blockers, None);
@@ -519,5 +542,18 @@ mod tests {
         assert!(!attacks.is_bit_set_at(23));
         let expected = (1 << 16) | (1 << 21) | (1 << 22) | (1 << 24) | (1 << 25) | (1 << 26) | (1 << 30) | (1 << 37);
         assert_eq!(attacks.raw() & ((1 << 42) - 1), expected);
+
+        let attacks = generator.forward_attacks(GridCoordinates { row: 0, column: 1 }, false);
+        assert_eq!(attacks.raw(), (STEPS_U128[7] << 8).remove_ones_above(42), "{attacks}");
+        let attacks = generator.forward_attacks(GridCoordinates { row: 0, column: 1 }, true);
+        assert!(attacks.is_zero(), "{attacks}");
+        let attacks = generator.forward_attacks(GridCoordinates { row: 1, column: 5 }, false);
+        assert_eq!(attacks.raw(), ((1 << 14) | (1 << 21)) << 5, "{attacks}");
+        let attacks = generator.forward_attacks(GridCoordinates { row: 1, column: 5 }, true);
+        assert_eq!(attacks.raw(), 1 << 5, "{attacks}");
+        let attacks = generator.forward_attacks(GridCoordinates { row: 4, column: 2 }, false);
+        assert_eq!(attacks.raw().remove_ones_above(42), 1 << 37, "{attacks}");
+        let attacks = generator.forward_attacks(GridCoordinates { row: 4, column: 2 }, true);
+        assert_eq!(attacks.raw(), (1 << 16) | (1 << 23), "{attacks}");
     }
 }

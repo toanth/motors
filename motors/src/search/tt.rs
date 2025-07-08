@@ -168,8 +168,8 @@ impl<B: Board> TTEntry<B> {
 
     #[cfg(feature = "unsafe")]
     fn pack_into(self, entry: &AtomicTTEntry) {
-        debug_assert_eq!(size_of::<Self>(), 128 / 8);
-        debug_assert_eq!(size_of::<AtomicTTEntry>(), size_of::<Self>());
+        assert_eq!(size_of::<Self>(), 128 / 8);
+        assert_eq!(size_of::<AtomicTTEntry>(), size_of::<Self>());
         // `transmute_copy` is needed because otherwise the compiler complains that the sizes might not match.
         // SAFETY: Both types have the same size and all bit patterns are valid
         let e = unsafe { transmute_copy::<Self, u128>(&self) };
@@ -197,8 +197,8 @@ impl<B: Board> TTEntry<B> {
 
     #[cfg(feature = "unsafe")]
     fn unpack(packed: &AtomicTTEntry) -> Self {
-        debug_assert_eq!(size_of::<Self>(), 128 / 8);
-        debug_assert_eq!(size_of::<AtomicTTEntry>(), size_of::<Self>());
+        assert_eq!(size_of::<Self>(), 128 / 8);
+        assert_eq!(size_of::<AtomicTTEntry>(), size_of::<Self>());
         let hash_and_move = packed.hash_and_move.load(Relaxed) as u128;
         let val = ((packed.rest.load(Relaxed) as u128) << 64) | hash_and_move;
         // SAFETY: Both types have the same size and all bit patterns are valid
@@ -526,14 +526,14 @@ mod test {
         let entry4 = TTEntry::<Chessboard>::new(hash, Score(1234), Score(9876), mov, 12 * 128, FailHigh, Age(0));
         assert_eq!(bucket_idx, tt.bucket_index_of(hash));
         tt.store(entry4, hash, 0);
-        let num_empty = bucket.iter().map(|e| TTEntry::<Chessboard>::unpack(e)).filter(|e| e.is_empty()).count();
+        let num_empty = bucket.iter().map(TTEntry::<Chessboard>::unpack).filter(|e| e.is_empty()).count();
         assert_eq!(num_empty, 0);
 
         let hash = PosHash(0x4200000);
         let new_entry = TTEntry::<Chessboard>::new(hash, Score(100), Score(0), mov, 0, FailLow, Age(0));
         assert_eq!(bucket_idx, tt.bucket_index_of(hash));
         tt.store(new_entry, hash, 0);
-        let has = |entry: TTEntry<Chessboard>| bucket.iter().map(|e| TTEntry::<Chessboard>::unpack(e)).contains(&entry);
+        let has = |entry: TTEntry<Chessboard>| bucket.iter().map(TTEntry::<Chessboard>::unpack).contains(&entry);
         let has_entry2 = has(entry2);
         assert!(!has_entry2);
         assert!(has(entry));

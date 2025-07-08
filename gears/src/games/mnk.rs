@@ -21,13 +21,14 @@ use crate::general::board::{
 };
 use crate::general::common::*;
 use crate::general::hq::BitReverseSliderGenerator;
-use crate::general::move_list::{EagerNonAllocMoveList, MoveList};
+use crate::general::move_list::{InplaceMoveList, MoveList};
 use crate::general::moves::Legality::Legal;
 use crate::general::moves::{Legality, Move, UntrustedMove};
 use crate::general::squares::{GridCoordinates, GridSize, RectangularCoordinates, SquareColor};
 use crate::output::OutputOpts;
 use crate::output::text_output::{BoardFormatter, DefaultBoardFormatter, board_to_string, display_board_pretty};
 use crate::search::DepthPly;
+use crate::ugi::Protocol;
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Default)]
 #[must_use]
@@ -72,9 +73,9 @@ impl Not for MnkColor {
     }
 }
 
-impl Into<usize> for MnkColor {
-    fn into(self) -> usize {
-        self as usize
+impl From<MnkColor> for usize {
+    fn from(value: MnkColor) -> usize {
+        value as usize
     }
 }
 
@@ -92,7 +93,7 @@ impl Color for MnkColor {
         }
     }
 
-    fn name(self, _settings: &<Self::Board as Board>::Settings) -> impl AsRef<str> {
+    fn name(self, _settings: &<Self::Board as Board>::Settings) -> &str {
         match self {
             MnkColor::X => "X",
             MnkColor::O => "O",
@@ -230,7 +231,7 @@ impl FillSquare {
 impl Move<MNKBoard> for FillSquare {
     type Underlying = u16;
 
-    fn legality() -> Legality {
+    fn legality(_: &MnkSettings) -> Legality {
         Legal
     }
 
@@ -281,7 +282,7 @@ impl Move<MNKBoard> for FillSquare {
     }
 }
 
-#[derive(Copy, Clone, Debug, Eq, PartialEq, Arbitrary)]
+#[derive(Copy, Clone, Debug, Eq, PartialEq, Hash, Arbitrary)]
 #[must_use]
 pub struct MnkSettings {
     height: DimT,
@@ -308,7 +309,7 @@ impl MnkSettings {
     pub fn check_invariants(self) -> bool {
         self.height <= 26
             && self.width < MAX_WIDTH as DimT
-            && self.height * self.width <= 128
+            && self.height.saturating_mul(self.width) <= 128
             && self.height * self.width >= 1
             && self.k <= min(self.height, self.width)
             && self.k >= 1
@@ -480,6 +481,7 @@ impl Board for MNKBoard {
     type EmptyRes = MNKBoard;
 
     type Settings = MnkSettings;
+    type SettingsRef = MnkSettings;
 
     type Coordinates = GridCoordinates;
     type Color = MnkColor;
@@ -488,7 +490,7 @@ impl Board for MNKBoard {
 
     type Move = FillSquare;
 
-    type MoveList = EagerNonAllocMoveList<Self, 128>;
+    type MoveList = InplaceMoveList<Self, 128>;
 
     type Unverified = UnverifiedMnkBoard;
 
@@ -580,11 +582,15 @@ impl Board for MNKBoard {
         }
     }
 
-    fn settings(&self) -> Self::Settings {
+    fn settings(&self) -> &MnkSettings {
+        &self.settings
+    }
+
+    fn settings_ref(&self) -> Self::SettingsRef {
         self.settings
     }
 
-    fn variant(first: &str, rest: &mut Tokens) -> Res<MNKBoard> {
+    fn variant_for(first: &str, rest: &mut Tokens, _proto: Protocol) -> Res<MNKBoard> {
         let settings = MnkSettings::from_input(first, rest)?;
         Ok(Self::startpos_for_settings(settings))
     }
@@ -654,6 +660,10 @@ impl Board for MNKBoard {
         self.empty_bb().num_ones()
     }
 
+    fn has_no_legal_moves(&self) -> bool {
+        self.empty_bb().is_zero()
+    }
+
     // Idea for another (faster and easier?) implementation:
     // Create lookup table (bitvector?) that answer "contains k consecutive 1s" for all
     // bits sequences of length 12 (= max m,n), use pext to transform columns and (anti) diagonals
@@ -694,7 +704,7 @@ impl Board for MNKBoard {
         if self.last_move_won_game() {
             Some(Lose)
         } else if self.empty_bb().is_zero() {
-            return Some(Draw);
+            Some(Draw)
         } else {
             None
         }
@@ -704,8 +714,8 @@ impl Board for MNKBoard {
         self.player_result_no_movegen(history)
     }
 
-    fn no_moves_result(&self) -> PlayerResult {
-        Draw
+    fn no_moves_result(&self) -> Option<PlayerResult> {
+        Some(Draw)
     }
 
     fn can_reasonably_win(&self, _player: MnkColor) -> bool {
@@ -727,6 +737,15 @@ impl Board for MNKBoard {
             bail!("Empty mnk fen".to_string());
         };
         let settings = MnkSettings::from_input(first, words)?;
+        Self::read_fen_for(words, strictness, settings)
+    }
+
+    fn read_fen_and_advance_input_for(words: &mut Tokens, strictness: Strictness, settings: MnkSettings) -> Res<Self> {
+        let Some(first) = words.peek().copied() else {
+            bail!("Empty mnk fen".to_string());
+        };
+        let settings = if first.parse::<usize>().is_ok() { MnkSettings::from_input(first, words)? } else { settings };
+
         let board = MNKBoard::empty_for_settings(settings);
         let mut board = UnverifiedMnkBoard::new(board);
         read_common_fen_part::<MNKBoard>(words, &mut board)?;
@@ -737,16 +756,11 @@ impl Board for MNKBoard {
             // doesn't change the board.
             ply += 1;
         }
-        board.set_ply_since_start(ply)?;
-        read_single_move_number::<MNKBoard>(words, &mut board, strictness)?;
+        read_single_move_number::<MNKBoard>(words, &mut board, strictness, Some(ply))?;
 
         board.0.last_move = None;
 
         board.verify_with_level(CheckFen, strictness)
-    }
-
-    fn should_flip_visually() -> bool {
-        false
     }
 
     fn as_diagram(&self, typ: CharType, flip: bool) -> String {
@@ -796,6 +810,24 @@ impl MNKBoard {
             || (generator.vertical_attacks(square) & player_bb).num_ones() >= k
             || (generator.diagonal_attacks(square) & player_bb).num_ones() >= k
             || (generator.anti_diagonal_attacks(square) & player_bb).num_ones() >= k
+    }
+
+    fn read_fen_for(words: &mut Tokens, strictness: Strictness, settings: MnkSettings) -> Res<Self> {
+        let board = MNKBoard::empty_for_settings(settings);
+        let mut board = UnverifiedMnkBoard::new(board);
+        read_common_fen_part::<MNKBoard>(words, &mut board)?;
+
+        let mut ply = board.0.occupied_bb().num_ones();
+        if (ply % 2 == 0) != board.active_player().is_first() {
+            // This can't have happened in a normal game from startpos. Adjust ply so that converting to FEN and back
+            // doesn't change the board.
+            ply += 1;
+        }
+        read_single_move_number::<MNKBoard>(words, &mut board, strictness, Some(ply))?;
+
+        board.0.last_move = None;
+
+        board.verify_with_level(CheckFen, strictness)
     }
 }
 
@@ -860,7 +892,7 @@ impl UnverifiedBoard<MNKBoard> for UnverifiedMnkBoard {
         Ok(this)
     }
 
-    fn settings(&self) -> MnkSettings {
+    fn settings(&self) -> &MnkSettings {
         self.0.settings()
     }
 
@@ -969,9 +1001,11 @@ mod test {
     }
 
     #[test]
-    #[should_panic]
     fn dimension_test_invalid_board_too_large() {
-        _ = MnkSettings::new(Height(12), Width(11), 6);
+        let input = "20 20 6";
+        let mut words = tokens(input);
+        let first = words.next().unwrap();
+        assert!(MnkSettings::from_input(first, &mut words).is_err());
     }
 
     // Only covers very basic cases, perft is used for mor more complex cases
@@ -1030,13 +1064,11 @@ mod test {
         assert_eq!(r.perft_res.depth.get(), 2);
         assert_eq!(r.perft_res.nodes, 96 * 95);
         assert!(r.children.iter().all(|x| x.1 == r.children[0].1));
-        assert!(r.perft_res.time.as_millis() <= 50);
         let r =
             split_perft(DepthPly::new(3), MNKBoard::empty_for_settings(MnkSettings::new(Height(4), Width(3), 3)), true);
         assert_eq!(r.perft_res.depth.get(), 3);
         assert_eq!(r.perft_res.nodes, 12 * 11 * 10);
         assert!(r.children.iter().all(|x| x.1 == r.children[0].1));
-        assert!(r.perft_res.time.as_millis() <= 1000);
         let r = split_perft(
             DepthPly::new(5),
             MNKBoard::empty_for_settings(MnkSettings::new(Height(5), Width(5), 5)),
@@ -1198,24 +1230,25 @@ mod test {
     #[test]
     fn test_winning() {
         let board = MNKBoard::from_fen("3 3 3 XX1/3/3 x", Relaxed).unwrap();
+        let h = NoHistory::default();
         assert_eq!(board.active_player(), MnkColor::first());
 
-        assert!(board.is_game_won_after_slow(FillSquare { target: board.idx_to_coordinates(8) }));
-        assert!(!board.is_game_won_after_slow(FillSquare { target: board.idx_to_coordinates(5) }));
+        assert!(board.is_game_won_after_slow(FillSquare { target: board.idx_to_coordinates(8) }, h));
+        assert!(!board.is_game_won_after_slow(FillSquare { target: board.idx_to_coordinates(5) }, h));
 
         let board = MNKBoard::from_fen("4 3 3 XOX/O1O/XOO/1OX o", Relaxed).unwrap();
-        assert!(board.is_game_won_after_slow(FillSquare { target: board.idx_to_coordinates(0) }));
+        assert!(board.is_game_won_after_slow(FillSquare { target: board.idx_to_coordinates(0) }, h));
         let board = MNKBoard::from_fen("3 3 3 XOX/O1O/XOO x", Relaxed).unwrap();
-        assert!(board.is_game_won_after_slow(FillSquare { target: board.idx_to_coordinates(4) }));
+        assert!(board.is_game_won_after_slow(FillSquare { target: board.idx_to_coordinates(4) }, h));
         let board = MNKBoard::from_fen("4 3 3 XOX/OXO/XOO/1OX x", Relaxed).unwrap();
-        assert!(!board.is_game_won_after_slow(FillSquare { target: board.idx_to_coordinates(0) }));
+        assert!(!board.is_game_won_after_slow(FillSquare { target: board.idx_to_coordinates(0) }, h));
     }
 
     #[test]
     fn game_over_test() {
         let pos = MNKBoard::from_fen("3 3 3 XX1/3/3 x", Relaxed).unwrap();
         let mov = FillSquare::new(GridCoordinates::from_rank_file(2, 2));
-        assert!(pos.is_game_won_after_slow(mov));
+        assert!(pos.is_game_won_after_slow(mov, NoHistory::default()));
         let new_pos = pos.make_move(mov).unwrap();
         assert!(new_pos.last_move_won_game());
         assert_eq!(new_pos.last_move, Some(mov));

@@ -49,16 +49,8 @@ impl AtaxxBoard {
         !(self.empty | self.colors[0] | self.colors[1])
     }
 
-    pub fn active_bb(&self) -> AtaxxBitboard {
-        self.color_bb(self.active_player)
-    }
-
-    pub fn inactive_bb(&self) -> AtaxxBitboard {
-        self.color_bb(!self.active_player)
-    }
-
     pub(super) fn gen_legal<T: MoveList<Self>>(&self, moves: &mut T) {
-        let pieces = self.active_bb();
+        let pieces = self.active_player_bb();
         let empty = self.empty_bb();
         // TODO: Use precomputed table
         let neighbors = pieces.moore_neighbors() & empty;
@@ -83,7 +75,7 @@ impl AtaxxBoard {
     }
 
     pub(super) fn num_moves(&self) -> usize {
-        let pieces = self.active_bb();
+        let pieces = self.active_player_bb();
         let empty = self.empty_bb();
         let mut res = (pieces.moore_neighbors() & empty).num_ones();
         for source in pieces.ones() {
@@ -143,7 +135,7 @@ impl AtaxxBoard {
         if !empty.is_bit_set_at(mov.dest_square().bb_idx()) {
             return false;
         }
-        let pieces = self.active_bb();
+        let pieces = self.active_player_bb();
         if mov.typ() == Cloning {
             pieces.moore_neighbors().is_bit_set_at(mov.dest_square().bb_idx())
         } else {

@@ -66,8 +66,8 @@ impl AbstractOutput for Logger {
         let time_stamp = chrono::Utc::now().to_rfc3339();
         let message = format!("[{time_stamp}] {}", message.string());
         match player {
-            None => self.stream.write(">", &format_args!("{}", message)),
-            Some(name) => self.stream.write(&format!("({name})>"), &format_args!("{}", message)),
+            None => self.stream.write(">", &format_args!("{message}")),
+            Some(name) => self.stream.write(&format!("({name})>"), &format_args!("{message}")),
         }
     }
 

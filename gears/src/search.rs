@@ -432,6 +432,7 @@ pub type NodesLimit = NonZeroU64;
 pub struct SearchLimit {
     pub tc: TimeControl,
     pub fixed_time: Duration,
+    pub byoyomi: Duration,
     pub depth: DepthPly,
     pub nodes: NodesLimit,
     pub soft_nodes: NodesLimit,
@@ -444,6 +445,7 @@ impl Default for SearchLimit {
         SearchLimit {
             tc: TimeControl::default(),
             fixed_time: Duration::MAX,
+            byoyomi: Duration::ZERO,
             depth: MAX_DEPTH,
             nodes: NodesLimit::new(u64::MAX).unwrap(),
             soft_nodes: NodesLimit::new(u64::MAX).unwrap(),
@@ -530,6 +532,7 @@ impl SearchLimit {
         Self {
             tc: self.tc.combine(other.tc),
             fixed_time: self.fixed_time.min(other.fixed_time),
+            byoyomi: self.byoyomi.max(other.byoyomi),
             depth: self.depth.min(other.depth),
             nodes: self.nodes.min(other.nodes),
             soft_nodes: self.soft_nodes.min(other.soft_nodes),

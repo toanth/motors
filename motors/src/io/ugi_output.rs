@@ -402,7 +402,7 @@ impl<B: Board> UgiOutput<B> {
             if i > 0 {
                 write!(top_moves, ", ").unwrap();
             }
-            write!(top_moves, "{0} [{score}]", m.extended_formatter(&pos, Standard)).unwrap();
+            write!(top_moves, "{0} [{score}]", m.extended_formatter(pos, Standard)).unwrap();
         }
         let top_moves = if self.top_moves.is_empty() { None } else { Some(top_moves.as_ref()) };
         _ = self.type_erased.show_bar(
@@ -426,8 +426,7 @@ impl<B: Board> UgiOutput<B> {
         }
         self.top_moves.push((refuted_move, score));
         if !self.type_erased.pretty {
-            self.write_ugi(&format_args!("info refutation {}", refuted_move.compact_formatter(&pos)));
-            return;
+            self.write_ugi(&format_args!("info refutation {}", refuted_move.compact_formatter(pos)));
         }
     }
 
@@ -615,9 +614,9 @@ fn write_move_nr(res: &mut String, move_nr: usize, first_move: bool, first_playe
         }
     };
     if first_player {
-        write(format!(" {}.", move_nr));
+        write(format!(" {move_nr}."));
     } else if first_move {
-        write(format!(" {}. ...", move_nr));
+        write(format!(" {move_nr}. ..."));
     } else {
         res.push(' ');
     }
