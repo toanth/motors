@@ -1013,6 +1013,7 @@ impl FairyBoard {
                 val: Box::new(move || RulesRef::new(Rules::shogi(protocol == Protocol::USI))),
             },
             GenericSelect { name: "ataxx", val: Box::new(|| RulesRef::new(Rules::ataxx())) },
+            GenericSelect { name: "droptaxx", val: Box::new(|| RulesRef::new(Rules::droptaxx(FairySize::ataxx()))) },
             GenericSelect { name: "tictactoe", val: Box::new(|| RulesRef::new(Rules::tictactoe())) },
             GenericSelect { name: "mnk", val: Box::new(|| RulesRef::new(Rules::mnk(GridSize::connect4(), 4))) },
             GenericSelect { name: "cfour", val: Box::new(|| RulesRef::new(Rules::cfour(GridSize::connect4(), 4))) },
@@ -1132,7 +1133,7 @@ impl Display for NoRulesFenFormatter<'_> {
                 fmt_ctr(f, pos.additional_ctrs[1], threshold)?;
             }
         }
-        if pos.rules().format_rules.has_halfmove_clock {
+        if pos.rules().format_rules.has_ply_clock {
             write!(f, " {}", pos.ply_draw_clock())?;
         }
         let ctr = match pos.rules().format_rules.move_num_fmt {
@@ -1155,7 +1156,7 @@ impl UnverifiedFairyBoard {
         // does nothing if the rules don't require these parts
         self.read_castling_and_ep_fen_parts(input, strictness)?;
         let trailing_counters = self.rules().num_additional_ctrs() > 0 && self.read_ctrs(input, true).is_err();
-        if self.rules().format_rules.has_halfmove_clock {
+        if self.rules().format_rules.has_ply_clock {
             read_halfmove_clock::<FairyBoard>(input, &mut self)?;
         }
         match self.rules().format_rules.move_num_fmt {

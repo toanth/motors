@@ -123,10 +123,11 @@ pub struct ConvertOne {
     pub square: FairySquare,
 }
 
-// by default, this doesn't create `ConvertOne` events (though this can be set up though an observer, of course)
+// by default, this doesn't create `ConvertOne` events (though this can be set up through an observer, of course)
 #[derive(Debug, Copy, Clone)]
 pub struct ConvertAll {
     pub bb: RawFairyBitboard,
+    pub to: FairyColor,
 }
 
 #[derive(Debug, Copy, Clone)]
@@ -270,8 +271,9 @@ impl Event for Promote {
 
 impl Event for ConvertAll {
     fn execute(self, pos: &mut FairyBoard) {
-        pos.0.color_bitboards[0] ^= self.bb;
-        pos.0.color_bitboards[1] ^= self.bb;
+        let bb = pos.color_bitboards[!self.to] & self.bb;
+        pos.0.color_bitboards[0] ^= bb;
+        pos.0.color_bitboards[1] ^= bb;
     }
 
     fn notify(self, observers: &Observers, pos: &mut FairyBoard) -> Option<()> {
@@ -460,18 +462,6 @@ impl Observers {
             Some(())
         };
         res.finish_move.push(Box::new(no_pawn_drop_mate));
-        res
-    }
-
-    pub fn ataxx() -> Self {
-        let mut res = Self::default();
-        let place_piece_fn = |event: PlaceSinglePiece, pos: &mut FairyBoard| {
-            let bb = FairyBitboard::single_piece_for(event.square, pos.size());
-            // Could use precomputed attacks for this
-            let bb = bb.moore_neighbors().raw();
-            pos.emit(ConvertAll { bb })
-        };
-        res.place_single_piece.push(Box::new(place_piece_fn));
         res
     }
 

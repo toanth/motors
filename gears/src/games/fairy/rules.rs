@@ -38,7 +38,7 @@ use crate::games::fairy::{
 use crate::games::mnk::{MNKBoard, MnkSettings};
 use crate::games::{BoardHistory, Color, DimT, NUM_COLORS, PosHash, Settings, chess, n_fold_repetition};
 use crate::general::bitboards::{Bitboard, RawBitboard};
-use crate::general::board::{AxesFormat, AxisSymbol, BitboardBoard, Board, BoardHelpers, BoardOrientation};
+use crate::general::board::{AxesFormat, AxisSymbol, BitboardBoard, Board, BoardHelpers};
 use crate::general::common::{Res, Tokens};
 use crate::general::move_list::MoveList;
 use crate::general::moves::Legality::{Legal, PseudoLegal};
@@ -658,7 +658,7 @@ pub(super) struct FenFormatSpec {
 /// How to format FENs and moves.
 /// If parsing a FEN fails, the board switches the format and tries again, if that succeeds it keeps the new format.
 pub(super) struct FormatRules {
-    pub(super) has_halfmove_clock: bool,
+    pub(super) has_ply_clock: bool, // the 50 mr counter in chess, draw counter in makruk, etc
     pub(super) move_num_fmt: MoveNumFmt,
     // TODO: Doesn't really belong in format rules since it's just used to set up the startpos but doesn't depend on format rules
     pub(super) startpos_fen: String, // doesn't include the rules
@@ -712,7 +712,7 @@ impl FormatRules {
     }
 }
 
-/// This struct defined the rules for the variant.
+/// This struct defines the rules for the variant.
 /// Since the rules don't change during a game, but are expensive to copy and the board uses copy-make,
 /// they are created once and stored behind an [`Arc`] that all boards have one copy of.
 #[must_use]
@@ -720,7 +720,7 @@ impl FormatRules {
 pub struct Rules {
     pub(super) format_rules: FormatRules,
     /// When reading in a FEN fails, we try again with these fallback rules.
-    /// For example, this is used to support both UGI and USI formats for Shogi.
+    /// This is used to support both UGI and USI formats for Shogi.
     pub(super) fallback: Option<Arc<Rules>>,
     pub(super) pieces: Vec<Piece>,
     pub(super) colors: [ColorInfo; NUM_COLORS],
@@ -728,7 +728,7 @@ pub struct Rules {
     pub(super) game_end_eager: Vec<(GameEndEager, GameEndRes)>,
     pub(super) game_end_no_moves: Vec<(NoMovesCondition, GameEndRes)>,
     pub(super) empty_board: EmptyBoard,
-    /// setting this to [`Legal`] can be a speedup, but setting it to [`PseudoLegal`] is always correct.
+    /// Setting this to [`Legal`] can be a speedup, but setting it to [`PseudoLegal`] is always correct.
     pub(super) legality: Legality,
     pub(super) moves_filter: FilterMovesCondition,
     pub(super) size: GridSize,
@@ -829,7 +829,7 @@ impl Rules {
         let empty_func = Self::generic_empty_board;
         // let fen_format = FenFormatSpec { hand: FenHandInfo::None };
         let fen_rules = FormatRules {
-            has_halfmove_clock: true,
+            has_ply_clock: true,
             move_num_fmt: MoveNumFmt::Fullmove,
             startpos_fen: chess::START_FEN.to_string(),
             rules_part: FenRulesPart::None,
@@ -1055,7 +1055,7 @@ impl Rules {
         // Some of these settings will be overwritten below if `usi` is true.
         rules.format_rules.startpos_fen =
             "lnsgkgsnl/1r5b1/ppppppppp/9/9/9/PPPPPPPPP/1B5R1/LNSGKGSNL[] w - 1".to_string();
-        rules.format_rules.has_halfmove_clock = false;
+        rules.format_rules.has_ply_clock = false;
         rules.format_rules.hand = FenHandInfo::InBrackets;
         rules.format_rules.promo_fen_modifier = PromoFenModifier::Shogi;
         rules.format_rules.promo_move_char = PromoMoveChar::Plus;
@@ -1100,21 +1100,16 @@ impl Rules {
         let gap = map.remove("gap").unwrap();
         let pieces = vec![piece, gap];
         let startpos_fen = AtaxxBoard::startpos().as_fen();
-        let axes_format = AxesFormat {
-            orientation: BoardOrientation::PlayerPov,
-            x_axis_symbol: AxisSymbol::NumberReversed,
-            y_axis_symbol: AxisSymbol::LetterReversed,
-        };
         let fen_rules = FormatRules {
             hand: FenHandInfo::None,
-            has_halfmove_clock: true,
+            has_ply_clock: true,
             move_num_fmt: MoveNumFmt::Fullmove,
             startpos_fen,
             rules_part: FenRulesPart::None,
             promo_fen_modifier: PromoFenModifier::Crazyhouse,
             promo_move_char: PromoMoveChar::Piece,
             drop_str: "".to_string(),
-            axes_format,
+            axes_format: AxesFormat::default(),
         };
         Self {
             format_rules: fen_rules,
@@ -1140,9 +1135,21 @@ impl Rules {
             name: "ataxx".to_string(),
             num_royals: [Exactly(0); NUM_COLORS],
             must_preserve_own_king: [false; NUM_COLORS],
-            observers: Observers::ataxx(),
+            observers: Observers::default(),
             moves_filter: FilterMovesCondition::NoFilter,
         }
+    }
+
+    pub fn droptaxx(size: FairySize) -> Self {
+        let mut res = Self::mnk(size, 1);
+        res.name = "droptaxx".to_string();
+        res.format_rules.startpos_fen =
+            MNKBoard::startpos_for_settings(MnkSettings::new(size.height, size.width, 1)).fen_no_rules().to_string();
+        res.game_end_eager = vec![];
+        res.format_rules.rules_part = FenRulesPart::None;
+        res.game_end_no_moves = vec![(NoMovesCondition::NoOpponentMoves, GameEndRes::MorePieces)];
+        res.effect_rules.conversion_radius = 1;
+        res
     }
 
     pub fn tictactoe() -> Self {
@@ -1156,7 +1163,7 @@ impl Rules {
         let startpos_fen = MNKBoard::startpos_for_settings(settings).as_fen();
         let fen_rules = FormatRules {
             hand: FenHandInfo::None,
-            has_halfmove_clock: false,
+            has_ply_clock: false,
             move_num_fmt: MoveNumFmt::Fullmove,
             startpos_fen,
             rules_part: FenRulesPart::Mnk(settings),

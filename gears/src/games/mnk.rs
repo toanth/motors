@@ -468,12 +468,15 @@ impl MNKBoard {
         self.active_player = player.other();
         self
     }
+
+    pub fn fen_no_rules(&self) -> impl Display {
+        simple_fen(self, false, true)
+    }
 }
 
 impl Display for MNKBoard {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        write!(f, "{} ", self.settings,)?;
-        simple_fen(f, self, false, true)
+        write!(f, "{0} {1}", self.settings, self.fen_no_rules())
     }
 }
 

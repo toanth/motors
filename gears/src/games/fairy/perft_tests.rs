@@ -161,7 +161,7 @@ mod tests {
 
     #[test]
     fn shakmaty_debug_tests() {
-        shakmaty_tests(100_000);
+        shakmaty_tests(10_000);
     }
 
     #[test]

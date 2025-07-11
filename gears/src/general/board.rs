@@ -1051,15 +1051,27 @@ pub fn common_fen_part<B: RectangularBoard>(f: &mut Formatter<'_>, pos: &B) -> f
     write!(f, " {}", pos.active_player().to_char(pos.settings()))
 }
 
-pub fn simple_fen<T: RectangularBoard>(f: &mut Formatter<'_>, pos: &T, halfmove: bool, fullmove: bool) -> fmt::Result {
-    common_fen_part(f, pos)?;
-    if halfmove {
-        write!(f, " {}", pos.ply_draw_clock())?;
+pub fn simple_fen<B: RectangularBoard>(pos: &B, halfmove: bool, fullmove: bool) -> impl Display {
+    SimpleFenFormatter { pos, halfmove, fullmove }
+}
+
+struct SimpleFenFormatter<'a, B: RectangularBoard> {
+    pos: &'a B,
+    halfmove: bool,
+    fullmove: bool,
+}
+
+impl<B: RectangularBoard> Display for SimpleFenFormatter<'_, B> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        common_fen_part(f, self.pos)?;
+        if self.halfmove {
+            write!(f, " {}", self.pos.ply_draw_clock())?;
+        }
+        if self.fullmove {
+            write!(f, " {}", self.pos.fullmove_ctr_1_based())?;
+        }
+        Ok(())
     }
-    if fullmove {
-        write!(f, " {}", pos.fullmove_ctr_1_based())?;
-    }
-    Ok(())
 }
 
 fn read_position_fen_impl<B: RectangularBoard>(

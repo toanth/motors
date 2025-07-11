@@ -443,6 +443,15 @@ mod general {
     }
 
     #[test]
+    fn simple_droptaxx_test() {
+        let pos = FairyBoard::from_fen_for("droptaxx", "O5O/7/7/7/7/7/X5X x 1", Strict).unwrap();
+        let res = perft(DepthPly::new(3), pos.clone(), false);
+        assert_eq!(res.nodes, 85140);
+        let pos = pos.make_move_from_str("b6").unwrap();
+        assert_eq!(pos.as_fen(), "droptaxx X5O/1X5/7/7/7/7/X5X o 1")
+    }
+
+    #[test]
     fn simple_mnk_test() {
         let pos = FairyBoard::from_fen("tictactoe 3 3 3 3/3/3 x 1", Strict).unwrap();
         assert_eq!(pos.size(), GridSize::tictactoe());

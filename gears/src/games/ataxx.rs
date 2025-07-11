@@ -112,7 +112,7 @@ impl Default for AtaxxBoard {
 
 impl Display for AtaxxBoard {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        simple_fen(f, self, true, true)
+        write!(f, "{}", simple_fen(self, true, true))
     }
 }
 

@@ -535,7 +535,7 @@ impl MoveKind {
 pub struct EffectRules {
     pub reset_draw_counter_on_capture: bool,
     pub conversion_radius: usize,
-    // pub explosion_radius: usize, // TODO: Atomic chess
+    // pub explosion_radius: usize, // TODO: Remove?
 }
 
 impl Default for EffectRules {

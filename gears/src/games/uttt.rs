@@ -674,8 +674,7 @@ impl UtttBoard {
 
 impl Display for UtttBoard {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        simple_fen(f, self, false, true)?;
-        write!(f, " {}", self.last_move)
+        write!(f, "{0} {1}", simple_fen(self, false, true), self.last_move)
     }
 }
 
