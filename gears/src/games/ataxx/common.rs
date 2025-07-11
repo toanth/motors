@@ -2,7 +2,7 @@ use crate::games::ataxx::AtaxxColor::{O, X};
 use crate::games::ataxx::common::AtaxxMoveType::{Cloning, Leaping};
 use crate::games::ataxx::common::AtaxxPieceType::{Blocked, Empty, Occupied};
 use crate::games::ataxx::{AtaxxBoard, AtaxxColor, AtaxxSettings, AtaxxSquare};
-use crate::games::{AbstractPieceType, CharType, ColoredPieceType, DimT, PieceType};
+use crate::games::{AbstractPieceType, CharType, Color, ColoredPieceType, DimT, PieceType};
 use crate::general::board::{Board, BoardHelpers};
 use crate::general::common::Res;
 use crate::general::moves::Legality::Legal;
@@ -220,6 +220,18 @@ impl Move<AtaxxBoard> for AtaxxMove {
 
     fn is_tactical(self, _board: &AtaxxBoard) -> bool {
         false
+    }
+
+    fn description(self, board: &AtaxxBoard) -> String {
+        let piece = board.active_player.name(board.settings()).bold();
+        match self.typ() {
+            Leaping => format!(
+                "The {piece} leaps from {0} to {1}",
+                self.source.to_string().bold(),
+                self.target.to_string().bold()
+            ),
+            Cloning => format!("Clone a {piece} onto {0}", self.target.to_string().bold()),
+        }
     }
 
     fn format_compact(self, f: &mut Formatter<'_>, _board: &AtaxxBoard) -> fmt::Result {

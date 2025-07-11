@@ -327,6 +327,12 @@ impl Move<UtttBoard> for UtttMove {
         false
     }
 
+    fn description(self, board: &UtttBoard) -> String {
+        let piece = board.active.to_string().bold();
+        let to = self.0.to_string().bold();
+        format!("Place a {piece} on {to}")
+    }
+
     fn format_compact(self, f: &mut Formatter<'_>, _board: &UtttBoard) -> fmt::Result {
         write!(f, "{self}")
     }

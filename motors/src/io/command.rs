@@ -1050,7 +1050,7 @@ pub(super) fn moves_options<B: Board>(pos: &B, recurse: bool) -> CommandList {
         let cmd = Command {
             primary_name: primary_name.clone(),
             other_names,
-            help_text: Some(format!("Play move '{}'", mov.compact_formatter(pos).to_string().bold())),
+            help_text: Some(mov.description(pos)),
             standard: All,
             autocomplete_recurse: false,
             func: |_, _, _| Ok(()),

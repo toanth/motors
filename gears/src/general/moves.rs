@@ -80,6 +80,9 @@ where
     /// knight promotions in chess. Always returning `false` is a valid choice.
     fn is_tactical(self, board: &B) -> bool;
 
+    /// A human-readable and formatted description of this move, e.g. 'move the white knight from g1 to f3'
+    fn description(self, board: &B) -> String;
+
     /// Compact text representation is used by UGI, e.g. for chess it's `<to><from><promo_piece_if_present>`.
     /// Takes a [`Board`] parameter because some move types may not store enough information to be printed in a human-readable
     /// way without that.

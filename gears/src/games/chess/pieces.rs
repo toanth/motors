@@ -251,7 +251,7 @@ impl ColoredChessPieceType {
 
 impl Display for ColoredChessPieceType {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.to_char(CharType::Unicode, &ChessSettings::default()))
+        write!(f, "{}", self.name(&ChessSettings::default()).as_ref())
     }
 }
 

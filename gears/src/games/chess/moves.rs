@@ -228,6 +228,33 @@ impl Move<Chessboard> for ChessMove {
         self.is_capture(board) || self.flags() == PromoQueen || self.flags() == PromoKnight
     }
 
+    fn description(self, board: &Chessboard) -> String {
+        let from = self.src_square().to_string().bold();
+        let to = self.dest_square().to_string().bold();
+        let piece = self.piece(board).to_string().bold();
+        if self.is_castle() {
+            format!("Castle {}", self.castle_side())
+        } else if self.is_ep() {
+            format!(
+                "Capture the pawn on {0} with the {piece} on {0} {1}",
+                self.dest_square().pawn_advance_unchecked(board.inactive_player()),
+                "en passant".bold()
+            )
+        } else if self.is_promotion() {
+            let promo = self.promo_piece().to_name().bold();
+            if self.is_capture(board) {
+                let victim = self.captured(board).to_string().bold();
+                return format!("Capture the {victim} on {to} with the {piece} on {from} and promote it to a {promo}");
+            }
+            format!("Promote the {piece} on {from} to a {promo} on {to}")
+        } else if self.is_capture(board) {
+            let victim = self.captured(board).to_string().bold();
+            format!("Capture the {victim} on {to} with the {piece} on {from}")
+        } else {
+            format!("Move the {piece} on {from} to {to}")
+        }
+    }
+
     #[inline]
     fn format_compact(self, f: &mut Formatter<'_>, board: &Chessboard) -> fmt::Result {
         if self.is_null() {

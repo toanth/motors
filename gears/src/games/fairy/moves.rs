@@ -141,6 +141,36 @@ impl Move<FairyBoard> for FairyMove {
         self.is_capture()
     }
 
+    fn description(self, board: &FairyBoard) -> String {
+        let from = self.src_square_in(board).unwrap_or_default().to_string().bold();
+        let to = self.dest(board.size()).to_string().bold();
+        let piece = self.piece(board).name(board.settings()).as_ref().bold();
+        match self.kind() {
+            MoveKind::Normal | MoveKind::Promotion(_) => {
+                let text = if self.is_capture() {
+                    let victim = board.piece_type_on(self.dest(board.size()));
+                    if victim != PieceId::empty() {
+                        let victim = victim.name(board.settings()).bold();
+                        format!("Capture the {victim} on {to} with the {piece} on {from}")
+                    } else {
+                        format!("Capture: Move the {piece} on {from} to {to}")
+                    }
+                } else {
+                    format!("Move the {piece} on {from} to {to}")
+                };
+                if let MoveKind::Promotion(promo) = self.kind() {
+                    let piece = ColoredPieceId::from_u8(promo).name(board.settings()).as_ref().bold();
+                    format!("{text} and promote it to a {piece}")
+                } else {
+                    text
+                }
+            }
+            MoveKind::DoublePawnPush => format!("Double pawn push from {from} to {to}"),
+            MoveKind::Drop(_) => format!("Place a {piece} on {to}"),
+            MoveKind::Castle(side) => format!("Castle {side}"),
+        }
+    }
+
     fn format_compact(self, f: &mut Formatter<'_>, board: &FairyBoard) -> fmt::Result {
         format_move_compact(f, self, board).unwrap_or_else(|| write!(f, "<Invalid Fairy Move '{self:?}'>"))
     }

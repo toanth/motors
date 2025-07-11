@@ -247,6 +247,12 @@ impl Move<MNKBoard> for FillSquare {
         false
     }
 
+    fn description(self, board: &MNKBoard) -> String {
+        let piece = board.active_player.to_string().bold();
+        let to = self.target.to_string().bold();
+        format!("Place a {piece} on {to}")
+    }
+
     fn format_compact(self, f: &mut Formatter<'_>, _board: &MNKBoard) -> fmt::Result {
         write!(f, "{}", self.target)
     }
