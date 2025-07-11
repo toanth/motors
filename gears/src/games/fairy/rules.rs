@@ -20,7 +20,7 @@ use crate::games::ataxx::AtaxxBoard;
 use crate::games::fairy::attacks::{AttackKind, Dir, EffectRules};
 use crate::games::fairy::effects::Observers;
 use crate::games::fairy::moves::FairyMove;
-use crate::games::fairy::pieces::{CHESS_KING_IDX, CHESS_PAWN_IDX, Piece, PieceId};
+use crate::games::fairy::pieces::{CHESS_KING_IDX, PAWN_IDX, Piece, PieceId};
 use crate::games::fairy::rules::GameEndEager::{
     AdditionalCounter, And, CanAchieve, DrawCounter, InsufficientMaterial, NoPiece, Not, Repetition,
 };
@@ -134,6 +134,23 @@ impl CheckRules {
     pub fn satisfied(&self, pos: &FairyBoard) -> bool {
         self.inactive_check_ok.satisfied(pos, pos.inactive_player())
             && self.active_check_ok.satisfied(pos, pos.active_player())
+    }
+}
+
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Arbitrary)]
+#[must_use]
+pub enum DrawCtrCond {
+    Fixed(usize),
+    /// the maximum value is stored in `additional_ctrs[i]`
+    AdditionalCtr(usize),
+}
+
+impl DrawCtrCond {
+    pub fn satisfied(self, ctr: usize, pos: &UnverifiedFairyBoard) -> bool {
+        match self {
+            DrawCtrCond::Fixed(n) => ctr >= n,
+            DrawCtrCond::AdditionalCtr(i) => pos.additional_ctrs[i] > 0 && ctr >= pos.additional_ctrs[i] as usize,
+        }
     }
 }
 
@@ -406,7 +423,7 @@ pub enum GameEndEager {
     // has at least `k` pieces in a row somewhere
     InRowAtLeast(usize, PlayerCond),
     /// a.k.a. the 50 move rule (expressed in ply)
-    DrawCounter(usize),
+    DrawCounter(DrawCtrCond),
     /// An additional counter has reached the maximum value (given in the settings)
     AdditionalCounter,
     /// a.k.a. the threefold repetition rule
@@ -458,7 +475,7 @@ impl GameEndEager {
                 }
                 false
             }
-            &DrawCounter(max) => pos.0.draw_counter >= max,
+            &DrawCounter(cond) => cond.satisfied(pos.draw_counter, pos),
             &Repetition(max) => n_fold_repetition(max, history, pos.hash_pos(), usize::MAX),
             InsufficientMaterial(vec, player) => {
                 let player_bb = player.bb(pos);
@@ -489,6 +506,12 @@ impl GameEndEager {
             Not(cond) => !cond.satisfied(pos, history),
         }
     }
+}
+
+fn draw_ctr_chess(max: usize) -> (GameEndEager, GameEndRes) {
+    let cond = DrawCounter(DrawCtrCond::Fixed(max));
+    let res = Draw.but(GameEndRes::loss()).if_no_moves_and(InCheck);
+    (cond, res)
 }
 
 #[derive(Debug, Default, Copy, Clone, Eq, PartialEq, Hash, Arbitrary)]
@@ -710,7 +733,7 @@ pub struct Rules {
     pub(super) moves_filter: FilterMovesCondition,
     pub(super) size: GridSize,
     pub(super) has_ep: bool,
-    pub(super) has_castling: bool,
+    pub(super) has_castling: bool, // TODO: Move to format rules?
     pub(super) store_last_move: bool,
     pub(super) ctr_threshold: [Option<AdditionalCtrT>; NUM_COLORS],
     pub(super) effect_rules: EffectRules, // TODO: Remove?
@@ -744,8 +767,8 @@ impl Rules {
         self.matching_piece_ids(|p| p.can_castle)
     }
 
-    pub fn has_additional_ctr(&self) -> bool {
-        self.ctr_threshold.iter().any(|c| c.is_some())
+    pub fn num_additional_ctrs(&self) -> usize {
+        self.ctr_threshold.iter().filter(|c| c.is_some()).count()
     }
 
     pub(super) fn piece_by_name(&self, name: &str) -> Option<PieceId> {
@@ -796,7 +819,7 @@ impl Rules {
         let bishop_draw = vec![(p(0), 0), (p(1), 0), (p(2), 1), (p(3), 0), (p(4), 0)];
         let game_end_eager = vec![
             (Repetition(3), Draw),
-            (DrawCounter(100), Draw.but(GameEndRes::loss()).if_no_moves_and(InCheck)),
+            draw_ctr_chess(100),
             (InsufficientMaterial(knight_draw, PlayerCond::All), Draw),
             (InsufficientMaterial(bishop_draw, PlayerCond::All), Draw),
         ];
@@ -842,23 +865,6 @@ impl Rules {
         }
     }
 
-    pub fn shatranj() -> Self {
-        let mut rules = Self::chess();
-        rules.name = "shatranj".to_string();
-        rules.format_rules.startpos_fen = "rnakfanr/pppppppp/8/8/8/8/PPPPPPPP/RNAKFANR w 0 1".to_string();
-        rules.pieces = Piece::shatranj_pieces();
-        let bare_king = NoPiece(PieceCond::NonRoyal, PlayerCond::Active);
-        rules.game_end_eager = vec![
-            (DrawCounter(100), Draw),
-            (Repetition(3), Draw),
-            (bare_king.clone(), GameEndRes::loss().but(Draw).if_a_move_achieves(bare_king)),
-        ];
-        rules.game_end_no_moves = vec![(Always, GameEndRes::loss())];
-        rules.has_ep = false;
-        rules.has_castling = false;
-        rules
-    }
-
     pub fn king_of_the_hill() -> Self {
         let mut rules = Self::chess();
         rules.game_end_eager.retain(|(c, _r)| !matches!(c, InsufficientMaterial(_, _)));
@@ -877,7 +883,7 @@ impl Rules {
         let only_kings = vec![(p(0), 0), (p(1), 0), (p(2), 0), (p(3), 0), (p(4), 0)];
         rules.game_end_eager = vec![
             (Repetition(3), Draw),
-            (DrawCounter(100), Draw.but(GameEndRes::loss()).if_no_moves_and(InCheck)),
+            draw_ctr_chess(100),
             (NoPiece(Royal, PlayerCond::Active), GameEndRes::loss()),
             (InsufficientMaterial(only_kings, PlayerCond::All), Draw),
         ];
@@ -907,7 +913,7 @@ impl Rules {
         }
         rules.game_end_eager = vec![
             (Repetition(3), Draw),
-            (DrawCounter(100), Draw.but(GameEndRes::loss()).if_no_moves_and(InCheck)),
+            draw_ctr_chess(100),
             // white can achieve other pieces than pawns, so just checking pawns isn't enough
             (NoPiece(AnyPiece, PlayerCond::First), GameEndRes::SecondPlayerWin),
         ];
@@ -940,7 +946,7 @@ impl Rules {
             (backrank_white_active, FirstPlayerWin),
             (backrand_white_inactive, FirstPlayerWin),
             (Repetition(3), Draw),
-            (DrawCounter(100), Draw),
+            draw_ctr_chess(100),
         ];
         rules.game_end_no_moves = vec![(NotInCheck, Draw)];
         rules.check_rules.active_check_ok = PlayerCheckOk::Never;
@@ -953,6 +959,7 @@ impl Rules {
         rules.format_rules.startpos_fen = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR[] w KQkq - 0 1".to_string();
         rules.format_rules.hand = FenHandInfo::InBrackets;
         rules.observers = Observers::crazyhouse();
+        rules.game_end_eager.retain(|(c, _)| !matches!(c, InsufficientMaterial(_, _)));
         for (i, p) in rules.pieces.iter_mut().enumerate() {
             let mut drop = AttackKind::drop(vec![SquareFilter::EmptySquares]);
             if p.name == "pawn" {
@@ -963,18 +970,18 @@ impl Rules {
             p.attacks.push(drop);
         }
         let mut pieces = Piece::complete_piece_map(rules.size);
-        for i in CHESS_PAWN_IDX + 1..5 {
+        for i in PAWN_IDX + 1..5 {
             let mut piece = pieces.remove(&rules.pieces[i].name).unwrap();
-            let pawn = PieceId::new(CHESS_PAWN_IDX);
+            let pawn = PieceId::new(PAWN_IDX);
             piece.promotions.promoted_from = Some(pawn);
             piece.name += " (promoted)";
             debug_assert_eq!(rules.pieces[i].promotions.promoted_version, Some(PieceId::new(rules.pieces.len())));
             rules.pieces.push(piece);
         }
-        for piece in &rules.pieces[CHESS_PAWN_IDX].promotions.pieces {
+        for piece in &rules.pieces[PAWN_IDX].promotions.pieces {
             assert!(rules.pieces[piece.val() + 5].name.starts_with(&rules.pieces[piece.val()].name));
         }
-        for piece in &mut rules.pieces[CHESS_PAWN_IDX].promotions.pieces {
+        for piece in &mut rules.pieces[PAWN_IDX].promotions.pieces {
             *piece = PieceId::new(piece.val() + 5);
         }
         rules
@@ -995,14 +1002,50 @@ impl Rules {
         let king = &mut rules.pieces[CHESS_KING_IDX];
         king.royal = false;
         king.can_castle = false;
-        let pawn = &mut rules.pieces[CHESS_PAWN_IDX];
+        let pawn = &mut rules.pieces[PAWN_IDX];
         pawn.promotions.pieces.push(PieceId::new(CHESS_KING_IDX));
         rules.game_end_no_moves = vec![(Always, ActivePlayerWin)];
         // TODO: Insufficient material for opposite-colored bishops
-        rules.game_end_eager = vec![(DrawCounter(50), Draw), (Repetition(3), Draw)];
+        rules.game_end_eager = vec![(DrawCounter(DrawCtrCond::Fixed(100)), Draw), (Repetition(3), Draw)];
         rules.must_preserve_own_king = [false; 2];
         rules.num_royals = [Exactly(0); 2];
         rules.moves_filter = FilterMovesCondition::Any(MoveCondition::Capture);
+        rules
+    }
+
+    pub fn shatranj() -> Self {
+        let mut rules = Self::chess();
+        rules.name = "shatranj".to_string();
+        rules.format_rules.startpos_fen = "rnakfanr/pppppppp/8/8/8/8/PPPPPPPP/RNAKFANR w 0 1".to_string();
+        rules.pieces = Piece::shatranj_pieces();
+        let bare_king = NoPiece(PieceCond::NonRoyal, PlayerCond::Active);
+        rules.game_end_eager = vec![
+            draw_ctr_chess(100),
+            (Repetition(3), Draw),
+            (bare_king.clone(), GameEndRes::loss().but(Draw).if_a_move_achieves(bare_king)),
+        ];
+        rules.game_end_no_moves = vec![(Always, GameEndRes::loss())];
+        rules.has_ep = false;
+        rules.has_castling = false;
+        rules
+    }
+
+    pub fn makruk() -> Self {
+        let mut rules = Self::chess();
+        rules.name = "makruk".to_string();
+        rules.format_rules.startpos_fen = "rnsmksnr/8/pppppppp/8/8/PPPPPPPP/8/RNSKMSNR w - - 0 1".to_string();
+        rules.has_castling = false;
+        rules.pieces = Piece::makruk_pieces();
+        let p = |id: usize| PieceId::new(id);
+        let bare_kings = vec![(p(0), 0), (p(1), 0), (p(2), 0), (p(3), 0), (p(4), 0), (p(6), 0)];
+        rules.effect_rules.reset_draw_counter_on_capture = false;
+        rules.ctr_threshold[0] = Some(0);
+        rules.game_end_eager = vec![
+            (InsufficientMaterial(bare_kings, PlayerCond::All), Draw),
+            (DrawCounter(DrawCtrCond::AdditionalCtr(1)), Draw),
+        ];
+        rules.game_end_no_moves = vec![(InCheck, GameEndRes::loss()), (NotInCheck, Draw)];
+        rules.observers = Observers::makruk();
         rules
     }
 
@@ -1081,7 +1124,7 @@ impl Rules {
             starting_pieces_in_hand: [[u8::MAX; MAX_NUM_PIECE_TYPES]; NUM_COLORS],
             game_end_eager: vec![
                 (Repetition(3), Draw),
-                (DrawCounter(100), Draw),
+                (DrawCounter(DrawCtrCond::Fixed(100)), Draw),
                 (NoPiece(AnyPiece, PlayerCond::Active), GameEndRes::loss()),
             ],
             game_end_no_moves: vec![(NoMovesCondition::NoOpponentMoves, GameEndRes::MorePieces)],

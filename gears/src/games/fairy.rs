@@ -357,13 +357,11 @@ impl UnverifiedBoard<FairyBoard> for UnverifiedFairyBoard {
             "Internal bitboard mismatch: A piece doesn't have a color and isn't neutral: Pieces: {pieces}, colors and neutral: {colors}",
         );
         if strictness == Strict {
-            let max_draw_ctr = rules
-                .game_end_eager
-                .iter()
-                .find_map(|(cond, _)| if let GameEndEager::DrawCounter(val) = cond { Some(*val) } else { None })
-                .unwrap_or(usize::MAX);
-            if self.draw_counter > max_draw_ctr {
-                bail!("Progress counter too large: {0} is larger than {max_draw_ctr}", self.draw_counter);
+            let ctr = self.draw_counter.saturating_sub(1);
+            if rules.game_end_eager.iter().any(|(cond, _)| {
+                if let GameEndEager::DrawCounter(val) = cond { val.satisfied(ctr, &self) } else { false }
+            }) {
+                bail!("Invalid draw progress counter: '{0}' is too large", self.draw_counter);
             }
         }
         if self.ply_since_start >= usize::MAX / 2 {
@@ -609,6 +607,12 @@ impl UnverifiedFairyBoard {
 
     fn read_ctrs(&mut self, words: &mut Tokens, first: bool) -> Res<()> {
         let ctrs = words.peek().copied().unwrap_or_default();
+        if self.rules().num_additional_ctrs() == 1 {
+            let ctr = if ctrs == "-" { 0 } else { parse_int_from_str(ctrs, "additional counter")? };
+            _ = words.next();
+            self.additional_ctrs[0] = ctr;
+            return Ok(());
+        }
         let Some((c1, c2)) = ctrs.trim_start_matches('+').split_once('+') else {
             bail!("Expected two counters of the form '{0}', got '{1}'", "<number>+<number>".bold(), ctrs.red())
         };
@@ -1003,6 +1007,7 @@ impl FairyBoard {
             GenericSelect { name: "5check", val: Box::new(|| RulesRef::new(Rules::n_check(5))) },
             GenericSelect { name: "antichess", val: Box::new(|| RulesRef::new(Rules::antichess())) },
             GenericSelect { name: "shatranj", val: Box::new(|| RulesRef::new(Rules::shatranj())) },
+            GenericSelect { name: "makruk", val: Box::new(|| RulesRef::new(Rules::makruk())) },
             GenericSelect {
                 name: "shogi",
                 val: Box::new(move || RulesRef::new(Rules::shogi(protocol == Protocol::USI))),
@@ -1104,14 +1109,27 @@ impl Display for NoRulesFenFormatter<'_> {
                 write!(f, " -")?;
             }
         }
-        if pos.rules().has_additional_ctr() {
+        let fmt_ctr = |f: &mut Formatter, ctr, threshold| {
+            let ctr = if threshold == 0 {
+                if ctr == 0 {
+                    return write!(f, "-");
+                }
+                ctr
+            } else {
+                threshold - ctr
+            };
+            write!(f, "{ctr}")
+        };
+        if pos.rules().num_additional_ctrs() > 0 {
             write!(f, " ")?;
-            if let Some(ctr) = pos.rules().ctr_threshold[0] {
-                write!(f, "{}", ctr - pos.additional_ctrs[0])?;
+            if let Some(threshold) = pos.rules().ctr_threshold[0] {
+                fmt_ctr(f, pos.additional_ctrs[0], threshold)?;
             }
-            write!(f, "+")?;
-            if let Some(ctr) = pos.rules().ctr_threshold[1] {
-                write!(f, "{}", ctr - pos.additional_ctrs[1])?;
+            if pos.rules().num_additional_ctrs() > 1 {
+                write!(f, "+")?;
+            }
+            if let Some(threshold) = pos.rules().ctr_threshold[1] {
+                fmt_ctr(f, pos.additional_ctrs[1], threshold)?;
             }
         }
         if pos.rules().format_rules.has_halfmove_clock {
@@ -1136,7 +1154,7 @@ impl UnverifiedFairyBoard {
         }
         // does nothing if the rules don't require these parts
         self.read_castling_and_ep_fen_parts(input, strictness)?;
-        let trailing_counters = self.rules().has_additional_ctr() && self.read_ctrs(input, true).is_err();
+        let trailing_counters = self.rules().num_additional_ctrs() > 0 && self.read_ctrs(input, true).is_err();
         if self.rules().format_rules.has_halfmove_clock {
             read_halfmove_clock::<FairyBoard>(input, &mut self)?;
         }

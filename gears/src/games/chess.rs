@@ -1507,7 +1507,7 @@ mod tests {
 
     #[test]
     fn castling_attack_test() {
-        let fen = "8/8/8/8/8/8/3k4/RK6 b A - 0 1";
+        let fen = "8/8/8/8/8/8/3♚4/♖♔6 b A - 0 1";
         let pos = Chessboard::from_fen(fen, Strict).unwrap();
         let moves = pos.legal_moves_slow();
         // check that castling moves don't count as attacking squares
