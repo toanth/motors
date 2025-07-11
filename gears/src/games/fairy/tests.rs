@@ -31,7 +31,7 @@ mod general {
     use crate::games::fairy::pieces::ColoredPieceId;
     use crate::games::fairy::{FairyBoard, FairyCastleInfo, FairyColor, FairyPiece, FairySquare};
     use crate::games::mnk::MNKBoard;
-    use crate::games::{AbstractPieceType, BoardHistory, Color, Height, NoHistory, Width, ZobristHistory, chess};
+    use crate::games::{AbstractPieceType, Color, Height, NoHistory, Width, ZobristHistory, chess, BoardHistDyn};
     use crate::general::bitboards::{Bitboard, RawBitboard};
     use crate::general::board::Strictness::{Relaxed, Strict};
     use crate::general::board::{BitboardBoard, Board, BoardHelpers, UnverifiedBoard};

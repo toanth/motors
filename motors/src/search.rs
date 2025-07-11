@@ -11,7 +11,7 @@ use gears::arrayvec::ArrayVec;
 use gears::colored::Color::Red;
 use gears::colored::Colorize;
 use gears::dyn_clone::DynClone;
-use gears::games::{BoardHistory, ZobristHistory};
+use gears::games::{BoardHistDyn, ZobristHistory};
 use gears::general::board::Strictness::Relaxed;
 use gears::general::board::{Board, BoardHelpers};
 use gears::general::common::anyhow::bail;

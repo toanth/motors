@@ -44,7 +44,7 @@ use gears::colored::Color::Red;
 use gears::colored::Colorize;
 use gears::games::CharType::Ascii;
 use gears::games::chess::UCI_CHESS960;
-use gears::games::{AbstractPieceType, Color, ColoredPiece, ColoredPieceType, OutputList};
+use gears::games::{AbstractPieceType, BoardHistDyn, Color, ColoredPiece, ColoredPieceType, OutputList};
 use gears::general::board::Strictness::{Relaxed, Strict};
 use gears::general::board::{Board, BoardHelpers, ColPieceTypeOf, Strictness, Symmetry, UnverifiedBoard};
 use gears::general::common::Description::{NoDescription, WithDescription};
@@ -160,6 +160,10 @@ impl<B: Board> GameState<B> for EngineGameState<B> {
 
     fn game_name(&self) -> &str {
         &self.game_name
+    }
+
+    fn board_hist(&self) -> &dyn BoardHistDyn {
+        &self.board_hist
     }
 
     fn move_history(&self) -> &[B::Move] {
@@ -2037,7 +2041,6 @@ mod tests {
     use crate::{list_chess_evals, list_chess_outputs, list_chess_searchers};
     use gears::cli::Game::Chess;
     use gears::create_selected_output_builders;
-    use gears::games::BoardHistory;
     use gears::games::chess::ChessColor::Black;
     use gears::games::chess::Chessboard;
     use gears::rand::prelude::SliceRandom;

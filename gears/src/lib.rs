@@ -9,7 +9,7 @@ use crate::GameResult::Aborted;
 use crate::MatchStatus::{NotStarted, Ongoing, Over};
 use crate::PlayerResult::{Draw, Lose, Win};
 use crate::ProgramStatus::Run;
-use crate::games::{BoardHistory, ZobristHistory};
+use crate::games::{BoardHistDyn, ZobristHistory};
 use crate::games::{Color, NoHistory};
 use crate::general::board::{Board, BoardHelpers, Strictness};
 use crate::general::common::Description::WithDescription;
@@ -307,6 +307,7 @@ pub trait GameState<B: Board> {
     fn initial_pos(&self) -> &B;
     fn get_board(&self) -> &B;
     fn game_name(&self) -> &str;
+    fn board_hist(&self) -> &dyn BoardHistDyn;
     fn move_history(&self) -> &[B::Move];
     fn active_player(&self) -> B::Color {
         self.get_board().active_player()

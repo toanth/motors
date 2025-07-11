@@ -20,7 +20,7 @@
 
 use crate::MatchStatus::*;
 use crate::ProgramStatus::Run;
-use crate::games::{BoardHistory, Color};
+use crate::games::{BoardHistDyn, Color};
 use crate::general::board::Strictness::Relaxed;
 use crate::general::board::{Board, BoardHelpers, Strictness};
 use crate::general::common::{Res, parse_bool_from_str, parse_int_from_str};

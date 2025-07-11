@@ -23,7 +23,7 @@ mod tests {
     use gears::games::chess::pieces::ChessPieceType::Bishop;
     use gears::games::chess::pieces::ColoredChessPieceType::BlackKnight;
     use gears::games::chess::squares::ChessSquare;
-    use gears::games::{BoardHistory, ZobristHistory, n_fold_repetition};
+    use gears::games::{BoardHistDyn, ZobristHistory, n_fold_repetition};
     use gears::general::board::Strictness::{Relaxed, Strict};
     use gears::general::board::{Board, BoardHelpers, UnverifiedBoard};
     use gears::general::common::NamedEntity;

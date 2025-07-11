@@ -223,6 +223,14 @@ impl BoardToText {
                 format!("\n{}", res.result)
             }
         };
+        let repetitions = m.board_hist().num_repetitions(m.get_board().hash_pos());
+        let reps = if repetitions == 0 {
+            String::new()
+        } else if repetitions == 1 {
+            "Position occurred once before".to_string()
+        } else {
+            format!("\nPosition occurred {repetitions} times before")
+        };
         let flipped = !m.active_player().is_first();
         if flipped {
             swap(&mut time_below, &mut time_above);
@@ -230,17 +238,29 @@ impl BoardToText {
         match self.typ {
             Pretty => {
                 let mut formatter = m.get_board().pretty_formatter(Some(CharType::Unicode), m.last_move(), opts);
-                format!("{time_above}{}{time_below}{game_result}", m.get_board().display_pretty(formatter.as_mut()))
+                format!(
+                    "{time_above}{}{time_below}{reps}{game_result}",
+                    m.get_board().display_pretty(formatter.as_mut())
+                )
             }
             PrettyAscii => {
                 let mut formatter = m.get_board().pretty_formatter(Some(CharType::Ascii), m.last_move(), opts);
-                format!("{time_above}{}{time_below}{game_result}", m.get_board().display_pretty(formatter.as_mut()))
+                format!(
+                    "{time_above}{}{time_below}{reps}{game_result}",
+                    m.get_board().display_pretty(formatter.as_mut())
+                )
             }
             Ascii => {
-                format!("{time_above}{}{time_below}{game_result}", m.get_board().as_diagram(CharType::Ascii, flipped))
+                format!(
+                    "{time_above}{}{time_below}{reps}{game_result}",
+                    m.get_board().as_diagram(CharType::Ascii, flipped)
+                )
             }
             Unicode => {
-                format!("{time_above}{}{time_below}{game_result}", m.get_board().as_diagram(CharType::Unicode, flipped))
+                format!(
+                    "{time_above}{}{time_below}{reps}{game_result}",
+                    m.get_board().as_diagram(CharType::Unicode, flipped)
+                )
             }
             Fen => m.get_board().as_fen(),
             Pgn => Self::match_to_pgn(m),

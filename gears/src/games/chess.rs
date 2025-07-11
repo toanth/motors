@@ -1054,7 +1054,7 @@ mod tests {
     use std::collections::HashSet;
 
     use crate::games::chess::squares::{B_FILE_NUM, E_FILE_NUM, F_FILE_NUM, G_FILE_NUM, H_FILE_NUM};
-    use crate::games::{Coordinates, NoHistory, ZobristHistory, char_to_file};
+    use crate::games::{BoardHistDyn, Coordinates, NoHistory, ZobristHistory, char_to_file};
     use crate::general::board::RectangularBoard;
     use crate::general::board::Strictness::Relaxed;
     use crate::general::moves::Move;

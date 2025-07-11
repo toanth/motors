@@ -1,6 +1,6 @@
 use std::fmt::Display;
 
-use gears::games::BoardHistory;
+use gears::games::{BoardHistDyn};
 use gears::general::board::{Board, BoardHelpers};
 
 use crate::eval::Eval;

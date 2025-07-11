@@ -23,7 +23,7 @@ use crate::search::{
     NoCustomInfo, PVData, SearchParams,
 };
 use gears::PlayerResult;
-use gears::games::{BoardHistory, Color, PosHash, ZobristHistory2Fold};
+use gears::games::{BoardHistDyn, Color, PosHash, ZobristHistory2Fold};
 use gears::general::board::{Board, BoardHelpers};
 use gears::general::common::StaticallyNamedEntity;
 use gears::general::move_list::MoveList;

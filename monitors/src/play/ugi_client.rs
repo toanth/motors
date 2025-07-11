@@ -18,7 +18,7 @@ use crate::ui::Input;
 use gears::MatchStatus::*;
 use gears::Quitting::*;
 use gears::colored::Colorize;
-use gears::games::{BoardHistory, Color, ZobristHistory};
+use gears::games::{BoardHistDyn, Color, ZobristHistory};
 use gears::general::board::Strictness::Relaxed;
 use gears::general::board::{Board, BoardHelpers};
 use gears::general::common::Res;
@@ -173,6 +173,10 @@ impl<B: Board> GameState<B> for ClientState<B> {
 
     fn game_name(&self) -> &str {
         &self.game_name
+    }
+
+    fn board_hist(&self) -> &dyn BoardHistDyn {
+        &self.the_match.board_history
     }
 
     fn move_history(&self) -> &[B::Move] {

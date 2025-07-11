@@ -486,12 +486,13 @@ pub trait Settings: Debug {
     }
 }
 
-pub trait BoardHistory: Default + Debug + Clone + 'static {
+pub trait BoardHistDyn {
     fn len(&self) -> usize;
     fn is_empty(&self) -> bool {
         self.len() == 0
     }
     fn is_repetition(&self, hash: PosHash, plies_ago: usize) -> bool;
+    fn num_repetitions(&self, hash: PosHash) -> usize;
     fn push(&mut self, hash: PosHash);
     fn pop(&mut self);
     fn clear(&mut self);
@@ -500,16 +501,24 @@ pub trait BoardHistory: Default + Debug + Clone + 'static {
     }
 }
 
+pub trait BoardHistory: Default + Debug + Clone + 'static + BoardHistDyn {}
+
+impl<B: BoardHistDyn + Default + Debug + Clone + 'static> BoardHistory for B {}
+
 #[derive(Copy, Clone, Eq, PartialEq, Debug, Default)]
 pub struct NoHistory {}
 
-impl BoardHistory for NoHistory {
+impl BoardHistDyn for NoHistory {
     fn len(&self) -> usize {
         0
     }
 
     fn is_repetition(&self, _hash: PosHash, _plies_ago: usize) -> bool {
         false
+    }
+
+    fn num_repetitions(&self, _hash: PosHash) -> usize {
+        0
     }
 
     fn push(&mut self, _hash: PosHash) {}
@@ -529,13 +538,17 @@ impl ZobristHistory {
     }
 }
 
-impl BoardHistory for ZobristHistory {
+impl BoardHistDyn for ZobristHistory {
     fn len(&self) -> usize {
         self.0.len()
     }
 
     fn is_repetition(&self, hash: PosHash, plies_ago: usize) -> bool {
         hash == self.0[self.0.len() - plies_ago]
+    }
+
+    fn num_repetitions(&self, hash: PosHash) -> usize {
+        self.0.iter().filter(|&&h| hash == h).count()
     }
 
     fn push(&mut self, hash: PosHash) {
@@ -554,13 +567,17 @@ impl BoardHistory for ZobristHistory {
 #[must_use]
 pub struct ZobristHistory2Fold(pub ZobristHistory);
 
-impl BoardHistory for ZobristHistory2Fold {
+impl BoardHistDyn for ZobristHistory2Fold {
     fn len(&self) -> usize {
         self.0.len()
     }
 
     fn is_repetition(&self, hash: PosHash, plies_ago: usize) -> bool {
         self.0.is_repetition(hash, plies_ago)
+    }
+
+    fn num_repetitions(&self, hash: PosHash) -> usize {
+        self.0.num_repetitions(hash)
     }
 
     fn push(&mut self, hash: PosHash) {
