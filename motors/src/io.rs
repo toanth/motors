@@ -1910,10 +1910,21 @@ fn show_eval_pos<B: Board>(pos: &B, last: Option<B::Move>, eval: Box<dyn Eval<B>
 
 #[cold]
 fn handle_play_impl(ugi: &mut dyn AbstractEngineUgi, words: &mut Tokens) -> Res<()> {
-    let default = ugi.game_name();
-    let game_name = words.next().unwrap_or(default);
-    let game = select_game(game_name)?;
-    let mut opts = EngineOpts::for_game(game, ugi.debug_mode());
+    let Some(game_name) = words.next() else { bail!("Missing game name after '{}'", "play".bold()) };
+    let mut opts = match select_game(game_name) {
+        Ok(game) => EngineOpts::for_game(game, ugi.debug_mode()),
+        Err(err) => {
+            let (game, variant) = game_name.split_once('-').unwrap_or(("fairy", game_name));
+            let Ok(game) = select_game(game) else { return Err(err) };
+            let mut opts = EngineOpts::for_game(game, ugi.debug_mode());
+            opts.pos_name = Some(format!("{variant} startpos"));
+            ugi.write_message(
+                Warning,
+                &format_args!("There is no implementation of '{game_name}', falling back to {}", "fairy".bold()),
+            );
+            opts
+        }
+    };
     if let Some(word) = words.next() {
         opts.engine = word.to_string();
     }
