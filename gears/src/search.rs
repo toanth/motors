@@ -151,6 +151,7 @@ pub struct SearchInfo<'a, B: Board> {
     pub bound: Option<NodeType>,
     pub num_threads: usize,
     pub additional: Option<String>,
+    pub final_info: bool,
 }
 
 impl<B: Board> Default for SearchInfo<'_, B> {
@@ -171,6 +172,7 @@ impl<B: Board> Default for SearchInfo<'_, B> {
             bound: None,
             num_threads: 1,
             additional: None,
+            final_info: false,
         }
     }
 }

@@ -421,8 +421,8 @@ pub trait Engine<B: Board>: StaticallyNamedEntity + Send + 'static {
 
     /// Returns a [`SearchInfo`] object with information about the search so far.
     /// Can be called during search, only returns the information regarding the current thread.
-    fn search_info(&self) -> SearchInfo<'_, B> {
-        self.search_state_dyn().to_search_info()
+    fn search_info(&self, final_info: bool) -> SearchInfo<'_, B> {
+        self.search_state_dyn().to_search_info(final_info)
     }
 
     /// Sets an option with the name 'option' to the value 'value'.
@@ -796,11 +796,14 @@ pub trait AbstractSearchState<B: Board> {
     }
     fn pv_data(&self) -> &[PVData<B>];
     fn to_bench_res(&self) -> BenchResult;
-    fn to_search_info(&self) -> SearchInfo<B>;
+    fn to_search_info(&self, final_info: bool) -> SearchInfo<B>;
     fn aggregated_statistics(&self) -> Statistics;
-    fn send_search_info(&self);
+    fn send_search_info(&self, final_info: bool);
     fn should_show_debug_msg(&self) -> bool {
         self.search_params().thread_type.output().is_some_and(|o| o.show_debug_output)
+    }
+    fn output_minimal(&self) -> bool {
+        self.search_params().thread_type.output().is_some_and(|o| o.minimal)
     }
     fn send_non_ugi(&mut self, typ: Message, message: &fmt::Arguments) {
         if let Some(mut output) = self.search_params().thread_type.output() {
@@ -964,7 +967,7 @@ impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo<B>> AbstractSearchState<B> 
         }
     }
 
-    fn to_search_info(&self) -> SearchInfo<'_, B> {
+    fn to_search_info(&self, final_info: bool) -> SearchInfo<'_, B> {
         let mut res = SearchInfo {
             best_move_of_all_pvs: self.best_move(),
             iterations: self.iterations(),
@@ -981,6 +984,7 @@ impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo<B>> AbstractSearchState<B> 
             bound: self.cur_pv_data().bound,
             num_threads: 1,
             additional: Self::additional(),
+            final_info,
         };
         if let Main(data) = &self.params.thread_type {
             let shared = data.shared_atomic_state();
@@ -995,9 +999,9 @@ impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo<B>> AbstractSearchState<B> 
         self.aggregated_statistics.clone()
     }
 
-    fn send_search_info(&self) {
+    fn send_search_info(&self, final_info: bool) {
         if let Some(mut output) = self.search_params().thread_type.output() {
-            output.write_search_info(self.to_search_info());
+            output.write_search_info(self.to_search_info(final_info));
         }
     }
 

@@ -588,6 +588,7 @@ impl<B: Board> EngineUGI<B> {
             CurrlineNullmove => {
                 self.output().currline_null_moves = parse_bool_from_str(&value, "show nullmoves in `currline`")?;
             }
+            Minimal => self.output().minimal = parse_bool_from_str(&value, "minimal UCI output")?,
             Strictness => {
                 self.strictness = if parse_bool_from_str(&value, "strictness")? { Strict } else { Relaxed };
             }
@@ -1137,6 +1138,7 @@ impl<B: Board> EngineUGI<B> {
                 UCIShowRefutations => Check(UgiCheck { val: self.output().show_refutation, default: Some(false) }),
                 UCIShowCurrLine => Check(UgiCheck { val: self.output().show_currline, default: Some(false) }),
                 CurrlineNullmove => Check(UgiCheck { val: self.output().show_currline, default: Some(true) }),
+                Minimal => Check(UgiCheck { val: self.output().minimal, default: Some(false) }),
                 MoveOverhead => Spin(UgiSpin {
                     val: self.move_overhead.as_millis() as i64,
                     default: Some(DEFAULT_MOVE_OVERHEAD_MS as i64),

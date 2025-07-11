@@ -373,7 +373,7 @@ impl Engine<Chessboard> for Caps {
         self.original_board_hist.push(pos.hash_pos());
 
         let incomplete = self.iterative_deepening(pos, soft_limit);
-        if incomplete {
+        if incomplete || self.output_minimal() {
             // send one final search info, but don't send empty PVs
             let mut pv = self.current_mpv_pv();
             if pv.is_empty() {
@@ -381,7 +381,7 @@ impl Engine<Chessboard> for Caps {
                 pv = self.cur_pv_data().pv.list.as_slice();
             }
             if !pv.is_empty() {
-                self.search_state().send_search_info();
+                self.search_state().send_search_info(true);
             }
         }
         self.search_result()
@@ -625,10 +625,10 @@ impl Caps {
             self.cur_pv_data_mut().beta = (pv_score + window_radius).min(MAX_BETA);
 
             if node_type == Exact {
-                self.send_search_info();
+                self.send_search_info(false);
                 return (true, true, Some(pv_score));
             } else if asp_start_time.elapsed().as_millis() >= 1000 {
-                self.send_search_info();
+                self.send_search_info(false);
             }
         }
     }

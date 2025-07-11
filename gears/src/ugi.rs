@@ -140,6 +140,7 @@ pub enum EngineOptionName {
     UCIShowRefutations,
     UCIShowCurrLine,
     CurrlineNullmove,
+    Minimal,
     MoveOverhead,
     Strictness,
     RespondToMove,
@@ -181,6 +182,7 @@ impl NamedEntity for EngineOptionNameForProto {
             EngineOptionName::CurrlineNullmove => {
                 "Print nullmoves in non-interactive `currline`, if they exist. Option is ignored if currline isn't printed"
             }
+            EngineOptionName::Minimal => "Only print a single `info` line per search",
             EngineOptionName::MoveOverhead => {
                 "Subtract this from the remaining time each move to account for overhead of sending the move"
             }
@@ -224,6 +226,7 @@ impl EngineOptionName {
             EngineOptionName::UCIShowRefutations => Self::with_proto(proto, "ShowRefutations"),
             EngineOptionName::UCIShowCurrLine => Self::with_proto(proto, "ShowCurrLine"),
             EngineOptionName::CurrlineNullmove => "CurrlineNullmove".to_string(),
+            EngineOptionName::Minimal => "Minimal".to_string(),
             EngineOptionName::MoveOverhead => "MoveOverhead".to_string(),
             EngineOptionName::Strictness => "Strict".to_string(),
             EngineOptionName::RespondToMove => "RespondToMove".to_string(),

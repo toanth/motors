@@ -139,7 +139,7 @@ impl<B: Board> Engine<B> for Gaps<B> {
                     self.state.atomic().set_score(iteration_score);
                     self.state.atomic().set_best_move(best_mpv_move);
                 }
-                self.search_state().send_search_info();
+                self.search_state().send_search_info(false);
                 self.state.excluded_moves.push(best_mpv_move);
             }
             self.state.excluded_moves.truncate(self.state.excluded_moves.len() - self.state.multi_pv());
@@ -148,6 +148,9 @@ impl<B: Board> Engine<B> for Gaps<B> {
         if !self.state.stop_flag() {
             // count an additional node to ensure the game remains reproducible
             _ = self.state.atomic().count_node();
+        }
+        if self.search_state().output_minimal() {
+            self.search_state().send_search_info(true);
         }
 
         SearchResult::move_and_score(self.state.atomic().best_move(), self.state.atomic().score(), pos)
