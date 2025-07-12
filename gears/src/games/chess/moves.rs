@@ -672,7 +672,7 @@ impl<'a> MoveParser<'a> {
         parser.parse_piece()?;
         parser.parse_maybe_capture()?;
         parser.parse_square_rank_or_file()?;
-        parser.parse_maybe_capture()?;
+        parser.parse_maybe_hyphen_or_capture()?;
         parser.parse_second_square();
         parser.parse_maybe_capture()?;
         parser.parse_promotion()?;
@@ -782,6 +782,16 @@ impl<'a> MoveParser<'a> {
         Ok(())
     }
 
+    fn parse_maybe_hyphen_or_capture(&mut self) -> Res<()> {
+        match self.current_char().unwrap_or(' ') {
+            '–' | '—' | '−' | '‐' | '‒' | '‑' | '⁃' | '-' | '﹣' | '－' => {
+                self.advance_char();
+                Ok(())
+            }
+            _ => self.parse_maybe_capture(),
+        }
+    }
+
     fn parse_maybe_capture(&mut self) -> Res<()> {
         match self.current_char() {
             None => Ok(()),
@@ -791,6 +801,9 @@ impl<'a> MoveParser<'a> {
                         bail!("Multiple capture symbols");
                     }
                     self.is_capture = true;
+                    self.advance_char();
+                }
+                if matches!(c, '–' | '—' | '−' | '‐' | '‒' | '‑') {
                     self.advance_char();
                 }
                 Ok(())
@@ -1162,6 +1175,8 @@ mod tests {
             ("rB8", "Rb8+"),
             ("nA7+", "Nxa7#"),
             ("N3a5", "Nba5"),
+            ("Kg1-h1", "Kh1"),
+            ("Rd1-c1", "Rxc1"),
         ];
         let pos = Chessboard::from_name("unusual").unwrap();
         {
