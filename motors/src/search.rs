@@ -584,6 +584,7 @@ pub struct SearchParams<B: Board> {
     pub restrict_moves: Option<Vec<B::Move>>,
     // may be set to 0 if there are no legal moves
     pub num_multi_pv: usize,
+    pub contempt: Score,
 }
 
 impl<B: Board> SearchParams<B> {
@@ -602,7 +603,7 @@ impl<B: Board> SearchParams<B> {
         tt: TT,
         atomic: Arc<AtomicSearchState<B>>,
     ) -> Self {
-        Self::create(pos, limit, history, tt, None, 0, atomic, Auxiliary)
+        Self::create(pos, limit, history, tt, None, 0, Score(0), atomic, Auxiliary)
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -618,7 +619,7 @@ impl<B: Board> SearchParams<B> {
     ) -> Self {
         let atomic = Arc::new(AtomicSearchState::default());
         let thread_type = SearchThreadType::new_single_thread(output, info, atomic.clone());
-        Self::create(pos, limit, history, tt, restrict_moves, additional_pvs, atomic, thread_type)
+        Self::create(pos, limit, history, tt, restrict_moves, additional_pvs, Score(0), atomic, thread_type)
     }
 
     #[expect(clippy::too_many_arguments)]
@@ -629,10 +630,21 @@ impl<B: Board> SearchParams<B> {
         tt: TT,
         restrict_moves: Option<Vec<B::Move>>,
         additional_pvs: usize,
+        contempt: Score,
         atomic: Arc<AtomicSearchState<B>>,
         thread_type: SearchThreadType<B>,
     ) -> Self {
-        Self { pos, limit, atomic, history, tt, thread_type, restrict_moves, num_multi_pv: additional_pvs + 1 }
+        Self {
+            pos,
+            limit,
+            atomic,
+            history,
+            tt,
+            thread_type,
+            restrict_moves,
+            num_multi_pv: additional_pvs + 1,
+            contempt,
+        }
     }
 
     pub fn restrict_moves(mut self, moves: Vec<B::Move>) -> Self {
@@ -650,6 +662,11 @@ impl<B: Board> SearchParams<B> {
         self
     }
 
+    pub fn with_contempt(mut self, contempt: Score) -> Self {
+        self.contempt = contempt;
+        self
+    }
+
     pub fn auxiliary(&self, atomic: Arc<AtomicSearchState<B>>) -> Self {
         // allow calling this on an auxiliary thread as well
         //assert!(matches!(self.thread_type, Main(_)));
@@ -662,6 +679,7 @@ impl<B: Board> SearchParams<B> {
             thread_type: Auxiliary,
             restrict_moves: self.restrict_moves.clone(),
             num_multi_pv: self.num_multi_pv,
+            contempt: self.contempt,
         }
     }
 

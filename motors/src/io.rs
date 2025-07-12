@@ -64,7 +64,7 @@ use gears::output::pgn::parse_pgn;
 use gears::output::text_output::{AdaptFormatter, display_color};
 use gears::output::{Message, OutputBox, OutputBuilder, OutputOpts};
 use gears::rand::rng;
-use gears::score::Score;
+use gears::score::{Score, ScoreT};
 use gears::search::{DepthPly, SearchLimit, TimeControl};
 use gears::ugi::EngineOptionName::*;
 use gears::ugi::EngineOptionType::*;
@@ -92,6 +92,8 @@ use std::{fmt, fs};
 use strum::IntoEnumIterator;
 
 const DEFAULT_MOVE_OVERHEAD_MS: u64 = 50;
+const MIN_CONTEMPT: i64 = -1000;
+const MAX_CONTEMPT: i64 = 1000;
 
 // TODO: Ensure this conforms to <https://expositor.dev/uci/doc/uci-draft-1.pdf>
 
@@ -278,6 +280,7 @@ pub struct EngineUGI<B: Board> {
     strictness: Strictness,
     multi_pv: usize,
     allow_ponder: bool,
+    contempt: Score,
     respond_to_move: bool,
     failed_cmd: Option<String>,
 }
@@ -409,6 +412,7 @@ impl<B: Board> EngineUGI<B> {
             strictness: Relaxed,
             multi_pv: 1,
             allow_ponder: false,
+            contempt: Score(0),
             respond_to_move: true,
             failed_cmd: None,
         };
@@ -597,6 +601,10 @@ impl<B: Board> EngineUGI<B> {
                 self.strictness = if parse_bool_from_str(&value, "strictness")? { Strict } else { Relaxed };
             }
             RespondToMove => self.respond_to_move = parse_bool_from_str(&value, "respond to move")?,
+            Contempt => {
+                self.contempt.0 =
+                    parse_int_from_str::<i64>(&value, "contempt")?.clamp(MIN_CONTEMPT, MAX_CONTEMPT) as ScoreT;
+            }
             SetEngine => {
                 self.handle_engine(&mut tokens(&value))?;
             }
@@ -789,7 +797,17 @@ impl<B: Board> EngineUGI<B> {
                     self.state.ponder_limit = None;
                     engine.send_stop(true); // aborts the pondering without printing a search result
                 }
-                engine.start_search(pos, opts.limit, hist, search_moves, opts.multi_pv, false, opts.threads, tt)?;
+                engine.start_search(
+                    pos,
+                    opts.limit,
+                    hist,
+                    search_moves,
+                    opts.multi_pv,
+                    false,
+                    opts.threads,
+                    tt,
+                    self.contempt,
+                )?;
             }
             SearchType::Ponder => {
                 if opts.engine_name.is_none() {
@@ -804,6 +822,7 @@ impl<B: Board> EngineUGI<B> {
                     true,
                     opts.threads,
                     tt,
+                    self.contempt,
                 )?;
             }
             _ => unreachable!("Bench and (Split)Perft should have already been handled"),
@@ -1151,6 +1170,12 @@ impl<B: Board> EngineUGI<B> {
                 }),
                 Strictness => Check(UgiCheck { val: self.strictness == Strict, default: Some(false) }),
                 RespondToMove => Check(UgiCheck { val: self.respond_to_move, default: Some(true) }),
+                Contempt => Spin(UgiSpin {
+                    val: self.contempt.0 as i64,
+                    default: Some(0),
+                    min: Some(MIN_CONTEMPT),
+                    max: Some(MAX_CONTEMPT),
+                }),
                 SetEngine =>
                 // We would like to send long names, but unfortunately GUIs struggle with that
                 {

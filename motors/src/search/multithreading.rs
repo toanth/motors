@@ -448,6 +448,7 @@ impl<B: Board> EngineWrapper<B> {
         ponder: bool,
         threads: Option<usize>,
         tt: Option<TT>,
+        contempt: Score,
     ) -> Res<()> {
         self.resize_threads(self.num_threads());
         self.overwrite_num_threads = None;
@@ -475,6 +476,7 @@ impl<B: Board> EngineWrapper<B> {
             tt,
             search_moves.clone(),
             multi_pv.saturating_sub(1),
+            contempt,
             thread_data.atomic_search_data[0].clone(),
             Main(thread_data),
         );

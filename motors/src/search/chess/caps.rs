@@ -32,6 +32,7 @@ use gears::general::common::{Res, StaticallyNamedEntity, parse_int_from_str, sel
 use gears::general::move_list::InplaceMoveList;
 use gears::general::moves::{Move, UntrustedMove};
 use gears::itertools::Itertools;
+use gears::num::traits::WrappingAdd;
 use gears::score::{
     MAX_BETA, MAX_NORMAL_SCORE, MAX_SCORE_LOST, MIN_ALPHA, MIN_NORMAL_SCORE, NO_SCORE_YET, SCORE_LOST, ScoreT,
     game_result_to_score,
@@ -1411,6 +1412,11 @@ impl Caps {
             res.0,
             self.eval.eval(pos, ply, us)
         );
+        let res = if us == pos.active_player() {
+            res.wrapping_add(&self.params.contempt)
+        } else {
+            res.wrapping_add(&-self.params.contempt)
+        };
         res.clamp(MIN_NORMAL_SCORE, MAX_NORMAL_SCORE)
     }
 

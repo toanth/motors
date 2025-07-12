@@ -28,6 +28,7 @@ pub use crossterm;
 pub use dyn_clone;
 pub use itertools;
 use itertools::Itertools;
+pub use num;
 pub use rand;
 use std::fmt::{Debug, Display, Formatter};
 use std::ops::Deref;

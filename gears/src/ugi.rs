@@ -144,6 +144,7 @@ pub enum EngineOptionName {
     MoveOverhead,
     Strictness,
     RespondToMove,
+    Contempt,
     SetEngine,
     SetEval,
     Other(String),
@@ -192,6 +193,9 @@ impl NamedEntity for EngineOptionNameForProto {
             EngineOptionName::RespondToMove => {
                 "When the input is a single move, let the engine play one move in response"
             }
+            EngineOptionName::Contempt => {
+                "Add a static offset to the engine's eval, making it judge a position as better and avoid drawing"
+            }
             EngineOptionName::SetEngine => {
                 "Change the current searcher, and optionally the eval. Similar effect to `uginewgame`"
             }
@@ -230,6 +234,7 @@ impl EngineOptionName {
             EngineOptionName::MoveOverhead => "MoveOverhead".to_string(),
             EngineOptionName::Strictness => "Strict".to_string(),
             EngineOptionName::RespondToMove => "RespondToMove".to_string(),
+            EngineOptionName::Contempt => "Contempt".to_string(),
             EngineOptionName::SetEngine => "Engine".to_string(),
             EngineOptionName::SetEval => "SetEval".to_string(),
             EngineOptionName::Other(x) => x.clone(),

@@ -229,7 +229,7 @@ impl BoardToText {
         } else if repetitions == 1 {
             "Position occurred once before".to_string()
         } else {
-            format!("\nPosition occurred {repetitions} times before")
+            format!("Position occurred {repetitions} times before")
         };
         let flipped = !m.active_player().is_first();
         if flipped {
