@@ -129,7 +129,7 @@ impl ChessMove {
         let source = self.src_square();
         debug_assert!(board.is_occupied(source), "{}", self.compact_formatter(board));
         debug_assert!(board.active_player_bb().is_bit_set(source), "{}", self.compact_formatter(board));
-        ChessPiece::new(ColoredChessPieceType::new(board.active_player, self.flags().piece_type()), source)
+        ChessPiece::new(ColoredChessPieceType::new(board.active, self.flags().piece_type()), source)
     }
 
     pub fn untrusted_flags(self) -> Res<ChessMoveFlags> {
@@ -433,7 +433,7 @@ impl Chessboard {
     pub(super) fn make_move_impl<F: Fn(PosHash)>(mut self, mov: ChessMove, prefetch: F) -> Self {
         let piece = mov.piece_type();
         debug_assert_eq!(piece, self.piece_type_on(mov.src_square()));
-        let us = self.active_player;
+        let us = self.active;
         let them = us.other();
         let from = mov.src_square();
         let mut to = mov.dest_square();
@@ -526,11 +526,8 @@ impl Chessboard {
     /// Called at the end of [`Self::make_nullmove`] and [`Self::make_move`].
     pub(super) fn flip_side_to_move(mut self) -> Self {
         let slider_gen = self.slider_generator();
-        debug_assert!(
-            !self.is_in_check_on_square(self.active_player, self.king_square(self.active_player), &slider_gen),
-            "{self}"
-        );
-        self.active_player = self.active_player.other();
+        debug_assert!(!self.is_in_check_on_square(self.active, self.king_square(self.active), &slider_gen), "{self}");
+        self.active = self.active.other();
         self.threats = self.calc_threats_of(self.inactive_player(), &slider_gen);
         self.set_checkers_and_pinned();
         debug_assert_eq!(self.hashes, self.compute_zobrist());
@@ -538,14 +535,14 @@ impl Chessboard {
     }
 
     fn do_castle(&mut self, mov: ChessMove, from: ChessSquare, to: &mut ChessSquare) {
-        let color = self.active_player;
+        let color = self.active;
         let rook_file = to.file() as isize;
         let (side, to_file, rook_to_file) = if mov.flags() == CastleKingside {
             (Kingside, G_FILE_NUM, F_FILE_NUM)
         } else {
             (Queenside, C_FILE_NUM, D_FILE_NUM)
         };
-        debug_assert_eq!(self.king_square(self.active_player), from);
+        debug_assert_eq!(self.king_square(self.active), from);
         debug_assert_eq!(
             side == Kingside,
             self.castling.can_castle(color, Kingside)
@@ -576,7 +573,7 @@ impl Chessboard {
         delta ^= ZOBRIST_KEYS.piece_key(Rook, color, rook_from);
         self.hashes.nonpawns[color] ^= delta;
         debug_assert!(!self.is_in_check_on_square(
-            self.active_player,
+            self.active,
             ChessSquare::from_rank_file(from.rank(), to_file),
             &self.slider_generator(),
         ));
@@ -700,7 +697,7 @@ impl<'a> MoveParser<'a> {
     }
 
     fn parse_castling(&mut self, board: &Chessboard) -> Option<ChessMove> {
-        let color = board.active_player;
+        let color = board.active;
         let king_square = board.king_square(color);
         if self.original_input.starts_with("0-0-0") || self.original_input.starts_with("O-O-O") {
             for _ in 0..5 {
@@ -965,7 +962,7 @@ impl<'a> MoveParser<'a> {
     }
 
     fn error_msg(&self, board: &Chessboard, original_piece: ChessPieceType) -> Res<ChessMove> {
-        let us = board.active_player;
+        let us = board.active;
         // invalid move, try to print a helpful error message
         let f = |file: Option<DimT>, rank: Option<DimT>| {
             if let Some(file) = file {
@@ -986,7 +983,7 @@ impl<'a> MoveParser<'a> {
             board.all_attacking(
                 ChessSquare::from_rank_file(self.target_rank.unwrap(), self.target_file.unwrap()),
                 &board.slider_generator(),
-            ) & board.pinned
+            ) & board.pinned[board.active]
                 & board.col_piece_bb(us, self.piece)
         } else {
             ChessBitboard::default()
@@ -1026,7 +1023,7 @@ impl<'a> MoveParser<'a> {
                 bail!(
                     "There is a {0} on {from}, but it's {1}'s turn to move, so the move '{2}' is invalid{3}",
                     piece.symbol.name().bold(),
-                    board.active_player.to_string().bold(),
+                    board.active.to_string().bold(),
                     self.consumed().bold(),
                     additional
                 )
@@ -1039,10 +1036,10 @@ impl<'a> MoveParser<'a> {
                 )
             }
         }
-        if (board.col_piece_bb(board.active_player, self.piece) & from_bb).is_zero() {
+        if (board.col_piece_bb(board.active, self.piece) & from_bb).is_zero() {
             bail!(
                 "There is no {0} {1} on {from}, so the move '{2}' is invalid{3}",
-                board.active_player.to_string().bold(),
+                board.active.to_string().bold(),
                 self.piece.to_name().bold(),
                 self.consumed().bold(),
                 additional
@@ -1050,7 +1047,7 @@ impl<'a> MoveParser<'a> {
         } else {
             bail!(
                 "There is no legal {0} {1} move from {from} to {to}, so the move '{2}' is invalid{3}",
-                board.active_player.to_string().bold(),
+                board.active.to_string().bold(),
                 self.piece.to_name().bold(),
                 self.consumed().bold(),
                 additional

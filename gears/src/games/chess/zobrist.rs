@@ -98,7 +98,7 @@ impl Chessboard {
         }
         special ^= self.ep_square.map_or(PosHash(0), |square| ZOBRIST_KEYS.ep_file_keys[square.file() as usize]);
         special ^= ZOBRIST_KEYS.castle_keys[self.castling.allowed_castling_directions()];
-        if self.active_player == Black {
+        if self.active == Black {
             special ^= ZOBRIST_KEYS.side_to_move_key;
         }
         Hashes { pawns, nonpawns, knb, total: pawns ^ nonpawns[0] ^ nonpawns[1] ^ special }
@@ -209,12 +209,7 @@ mod tests {
                 {
                     assert_eq!(
                         pos.hash_pos()
-                            ^ Chessboard::zobrist_delta(
-                                pos.active_player,
-                                m.piece_type(),
-                                m.src_square(),
-                                m.dest_square()
-                            )
+                            ^ Chessboard::zobrist_delta(pos.active, m.piece_type(), m.src_square(), m.dest_square())
                             ^ ZOBRIST_KEYS.side_to_move_key,
                         new_pos.hash_pos(),
                         "{pos} {}",
