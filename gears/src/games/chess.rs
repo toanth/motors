@@ -639,8 +639,8 @@ impl Board for Chessboard {
         AxesFormat::player_pov()
     }
 
-    fn as_diagram(&self, typ: CharType, flip: bool) -> String {
-        board_to_string(self, ChessPiece::to_char, typ, flip)
+    fn as_diagram(&self, typ: CharType, flip: bool, mark_active: bool) -> String {
+        board_to_string(self, ChessPiece::to_char, typ, flip, mark_active)
     }
 
     fn display_pretty(&self, display_coordinates: &mut dyn BoardFormatter<Self>) -> String {

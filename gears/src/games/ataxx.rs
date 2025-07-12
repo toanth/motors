@@ -429,8 +429,8 @@ impl Board for AtaxxBoard {
         Self::read_fen_impl(string, strictness)
     }
 
-    fn as_diagram(&self, typ: CharType, flip: bool) -> String {
-        board_to_string(self, AtaxxPiece::to_char, typ, flip)
+    fn as_diagram(&self, typ: CharType, flip: bool, mark_active: bool) -> String {
+        board_to_string(self, AtaxxPiece::to_char, typ, flip, mark_active)
     }
 
     fn display_pretty(&self, fmt: &mut dyn BoardFormatter<Self>) -> String {

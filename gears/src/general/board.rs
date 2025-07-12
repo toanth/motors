@@ -42,10 +42,10 @@ use arbitrary::Arbitrary;
 use colored::Colorize;
 use num::Zero;
 use rand::Rng;
-use std::fmt;
 use std::fmt::{Debug, Display, Formatter};
 use std::num::NonZeroUsize;
 use std::str::Split;
+use std::{fmt, iter};
 use strum_macros::EnumIter;
 
 #[derive(Debug, Copy, Clone)]
@@ -414,6 +414,14 @@ pub trait Board:
         self.colored_piece_on(coords).uncolored()
     }
 
+    /// Returns an iterator over all the pieces in the given player's hand, or an iterator that yields `None`
+    /// if this game doesn't have a meaningful hand. For example, technically a mnk game could be modelled as
+    /// players dropping pieces from their hand, but because their hands are infinite and the contents don't
+    /// matter, this method still returns `None`.
+    fn hand(&self, _color: Self::Color) -> impl Iterator<Item = (usize, PieceTypeOf<Self>)> {
+        iter::empty()
+    }
+
     /// Returns the default depth that should be used for perft if not otherwise specified.
     /// Takes in a reference to self because some boards have a size determined at runtime,
     /// and the default perft depth can change depending on that (or even depending on the current position)
@@ -609,7 +617,7 @@ pub trait Board:
     /// This is not meant to return a FEN, but instead a diagram where the pieces
     /// are identified by their letters in algebraic notation.
     /// Rectangular boards can implement this with the `[board_to_string]` function
-    fn as_diagram(&self, typ: CharType, flip: bool) -> String;
+    fn as_diagram(&self, typ: CharType, flip: bool, mark_active: bool) -> String;
 
     /// Returns a text-based representation of the board that's intended to look pretty.
     /// This can be implemented by calling `as_ascii_diagram` or `as_unicode_diagram`, but the intention

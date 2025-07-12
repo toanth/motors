@@ -808,6 +808,16 @@ impl Board for FairyBoard {
         }
     }
 
+    fn hand(&self, color: Self::Color) -> impl Iterator<Item = (usize, PieceId)> {
+        let hand = self.rules().format_rules.hand != FenHandInfo::None;
+        self.in_hand[color]
+            .iter()
+            .enumerate()
+            .filter(move |_| hand)
+            .map(|(idx, &count)| (count as usize, PieceId::new(idx)))
+            .filter(|(count, _)| *count > 0)
+    }
+
     fn default_perft_depth(&self) -> DepthPly {
         DepthPly::new(3)
     }
@@ -938,8 +948,8 @@ impl Board for FairyBoard {
         self.rules().format_rules.axes_format
     }
 
-    fn as_diagram(&self, typ: CharType, flip: bool) -> String {
-        board_to_string(self, GenericPiece::to_char, typ, flip)
+    fn as_diagram(&self, typ: CharType, flip: bool, mark_active: bool) -> String {
+        board_to_string(self, GenericPiece::to_char, typ, flip, mark_active)
     }
 
     fn display_pretty(&self, formatter: &mut dyn BoardFormatter<Self>) -> String {

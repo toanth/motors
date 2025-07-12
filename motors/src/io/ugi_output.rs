@@ -396,8 +396,8 @@ impl<B: Board> UgiOutput<B> {
         let num_legal = pos.num_legal_moves();
         let variation = variation.collect_vec();
         let (variation, end_pos) = pretty_variation(&variation, pos.clone(), None, None, Exact);
-        let end_pos = end_pos.as_diagram(Unicode, false);
-        let root_pos = pos.as_diagram(Unicode, false);
+        let end_pos = end_pos.as_diagram(Unicode, false, false);
+        let root_pos = pos.as_diagram(Unicode, false, false);
         let mut top_moves = "\nTop moves: ".to_string();
         for (i, (m, score)) in self.top_moves.iter().enumerate() {
             let score = pretty_score(*score, None, None, &self.type_erased.gradient, false, false);
@@ -460,7 +460,8 @@ impl<B: Board> UgiOutput<B> {
         if mpv_type != SecondaryLine && info.bound == Some(Exact) {
             self.type_erased.previous_exact_info = Some(info);
             self.previous_exact_pv = Some(pv.into());
-            self.type_erased.previous_exact_pv_end_pos = Some((end_pos.as_diagram(Unicode, false), end_pos.as_fen()));
+            self.type_erased.previous_exact_pv_end_pos =
+                Some((end_pos.as_diagram(Unicode, false, false), end_pos.as_fen()));
         }
     }
 
