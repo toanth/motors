@@ -872,7 +872,11 @@ impl Board for FairyBoard {
     }
 
     fn is_move_pseudolegal(&self, mov: Self::Move) -> bool {
-        self.pseudolegal_moves().contains(&mov)
+        let moves = self.pseudolegal_moves();
+        moves.contains(&mov)
+            || (mov.is_null()
+                && !moves.iter().any(|&m| self.is_pseudolegal_move_legal(m))
+                && self.no_moves_result().is_none())
     }
 
     fn is_pseudolegal_move_legal(&self, mov: Self::Move) -> bool {

@@ -279,7 +279,13 @@ impl Move<Chessboard> for ChessMove {
         write!(f, "{from}{to}{flag}", from = self.src_square())
     }
 
-    fn format_extended(self, f: &mut Formatter<'_>, board: &Chessboard, format: ExtendedFormat) -> fmt::Result {
+    fn format_extended(
+        self,
+        f: &mut Formatter<'_>,
+        board: &Chessboard,
+        format: ExtendedFormat,
+        all_legals: Option<&[ChessMove]>,
+    ) -> fmt::Result {
         let add_check_mate_suffix = |f: &mut Formatter| {
             let board = board.make_move(self).unwrap();
             if board.is_checkmate_slow() {
@@ -297,15 +303,16 @@ impl Move<Chessboard> for ChessMove {
             return add_check_mate_suffix(f);
         }
         let piece = self.piece(board);
-        let moves = board
-            .legal_moves_slow()
-            .into_iter()
-            .filter(|mov| {
-                mov.piece(board).symbol == piece.symbol
-                    && mov.dest_square() == self.dest_square()
-                    && mov.promo_piece() == self.promo_piece()
-            })
-            .collect_vec();
+        let matches = |mov: &&ChessMove| {
+            mov.piece(board).symbol == piece.symbol
+                && mov.dest_square() == self.dest_square()
+                && mov.promo_piece() == self.promo_piece()
+        };
+        let moves = if let Some(moves) = all_legals {
+            moves.into_iter().filter(matches).copied().collect_vec()
+        } else {
+            board.legal_moves_slow().iter().filter(matches).copied().collect_vec()
+        };
         if moves.is_empty() {
             return write!(f, "<Illegal move {}>", self.compact_formatter(board));
         }
@@ -1284,7 +1291,7 @@ mod tests {
         }
         let pos = Chessboard::from_fen("5k2/8/8/8/8/8/8/4K2R w K - 0 1", Strict).unwrap();
         let mov = ChessMove::from_text("0-0", &pos).unwrap();
-        assert_eq!(mov.extended_formatter(&pos, Standard).to_string(), "O-O+");
+        assert_eq!(mov.extended_formatter(&pos, Standard, None).to_string(), "O-O+");
         let castling = |pos: Chessboard| {
             pos.legal_moves_slow()
                 .iter()

@@ -503,6 +503,11 @@ pub trait Board:
     /// it's still very useful and necessary for null move pruning.
     fn make_nullmove(self) -> Option<Self>;
 
+    /// Like [`Self::make_move`], but if `mov` is null it calls [`Self::make_nullmove`].
+    fn make_move_or_nullmove(self, mov: Self::Move) -> Option<Self> {
+        if mov.is_null() { self.make_nullmove() } else { self.make_move(mov) }
+    }
+
     /// See [`Self::is_move_pseudolegal`]. However, this function assumes that the move is pseudolegal
     /// for some unknown position, usually because it has been generated in the past and saved, but it is no
     /// longer certain that it is indeed pseudolegal for the current position. Therefore, this function can sometimes
@@ -767,7 +772,7 @@ pub trait BoardHelpers: Board {
         self.clone().make_move(mov).ok_or_else(|| {
             anyhow!(
                 "Move '{}' is pseudolegal but not legal in position '{self}'",
-                mov.extended_formatter(&self, Standard).to_string().red()
+                mov.extended_formatter(&self, Standard, None).to_string().red()
             )
         })
     }

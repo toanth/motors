@@ -85,7 +85,7 @@ pub fn match_to_pgn_string<B: Board>(m: &dyn GameState<B>) -> String {
         p2_name = B::Color::second().name(board.settings()),
     );
     for (ply, mov) in m.move_history().iter().enumerate() {
-        let mov_str = mov.extended_formatter(&board, Standard);
+        let mov_str = mov.extended_formatter(&board, Standard, None);
         if ply % 2 == 0 {
             res += &format!("\n{}. {mov_str}", ply.div_ceil(2) + 1);
         } else {

@@ -341,7 +341,7 @@ impl<B: Board> EngineThread<B> {
                 let gradient = score_gradient();
                 let old_score_str = pretty_score(old_score, None, None, &gradient, true, false);
                 let new_score_str = pretty_score(new_score, None, Some(old_score), &gradient, true, false);
-                let move_str = mov.extended_formatter(&pos, Standard);
+                let move_str = mov.extended_formatter(&pos, Standard, None);
                 let mut res = format!(
                     "Static Eval before '{move_str}': {old_score_str}\nStatic Eval after '{move_str}': {new_score_str}"
                 );

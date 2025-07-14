@@ -39,8 +39,14 @@ use itertools::Itertools;
 use std::fmt;
 use std::fmt::Formatter;
 
-pub fn format_san(f: &mut Formatter, mov: FairyMove, pos: &FairyBoard, format: ExtendedFormat) -> fmt::Result {
-    format_san_impl(f, mov, pos, format)?;
+pub fn format_san(
+    f: &mut Formatter,
+    mov: FairyMove,
+    pos: &FairyBoard,
+    format: ExtendedFormat,
+    all_legals: Option<&[FairyMove]>,
+) -> fmt::Result {
+    format_san_impl(f, mov, pos, format, all_legals)?;
     if !pos.is_move_pseudolegal(mov) {
         write!(f, "<Illegal move '{}' (not pseudolegal)>", mov.compact_formatter(pos))?;
         return Ok(());
@@ -49,7 +55,8 @@ pub fn format_san(f: &mut Formatter, mov: FairyMove, pos: &FairyBoard, format: E
         write!(f, "<Illegal move '{}' (pseudolegal)>", mov.compact_formatter(pos))?;
         return Ok(());
     };
-    if pos.has_no_legal_moves() {
+    let no_legals = if let Some(moves) = all_legals { moves.is_empty() } else { pos.has_no_legal_moves() };
+    if no_legals {
         for (cond, res) in &pos.rules().game_end_no_moves {
             if matches!(cond, NoMovesCondition::InCheck)
                 && cond.satisfied(&pos)
@@ -65,7 +72,13 @@ pub fn format_san(f: &mut Formatter, mov: FairyMove, pos: &FairyBoard, format: E
     Ok(())
 }
 
-fn format_san_impl(f: &mut Formatter, mov: FairyMove, pos: &FairyBoard, format: ExtendedFormat) -> fmt::Result {
+fn format_san_impl(
+    f: &mut Formatter,
+    mov: FairyMove,
+    pos: &FairyBoard,
+    format: ExtendedFormat,
+    all_legals: Option<&[FairyMove]>,
+) -> fmt::Result {
     let rules = pos.rules();
     if let MoveKind::Castle(side) = mov.kind() {
         return match side {
@@ -77,16 +90,16 @@ fn format_san_impl(f: &mut Formatter, mov: FairyMove, pos: &FairyBoard, format: 
     }
     let colored = mov.piece(pos);
     let piece = colored.uncolor();
-    let moves = pos
-        .legal_moves_slow()
-        .into_iter()
-        .filter(|m| {
-            m.piece(pos).uncolor() == piece
-                && m.dest_square_in(pos) == mov.dest_square_in(pos)
-                && m.promo_piece() == mov.promo_piece()
-        })
-        .collect_vec();
-
+    let matches = |m: &&FairyMove| {
+        m.piece(pos).uncolor() == piece
+            && m.dest_square_in(pos) == mov.dest_square_in(pos)
+            && m.promo_piece() == mov.promo_piece()
+    };
+    let moves = if let Some(moves) = all_legals {
+        moves.into_iter().filter(matches).copied().collect_vec()
+    } else {
+        pos.legal_moves_slow().iter().filter(matches).copied().collect_vec()
+    };
     if moves.is_empty() {
         return Ok(()); // the calling function will write an error message
     }
@@ -939,7 +952,6 @@ mod tests {
             ("e8Q", "e8=Q"),
             ("e5f6:e.p.", "exf6"),
             ("ef:e.p.", "exf6"),
-            //("f:e.p.", "exf6"), // TODO: Make this work?
             ("e:fep", "exf6"),
             ("b:", "axb5"),
             ("🨅e4", "e4"),

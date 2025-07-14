@@ -157,6 +157,9 @@ impl Move<FairyBoard> for FairyMove {
         let from = self.src_square_in(board).unwrap_or_default().to_string().bold();
         let to = self.dest(board.size()).to_string().bold();
         let piece = self.piece(board).name(board.settings()).as_ref().bold();
+        if self.is_null() {
+            return "A passing move".to_string();
+        }
         match self.kind() {
             MoveKind::Normal | MoveKind::Promotion(_) => {
                 let text = if self.is_capture() {
@@ -187,8 +190,14 @@ impl Move<FairyBoard> for FairyMove {
         format_move_compact(f, self, board).unwrap_or_else(|| write!(f, "<Invalid Fairy Move '{self:?}'>"))
     }
 
-    fn format_extended(self, f: &mut Formatter<'_>, board: &FairyBoard, format: ExtendedFormat) -> fmt::Result {
-        format_san(f, self, board, format)
+    fn format_extended(
+        self,
+        f: &mut Formatter<'_>,
+        board: &FairyBoard,
+        format: ExtendedFormat,
+        all_legals: Option<&[FairyMove]>,
+    ) -> fmt::Result {
+        format_san(f, self, board, format, all_legals)
     }
 
     fn parse_compact_text<'a>(s: &'a str, board: &FairyBoard) -> Res<(&'a str, FairyMove)> {
@@ -197,15 +206,29 @@ impl Move<FairyBoard> for FairyMove {
         } else if let Some(rest) = s.strip_prefix("0000") {
             return Ok((rest, Self::default()));
         }
-        let moves = board.legal_moves_slow();
+        let moves = board.pseudolegal_moves();
         let mut longest_match = (s, FairyMove::default());
-        for m in &moves {
+        for &m in &moves {
             let as_string = m.compact_formatter(board).to_string();
             if let Some(remaining) = s.strip_prefix(&as_string) {
+                if !board.is_pseudolegal_move_legal(m) {
+                    continue;
+                };
                 // it's common for a legal move to be a prefix of another legal move, e.g. in shogi-style promotions
                 if remaining.len() < longest_match.0.len() {
-                    longest_match = (remaining, *m);
+                    longest_match = (remaining, m);
                 }
+            }
+        }
+        // once again, forced passing moves are an annoying special case
+        if longest_match.0.len() == s.len()
+            && !moves.iter().any(|m| board.is_pseudolegal_move_legal(*m))
+            && board.no_moves_result().is_none()
+        {
+            let m = FairyMove::default();
+            let as_string = m.compact_formatter(board).to_string();
+            if let Some(remaining) = s.strip_prefix(&as_string) {
+                longest_match = (remaining, m);
             }
         }
         if longest_match.0.len() != s.len() {
@@ -610,7 +633,7 @@ mod tests {
                 assert!(!mov.is_capture());
                 assert!(pos.clone().make_move(mov).unwrap().debug_verify_invariants(Strict).is_ok());
             }
-            let perft_res = perft(DepthPly::new(3), pos.clone(), false);
+            let perft_res = perft(DepthPly::new(3), pos.clone(), true);
             assert_eq!(perft_res.nodes, *perft_nodes);
         }
         let fen = "8/4k3/8/8/8/8/8/RK1b4 w A - 0 1";

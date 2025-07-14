@@ -869,7 +869,10 @@ impl<B: RectangularBoard> BoardFormatter<B> for DefaultBoardFormatter<B> {
             )
         };
         let Some(color) = piece.color() else {
-            return sq.dimmed().to_string();
+            if piece.is_empty() {
+                return sq.dimmed().to_string();
+            }
+            return sq.bold().to_string();
         };
         // some (but not all) terminals have trouble with colored bold symbols, and using `bold` would remove the color in some cases.
         // For some reason, only using the ansi color codes (.green(), .red(), etc) creates these problems, but true colors work fine

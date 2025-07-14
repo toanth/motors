@@ -428,7 +428,7 @@ impl<B: Board> UgiPosState<B> {
     }
 
     fn make_move(&mut self, mov: B::Move, check_game_over: bool) -> Res<()> {
-        debug_assert!(self.board.is_move_pseudolegal(mov));
+        debug_assert!(mov.is_null() || self.board.is_move_pseudolegal(mov));
         if let Run(Over(result)) = &self.status {
             bail!(
                 "Cannot play move '{3}' because the game is already over: {0} ({1}). The position is '{2}'",
@@ -440,7 +440,7 @@ impl<B: Board> UgiPosState<B> {
         }
         self.board_hist.push(self.board.hash_pos());
         self.mov_hist.push(mov);
-        self.board = self.board.clone().make_move(mov).ok_or_else(|| {
+        self.board = self.board.clone().make_move_or_nullmove(mov).ok_or_else(|| {
             anyhow!(
                 "Illegal move {0} (pseudolegal but not legal) in position {1}",
                 mov.compact_formatter(&self.board).to_string().red(),

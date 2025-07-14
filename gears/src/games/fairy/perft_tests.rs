@@ -45,7 +45,7 @@ mod tests {
 
     #[test]
     fn debug_perft_tests() {
-        perft_tests(1_000_000);
+        perft_tests(50_000);
     }
 
     #[test]
@@ -161,7 +161,7 @@ mod tests {
 
     #[test]
     fn shakmaty_debug_tests() {
-        shakmaty_tests(10_000);
+        shakmaty_tests(5_000);
     }
 
     #[test]

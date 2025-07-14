@@ -389,7 +389,6 @@ fn parse_ugi_moves_part<B: Board>(
         current_word = words.peek().copied();
         has_moves_word = true
     }
-    // TODO: Handle flip / nullmove?
     let mut accept_move_number = true;
     while let Some(next_word) = current_word {
         let mov = match B::Move::from_text(next_word, state.pos()) {
@@ -421,7 +420,8 @@ fn parse_ugi_moves_part<B: Board>(
             }
         };
         accept_move_number = true;
-        debug_assert!(state.pos().is_move_pseudolegal(mov));
+
+        debug_assert!(mov.is_null() || state.pos().is_move_pseudolegal(mov));
         state.make_move(mov).map_err(|err| {
             anyhow!(
                 "move '{0}' is pseudolegal but not legal in position '{1}': {err}",
@@ -548,8 +548,8 @@ impl<B: Board> ParseUgiPosState<B> for SimpleParseUgiPosState<B> {
     }
 
     fn make_move(&mut self, mov: B::Move) -> Res<()> {
-        debug_assert!(self.pos.is_move_legal(mov));
-        self.pos = self.pos.clone().make_move(mov).ok_or_else(|| {
+        debug_assert!(mov.is_null() || self.pos.is_move_legal(mov));
+        self.pos = self.pos.clone().make_move_or_nullmove(mov).ok_or_else(|| {
             anyhow!(
                 "Move '{0}' is not legal in position '{1}' (but it is pseudolegal)",
                 mov.compact_formatter(&self.pos).to_string().red(),

@@ -33,7 +33,6 @@ use gears::general::common::anyhow::{anyhow, bail};
 use gears::general::common::{
     Name, NamedEntity, Res, Tokens, parse_duration_ms, parse_int, parse_int_from_str, tokens,
 };
-use gears::general::move_list::MoveList;
 use gears::general::moves::{ExtendedFormat, Move};
 use gears::itertools::Itertools;
 use gears::output::Message::Warning;
@@ -1040,10 +1039,11 @@ pub(super) fn move_command(recurse: bool) -> Command {
 
 pub(super) fn moves_options<B: Board>(pos: &B, recurse: bool) -> CommandList {
     let mut res: CommandList = vec![];
-    for mov in pos.legal_moves_slow().iter_moves() {
+    let legals = pos.legal_moves_slow().into_iter().collect_vec();
+    for &mov in &legals {
         let primary_name = mov.compact_formatter(pos).to_string();
         let mut other_names = ArrayVec::default();
-        let extended = mov.to_extended_text(pos, ExtendedFormat::Standard);
+        let extended = mov.extended_formatter(pos, ExtendedFormat::Standard, Some(legals.as_slice())).to_string();
         if extended != primary_name {
             other_names.push(extended);
         }
