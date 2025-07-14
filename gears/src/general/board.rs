@@ -1259,6 +1259,7 @@ pub(crate) fn read_common_fen_part<B: RectangularBoard>(words: &mut Tokens, boar
     Ok(())
 }
 
+#[allow(unused)] // suppress warning when building only chess
 pub(crate) fn read_halfmove_clock<B: RectangularBoard>(words: &mut Tokens, board: &mut B::Unverified) -> Res<()> {
     let Some(halfmove_clock) = words.peek().copied() else { return board.set_halfmove_repetition_clock(0) };
     let halfmove_clock = halfmove_clock.parse::<usize>()?;
@@ -1295,6 +1296,7 @@ pub(crate) fn read_two_move_numbers<B: RectangularBoard>(
     Ok(())
 }
 
+#[allow(unused)]
 pub(crate) fn read_single_move_number<B: RectangularBoard>(
     words: &mut Tokens,
     board: &mut B::Unverified,
@@ -1319,6 +1321,7 @@ pub(crate) fn read_single_move_number<B: RectangularBoard>(
     board.set_ply_since_start(plyctr()?)
 }
 
+#[allow(unused)]
 pub(crate) fn read_move_number_in_ply<B: RectangularBoard>(
     words: &mut Tokens,
     board: &mut B::Unverified,

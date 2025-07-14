@@ -27,6 +27,8 @@ use gears::arrayvec::ArrayVec;
 use gears::cli::Game;
 use gears::colored::Colorize;
 use gears::games::CharType::{Ascii, Unicode};
+#[cfg(feature = "fairy")]
+use gears::games::fairy::FairyBoard;
 use gears::games::{AbstractPieceType, Color, ColoredPiece, Size};
 use gears::general::board::{Board, BoardHelpers, ColPieceTypeOf, Strictness};
 use gears::general::common::anyhow::{anyhow, bail};
@@ -355,13 +357,22 @@ pub fn ugi_commands() -> CommandList {
                 }
                 ugi.handle_play(words)
             },
-            --> |_| select_command::<Game>(&Game::iter().map(Box::new).collect_vec())
+            --> |_| {
+                #[allow(unused_mut)]
+                let mut games = Game::iter().map(|g| Box::new(Name::new(&g))).collect_vec();
+                #[cfg(feature = "fairy")]
+                {
+                    games.extend(FairyBoard::list_variants().unwrap_or_default().iter().map(|v| Box::new(Name::from_name(&format!("Fairy-{v}")))));
+                }
+                select_command::<Name>(&games)
+            }
         ),
         command!(
             idk | assist | respond,
             Custom,
             "Lets the engine play a move, or use 'on'/'off' to enable/disable automatic response",
-            |ugi, words, _| ugi.handle_assist(words)
+            |ugi, words, _| ugi.handle_assist(words),
+            --> |_| bool_options()
         ),
         command!(undo | take_back | u, Custom, "Undoes 1 or a given number of halfmoves", |ugi, words, _| {
             ugi.handle_undo(words)
