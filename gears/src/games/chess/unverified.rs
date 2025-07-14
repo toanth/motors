@@ -87,19 +87,18 @@ impl UnverifiedBoard<Chessboard> for UnverifiedChessboard {
                 }
             }
         }
-        let inactive_player = this.active_player.other();
+        let inactive_player = this.active.other();
 
         let generator = self.0.slider_generator();
         if this.is_in_check_on_square(inactive_player, this.king_square(inactive_player), &generator) {
             bail!("Player {inactive_player} is in check, but it's not their turn to move");
         } else if strictness == Strict {
-            let checkers =
-                this.all_attacking(this.king_square(this.active_player), &generator) & this.inactive_player_bb();
+            let checkers = this.all_attacking(this.king_square(this.active), &generator) & this.inactive_player_bb();
             let num_attacking = checkers.num_ones();
             ensure!(
                 num_attacking <= 2,
                 "{} is in check from {num_attacking} pieces, which is not allowed in strict mode",
-                this.active_player
+                this.active
             );
         }
         // we allow loading FENs where more than one piece gives check to the king in a way that could not have been reached
@@ -159,7 +158,7 @@ impl UnverifiedBoard<Chessboard> for UnverifiedChessboard {
                 "FEN specifies invalid ep square (not on the third or sixth rank): '{ep_square}'"
             );
             let remove_pawn_square = ep_square.pawn_advance_unchecked(inactive_player);
-            let pawn_origin_square = ep_square.pawn_advance_unchecked(this.active_player);
+            let pawn_origin_square = ep_square.pawn_advance_unchecked(this.active);
             if !this.is_empty(ep_square) {
                 bail!(
                     "The en passant square ({ep_square}) must be empty, but it's occupied by a {}",
@@ -232,11 +231,11 @@ impl UnverifiedBoard<Chessboard> for UnverifiedChessboard {
     }
 
     fn active_player(&self) -> ChessColor {
-        self.0.active_player
+        self.0.active
     }
 
     fn set_active_player(&mut self, player: ChessColor) {
-        self.0.active_player = player;
+        self.0.active = player;
     }
 
     fn set_ply_since_start(&mut self, ply: usize) -> Res<()> {
@@ -332,7 +331,7 @@ impl UnverifiedChessboard {
             pos.0.color_bbs.swap(0, 1)
         }
         if rng.random_bool(0.5) {
-            pos.0.active_player = !pos.0.active_player;
+            pos.0.active = !pos.0.active;
         }
         // don't generate castling or ep flags for now
         pos

@@ -47,7 +47,6 @@ const DEPTH_INCREMENT: usize = 128;
 
 /// The maximum value of the uci `depth` parameter, i.e. the maximum number of Iterative Deepening iterations
 const ID_ITERS_SOFT_LIMIT: DepthPly = DepthPly::new(225);
-
 /// The maximum value of the `ply` parameter in main search, i.e. the maximum depth (in plies) before qsearch is reached
 const PLY_HARD_LIMIT: usize = 255;
 
@@ -292,6 +291,8 @@ impl Engine<Chessboard> for Caps {
         let mut options = cc::ugi_options();
         options.append(&mut lc::ugi_options());
         options.append(&mut ttc::ugi_options());
+        options.append(&mut lc::ugi_options());
+        options.append(&mut ttc::ugi_options());
         EngineInfo::new(
             self,
             self.eval.as_ref(),
@@ -318,6 +319,10 @@ impl Engine<Chessboard> for Caps {
                     return Ok(());
                 } else if let Ok(()) = ttc::set_value(name, val) {
                     return Ok(());
+                } else if let Ok(()) = lc::set_value(name, val) {
+                    return Ok(());
+                } else if let Ok(()) = ttc::set_value(name, val) {
+                    return Ok(());
                 }
             }
         }
@@ -327,6 +332,12 @@ impl Engine<Chessboard> for Caps {
 
     fn print_spsa_params(&self) {
         for line in cc::ob_param_string() {
+            println!("{line}");
+        }
+        for line in lc::ob_param_string() {
+            println!("{line}");
+        }
+        for line in ttc::ob_param_string() {
             println!("{line}");
         }
         for line in lc::ob_param_string() {

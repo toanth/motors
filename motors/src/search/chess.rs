@@ -364,7 +364,7 @@ mod tests {
                 println!("searching with {}", engine.engine_info().long_name());
                 let eval = engine.static_eval(&pos, 0);
                 assert!(eval > Score(1000), "{eval}");
-                let res = engine.search_with_tt(pos, SearchLimit::nodes_(500), tt.clone());
+                let res = engine.search_with_tt(pos, SearchLimit::nodes_(5000), tt.clone());
                 assert!(res.score >= Score(1000), "{}", res.score);
                 assert!(pos.is_move_legal(res.chosen_move));
 

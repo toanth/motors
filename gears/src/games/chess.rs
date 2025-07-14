@@ -78,10 +78,10 @@ static STARTPOS: Chessboard = {
         color_bbs,
         threats,
         checkers: ChessBitboard::new(0),
-        pinned: ChessBitboard::new(0),
+        pinned: [ChessBitboard::new(0); 2],
         ply: 0,
         ply_100_ctr: 0,
-        active_player: White,
+        active: White,
         castling: CastlingFlags::for_startpos(),
         settings: ChessSettings(0),
         ep_square: None,
@@ -219,18 +219,17 @@ pub struct Chessboard {
     color_bbs: [ChessBitboard; NUM_COLORS],
     threats: ChessBitboard,
     checkers: ChessBitboard,
-    pinned: ChessBitboard,
+    pinned: [ChessBitboard; NUM_COLORS],
     ply: u32,
     ply_100_ctr: u8,
-    active_player: ChessColor,
+    active: ChessColor,
     castling: CastlingFlags,
     settings: ChessSettings,
-    ep_square: Option<ChessSquare>, // eventually, see if using Optional and Noned instead of Option improves nps
+    ep_square: Option<ChessSquare>,
     hashes: Hashes,
 }
 
-// TODO: It might be worth it to use u32s for te non-main hashes so that the size can shrink down to 128 bytes
-const _: () = assert!(size_of::<Chessboard>() == 144);
+const _: () = assert!(size_of::<Chessboard>() == 152);
 
 impl Default for Chessboard {
     fn default() -> Self {
@@ -278,10 +277,10 @@ impl Board for Chessboard {
             color_bbs: Default::default(),
             threats: ChessBitboard::default(),
             checkers: ChessBitboard::default(),
-            pinned: ChessBitboard::default(),
+            pinned: [ChessBitboard::default(); NUM_COLORS],
             ply: 0,
             ply_100_ctr: 0,
-            active_player: White,
+            active: White,
             castling: CastlingFlags::default(),
             settings,
             ep_square: None,
@@ -434,7 +433,7 @@ impl Board for Chessboard {
     }
 
     fn active_player(&self) -> ChessColor {
-        self.active_player
+        self.active
     }
 
     fn halfmove_ctr_since_start(&self) -> usize {
@@ -487,11 +486,11 @@ impl Board for Chessboard {
     }
 
     fn gen_pseudolegal<T: MoveList<Self>>(&self, moves: &mut T) {
-        self.gen_pseudolegal_moves(moves, !self.player_bb(self.active_player), false)
+        self.gen_pseudolegal_moves(moves, !self.player_bb(self.active), false)
     }
 
     fn gen_tactical_pseudolegal<T: MoveList<Self>>(&self, moves: &mut T) {
-        self.gen_pseudolegal_moves(moves, self.player_bb(self.active_player.other()), true)
+        self.gen_pseudolegal_moves(moves, self.player_bb(self.active.other()), true)
     }
 
     fn random_legal_move<T: Rng>(&self, rng: &mut T) -> Option<Self::Move> {
@@ -628,7 +627,7 @@ impl Board for Chessboard {
             }
         };
         board.0.ep_square = ep_square;
-        board.0.active_player = color;
+        board.0.active = color;
         board.0.castling = castling_rights;
         read_two_move_numbers::<Chessboard>(words, &mut board, strictness)?;
         // also sets the zobrist hash
@@ -654,7 +653,7 @@ impl Board for Chessboard {
         opts: OutputOpts,
     ) -> Box<dyn BoardFormatter<Self>> {
         let pos = *self;
-        let king_square = self.king_square(self.active_player);
+        let king_square = self.king_square(self.active);
         let color_frame =
             Box::new(move |square, col| if pos.is_in_check() && square == king_square { Some(Red) } else { col });
         Box::new(AdaptFormatter {
@@ -744,7 +743,7 @@ impl Chessboard {
             self.piece_type_on(from)
         );
         debug_assert!(
-            (self.active_player == self.colored_piece_on(from).color().unwrap())
+            (self.active == self.colored_piece_on(from).color().unwrap())
                 // in chess960 castling, it's possible that the rook has been sent to the king square,
                 // which means the color bit of the king square is currently not set
                 || (piece == King && self.piece_bb(Rook).is_bit_set_at(from.bb_idx())),
@@ -757,7 +756,7 @@ impl Chessboard {
         // use ^ instead of | for to merge the from and to bitboards because in chess960 castling,
         // it is possible that from == to or that there's another piece on the target square
         let bb = from.bb() ^ to.bb();
-        let color = self.active_player;
+        let color = self.active;
         self.color_bbs[color] ^= bb;
         self.piece_bbs[piece.to_uncolored_idx()] ^= bb;
     }
@@ -972,7 +971,7 @@ pub const CHESS_PIECE_PHASE: [PhaseType; NUM_CHESS_PIECES + 1] = [0, 1, 1, 2, 4,
 impl Display for Chessboard {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         position_fen_part(f, self)?;
-        if self.active_player.is_first() {
+        if self.active.is_first() {
             write!(f, " w ")?;
         } else {
             write!(f, " b ")?;
@@ -1347,7 +1346,7 @@ mod tests {
             assert_eq!(board.is_3fold_repetition(&hist), board.player_result_no_movegen(&hist).is_some());
         }
         board = Chessboard::from_name("lucena").unwrap();
-        assert_eq!(board.active_player, White);
+        assert_eq!(board.active, White);
         let hash = board.hash_pos();
         let moves = ["c1b1", "a2c2", "b1e1", "c2a2", "e1c1"];
         for mov in moves {
@@ -1355,7 +1354,7 @@ mod tests {
             assert_ne!(board.hash_pos(), hash);
             assert!(!n_fold_repetition(2, &hist, board.hash_pos(), 12345));
         }
-        assert_eq!(board.active_player, Black);
+        assert_eq!(board.active, Black);
         let board = Chessboard::from_name("kiwipete").unwrap();
         let mut new_pos = board;
         for mov in ["e1d1", "h8h7", "d1e1", "h7h8"] {
@@ -1368,7 +1367,7 @@ mod tests {
     fn checkmate_test() {
         let fen = "rnb1kbnr/pppp1ppp/8/4p3/6Pq/5P2/PPPPP2P/RNBQKBNR w KQkq - 1 3";
         let pos = Chessboard::from_fen(fen, Strict).unwrap();
-        assert_eq!(pos.active_player, White);
+        assert_eq!(pos.active, White);
         assert_eq!(pos.ply, 4);
         assert!(pos.debug_verify_invariants(Strict).is_ok());
         assert!(pos.is_in_check());
@@ -1410,7 +1409,7 @@ mod tests {
         // This fen is actually a legal chess position
         let fen = "q2k2q1/2nqn2b/1n1P1n1b/2rnr2Q/1NQ1QN1Q/3Q3B/2RQR2B/Q2K2Q1 w - - 0 1";
         let board = Chessboard::from_fen(fen, Strict).unwrap();
-        assert_eq!(board.active_player, White);
+        assert_eq!(board.active, White);
         assert_eq!(perft(DepthPly::new(3), board, true).nodes, 568_299);
         // not a legal chess position, but the board should support this
         let fen = "RRRRRRRR/RRRRRRRR/BBBBBBBB/BBBBBBBB/QQQQQQQQ/QQQQQQQQ/QPPPPPPP/K6k b - - 0 1";
@@ -1552,18 +1551,18 @@ mod tests {
         for fen in insufficient {
             let board = Chessboard::from_fen(fen, Strict).unwrap();
             assert!(board.has_insufficient_material(), "{fen}");
-            assert!(!board.can_reasonably_win(board.active_player), "{fen}");
-            assert!(!board.can_reasonably_win(board.active_player.other()), "{fen}");
+            assert!(!board.can_reasonably_win(board.active), "{fen}");
+            assert!(!board.can_reasonably_win(board.active.other()), "{fen}");
         }
         for fen in sufficient {
             let board = Chessboard::from_fen(fen, Strict).unwrap();
             assert!(!board.has_insufficient_material(), "{fen}");
-            assert!(board.can_reasonably_win(board.active_player), "{fen}");
+            assert!(board.can_reasonably_win(board.active), "{fen}");
         }
         for fen in sufficient_but_unreasonable {
             let board = Chessboard::from_fen(fen, Strict).unwrap();
             assert!(!board.has_insufficient_material(), "{fen}");
-            assert!(!board.can_reasonably_win(board.active_player), "{fen}");
+            assert!(!board.can_reasonably_win(board.active), "{fen}");
         }
     }
 }
