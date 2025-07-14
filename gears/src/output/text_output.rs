@@ -497,7 +497,7 @@ fn board_to_string_impl(
             write!(&mut res, " {piece}").unwrap();
         }
         if y == active && mark_active {
-            write!(&mut res, "{}", " (*) ".bold()).unwrap();
+            write!(&mut res, " (*) ").unwrap();
         }
         res += "\n";
     }
@@ -722,7 +722,7 @@ fn display_board_pretty_impl(printer: &dyn AbstractPrettyBoardPrinter, flip: boo
 
     let last_row = res.len() - 2;
     let (active, inactive) = if printer.is_first_active() { (1, last_row) } else { (last_row, 1) };
-    write!(&mut res[active], "{}", " (*) ".bold()).unwrap();
+    write!(&mut res[active], " (*) ").unwrap();
     write!(&mut res[inactive], "     ").unwrap();
     write!(&mut res[1], "{}", printer.formatter().hand(true)).unwrap();
     write!(&mut res[last_row], "{}", printer.formatter().hand(false)).unwrap();
@@ -818,16 +818,16 @@ impl<B: RectangularBoard> AbstractBoardFormatter for DefaultBoardFormatter<B> {
         if hand.next().is_none() {
             return String::new();
         }
-        let mut res = "[".to_string();
+        let mut res = "[".dimmed().to_string();
         for (count, piece) in self.pos.hand(c) {
-            let piece = piece.to_display_char(self.piece_to_char, self.pos.settings()).to_string().bold();
+            let piece = piece.to_display_char(self.piece_to_char, self.pos.settings());
             if count == 1 {
                 write!(&mut res, "{piece}").unwrap()
             } else {
                 write!(&mut res, "{count}{piece}",).unwrap();
             }
         }
-        res.push(']');
+        write!(&mut res, "{}", "]".dimmed()).unwrap();
         res
     }
 

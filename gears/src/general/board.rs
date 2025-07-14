@@ -885,6 +885,10 @@ impl AxesFormat {
         res
     }
 
+    pub fn is_usi_format(&self) -> bool {
+        self.x_axis_symbol == AxisSymbol::NumberReversed && self.y_axis_symbol == AxisSymbol::LetterReversed
+    }
+
     fn ith_entry_for(
         self,
         i: DimT,

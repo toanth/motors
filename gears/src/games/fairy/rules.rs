@@ -776,6 +776,10 @@ impl Rules {
         self.pieces().find(|(_id, piece)| piece.name == name).map(|(id, _piece)| id)
     }
 
+    pub fn is_usi_fmt(&self) -> bool {
+        self.format_rules.axes_format.is_usi_format()
+    }
+
     fn generic_empty_board(rules: &RulesRef) -> UnverifiedFairyBoard {
         let size = rules.0.size;
         UnverifiedFairyBoard {
@@ -962,9 +966,9 @@ impl Rules {
         rules.game_end_eager.retain(|(c, _)| !matches!(c, InsufficientMaterial(_, _)));
         for (i, p) in rules.pieces.iter_mut().enumerate() {
             let mut drop = AttackKind::drop(vec![SquareFilter::EmptySquares]);
-            if p.name == "pawn" {
+            if p.output_omit_piece {
                 drop.bitboard_filter.push(SquareFilter::Bitboard(!FairyBitboard::backranks_for(rules.size).raw()))
-            } else if p.name != "king" {
+            } else if !p.royal {
                 p.promotions.promoted_version = Some(PieceId::new(i + 5));
             }
             p.attacks.push(drop);
@@ -999,6 +1003,7 @@ impl Rules {
     pub fn antichess() -> Self {
         let mut rules = Self::chess();
         rules.name = "antichess".to_string();
+        rules.format_rules.startpos_fen = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w - - 0 1".to_string();
         let king = &mut rules.pieces[CHESS_KING_IDX];
         king.royal = false;
         king.can_castle = false;

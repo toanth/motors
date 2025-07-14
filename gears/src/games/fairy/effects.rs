@@ -372,7 +372,7 @@ impl Observers {
     pub fn add_captured_to_hand() -> Box<ObsFn<Capture>> {
         let add_to_hand = |event: Capture, pos: &mut FairyBoard| {
             let mut piece = event.captured.uncolor();
-            if let Some(unpromoted) = piece.get(pos.rules()).promotions.promoted_from {
+            if let Some(unpromoted) = piece.get(pos.rules()).unwrap().promotions.promoted_from {
                 piece = unpromoted;
             }
             pos.emit(AddPieceToHand { piece, color: pos.active_player() })

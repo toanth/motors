@@ -66,8 +66,8 @@ impl PieceId {
     pub fn as_u8(self) -> u8 {
         self.0
     }
-    pub fn get(self, rules: &Rules) -> &Piece {
-        &rules.pieces[self.val()]
+    pub fn get(self, rules: &Rules) -> Option<&Piece> {
+        rules.pieces.get(self.val())
     }
 }
 
@@ -81,7 +81,7 @@ impl AbstractPieceType<FairyBoard> for PieceId {
     }
 
     fn to_char(self, typ: CharType, rules: &Rules) -> char {
-        self.get(rules).uncolored_symbol[typ as usize]
+        if let Some(p) = self.get(rules) { p.uncolored_symbol[typ as usize] } else { ' ' }
     }
 
     fn from_char(c: char, rules: &Rules) -> Option<Self> {
@@ -90,7 +90,33 @@ impl AbstractPieceType<FairyBoard> for PieceId {
 
     #[allow(refining_impl_trait)]
     fn name(&self, settings: &Rules) -> String {
-        self.get(settings).name.clone()
+        if *self == Self::empty() {
+            return "<No piece>".to_string();
+        }
+        self.get(settings).unwrap().name.clone()
+    }
+
+    fn write_as_str(
+        mut self,
+        rules: &Rules,
+        char_type: CharType,
+        display_pretty: bool,
+        f: &mut Formatter<'_>,
+    ) -> fmt::Result {
+        let to_c = |p: Self| {
+            if display_pretty { p.to_char(char_type, rules) } else { p.to_display_char(char_type, rules) }
+        };
+        if let Some(unpromoted) = self.promoted_from(rules) {
+            match rules.format_rules.promo_fen_modifier {
+                PromoFenModifier::Crazyhouse => write!(f, "{}~", to_c(self)),
+                PromoFenModifier::Shogi => {
+                    self = unpromoted;
+                    write!(f, "+{}", to_c(self))
+                }
+            }
+        } else {
+            write!(f, "{}", to_c(self))
+        }
     }
 
     fn max_num_chars(settings: &Rules) -> usize {
@@ -100,6 +126,18 @@ impl AbstractPieceType<FairyBoard> for PieceId {
     fn to_uncolored_idx(self) -> usize {
         self.val()
     }
+
+    fn make_promoted(&mut self, rules: &Rules) -> Res<()> {
+        let Some(promoted) = self.get(rules).expect("can't promote empty piece").promotions.promoted_version else {
+            bail!(
+                "The piece '{0}' can't be marked as having been promoted. Current variant: {1}",
+                self.name(rules).bold(),
+                rules.name.bold()
+            )
+        };
+        *self = promoted;
+        Ok(())
+    }
 }
 
 impl PieceType<FairyBoard> for PieceId {
@@ -107,6 +145,10 @@ impl PieceType<FairyBoard> for PieceId {
 
     fn from_idx(idx: usize) -> Self {
         Self::new(idx)
+    }
+
+    fn promoted_from(&self, rules: &Rules) -> Option<PieceId> {
+        self.get(rules).expect("empty piece isn't promoted").promotions.promoted_from
     }
 }
 
@@ -163,12 +205,11 @@ impl AbstractPieceType<FairyBoard> for ColoredPieceId {
     }
 
     fn to_char(self, typ: CharType, rules: &Rules) -> char {
+        let Some(piece) = self.id.get(rules) else { return '.' };
         if let Some(color) = self.color {
-            self.id.get(rules).player_symbol[color.idx()][typ as usize]
-        } else if self == Self::empty() {
-            '.'
+            piece.player_symbol[color.idx()][typ as usize]
         } else {
-            self.id.get(rules).uncolored_symbol[typ as usize]
+            piece.uncolored_symbol[typ as usize]
         }
     }
 
@@ -185,6 +226,33 @@ impl AbstractPieceType<FairyBoard> for ColoredPieceId {
         }
     }
 
+    fn max_num_chars(settings: &Rules) -> usize {
+        PieceId::max_num_chars(settings)
+    }
+
+    fn write_as_str(
+        mut self,
+        rules: &Rules,
+        char_type: CharType,
+        display_pretty: bool,
+        f: &mut Formatter<'_>,
+    ) -> fmt::Result {
+        let to_c = |p: Self| {
+            if display_pretty { p.to_char(char_type, rules) } else { p.to_display_char(char_type, rules) }
+        };
+        if let Some(unpromoted) = self.id.promoted_from(rules) {
+            match rules.format_rules.promo_fen_modifier {
+                PromoFenModifier::Crazyhouse => write!(f, "{}~", to_c(self)),
+                PromoFenModifier::Shogi => {
+                    self.id = unpromoted;
+                    write!(f, "+{}", to_c(self))
+                }
+            }
+        } else {
+            write!(f, "{}", to_c(self))
+        }
+    }
+
     fn name(&self, settings: &Rules) -> impl AsRef<str> {
         if let Some(color) = self.color {
             format!("{0} {1}", color.name(settings), self.id.name(settings))
@@ -193,12 +261,12 @@ impl AbstractPieceType<FairyBoard> for ColoredPieceId {
         }
     }
 
-    fn max_num_chars(settings: &Rules) -> usize {
-        PieceId::max_num_chars(settings)
-    }
-
     fn to_uncolored_idx(self) -> usize {
         self.id.val()
+    }
+
+    fn make_promoted(&mut self, rules: &Rules) -> Res<()> {
+        self.id.make_promoted(rules)
     }
 }
 
@@ -219,45 +287,6 @@ impl ColoredPieceType<FairyBoard> for ColoredPieceId {
 
     fn to_colored_idx(self) -> usize {
         self.id.val()
-    }
-
-    fn write_as_str(
-        mut self,
-        rules: &Rules,
-        char_type: CharType,
-        display_pretty: bool,
-        f: &mut Formatter<'_>,
-    ) -> fmt::Result {
-        let to_c = |p: Self| {
-            if display_pretty { p.to_char(char_type, rules) } else { p.to_display_char(char_type, rules) }
-        };
-        if let Some(unpromoted) = self.promoted_from(rules) {
-            match rules.format_rules.promo_fen_modifier {
-                PromoFenModifier::Crazyhouse => write!(f, "{}~", to_c(self)),
-                PromoFenModifier::Shogi => {
-                    self.id = unpromoted;
-                    write!(f, "+{}", to_c(self))
-                }
-            }
-        } else {
-            write!(f, "{}", to_c(self))
-        }
-    }
-
-    fn make_promoted(&mut self, rules: &Rules) -> Res<()> {
-        let Some(promoted) = self.id.get(rules).promotions.promoted_version else {
-            bail!(
-                "The piece '{0}' can't be marked as having been promoted. Current variant: {1}",
-                self.name(rules).as_ref().bold(),
-                rules.name.bold()
-            )
-        };
-        self.id = promoted;
-        Ok(())
-    }
-
-    fn promoted_from(&self, rules: &Rules) -> Option<PieceId> {
-        self.id.get(rules).promotions.promoted_from
     }
 }
 
@@ -378,6 +407,8 @@ pub struct Piece {
     pub(super) can_ep_capture: bool,
     pub(super) resets_draw_counter: DrawCtrReset,
     pub(super) royal: bool,
+    // The move output (compact and SAN) can omit the piece type. This is true for generalized pawns, but also mnk pieces.
+    pub(super) output_omit_piece: bool,
     // true for kings but not for rooks
     pub(super) can_castle: bool,
 }
@@ -397,7 +428,7 @@ impl Piece {
     pub fn new_for(name: &str, attacks: Vec<AttackKind>, ascii_char: char, unicode_chars: Option<[char; 3]>) -> Self {
         let lowercase_ascii = ascii_char.to_ascii_lowercase();
         let uppercase_ascii = ascii_char.to_ascii_uppercase();
-        let [u_white, u_black, u_uncolored] = if let Some(unicode) = unicode_chars {
+        let [white_uni, black_uni, uncolored_uni] = if let Some(unicode) = unicode_chars {
             unicode
         } else {
             [uppercase_ascii, lowercase_ascii, uppercase_ascii]
@@ -405,13 +436,14 @@ impl Piece {
         Self {
             name: name.to_string(),
             uncolored: false,
-            uncolored_symbol: [uppercase_ascii, u_uncolored],
-            player_symbol: [[uppercase_ascii, u_white], [lowercase_ascii, u_black]],
+            uncolored_symbol: [uppercase_ascii, uncolored_uni],
+            player_symbol: [[uppercase_ascii, white_uni], [lowercase_ascii, black_uni]],
             attacks,
             promotions: Promo::none(),
             can_ep_capture: false,
             resets_draw_counter: DrawCtrReset::Never,
             royal: false,
+            output_omit_piece: false,
             can_castle: false,
         }
     }
@@ -518,6 +550,7 @@ impl Piece {
             can_ep_capture: false,
             resets_draw_counter: DrawCtrReset::Always,
             royal: false,
+            output_omit_piece: true,
             can_castle: false,
         }
     }
@@ -822,6 +855,8 @@ impl Piece {
                 can_ep_capture: false,
                 resets_draw_counter: DrawCtrReset::Never,
                 royal: false,
+                // we set `output_as_pawn` to true because we don't want to print the piece type
+                output_omit_piece: true,
                 can_castle: false,
             },
             Self {
@@ -837,6 +872,7 @@ impl Piece {
                 can_ep_capture: false,
                 resets_draw_counter: DrawCtrReset::Never,
                 royal: false,
+                output_omit_piece: true,
                 can_castle: false,
             },
             Self {
@@ -864,6 +900,7 @@ impl Piece {
                 can_ep_capture: false,
                 resets_draw_counter: DrawCtrReset::MoveKind(vec![MoveKind::Drop(0)]),
                 royal: false,
+                output_omit_piece: true,
                 can_castle: false,
             },
             Self {
@@ -876,6 +913,7 @@ impl Piece {
                 can_ep_capture: false,
                 resets_draw_counter: DrawCtrReset::Never,
                 royal: false,
+                output_omit_piece: true,
                 can_castle: false,
             },
         ];

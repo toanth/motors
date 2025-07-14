@@ -280,11 +280,21 @@ impl Move<Chessboard> for ChessMove {
     }
 
     fn format_extended(self, f: &mut Formatter<'_>, board: &Chessboard, format: ExtendedFormat) -> fmt::Result {
+        let add_check_mate_suffix = |f: &mut Formatter| {
+            let board = board.make_move(self).unwrap();
+            if board.is_checkmate_slow() {
+                write!(f, "#")?;
+            } else if board.is_in_check() {
+                write!(f, "+")?;
+            }
+            Ok(())
+        };
         if self.is_castle() {
-            return match self.castle_side() {
-                Queenside => write!(f, "O-O-O"),
-                Kingside => write!(f, "O-O"),
+            match self.castle_side() {
+                Queenside => write!(f, "O-O-O")?,
+                Kingside => write!(f, "O-O")?,
             };
+            return add_check_mate_suffix(f);
         }
         let piece = self.piece(board);
         let moves = board
@@ -337,13 +347,7 @@ impl Move<Chessboard> for ChessMove {
             };
             write!(f, "{promo_char}")?;
         }
-        let board = board.make_move(self).unwrap();
-        if board.is_checkmate_slow() {
-            write!(f, "#")?;
-        } else if board.is_in_check() {
-            write!(f, "+")?;
-        }
-        Ok(())
+        add_check_mate_suffix(f)
     }
 
     fn parse_compact_text<'a>(s: &'a str, board: &Chessboard) -> Res<(&'a str, ChessMove)> {
@@ -1006,6 +1010,9 @@ impl<'a> MoveParser<'a> {
 
     fn error_msg(&self, board: &Chessboard, original_piece: ChessPieceType) -> Res<ChessMove> {
         let us = board.active_player;
+        let our_name = us.to_string().bold();
+        let our_piece = self.piece.to_name().bold();
+        let move_str = self.consumed().red();
         // invalid move, try to print a helpful error message
         let f = |file: Option<DimT>, rank: Option<DimT>| {
             if let Some(file) = file {
@@ -1034,15 +1041,36 @@ impl<'a> MoveParser<'a> {
         let (from, from_bb) = f(self.start_file, self.start_rank);
         let to = f(self.target_file, self.target_rank).0;
         let (from, to) = (from.bold(), to.bold());
+        let target_sq = if self.target_rank.is_some() && self.target_file.is_some() {
+            Some(ChessSquare::from_rank_file(self.target_rank.unwrap(), self.target_file.unwrap()))
+        } else {
+            None
+        };
+        let start_sq = if self.start_rank.is_some() && self.start_file.is_some() {
+            Some(ChessSquare::from_rank_file(self.start_rank.unwrap(), self.start_file.unwrap()))
+        } else {
+            None
+        };
         let mut additional = String::new();
         if board.is_checkmate_slow() {
             additional = format!(" ({us} has been checkmated)");
         } else if board.is_in_check() {
             additional = format!(" ({us} is in check)");
         } else if let Some(sq) = pinned.ones().next() {
-            additional = format!(" (the {0} on {sq} is pinned)", self.piece);
+            additional = format!(" (the {our_piece} on {sq} is pinned)");
         } else if board.pseudolegal_moves().iter().any(|m| self.is_matching_pseudolegal(m)) {
             additional = format!(" (it leaves the {us} king in check)")
+        } else if target_sq.is_some_and(|sq| board.player_bb(us).is_bit_set(sq)) {
+            let piece = board.piece_type_on(target_sq.unwrap());
+            additional =
+                format!(" (there is already a {our_name} {0} on {1})", piece.to_name().bold(), target_sq.unwrap());
+        } else if start_sq.is_some() {
+            let piece = board.colored_piece_on(start_sq.unwrap());
+            if piece.is_empty() {
+                additional = format!(" (there is no piece on {0})", start_sq.unwrap());
+            } else {
+                additional = format!(" (there is a {0} on {1})", piece.to_string().bold(), start_sq.unwrap());
+            }
         } else if self.piece == King {
             // rank and file have already been checked to exist in the move description (only pawns can omit rank)
             let dest = ChessSquare::from_rank_file(self.target_rank.unwrap(), self.target_file.unwrap());
@@ -1056,44 +1084,23 @@ impl<'a> MoveParser<'a> {
         if original_piece == Empty && from_bb.is_single_piece() {
             let piece = board.colored_piece_on(from_bb.to_square().unwrap());
             if piece.is_empty() {
-                bail!(
-                    "The square {from} is {0}, so the move '{1}' is invalid{2}",
-                    "empty".bold(),
-                    self.consumed().bold(),
-                    additional
-                )
+                bail!("The square {from} is {0}, so the move '{move_str}' is invalid{additional}", "empty".bold(),)
             } else if piece.color().unwrap() != us {
                 bail!(
-                    "There is a {0} on {from}, but it's {1}'s turn to move, so the move '{2}' is invalid{3}",
+                    "There is a {0} on {from}, but it's {our_name}'s turn to move, so the move '{move_str}' is invalid{additional}",
                     piece.symbol.name().bold(),
-                    board.active_player.to_string().bold(),
-                    self.consumed().bold(),
-                    additional
                 )
             } else {
                 bail!(
-                    "There is a {0} on {from}, but it can't move to {to}, so the move '{1}' is invalid{2}",
-                    piece.symbol.name().bold(),
-                    self.consumed().bold(),
-                    additional
+                    "There is a {our_piece} on {from}, but it can't move to {to}, so the move '{move_str}' is invalid{additional}"
                 )
             }
         }
         if (board.col_piece_bb(board.active_player, self.piece) & from_bb).is_zero() {
-            bail!(
-                "There is no {0} {1} on {from}, so the move '{2}' is invalid{3}",
-                board.active_player.to_string().bold(),
-                self.piece.to_name().bold(),
-                self.consumed().bold(),
-                additional
-            )
+            bail!("There is no {our_name} {our_piece} on {from}, so the move '{move_str}' is invalid{additional}")
         } else {
             bail!(
-                "There is no legal {0} {1} move from {from} to {to}, so the move '{2}' is invalid{3}",
-                board.active_player.to_string().bold(),
-                self.piece.to_name().bold(),
-                self.consumed().bold(),
-                additional
+                "There is no legal {our_name} {our_piece} move from {from} to {to}, so the move '{move_str}' is invalid{additional}"
             );
         }
     }
@@ -1275,6 +1282,9 @@ mod tests {
             let perft_res = perft(DepthPly::new(3), *pos, false);
             assert_eq!(perft_res.nodes, *perft_nodes);
         }
+        let pos = Chessboard::from_fen("5k2/8/8/8/8/8/8/4K2R w K - 0 1", Strict).unwrap();
+        let mov = ChessMove::from_text("0-0", &pos).unwrap();
+        assert_eq!(mov.extended_formatter(&pos, Standard).to_string(), "O-O+");
         let castling = |pos: Chessboard| {
             pos.legal_moves_slow()
                 .iter()

@@ -15,6 +15,7 @@
  *  You should have received a copy of the GNU General Public License
  *  along with Gears. If not, see <https://www.gnu.org/licenses/>.
  */
+mod algebraic_notation;
 mod attacks;
 mod effects;
 pub mod moves;
@@ -457,11 +458,20 @@ impl UnverifiedBoard<FairyBoard> for UnverifiedFairyBoard {
         }
     }
 
-    fn remove_piece(&mut self, coords: FairySquare) {
-        let piece = self.piece_on(coords).symbol;
-        self.remove_piece_impl(coords, piece);
-        // just give up when it comes to flags
-        self.castling_info = FairyCastleInfo::default();
+    fn remove_piece(&mut self, sq: FairySquare) {
+        let piece = self.piece_on(sq).symbol;
+        self.remove_piece_impl(sq, piece);
+        for col in FairyColor::iter() {
+            for side in Side::iter() {
+                if Some(sq) == self.castling_info.players[col].rook_sq(side) {
+                    self.castling_info.unset(col, side);
+                }
+            }
+            if Some(sq) == self.king_square(col) {
+                self.castling_info.unset_both_sides(col);
+            }
+        }
+        // just always remove the ep square
         self.ep = None;
     }
 
@@ -724,6 +734,10 @@ impl Board for FairyBoard {
         vec![
             NameToPos::strict("kiwipete", "chess r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 0 1"),
             NameToPos::strict("large_mnk", "mnk 11 11 4 11/11/11/11/11/11/11/11/11/11/11 x 1"),
+            NameToPos::strict(
+                "shogi_usi_startpos",
+                "shogi lnsgkgsnl/1r5b1/ppppppppp/9/9/9/PPPPPPPPP/1B5R1/LNSGKGSNL b - 1",
+            ),
         ]
     }
 
