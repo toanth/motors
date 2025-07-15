@@ -4,7 +4,7 @@ use std::fmt::{Debug, Formatter};
 use std::str::FromStr;
 
 use arbitrary::Arbitrary;
-use colored::Colorize;
+use colored::{ColoredString, Colorize};
 use itertools::Itertools;
 use strum::IntoEnumIterator;
 use strum_macros::{EnumIter, FromRepr};
@@ -1033,56 +1033,13 @@ impl<'a> MoveParser<'a> {
                 ("any square".to_string(), !ChessBitboard::default())
             }
         };
-        let pinned = if self.target_rank.is_some() && self.target_file.is_some() {
-            board.all_attacking(
-                ChessSquare::from_rank_file(self.target_rank.unwrap(), self.target_file.unwrap()),
-                &board.slider_generator(),
-            ) & board.pinned[board.active]
-                & board.col_piece_bb(us, self.piece)
-        } else {
-            ChessBitboard::default()
-        };
         let (from, from_bb) = f(self.start_file, self.start_rank);
         let to = f(self.target_file, self.target_rank).0;
         let (from, to) = (from.bold(), to.bold());
-        let target_sq = if self.target_rank.is_some() && self.target_file.is_some() {
-            Some(ChessSquare::from_rank_file(self.target_rank.unwrap(), self.target_file.unwrap()))
-        } else {
-            None
-        };
-        let start_sq = if self.start_rank.is_some() && self.start_file.is_some() {
-            Some(ChessSquare::from_rank_file(self.start_rank.unwrap(), self.start_file.unwrap()))
-        } else {
-            None
-        };
-        let mut additional = String::new();
-        if board.is_checkmate_slow() {
-            additional = format!(" ({us} has been checkmated)");
-        } else if board.is_in_check() {
-            additional = format!(" ({us} is in check)");
-        } else if let Some(sq) = pinned.ones().next() {
-            additional = format!(" (the {our_piece} on {sq} is pinned)");
-        } else if board.pseudolegal_moves().iter().any(|m| self.is_matching_pseudolegal(m)) {
-            additional = format!(" (it leaves the {us} king in check)")
-        } else if target_sq.is_some_and(|sq| board.player_bb(us).is_bit_set(sq)) {
-            let piece = board.piece_type_on(target_sq.unwrap());
-            additional =
-                format!(" (there is already a {our_name} {0} on {1})", piece.to_name().bold(), target_sq.unwrap());
-        } else if start_sq.is_some() {
-            let piece = board.colored_piece_on(start_sq.unwrap());
-            if piece.is_empty() {
-                additional = format!(" (there is no piece on {0})", start_sq.unwrap());
-            } else {
-                additional = format!(" (there is a {0} on {1})", piece.to_string().bold(), start_sq.unwrap());
-            }
-        } else if self.piece == King {
-            // rank and file have already been checked to exist in the move description (only pawns can omit rank)
-            let dest = ChessSquare::from_rank_file(self.target_rank.unwrap(), self.target_file.unwrap());
-            if board.threats().is_bit_set(dest) {
-                additional = format!(" (The king would be in check on the {dest} square)")
-            }
+        let mut additional = self.additional_msg(board, &our_name, &our_piece);
+        if !additional.is_empty() {
+            additional = format!(" ({})", additional.bold());
         }
-        let additional = additional.bold();
 
         // moves without a piece but source and dest square have probably been meant as UCI moves, and not as pawn moves
         if original_piece == Empty && from_bb.is_single_piece() {
@@ -1107,6 +1064,60 @@ impl<'a> MoveParser<'a> {
                 "There is no legal {our_name} {our_piece} move from {from} to {to}, so the move '{move_str}' is invalid{additional}"
             );
         }
+    }
+
+    fn additional_msg(&self, board: &Chessboard, our_name: &ColoredString, our_piece: &ColoredString) -> String {
+        let us = board.active;
+        let pinned = if self.target_rank.is_some() && self.target_file.is_some() {
+            board.all_attacking(
+                ChessSquare::from_rank_file(self.target_rank.unwrap(), self.target_file.unwrap()),
+                &board.slider_generator(),
+            ) & board.pinned[board.active]
+                & board.col_piece_bb(us, self.piece)
+        } else {
+            ChessBitboard::default()
+        };
+        let target_sq = if self.target_rank.is_some() && self.target_file.is_some() {
+            Some(ChessSquare::from_rank_file(self.target_rank.unwrap(), self.target_file.unwrap()))
+        } else {
+            None
+        };
+        let start_sq = if self.start_rank.is_some() && self.start_file.is_some() {
+            Some(ChessSquare::from_rank_file(self.start_rank.unwrap(), self.start_file.unwrap()))
+        } else {
+            None
+        };
+        if board.is_checkmate_slow() {
+            return format!("{us} has been checkmated");
+        } else if board.is_in_check() {
+            return format!("{us} is in check)");
+        } else if let Some(sq) = pinned.ones().next() {
+            return format!("the {our_piece} on {sq} is pinned");
+        } else if board.pseudolegal_moves().iter().any(|m| self.is_matching_pseudolegal(m)) {
+            return format!("it leaves the {us} king in check");
+        } else if let Some(target) = target_sq {
+            if board.player_bb(us).is_bit_set(target) {
+                let piece = board.piece_type_on(target_sq.unwrap());
+                return format!("there is already a {our_name} {0} on {1}", piece.to_name().bold(), target_sq.unwrap());
+            } else if (self.promotion != Empty) != (self.piece == Pawn && target.is_backrank()) {
+                return format!("promoting to a {0} is incorrect", self.promotion.to_name().bold());
+            }
+        }
+        if start_sq.is_some() {
+            let piece = board.colored_piece_on(start_sq.unwrap());
+            if piece.is_empty() {
+                return format!("there is no piece on {0}", start_sq.unwrap());
+            } else if piece.symbol != ColoredChessPieceType::new(us, self.piece) {
+                return format!("there is a {0} on {1}", piece.to_string().bold(), start_sq.unwrap());
+            }
+        } else if self.piece == King {
+            // rank and file have already been checked to exist in the move description (only pawns can omit rank)
+            let dest = ChessSquare::from_rank_file(self.target_rank.unwrap(), self.target_file.unwrap());
+            if board.threats().is_bit_set(dest) {
+                return format!("The king would be in check on the {dest} square");
+            }
+        }
+        String::new()
     }
 
     // I love this name

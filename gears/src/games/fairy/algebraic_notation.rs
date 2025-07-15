@@ -851,7 +851,7 @@ impl<'a> MoveParser<'a> {
             let piece = board.colored_piece_on(start_sq.unwrap());
             if piece.is_empty() {
                 additional = format!(" (there is no piece on {0})", start_sq.unwrap());
-            } else {
+            } else if piece.symbol != ColoredPieceId::new(us, self.piece) {
                 let c = piece
                     .color()
                     .map(|c: FairyColor| c.name(board.settings()).bold().to_string())
@@ -866,6 +866,12 @@ impl<'a> MoveParser<'a> {
         let additional = additional.bold();
         let mov = self.consumed().bold();
 
+        if board.pseudolegal_moves().into_iter().any(|m| self.is_matching_pseudolegal(m, board, false)) {
+            bail!(
+                "Incorrect or missing {0} for moving a {our_name} {piece_name} from {from} to {to}, so the move '{mov}' is invalid{additional}",
+                "promotion piece".bold()
+            )
+        }
         // moves without a piece but source and dest square have probably been meant as UCI moves, and not as pawn moves
         if original_piece == PieceId::empty() && from_bb.is_single_piece() {
             let piece = board.colored_piece_on(from_bb.to_square().unwrap());
@@ -885,12 +891,6 @@ impl<'a> MoveParser<'a> {
         if (board.col_piece_bb(board.active, self.piece) & from_bb).is_zero() {
             bail!("There is no {our_name} {piece_name} on {from}, so the move '{mov}' is invalid{additional}",)
         } else {
-            if board.pseudolegal_moves().into_iter().any(|m| self.is_matching_pseudolegal(m, board, false)) {
-                bail!(
-                    "Incorrect or missing {0} for moving a {our_name} {piece_name} from {from} to {to}, so the move '{mov}' is invalid{additional}",
-                    "promotion piece".bold()
-                )
-            }
             bail!(
                 "There is no legal {our_name} {piece_name} move from {from} to {to}, so the move '{mov}' is invalid{additional}",
             );
