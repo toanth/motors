@@ -10,26 +10,26 @@ use crossbeam_utils::sync::{Parker, Unparker};
 use crate::cli::CommandLineArgs;
 use crate::play::adjudication::{Adjudication, Adjudicator};
 use crate::play::player::Player::{Engine, Human};
-use crate::play::player::{limit_to_ugi, EnginePlayer, HumanPlayerStatus, Player, PlayerBuilder, Protocol};
+use crate::play::player::{EnginePlayer, HumanPlayerStatus, Player, PlayerBuilder, Protocol, limit_to_ugi};
 use crate::play::ugi_input::BestMoveAction::Ignore;
 use crate::play::ugi_input::EngineStatus::*;
 use crate::play::ugi_input::{BestMoveAction, OwnedSearchInfo};
 use crate::ui::Input;
+use gears::MatchStatus::*;
+use gears::Quitting::*;
 use gears::colored::Colorize;
 use gears::games::{BoardHistory, Color, ZobristHistory};
 use gears::general::board::Strictness::Relaxed;
 use gears::general::board::{Board, BoardHelpers};
-use gears::general::common::anyhow::bail;
 use gears::general::common::Res;
+use gears::general::common::anyhow::bail;
 use gears::general::moves::Move;
 use gears::output::Message::*;
 use gears::output::{Message, OutputBox, OutputBuilder, OutputOpts};
 use gears::search::TimeControl;
-use gears::MatchStatus::*;
-use gears::Quitting::*;
 use gears::{
-    output_builder_from_str, player_res_to_match_res, AbstractRun, AdjudicationReason, GameOver, GameOverReason,
-    GameResult, GameState, MatchResult, MatchStatus, PlayerResult, Quitting,
+    AbstractRun, AdjudicationReason, GameOver, GameOverReason, GameResult, GameState, MatchResult, MatchStatus,
+    PlayerResult, Quitting, output_builder_from_str, player_res_to_match_res,
 };
 // TODO: Use tokio? Probably more efficient and it has non-blocking reads.
 
@@ -84,11 +84,7 @@ impl<B: Board> UgiMatchState<B> {
     }
 
     fn player_mut(&mut self, color: B::Color) -> &mut PlayerId {
-        if color.is_first() {
-            &mut self.p1
-        } else {
-            &mut self.p2
-        }
+        if color.is_first() { &mut self.p1 } else { &mut self.p2 }
     }
 }
 
@@ -112,11 +108,7 @@ impl<B: Board> ClientState<B> {
     // Getters should be implemented as methods of the UgiMatchState, but all other functions, especially those that modify
     // the state, are better suited in the Client, because only the client can access outputs.
     pub fn id(&self, color: B::Color) -> PlayerId {
-        if color.is_first() {
-            self.the_match.p1
-        } else {
-            self.the_match.p2
-        }
+        if color.is_first() { self.the_match.p1 } else { self.the_match.p2 }
     }
 
     pub fn get_player_from_id_mut(&mut self, id: PlayerId) -> &mut Player<B> {
@@ -215,8 +207,12 @@ impl<B: Board> GameState<B> for ClientState<B> {
         self.get_player(color).thinking_since()
     }
 
-    fn engine_state(&self) -> Res<String> {
+    fn print_engine_state(&self) -> Res<String> {
         Ok("Getting the internal engine state is not supported in the match manager".to_string())
+    }
+
+    fn print_engine_state_for_move(&self, _pos: &B, _mov: B::Move) -> Res<String> {
+        Ok("Getting the internal engine state for a move is not supported in the match manager".to_string())
     }
 }
 
@@ -364,11 +360,11 @@ impl<B: Board> Client<B> {
 
     pub fn lose_on_time(&mut self, color: B::Color) {
         let time = self.state.get_player_mut(color).get_original_tc();
+        let player = color.name(self.state.the_match.board.settings()).to_string();
         self.show_message(
             Warning,
             &format_args!(
-                "The {} player ran out of time (the time control was {start}ms + {inc}ms)",
-                color.name(&self.state.the_match.board.settings()).as_ref(),
+                "The {player} player ran out of time (the time control was {start}ms + {inc}ms)",
                 start = time.remaining.as_millis(),
                 inc = time.increment.as_millis()
             ),
@@ -718,11 +714,7 @@ impl<B: Board> Client<B> {
     }
 
     pub fn active_player(&self) -> Option<B::Color> {
-        if self.state.the_match.status == Ongoing {
-            Some(self.state.the_match.board.active_player())
-        } else {
-            None
-        }
+        if self.state.the_match.status == Ongoing { Some(self.state.the_match.board.active_player()) } else { None }
     }
 }
 

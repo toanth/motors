@@ -80,11 +80,16 @@ impl Chessboard {
         let mut pawns = PosHash(0);
         let mut nonpawns = [PosHash(0); NUM_COLORS];
         let mut special = PosHash(0);
+        let mut knb = PosHash(0);
         for color in ChessColor::iter() {
             for piece in ChessPieceType::non_pawn_pieces() {
                 let pieces = self.col_piece_bb(color, piece);
                 for square in pieces.ones() {
-                    nonpawns[color] ^= ZOBRIST_KEYS.piece_key(piece, color, square);
+                    let key = ZOBRIST_KEYS.piece_key(piece, color, square);
+                    nonpawns[color] ^= key;
+                    if piece.is_knb() {
+                        knb ^= key;
+                    }
                 }
             }
             for square in self.col_piece_bb(color, Pawn).ones() {
@@ -93,10 +98,10 @@ impl Chessboard {
         }
         special ^= self.ep_square.map_or(PosHash(0), |square| ZOBRIST_KEYS.ep_file_keys[square.file() as usize]);
         special ^= ZOBRIST_KEYS.castle_keys[self.castling.allowed_castling_directions()];
-        if self.active_player == Black {
+        if self.active == Black {
             special ^= ZOBRIST_KEYS.side_to_move_key;
         }
-        Hashes { pawns, nonpawns, total: pawns ^ nonpawns[0] ^ nonpawns[1] ^ special }
+        Hashes { pawns, nonpawns, knb, total: pawns ^ nonpawns[0] ^ nonpawns[1] ^ special }
     }
 
     pub fn zobrist_delta(color: ChessColor, piece: ChessPieceType, from: ChessSquare, to: ChessSquare) -> PosHash {
@@ -110,7 +115,7 @@ mod tests {
     use crate::games::chess::ChessColor::White;
     use crate::games::chess::moves::{ChessMove, ChessMoveFlags};
     use crate::games::chess::pieces::ChessPieceType::*;
-    use crate::games::chess::squares::{D_FILE_NO, E_FILE_NO};
+    use crate::games::chess::squares::{D_FILE_NUM, E_FILE_NUM};
     use crate::general::board::Strictness::Strict;
     use crate::general::board::{Board, BoardHelpers};
     use crate::general::moves::Move;
@@ -150,8 +155,7 @@ mod tests {
             for mov in new_board.legal_moves_slow() {
                 let new_board = new_board.make_move(mov).unwrap();
                 let previous = hashes.insert(new_board.hash_pos().0, new_board);
-                if previous.is_some() {
-                    let old_board = previous.unwrap();
+                if let Some(old_board) = previous {
                     println!(
                         "Collision at hash {hash}, boards {0} and {1} (diagrams: \n{old_board} and \n{new_board}",
                         old_board.as_fen(),
@@ -174,15 +178,15 @@ mod tests {
         let position = Chessboard::from_fen("4r1k1/p4pp1/6bp/2p5/r2p4/P4PPP/1P2P3/2RRB1K1 w - - 1 15", Strict).unwrap();
         assert_eq!(position.hashes, position.compute_zobrist());
         let mov = ChessMove::new(
-            ChessSquare::from_rank_file(1, E_FILE_NO),
-            ChessSquare::from_rank_file(3, E_FILE_NO),
-            ChessMoveFlags::NormalPawnMove,
+            ChessSquare::from_rank_file(1, E_FILE_NUM),
+            ChessSquare::from_rank_file(3, E_FILE_NUM),
+            ChessMoveFlags::NormalMove,
         );
         let new_pos = position.make_move(mov).unwrap();
         assert_eq!(new_pos.hashes, new_pos.compute_zobrist());
         let ep_move = ChessMove::new(
-            ChessSquare::from_rank_file(3, D_FILE_NO),
-            ChessSquare::from_rank_file(2, E_FILE_NO),
+            ChessSquare::from_rank_file(3, D_FILE_NUM),
+            ChessSquare::from_rank_file(2, E_FILE_NUM),
             ChessMoveFlags::EnPassant,
         );
         let after_ep = new_pos.make_move(ep_move).unwrap();
@@ -197,7 +201,7 @@ mod tests {
                     continue;
                 };
                 assert!(new_pos.debug_verify_invariants(Strict).is_ok(), "{pos} {}", m.compact_formatter(&pos));
-                if !(m.is_double_pawn_push()
+                if !(m.is_double_pawn_push(&pos)
                     || m.is_capture(&pos)
                     || m.is_promotion()
                     || pos.ep_square().is_some()
@@ -206,8 +210,8 @@ mod tests {
                     assert_eq!(
                         pos.hash_pos()
                             ^ Chessboard::zobrist_delta(
-                                pos.active_player,
-                                m.piece_type(),
+                                pos.active,
+                                m.piece_type(&pos),
                                 m.src_square(),
                                 m.dest_square()
                             )

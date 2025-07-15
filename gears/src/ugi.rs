@@ -2,14 +2,24 @@ use crate::general::board::{Board, BoardHelpers, Strictness};
 use crate::general::common::{NamedEntity, Res, Tokens, TokensToString, tokens, tokens_to_string};
 use crate::general::moves::Move;
 use crate::output::pgn::parse_pgn_moves_format;
+use crate::ugi::Protocol::Interactive;
 use anyhow::{anyhow, bail};
 use colored::Colorize;
 use std::fmt::{Display, Formatter};
-use std::str::FromStr;
 use strum::IntoEnumIterator;
 use strum_macros::EnumIter;
 
 /// Ugi-related helpers that are used by both `motors` and `monitors`.
+
+#[derive(Debug, Default, Copy, Clone, Eq, PartialEq, Hash, derive_more::Display, derive_more::FromStr)]
+pub enum Protocol {
+    #[default]
+    Interactive,
+    UGI,
+    UCI,
+    UAI,
+    USI,
+}
 
 #[derive(Default, Debug, Copy, Clone)]
 #[must_use]
@@ -120,6 +130,10 @@ pub enum EngineOptionName {
     Threads,
     Ponder,
     MultiPv,
+    // This exists even if the current game isn't chess, because typically GUIs query the options once at startup,
+    // so we don't want to prevent a GUI from setting that option if the initial game isn't chess.
+    UCIChess960,
+    UCIVariant,
     UciElo,
     UCIOpponent,
     UCIEngineAbout,
@@ -131,13 +145,18 @@ pub enum EngineOptionName {
     RespondToMove,
     SetEngine,
     SetEval,
-    Variant,
     Other(String),
 }
 
-impl NamedEntity for EngineOptionName {
+#[derive(Debug, Clone, Eq, PartialEq, Hash)]
+pub struct EngineOptionNameForProto {
+    pub name: EngineOptionName,
+    pub proto: Protocol,
+}
+
+impl NamedEntity for EngineOptionNameForProto {
     fn short_name(&self) -> String {
-        self.name().to_string()
+        self.name.name(self.proto).to_string()
     }
 
     fn long_name(&self) -> String {
@@ -145,13 +164,15 @@ impl NamedEntity for EngineOptionName {
     }
 
     fn description(&self) -> Option<String> {
-        let res = match self {
+        let res = match &self.name {
             EngineOptionName::Hash => "Size of the Transposition Table in MiB",
             EngineOptionName::Threads => "Number of search threads",
             EngineOptionName::Ponder => {
                 "Pondering mode. Pondering is supported even without this option, so it has no effect"
             }
             EngineOptionName::MultiPv => "The number of Principal Variation (PV) lines to output",
+            EngineOptionName::UCIChess960 => "Always output castling moves in Chess960 format (king captures rook)",
+            EngineOptionName::UCIVariant => "Changes the current variant for 'fairy', e.g. 'chess' or 'shatranj'",
             EngineOptionName::UciElo => "Limit strength to this elo. Currently not supported",
             EngineOptionName::UCIOpponent => "The opponent. Currently only used to output the name in PGNs",
             EngineOptionName::UCIEngineAbout => "Information about the engine. Can't be changed, only queried",
@@ -175,7 +196,6 @@ impl NamedEntity for EngineOptionName {
             EngineOptionName::SetEval => {
                 "Change the current evaluation function without resetting the engine state, such as clearing the TT"
             }
-            EngineOptionName::Variant => "Changes the current variant for 'fairy', e.g. 'chess' or 'shatranj'",
             EngineOptionName::Other(name) => return Some(format!("Custom option named '{name}'")),
         };
         Some(res.to_string())
@@ -183,60 +203,67 @@ impl NamedEntity for EngineOptionName {
 }
 
 impl EngineOptionName {
-    pub fn name(&self) -> &str {
+    fn with_proto(protocol: Protocol, name: &str) -> String {
+        if protocol == Interactive {
+            return format!("UCI_{name}");
+        }
+        format!("{protocol}_{name}")
+    }
+
+    pub fn name(&self, proto: Protocol) -> String {
         match self {
-            EngineOptionName::Hash => "Hash",
-            EngineOptionName::Threads => "Threads",
-            EngineOptionName::Ponder => "Ponder",
-            EngineOptionName::MultiPv => "MultiPV",
-            EngineOptionName::UciElo => "UCI_Elo",
-            EngineOptionName::UCIOpponent => "UCI_Opponent",
-            EngineOptionName::UCIEngineAbout => "UCI_EngineAbout",
-            EngineOptionName::UCIShowRefutations => "UCI_ShowRefutations",
-            EngineOptionName::UCIShowCurrLine => "UCI_ShowCurrLine",
-            EngineOptionName::CurrlineNullmove => "CurrlineNullmove",
-            EngineOptionName::MoveOverhead => "MoveOverhead",
-            EngineOptionName::Strictness => "Strict",
-            EngineOptionName::RespondToMove => "RespondToMove",
-            EngineOptionName::SetEngine => "Engine",
-            EngineOptionName::SetEval => "SetEval",
-            EngineOptionName::Variant => "Variant",
-            EngineOptionName::Other(x) => x,
+            EngineOptionName::Hash => "Hash".to_string(),
+            EngineOptionName::Threads => "Threads".to_string(),
+            EngineOptionName::Ponder => "Ponder".to_string(),
+            EngineOptionName::MultiPv => "MultiPV".to_string(),
+            EngineOptionName::UCIChess960 => Self::with_proto(proto, "Chess960"),
+            EngineOptionName::UCIVariant => Self::with_proto(proto, "Variant"),
+            EngineOptionName::UciElo => Self::with_proto(proto, "Elo"),
+            EngineOptionName::UCIOpponent => Self::with_proto(proto, "Opponent"),
+            EngineOptionName::UCIEngineAbout => Self::with_proto(proto, "EngineAbout"),
+            EngineOptionName::UCIShowRefutations => Self::with_proto(proto, "ShowRefutations"),
+            EngineOptionName::UCIShowCurrLine => Self::with_proto(proto, "ShowCurrLine"),
+            EngineOptionName::CurrlineNullmove => "CurrlineNullmove".to_string(),
+            EngineOptionName::MoveOverhead => "MoveOverhead".to_string(),
+            EngineOptionName::Strictness => "Strict".to_string(),
+            EngineOptionName::RespondToMove => "RespondToMove".to_string(),
+            EngineOptionName::SetEngine => "Engine".to_string(),
+            EngineOptionName::SetEval => "SetEval".to_string(),
+            EngineOptionName::Other(x) => x.clone(),
         }
     }
 }
 
-impl Display for EngineOptionName {
+impl Display for EngineOptionNameForProto {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.name())
+        write!(f, "{}", self.short_name())
     }
 }
 
-impl FromStr for EngineOptionName {
-    type Err = anyhow::Error;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        Ok(match s.to_ascii_lowercase().as_str() {
+impl EngineOptionNameForProto {
+    pub fn parse(s: &str, proto: Protocol) -> Res<Self> {
+        let name = match s.to_ascii_lowercase().as_str() {
             "tt" => EngineOptionName::Hash,
             "move overhead" => EngineOptionName::MoveOverhead,
             name => EngineOptionName::iter()
-                .find(|n| n.name().eq_ignore_ascii_case(name))
+                .find(|n| n.name(proto).eq_ignore_ascii_case(name))
                 .unwrap_or_else(|| EngineOptionName::Other(s.to_string())),
-        })
+        };
+        Ok(EngineOptionNameForProto { name, proto })
     }
 }
 
 #[derive(Debug, Clone)]
 pub struct EngineOption {
-    pub name: EngineOptionName,
+    pub name: EngineOptionNameForProto,
     pub value: EngineOptionType,
 }
 
-impl Default for EngineOption {
-    fn default() -> Self {
-        EngineOption { name: EngineOptionName::Other(String::default()), value: EngineOptionType::Button }
-    }
-}
+// impl Default for EngineOption {
+//     fn default() -> Self {
+//         EngineOption { name: EngineOptionName::Other(String::default()), value: EngineOptionType::Button }
+//     }
+// }
 
 impl Display for EngineOption {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
@@ -246,7 +273,7 @@ impl Display for EngineOption {
 
 impl NamedEntity for EngineOption {
     fn short_name(&self) -> String {
-        self.name.name().to_string()
+        self.name.to_string()
     }
 
     fn long_name(&self) -> String {
@@ -265,9 +292,14 @@ pub fn parse_ugi_position_part_impl<B: Board>(
     strictness: Strictness,
 ) -> Res<B> {
     Ok(match first_word.to_ascii_lowercase().as_str() {
-        "fen" | "f" => B::read_fen_and_advance_input(rest, strictness)?,
-        "startpos" | "s" => B::startpos_for_settings(current_pos.settings()),
+        "fen" | "f" | "sfen" => B::read_fen_and_advance_input_for(rest, strictness, current_pos.settings_ref())?,
+        "startpos" | "s" => B::startpos_for_settings(current_pos.settings_ref()),
         "current" | "c" => current_pos.clone(),
+        // this is effectively just ignored, but it's nice to get autocompletion specifically for position names
+        "name" | "pos_name" => {
+            let Some(next) = rest.next() else { bail!("Expected a position name after 'name' subcommand") };
+            parse_ugi_position_part_impl(next, rest, current_pos, strictness)?
+        }
         "" => bail!("Empty position description, expected 'fen', 'startpos', 'current' or a name"),
         name => match B::from_name(name) {
             Ok(res) => res,
@@ -307,9 +339,9 @@ pub fn parse_ugi_position_part<B: Board>(
     // (So 'mnk 3 3 3 3/3/3 x 1' is valid)
     let original_string = tokens_to_string(first, copy.clone());
     let mut original_tokens = tokens(&original_string);
-    let res = B::read_fen_and_advance_input(&mut original_tokens, strictness);
+    let res = B::read_fen_and_advance_input_for(&mut original_tokens, strictness, current_pos.settings_ref());
     *rest = copy;
-    let advance_by = rest.clone().count() - original_tokens.count();
+    let advance_by = rest.clone().count().saturating_sub(original_tokens.count());
     for _ in 0..advance_by {
         _ = rest.next().unwrap();
     }
@@ -317,7 +349,8 @@ pub fn parse_ugi_position_part<B: Board>(
     // If that failed as well, we try to parse it as a variant, then parse the rest as a position description.
     // (So 'shatranj startpos' is valid)
     *rest = remaining;
-    let pos = B::variant(first, rest).map_err(|_| err)?;
+    // TODO: Use protocol
+    let pos = B::variant_for(first, rest, Protocol::Interactive).map_err(|_| err)?;
     let first = rest.next().unwrap_or("startpos");
     parse_ugi_position_part_impl(first, rest, &pos, strictness).or(Ok(pos))
 }
@@ -524,7 +557,11 @@ pub fn load_ugi_pos_simple<B: Board>(pos: &str, strictness: Strictness, old_boar
     let first = tokens.next().unwrap_or_default();
     let res = only_load_ugi_position(first, &mut tokens, old_board, strictness, false, false)?;
     if let Some(next) = tokens.next() {
-        bail!("Unconsumed input after loading a position: {}", next.red())
+        bail!(
+            "After loading position '{0}', there is unconsumed input starting with the token '{1}'",
+            pos.bold(),
+            next.red()
+        )
     }
     Ok(res)
 }

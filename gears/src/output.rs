@@ -9,11 +9,11 @@ use strum_macros::Display;
 use crate::games::OutputList;
 use crate::general::board::{Board, RectangularBoard};
 use crate::general::common::{NamedEntity, Res, Tokens};
+use crate::output::Message::*;
 use crate::output::chess::ChessOutputBuilder;
 use crate::output::engine_state::EngineStateOutputBuilder;
 use crate::output::logger::LoggerBuilder;
 use crate::output::text_output::{DisplayType, TextOutputBuilder};
-use crate::output::Message::*;
 use crate::search::SearchInfo;
 use crate::{GameOverReason, GameState, MatchResult, MatchStatus};
 
@@ -113,12 +113,6 @@ pub trait Output<B: Board>: AbstractOutput {
 
     fn update_engine_info(&mut self, engine_name: &str, info: &SearchInfo<B>) {
         self.display_message(Info, &format_args!("{engine_name}: {info}"));
-    }
-    fn upcast_box(self: Box<Self>) -> Box<dyn AbstractOutput>
-    where
-        Self: Sized,
-    {
-        self
     }
 }
 

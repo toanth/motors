@@ -1,6 +1,6 @@
 use crate::general::board::{Board, BoardHelpers};
 use crate::general::moves::Move;
-use crate::search::Depth;
+use crate::search::DepthPly;
 use colored::Colorize;
 use itertools::Itertools;
 use rayon::iter::ParallelIterator;
@@ -15,7 +15,7 @@ use std::time::{Duration, Instant};
 pub struct PerftRes {
     pub time: Duration,
     pub nodes: u64, // Can't use NodesLimit because it's possible to have 0 leafs at the given depth
-    pub depth: Depth,
+    pub depth: DepthPly,
 }
 
 impl Display for PerftRes {
@@ -40,17 +40,18 @@ pub struct SplitPerftRes<B: Board> {
 
 impl<B: Board> Display for SplitPerftRes<B> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        for child in &self.children {
+            writeln!(f, "{0}\t{1}", child.0.compact_formatter(&self.pos), child.1)?;
+        }
         write!(
             f,
-            "info depth {depth} nodes {nodes} time {time} nps {nps}",
+            "info depth {depth} nodes {nodes} time {time} nps {nps} children {children}",
             depth = self.perft_res.depth.get(),
             nodes = self.perft_res.nodes,
             time = self.perft_res.time.as_millis(),
-            nps = self.perft_res.nodes * 1_000_000 / self.perft_res.time.as_micros().max(1) as u64
+            nps = self.perft_res.nodes * 1_000_000 / self.perft_res.time.as_micros().max(1) as u64,
+            children = self.children.len(),
         )?;
-        for child in &self.children {
-            write!(f, "\n{0}\t{1}", child.0.compact_formatter(&self.pos), child.1)?;
-        }
         Ok(())
     }
 }
@@ -68,12 +69,12 @@ fn do_perft<B: Board>(depth: usize, pos: B) -> u64 {
     for new_pos in pos.children() {
         nodes += do_perft(depth - 1, new_pos);
     }
-    // no need to handle the case of no legal moves, since we already return 0.
+    // no need to handle the case of no legal moves, since `children()` and `num_legal_moves()`
+    // already take care of forced passing moves.
     nodes
 }
 
-pub fn perft<B: Board>(depth: Depth, pos: B, parallelize: bool) -> PerftRes {
-    let depth = depth.min(B::max_perft_depth());
+pub fn perft<B: Board>(depth: DepthPly, pos: B, parallelize: bool) -> PerftRes {
     let start = Instant::now();
     let nodes = if depth.get() == 0 {
         1
@@ -87,9 +88,8 @@ pub fn perft<B: Board>(depth: Depth, pos: B, parallelize: bool) -> PerftRes {
     PerftRes { time, nodes, depth }
 }
 
-pub fn split_perft<B: Board>(depth: Depth, pos: B, parallelize: bool) -> SplitPerftRes<B> {
+pub fn split_perft<B: Board>(depth: DepthPly, pos: B, parallelize: bool) -> SplitPerftRes<B> {
     assert!(depth.get() > 0);
-    let depth = depth.min(B::max_perft_depth());
     let mut nodes = 0;
     let start = Instant::now();
     let mut children: Vec<(B::Move, u64)> = vec![];
@@ -105,10 +105,10 @@ pub fn split_perft<B: Board>(depth: Depth, pos: B, parallelize: bool) -> SplitPe
             .collect_into_vec(&mut children);
         nodes = children.iter().map(|(_, num)| num).sum();
     } else {
-        for mov in pos.pseudolegal_moves() {
-            let Some(new_pos) = pos.clone().make_move(mov) else {
-                continue;
-            };
+        // Use legal_moves_slow instead of pseudolegal_moves here to handle a forced passing move
+        // because the current player has no other legal moves
+        for mov in pos.legal_moves_slow() {
+            let new_pos = pos.clone().make_move(mov).expect("playing a legal move cannot fail");
             let child_nodes = if depth.get() == 1 { 1 } else { do_perft(depth.get() - 1, new_pos) };
             children.push((mov, child_nodes));
             nodes += child_nodes;
@@ -120,10 +120,10 @@ pub fn split_perft<B: Board>(depth: Depth, pos: B, parallelize: bool) -> SplitPe
     SplitPerftRes { perft_res, children, pos }
 }
 
-pub fn perft_for<B: Board>(depth: Depth, positions: &[B], parallelize: bool) -> PerftRes {
+pub fn perft_for<B: Board>(depth: DepthPly, positions: &[B], parallelize: bool) -> PerftRes {
     let mut res = PerftRes { time: Duration::default(), nodes: 0, depth };
     for pos in positions {
-        let depth = if depth.get() == 0 || depth >= B::max_perft_depth() { pos.default_perft_depth() } else { depth };
+        let depth = if depth.get() == 0 { pos.default_perft_depth() } else { depth };
         let this_res = perft(depth, pos.clone(), parallelize);
         res.time += this_res.time;
         res.nodes += this_res.nodes;
@@ -136,13 +136,31 @@ pub fn perft_for<B: Board>(depth: Depth, positions: &[B], parallelize: bool) -> 
 struct PerftState<B: Board> {
     pos: B,
     moves: Vec<B::Move>,
+    num_visited_children: usize,
 }
 
 #[derive(Debug, Eq, PartialEq, Clone)]
 pub struct PosIter<B: Board> {
-    depth: Depth,
+    depth: DepthPly,
     states: Vec<PerftState<B>>,
-    only_leaves: bool,
+}
+
+impl<B: Board> PosIter<B> {
+    fn no_moves(&mut self) -> Option<B> {
+        let s = self.states.last_mut().unwrap();
+        if s.num_visited_children == 0 && s.pos.no_moves_result().is_none() {
+            s.num_visited_children = 1;
+            let new_pos = s.pos.clone().make_nullmove().expect("A forced passing move must be legal");
+            let moves = new_pos.pseudolegal_moves().into_iter().collect();
+            let new_state = PerftState { pos: new_pos.clone(), moves, num_visited_children: 0 };
+            self.states.push(new_state);
+            self.depth -= 1;
+            return Some(new_pos);
+        }
+        _ = self.states.pop();
+        self.depth += 1;
+        self.next()
+    }
 }
 
 impl<B: Board> Iterator for PosIter<B> {
@@ -156,37 +174,36 @@ impl<B: Board> Iterator for PosIter<B> {
         } else if self.depth.get() == 1 {
             let s = self.states.last_mut().unwrap();
             let Some(m) = s.moves.pop() else {
-                _ = self.states.pop();
-                self.depth += 1;
-                return self.next();
+                return self.no_moves();
             };
             let Some(new_pos) = s.pos.clone().make_move(m) else {
                 return self.next();
             };
+            s.num_visited_children += 1;
             Some(new_pos)
         } else {
             let s = self.states.last_mut().unwrap();
             let Some(m) = s.moves.pop() else {
-                _ = self.states.pop();
-                self.depth += 1;
-                return self.next();
+                return self.no_moves();
             };
             let Some(new_pos) = s.pos.clone().make_move(m) else {
                 return self.next();
             };
+            s.num_visited_children += 1;
             let moves = new_pos.pseudolegal_moves().into_iter().collect();
-            let new_state = PerftState { pos: new_pos.clone(), moves };
+            let new_state = PerftState { pos: new_pos.clone(), moves, num_visited_children: 0 };
             self.states.push(new_state);
             self.depth -= 1;
-            if self.only_leaves { self.next() } else { Some(new_pos) }
+            Some(new_pos)
         }
     }
 }
 
-pub fn all_positions_at<B: Board>(depth: Depth, pos: B) -> PosIter<B> {
+/// excludes the root
+pub fn descendants_up_to<B: Board>(depth: DepthPly, pos: B) -> PosIter<B> {
     let moves = pos.pseudolegal_moves().into_iter().collect();
-    let state = PerftState { pos, moves };
-    PosIter { depth, states: vec![state], only_leaves: false }
+    let state = PerftState { pos, moves, num_visited_children: 0 };
+    PosIter { depth, states: vec![state] }
 }
 
 #[derive(Debug, Eq, PartialEq)]
@@ -199,54 +216,89 @@ impl<B: Board> Hash for HashWrapper<B> {
     }
 }
 
-pub fn num_unique_positions_at<B: Board>(depth: Depth, pos: B) -> usize {
+pub fn num_unique_positions_up_to<B: Board>(depth: DepthPly, pos: B) -> u64 {
     if depth.get() == 0 {
         return 1;
     }
     let subtree_res =
-        pos.children().par_bridge().flat_map_iter(|c| all_positions_at(depth - 1, c).map(|b| HashWrapper(b)));
+        pos.children().par_bridge().flat_map_iter(|c| descendants_up_to(depth - 1, c).map(|b| HashWrapper(b)));
     let mut set = subtree_res.collect::<HashSet<_>>();
     // let mut set = all_positions_at(depth, pos.clone()).map(|b| HashWrapper(b)).collect::<HashSet<_>>();
     for c in pos.children() {
         _ = set.insert(HashWrapper(c));
     }
     _ = set.insert(HashWrapper(pos));
-    set.len()
+    set.len() as u64
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::games::ataxx::AtaxxBoard;
     use crate::games::chess::Chessboard;
+    use crate::games::fairy::FairyBoard;
     use crate::games::mnk::MNKBoard;
+    use crate::general::board::Strictness::Strict;
 
     #[test]
     fn all_positions_at_mnk_test() {
         let pos = MNKBoard::from_name("tictactoe").unwrap();
-        let root = all_positions_at(Depth::new(0), pos);
+        let root = descendants_up_to(DepthPly::new(0), pos);
         assert_eq!(root.count(), 1);
-        let children = all_positions_at(Depth::new(1), pos);
+        let children = descendants_up_to(DepthPly::new(1), pos);
         assert_eq!(children.count(), 9);
-        let grand_children = all_positions_at(Depth::new(2), pos);
+        let grand_children = descendants_up_to(DepthPly::new(2), pos);
         assert_eq!(grand_children.count(), 9 * 8 + 9);
-        let depth_3 = all_positions_at(Depth::new(3), pos);
+        let depth_3 = descendants_up_to(DepthPly::new(3), pos);
         assert_eq!(depth_3.count(), 9 * 8 * 7 + 9 * 8 + 9);
-        assert_eq!(all_positions_at(Depth::new(9), pos).count(), all_positions_at(Depth::new(10), pos).count());
+        assert_eq!(descendants_up_to(DepthPly::new(9), pos).count(), descendants_up_to(DepthPly::new(10), pos).count());
     }
 
     #[test]
     fn num_unique_positions_in_tictactoe_test() {
         let pos = MNKBoard::default();
-        let res = num_unique_positions_at(Depth::new(9), pos);
-        assert_eq!(res, num_unique_positions_at(Depth::new(10), pos));
-        assert_eq!(res, num_unique_positions_at(Depth::new(11), pos));
+        let res = num_unique_positions_up_to(DepthPly::new(9), pos);
+        assert_eq!(res, num_unique_positions_up_to(DepthPly::new(10), pos));
+        assert_eq!(res, num_unique_positions_up_to(DepthPly::new(11), pos));
     }
 
     #[test]
     fn num_unique_positions_at_chess_test() {
         let pos = Chessboard::from_name("mate_in_1").unwrap();
-        assert_eq!(num_unique_positions_at(Depth::new(0), pos), 1);
-        assert_eq!(num_unique_positions_at(Depth::new(1), pos), 23 + 1);
-        assert_eq!(num_unique_positions_at(Depth::new(2), pos), 53 + 23 + 1);
+        assert_eq!(num_unique_positions_up_to(DepthPly::new(0), pos), 1);
+        assert_eq!(num_unique_positions_up_to(DepthPly::new(1), pos), 23 + 1);
+        assert_eq!(num_unique_positions_up_to(DepthPly::new(2), pos), 53 + 23 + 1);
+    }
+
+    #[test]
+    fn num_unique_fairy_ataxx_positons_tests() {
+        let pos = AtaxxBoard::default();
+        let fairy_pos = FairyBoard::variant_simple("ataxx").unwrap();
+        let mut res1 = 0;
+        let mut res2 = 0;
+        for i in 0..3 {
+            res1 += perft(DepthPly::new(i), pos, false).nodes;
+            res2 += perft(DepthPly::new(i), fairy_pos.clone(), false).nodes;
+            assert_eq!(res1, res2);
+            assert_eq!(num_unique_positions_up_to(DepthPly::new(i), pos), res2, "{i}");
+            assert_eq!(num_unique_positions_up_to(DepthPly::new(i), fairy_pos.clone()), res2);
+        }
+        let fen = "7/7/7/7/-------/-------/xxxx1oo o 0 3";
+        let pos = AtaxxBoard::from_fen(fen, Strict).unwrap();
+        let fairy_pos = FairyBoard::from_fen_for("ataxx", fen, Strict).unwrap();
+        assert_eq!(pos.as_fen(), fairy_pos.fen_no_rules());
+        assert_eq!(num_unique_positions_up_to(DepthPly::new(0), pos), 1);
+        assert_eq!(num_unique_positions_up_to(DepthPly::new(1), pos), 3);
+        assert_eq!(num_unique_positions_up_to(DepthPly::new(2), pos), 4);
+        assert_eq!(num_unique_positions_up_to(DepthPly::new(3), pos), 6);
+        assert_eq!(perft(DepthPly::new(1), pos, false).nodes, 2);
+        assert_eq!(perft(DepthPly::new(2), pos, false).nodes, 1);
+        assert_eq!(perft(DepthPly::new(3), pos, false).nodes, 2);
+        assert_eq!(perft(DepthPly::new(1), fairy_pos.clone(), false).nodes, 2);
+        for p in descendants_up_to(DepthPly::new(2), pos) {
+            println!("{p}");
+        }
+        assert_eq!(perft(DepthPly::new(2), fairy_pos.clone(), false).nodes, 1);
+        assert_eq!(perft(DepthPly::new(3), fairy_pos.clone(), false).nodes, 2);
     }
 }

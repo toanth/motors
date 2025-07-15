@@ -16,7 +16,8 @@
  *  along with Gears. If not, see <https://www.gnu.org/licenses/>.
  */
 use crate::games::chess::Chessboard;
-use crate::games::chess::moves::{ChessMove, ChessMoveFlags};
+use crate::games::chess::moves::ChessMove;
+use crate::games::chess::moves::ChessMoveFlags::NormalMove;
 use crate::games::chess::pieces::ColoredChessPieceType;
 use crate::games::chess::squares::{ChessSquare, ChessboardSize};
 use crate::games::chess::zobrist::ZOBRIST_KEYS;
@@ -67,7 +68,7 @@ pub fn calc_move_hash_table() -> UpcomingRepetitionTable {
                 if dest.bb_idx() < src.bb_idx() {
                     continue;
                 }
-                let mut mov = ChessMove::new(src, dest, ChessMoveFlags::normal_move(piece));
+                let mut mov = ChessMove::new(src, dest, NormalMove);
                 let mut hash = ZOBRIST_KEYS.piece_key(piece, color, src)
                     ^ ZOBRIST_KEYS.piece_key(piece, color, dest)
                     ^ ZOBRIST_KEYS.side_to_move_key;
@@ -147,7 +148,7 @@ impl Chessboard {
     }
 }
 
-pub static UPCOMING_REPETITION_TABLE: LazyLock<UpcomingRepetitionTable> = LazyLock::new(|| calc_move_hash_table());
+pub static UPCOMING_REPETITION_TABLE: LazyLock<UpcomingRepetitionTable> = LazyLock::new(calc_move_hash_table);
 
 #[cfg(test)]
 mod tests {

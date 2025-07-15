@@ -65,6 +65,10 @@ impl ChessPieceType {
         Self::pieces().dropping(1)
     }
 
+    pub fn is_knb(self) -> bool {
+        [King, Knight, Bishop].contains(&self)
+    }
+
     pub fn to_name(self) -> &'static str {
         match self {
             Pawn => "pawn",

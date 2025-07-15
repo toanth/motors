@@ -106,7 +106,7 @@ impl TokensToString for Tokens<'_> {
 
 pub type Tokens<'a> = Peekable<SplitAsciiWhitespace<'a>>;
 
-pub fn tokens(input: &str) -> Tokens {
+pub fn tokens(input: &str) -> Tokens<'_> {
     input.split_ascii_whitespace().peekable()
 }
 
@@ -256,18 +256,26 @@ impl Name {
     pub fn from_name(string: &str) -> Self {
         Self { short: string.to_string(), long: string.to_string(), description: None }
     }
+    pub fn from_name_descr(name: &str, descr: &str) -> Self {
+        Self { short: name.to_string(), long: name.to_string(), description: Some(descr.to_string()) }
+    }
 }
 
 pub type EntityList<T> = Vec<T>;
 
 // TODO: Rework, description should be required
-#[derive(Debug)]
-pub struct GenericSelect<T: Debug> {
+pub struct GenericSelect<T> {
     pub name: &'static str,
     pub val: T, // can be a factory function / object in many cases
 }
 
-impl<T: Debug> NamedEntity for GenericSelect<T> {
+impl<T> Debug for GenericSelect<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "GenericSelect({})", self.name)
+    }
+}
+
+impl<T> NamedEntity for GenericSelect<T> {
     fn short_name(&self) -> String {
         self.name.to_string()
     }

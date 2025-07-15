@@ -58,7 +58,7 @@ use gears::general::common::anyhow::anyhow;
 use gears::general::common::{Res, select_name_dyn};
 use gears::general::perft::{perft, split_perft};
 use gears::output::normal_outputs;
-use gears::search::{Depth, SearchLimit};
+use gears::search::{DepthPly, SearchLimit};
 use gears::ugi::load_ugi_pos_simple;
 use gears::{AbstractRun, AnyRunnable, OutputArgs, Quitting, create_selected_output_builders};
 use std::fmt::{Display, Formatter};
@@ -71,8 +71,8 @@ pub mod search;
 pub enum Mode {
     #[default]
     Engine,
-    Bench(Option<Depth>, bool),
-    Perft(Option<Depth>, bool),
+    Bench(Option<DepthPly>, bool),
+    Perft(Option<DepthPly>, bool),
 }
 
 impl Display for Mode {
@@ -89,7 +89,7 @@ impl Display for Mode {
 #[derive(Debug)]
 struct BenchRun<B: Board> {
     engine: Box<dyn Engine<B>>,
-    depth: Option<Depth>,
+    depth: Option<DepthPly>,
     with_nodes: bool,
 }
 
@@ -114,14 +114,14 @@ impl<B: Board> AbstractRun for BenchRun<B> {
 
 #[derive(Debug, Default)]
 struct PerftRun<B: Board> {
-    depth: Option<Depth>,
+    depth: Option<DepthPly>,
     split: bool,
     pos_name: Option<String>,
     phantom_data: PhantomData<B>,
 }
 
 impl<B: Board> PerftRun<B> {
-    pub fn create(depth: Option<Depth>, split: bool, pos_name: Option<String>) -> Self {
+    pub fn create(depth: Option<DepthPly>, split: bool, pos_name: Option<String>) -> Self {
         Self { depth, split, pos_name, ..Self::default() }
     }
 }

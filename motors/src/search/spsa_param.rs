@@ -19,11 +19,12 @@
 // adapted from jw's akimbo engine
 #[macro_export]
 macro_rules! spsa_params {
-    ($($name:ident: $typ:ty = $value:expr; $range:expr; step=$step:expr;)*) => {
+    ($macro_name: ident, $($name:ident: $typ:ty = $value:expr; $range:expr; step=$step:expr;)*) => {
 
         #[cfg(not(feature = "spsa"))]
-        pub mod cc {
+        pub mod $macro_name {
             use gears::ugi::{EngineOption, UgiSpin};
+            #[allow(unused_imports)]
             use gears::score::ScoreT;
             use $crate::Res;
 
@@ -52,7 +53,7 @@ macro_rules! spsa_params {
         }
 
         #[cfg(feature = "spsa")]
-        pub mod cc {
+        pub mod $macro_name {
             use gears::ugi::{EngineOption, EngineOptionName, EngineOptionType};
             use gears::score::ScoreT;
             use gears::ugi::UgiSpin;

@@ -1,12 +1,13 @@
+use crate::games::ataxx::AtaxxColor::{O, X};
 use crate::games::ataxx::common::AtaxxMoveType::{Cloning, Leaping};
 use crate::games::ataxx::common::AtaxxPieceType::{Blocked, Empty, Occupied};
-use crate::games::ataxx::AtaxxColor::{O, X};
 use crate::games::ataxx::{AtaxxBoard, AtaxxColor, AtaxxSettings, AtaxxSquare};
 use crate::games::{AbstractPieceType, CharType, ColoredPieceType, DimT, PieceType};
 use crate::general::board::{Board, BoardHelpers};
 use crate::general::common::Res;
 use crate::general::moves::Legality::Legal;
 use crate::general::moves::{Legality, Move, UntrustedMove};
+use ColoredAtaxxPieceType::*;
 use anyhow::{bail, ensure};
 use arbitrary::Arbitrary;
 use colored::Colorize;
@@ -15,7 +16,6 @@ use std::fmt::{Debug, Display, Formatter};
 use std::str::FromStr;
 use strum::IntoEnumIterator;
 use strum_macros::EnumIter;
-use ColoredAtaxxPieceType::*;
 
 pub const NUM_ROWS: usize = 7;
 pub const NUM_COLUMNS: usize = 7;
@@ -45,7 +45,7 @@ pub enum AtaxxPieceType {
 
 impl Display for AtaxxPieceType {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.to_char(CharType::Unicode, &AtaxxSettings::default()))
+        write!(f, "{}", self.to_char(CharType::Unicode, &AtaxxSettings))
     }
 }
 
@@ -107,7 +107,7 @@ pub enum ColoredAtaxxPieceType {
 
 impl Display for ColoredAtaxxPieceType {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.to_char(CharType::Unicode, &AtaxxSettings::default()))
+        write!(f, "{}", self.to_char(CharType::Unicode, &AtaxxSettings))
     }
 }
 
@@ -160,6 +160,17 @@ impl AbstractPieceType<AtaxxBoard> for ColoredAtaxxPieceType {
 impl ColoredPieceType<AtaxxBoard> for ColoredAtaxxPieceType {
     type Uncolored = AtaxxPieceType;
 
+    fn new(color: AtaxxColor, uncolored: Self::Uncolored) -> Self {
+        match uncolored {
+            Occupied => match color {
+                O => XPiece,
+                X => OPiece,
+            },
+            Empty => Self::Empty,
+            Blocked => Self::Blocked,
+        }
+    }
+
     fn color(self) -> Option<AtaxxColor> {
         match self {
             OPiece => Some(O),
@@ -170,17 +181,6 @@ impl ColoredPieceType<AtaxxBoard> for ColoredAtaxxPieceType {
 
     fn to_colored_idx(self) -> usize {
         (self as usize).min(Occupied as usize)
-    }
-
-    fn new(color: AtaxxColor, uncolored: Self::Uncolored) -> Self {
-        match uncolored {
-            Occupied => match color {
-                O => XPiece,
-                X => OPiece,
-            },
-            Empty => Self::Empty,
-            Blocked => Self::Blocked,
-        }
     }
 }
 
@@ -197,7 +197,7 @@ pub struct AtaxxMove {
 impl Display for AtaxxMove {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         match self.typ() {
-            Leaping => write!(f, "{0}{1}", self.source, self.target),
+            Leaping => write!(f, "{0}{1}", AtaxxSquare::unchecked(self.source as usize), self.target),
             Cloning => write!(f, "{}", self.target),
         }
     }
@@ -206,16 +206,12 @@ impl Display for AtaxxMove {
 impl Move<AtaxxBoard> for AtaxxMove {
     type Underlying = u16;
 
-    fn legality() -> Legality {
+    fn legality(_: &AtaxxSettings) -> Legality {
         Legal
     }
 
     fn src_square_in(self, _pos: &AtaxxBoard) -> Option<AtaxxSquare> {
-        if self.source == u8::MAX {
-            None
-        } else {
-            Some(AtaxxSquare::unchecked(self.source as usize))
-        }
+        if self.source == u8::MAX { None } else { Some(AtaxxSquare::unchecked(self.source as usize)) }
     }
 
     fn dest_square_in(self, _pos: &AtaxxBoard) -> AtaxxSquare {
@@ -295,10 +291,6 @@ impl AtaxxMove {
     }
 
     pub fn typ(self) -> AtaxxMoveType {
-        if self.source == u8::MAX {
-            Cloning
-        } else {
-            Leaping
-        }
+        if self.source == u8::MAX { Cloning } else { Leaping }
     }
 }

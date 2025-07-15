@@ -2,7 +2,7 @@ use derive_more::Display;
 use gears::games::chess::ChessColor;
 use gears::games::chess::ChessColor::Black;
 use gears::games::chess::pieces::NUM_CHESS_PIECES;
-use gears::games::chess::squares::{A_FILE_NO, ChessSquare, H_FILE_NO, NUM_SQUARES};
+use gears::games::chess::squares::{A_FILE_NUM, ChessSquare, H_FILE_NUM, NUM_SQUARES};
 use gears::general::bitboards::chessboard::ChessBitboard;
 use gears::general::bitboards::{Bitboard, KnownSizeBitboard};
 use gears::general::squares::RectangularCoordinates;
@@ -57,13 +57,13 @@ pub fn pawn_shield_idx(mut pawns: ChessBitboard, mut king: ChessSquare, color: C
     let mut bb = pawns >> PAWN_SHIELD_SHIFT[king.bb_idx()];
     // TODO: pext if available
     let file = king.file();
-    if file == A_FILE_NO || file == H_FILE_NO {
+    if file == A_FILE_NUM || file == H_FILE_NUM {
         bb &= ChessBitboard::from_raw(0x303);
         let mut pattern = (bb.raw() | (bb.raw() >> (8 - 2))) as usize & 0x3f;
         if pattern.count_ones() > 2 {
             pattern = 0b11_11;
         }
-        if file == A_FILE_NO { (1 << 6) + pattern } else { (1 << 6) + (1 << 4) + pattern }
+        if file == A_FILE_NUM { (1 << 6) + pattern } else { (1 << 6) + (1 << 4) + pattern }
     } else {
         bb &= ChessBitboard::from_raw(0x707);
         let mut pattern = (bb.raw() | (bb.raw() >> (8 - 3))) as usize & 0x7f;

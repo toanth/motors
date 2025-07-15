@@ -433,6 +433,13 @@ impl Display for IDSummary {
                 Self::format_ctr(mode, qsearch, qsearch_nodes[typ as usize], total_completed.map(|i| qsearch_nodes[i])),
             )?;
         }
+        write_node_ctr(
+            self.statistics.main_search.tt_cutoffs,
+            main_nodes[Completed as usize],
+            "main search TT cutoffs",
+            f,
+        )?;
+        write_node_ctr(self.statistics.qsearch.tt_cutoffs, qsearch_nodes[Completed as usize], "qsearch TT cutoffs", f)?;
         write_node_ctr(self.statistics.main_search.node_ctr, main_nodes[Begun as usize], "main search", f)?;
         write_node_ctr(self.statistics.qsearch.node_ctr, qsearch_nodes[Begun as usize], "quiescent search", f)?;
         Ok(())

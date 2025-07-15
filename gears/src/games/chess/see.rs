@@ -1,11 +1,12 @@
+use crate::games::chess::ChessColor::{Black, White};
 use crate::games::chess::moves::ChessMove;
 use crate::games::chess::pieces::ChessPieceType::*;
 use crate::games::chess::pieces::{ChessPieceType, NUM_CHESS_PIECES};
-use crate::games::chess::squares::ChessSquare;
+use crate::games::chess::squares::{ChessSquare, ChessboardSize};
 use crate::games::chess::{Chessboard, PAWN_CAPTURES};
 use crate::games::{AbstractPieceType, Board, Color};
 use crate::general::bitboards::chessboard::ChessBitboard;
-use crate::general::bitboards::{KnownSizeBitboard, RawBitboard};
+use crate::general::bitboards::{Bitboard, KnownSizeBitboard, RawBitboard};
 use crate::general::board::BitboardBoard;
 use crate::general::hq::ChessSliderGenerator;
 use derive_more::{Add, AddAssign, Neg, Sub, SubAssign};
@@ -44,8 +45,8 @@ impl Chessboard {
     pub fn see(&self, mov: ChessMove, mut alpha: SeeScore, mut beta: SeeScore) -> SeeScore {
         debug_assert!(alpha < beta);
         let square = mov.dest_square();
-        let mut us = self.active_player;
-        let original_moving_piece = mov.piece_type();
+        let mut us = self.active;
+        let original_moving_piece = mov.piece_type(self);
         let mut our_victim = self.piece_type_on(square);
         // A simple shortcut to avoid doing most of the work of SEE for a large portion of the cases it's called.
         // This needs to handle the case of the opponent recapturing with a pawn promotion.
@@ -55,8 +56,18 @@ impl Chessboard {
         {
             return beta;
         }
+        let size = ChessboardSize {};
         let generator = self.slider_generator();
-        let mut remaining_attackers = self.all_attacking(square, &generator) & !self.pinned;
+        let king_rays = [
+            ChessBitboard::ray_exclusive(square, self.king_square(White), size),
+            ChessBitboard::ray_exclusive(square, self.king_square(Black), size),
+        ];
+        let mut remaining_attackers = self.all_attacking(square, &generator);
+        // don't consider pinned pieces unless they're moving along the pin ray. Idea from pawnocchio.
+        let pinned = (self.pinned[White] | self.pinned[Black])
+            & !(self.pinned[White] & king_rays[White])
+            & !(self.pinned[Black] & king_rays[Black]);
+        remaining_attackers &= !pinned;
         let mut remaining_blockers = self.occupied_bb();
         let mut their_victim = original_moving_piece;
         let mut eval = SeeScore(0);
@@ -86,9 +97,7 @@ impl Chessboard {
                 *all_remaining_attackers &= !removed;
                 remaining_blockers ^= removed;
                 // xrays for sliders
-                // removing pinned pieces isn't technically correct because the pinned piece could have been the captured piece,
-                // but it should still be better than not considering pins
-                let ray_attacks = self.ray_attacks(square, attacker, remaining_blockers) & !self.pinned;
+                let ray_attacks = self.ray_attacks(square, attacker, remaining_blockers) & !pinned;
                 let new_attack = ray_attacks & remaining_blockers;
                 debug_assert!((new_attack & !*all_remaining_attackers).count_ones() <= 1);
                 *all_remaining_attackers |= new_attack;
@@ -106,13 +115,13 @@ impl Chessboard {
             eval = -eval;
             swap(&mut our_victim, &mut their_victim);
             if eval >= beta {
-                return if us == self.active_player { beta } else { -beta };
+                return if us == self.active { beta } else { -beta };
             } else if eval > alpha {
                 alpha = eval;
             }
             let our_remaining_attackers = remaining_attackers & self.player_bb(us);
             let Some((piece, attacker_src_square)) = self.next_see_attacker(our_remaining_attackers) else {
-                return if us == self.active_player { eval.max(alpha) } else { -eval.max(alpha) };
+                return if us == self.active { eval.max(alpha) } else { -eval.max(alpha) };
             };
             let (additional_score, piece) = see_attack(attacker_src_square, &mut remaining_attackers, piece);
             eval += piece_see_value(our_victim) + additional_score;
@@ -209,6 +218,7 @@ mod tests {
     fn see_test_suite() {
         // There are quite a few unrealistic but tricky corner cases that are neither handled not tested properly here
         let tests = [
+            "2R5/1P2k3/1K6/8/8/8/2r5/8 b - - 5 3; Rc1; -500",
             "6k1/1pp4p/p1pb4/6q1/3P1pRr/2P4P/PP1Br1P1/5RKN w - -; Rfxf4; -100; P - R + B",
             "5rk1/1pp2q1p/p1pb4/8/3P1NP1/2P5/1P1BQ1P1/5RK1 b - -; Bxf4; 0; -N + B",
             "4R3/2r3p1/5bk1/1p1r3p/p2PR1P1/P1BK1P2/1P6/8 b - -; hxg4; 0;",
@@ -227,7 +237,7 @@ mod tests {
             "8/4kp2/2npp3/1Nn5/1p2P1P1/7q/1PP1B3/4KR1r b - -; Rxf1+; 0;",
             "2r2r1k/6bp/p7/2q2p1Q/3PpP2/1B6/P5PP/2RR3K b - -; Qxc1; 100; R - Q + R",
             "r2qk1nr/pp2ppbp/2b3p1/2p1p3/8/2N2N2/PPPP1PPP/R1BQR1K1 w kq -; Nxe5; 100; P",
-            "6r1/4kq2/b2p1p2/p1pPb3/p1P2B1Q/2P4P/2B1R1P1/6K1 w - -; Bxe5; 0;",
+            "6r1/4kq2/b2p1p2/p1pPb3/p1P2B1Q/2P4P/2B1R1P1/6K1 w - -; Bxe5; 100;",
             "3q2nk/pb1r1p2/np6/3P2Pp/2p1P3/2R4B/PQ3P1P/3R2K1 w - h6; gxh6; 0;",
             "3q2nk/pb1r1p2/np6/3P2Pp/2p1P3/2R1B2B/PQ3P1P/3R2K1 w - h6; gxh6; 100; P",
             "2r4r/1P4pk/p2p1b1p/7n/BB3p2/2R2p2/P1P2P2/4RK2 w - -; Rxc8; 500; R",

@@ -1,13 +1,13 @@
+use crate::GameState;
 use crate::games::{CharType, Color, ColoredPiece};
 use crate::general::board::RectangularBoard;
 use crate::general::common::{NamedEntity, Res, StaticallyNamedEntity};
 use crate::general::squares::{RectangularCoordinates, SquareColor};
-use crate::output::text_output::{
-    display_color, p1_color, p2_color, AdaptFormatter, BoardFormatter, TextStream, TextWriter,
-};
 use crate::output::Message::Info;
+use crate::output::text_output::{
+    AdaptFormatter, BoardFormatter, TextStream, TextWriter, display_color, p1_color, p2_color,
+};
 use crate::output::{AbstractOutput, Message, Output, OutputBox, OutputBuilder, OutputOpts};
-use crate::GameState;
 use anyhow::bail;
 use colored::Color::{TrueColor, White};
 use colored::Colorize;
@@ -96,7 +96,7 @@ fn pretty_as_chessboard<B: RectangularBoard>(pos: &B, formatter: Box<dyn BoardFo
         display_piece: Box::new(move |square, width, _| {
             let piece = p.colored_piece_on(square);
             if let Some(color) = piece.color() {
-                format!("{0:^1$}", piece.to_char(CharType::Ascii, &p.settings()), width)
+                format!("{0:^1$}", piece.to_char(CharType::Ascii, p.settings()), width)
                     .color(display_color(color))
                     .to_string()
             } else {

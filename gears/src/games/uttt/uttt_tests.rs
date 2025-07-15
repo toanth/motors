@@ -15,6 +15,7 @@
  *  You should have received a copy of the GNU General Public License
  *  along with Gears. If not, see <https://www.gnu.org/licenses/>.
  */
+use crate::games::NoHistory;
 use crate::games::uttt::ColoredUtttPieceType::{OStone, XStone};
 use crate::games::uttt::UtttColor::*;
 use crate::games::uttt::uttt_square::UtttSquare;
@@ -22,7 +23,7 @@ use crate::games::uttt::{UnverifiedUtttBoard, UtttBoard, UtttMove, UtttSubSquare
 use crate::general::board::Strictness::Strict;
 use crate::general::board::{Board, BoardHelpers, UnverifiedBoard};
 use crate::general::perft::perft;
-use crate::search::Depth;
+use crate::search::DepthPly;
 use rand::SeedableRng;
 use rand::rngs::StdRng;
 
@@ -34,7 +35,7 @@ fn perft_tests() {
         println!("{pos}");
         let n = if cfg!(debug_assertions) { 7 } else { 100 };
         for (depth, nodes) in perft_res.iter().enumerate().take(n) {
-            let res = perft(Depth::new(depth), pos, false);
+            let res = perft(DepthPly::new(depth), pos, false);
             assert_eq!(res.nodes, *nodes, "{fen}, depth {depth}: {0} should be {1}", res.nodes, *nodes);
         }
         let mut rng = StdRng::seed_from_u64(seed);
@@ -80,7 +81,7 @@ fn sub_board_won_test() {
     assert!(!pos.is_sub_board_won(O, sub_board));
     assert!(!pos.is_sub_board_open(sub_board));
     assert!(pos.is_sub_board_open(UtttSubSquare::unchecked(1)));
-    assert!(!pos.is_game_lost_slow());
+    assert!(!pos.is_game_lost_slow(&NoHistory::default()));
     assert_eq!(pos.active, X); // the active player doesn't get updated through place_piece
     assert_eq!(pos.last_move, UtttMove::NULL);
     let pos =

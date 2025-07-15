@@ -40,7 +40,7 @@ use crate::general::board::{
     read_common_fen_part, simple_fen,
 };
 use crate::general::common::{EntityList, Res, StaticallyNamedEntity, Tokens, ith_one_u64, ith_one_u128, parse_int};
-use crate::general::move_list::{EagerNonAllocMoveList, MoveList};
+use crate::general::move_list::{InplaceMoveList, MoveList};
 use crate::general::moves::Legality::Legal;
 use crate::general::moves::{Legality, Move, UntrustedMove};
 use crate::general::squares::{RectangularCoordinates, SmallGridSize, SmallGridSquare, SquareColor};
@@ -48,7 +48,7 @@ use crate::output::OutputOpts;
 use crate::output::text_output::{
     AdaptFormatter, BoardFormatter, DefaultBoardFormatter, board_to_string, display_board_pretty, p1_color, p2_color,
 };
-use crate::search::Depth;
+use crate::search::DepthPly;
 use anyhow::bail;
 use arbitrary::Arbitrary;
 use colored::Colorize;
@@ -74,7 +74,7 @@ pub type UtttSubSquare = SmallGridSquare<3, 3, 3>;
 pub type UtttSubBitboard = DynamicallySizedBitboard<RawStandardBitboard, UtttSubSquare>;
 
 #[derive(Debug, Default, Eq, PartialEq, Copy, Clone)]
-pub struct UtttSettings {}
+pub struct UtttSettings;
 
 impl Settings for UtttSettings {}
 
@@ -94,9 +94,9 @@ impl Not for UtttColor {
     }
 }
 
-impl Into<usize> for UtttColor {
-    fn into(self) -> usize {
-        self as usize
+impl From<UtttColor> for usize {
+    fn from(color: UtttColor) -> usize {
+        color as usize
     }
 }
 
@@ -114,7 +114,7 @@ impl Color for UtttColor {
         }
     }
 
-    fn name(self, _settings: &<Self::Board as Board>::Settings) -> impl AsRef<str> {
+    fn name(self, _settings: &<Self::Board as Board>::Settings) -> &str {
         match self {
             X => "X",
             O => "O",
@@ -132,7 +132,7 @@ pub enum UtttPieceType {
 
 impl Display for UtttPieceType {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.to_char(CharType::Ascii, &UtttSettings::default()))
+        write!(f, "{}", self.to_char(CharType::Ascii, &UtttSettings))
     }
 }
 
@@ -191,7 +191,7 @@ pub enum ColoredUtttPieceType {
 
 impl Display for ColoredUtttPieceType {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.to_char(CharType::Ascii, &UtttSettings::default()))
+        write!(f, "{}", self.to_char(CharType::Ascii, &UtttSettings))
     }
 }
 
@@ -310,7 +310,7 @@ impl Display for UtttMove {
 impl Move<UtttBoard> for UtttMove {
     type Underlying = u8;
 
-    fn legality() -> Legality {
+    fn legality(_: &UtttSettings) -> Legality {
         Legal
     }
 
@@ -361,7 +361,7 @@ impl Move<UtttBoard> for UtttMove {
     }
 }
 
-pub type UtttMoveList = EagerNonAllocMoveList<UtttBoard, 81>;
+pub type UtttMoveList = InplaceMoveList<UtttBoard, 81>;
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Hash, Arbitrary)]
 #[must_use]
@@ -513,7 +513,7 @@ impl UtttBoard {
     }
 
     // Ideally, this would be an associated const, but Rust's restrictions around const fns would make that ugly.
-    // But hopefully, the compiler will constant fold this anyway
+    // But hopefully, the compiler will constant-fold this anyway
     fn won_masks() -> [UtttSubBitboard; 8] {
         [
             UtttSubBitboard::diagonal(UtttSubSquare::from_rank_file(1, 1))
@@ -572,12 +572,12 @@ impl UtttBoard {
             if c == ' ' {
                 continue;
             }
-            let symbol = ColoredUtttPieceType::from_char(c, &board.settings()).unwrap();
+            let symbol = ColoredUtttPieceType::from_char(c, board.settings()).unwrap();
             let square = UtttSquare::from_bb_idx(idx);
             debug_assert!(board.check_coordinates(square).is_ok());
             board.place_piece(square, symbol);
             if c.is_uppercase() {
-                board.0.active = UtttColor::from_char(c, &UtttSettings::default()).unwrap().other();
+                board.0.active = UtttColor::from_char(c, &UtttSettings).unwrap().other();
                 let mov = board.last_move_mut();
                 if *mov != UtttMove::NULL {
                     bail!(
@@ -595,7 +595,7 @@ impl UtttBoard {
         let mut res = String::with_capacity(Self::NUM_SQUARES);
         for i in 0..Self::NUM_SQUARES {
             let square = UtttSquare::from_bb_idx(i);
-            let mut c = self.colored_piece_on(square).to_char(CharType::Ascii, &self.settings());
+            let mut c = self.colored_piece_on(square).to_char(CharType::Ascii, self.settings());
             if c == '.' {
                 c = ' ';
             }
@@ -610,7 +610,7 @@ impl UtttBoard {
     #[must_use]
     pub fn yet_another_fen_format(&self) -> String {
         let mut res = String::new();
-        res.push(self.active.to_char(&UtttSettings::default()).to_ascii_uppercase());
+        res.push(self.active.to_char(&UtttSettings).to_ascii_uppercase());
         res.push(';');
         for sub_board in UtttSubSquare::iter() {
             let c = if sub_board == self.last_move.dest_square().sub_square() && self.is_sub_board_open(sub_board) {
@@ -628,8 +628,7 @@ impl UtttBoard {
         for sub_board in UtttSubSquare::iter() {
             for sub_square in UtttSubSquare::iter() {
                 let sq = UtttSquare::new(sub_board, sub_square);
-                let c =
-                    self.colored_piece_on(sq).symbol.to_char(CharType::Ascii, &self.settings()).to_ascii_uppercase();
+                let c = self.colored_piece_on(sq).symbol.to_char(CharType::Ascii, self.settings()).to_ascii_uppercase();
                 res.push(c);
             }
             res.push('/');
@@ -683,6 +682,7 @@ impl Display for UtttBoard {
 impl Board for UtttBoard {
     type EmptyRes = UtttBoard;
     type Settings = UtttSettings;
+    type SettingsRef = UtttSettings;
     type Coordinates = UtttSquare;
     type Color = UtttColor;
     type Piece = UtttPiece;
@@ -745,7 +745,11 @@ impl Board for UtttBoard {
         }
     }
 
-    fn settings(&self) -> UtttSettings {
+    fn settings(&self) -> &UtttSettings {
+        &UtttSettings {}
+    }
+
+    fn settings_ref(&self) -> Self::SettingsRef {
         UtttSettings {}
     }
 
@@ -781,8 +785,8 @@ impl Board for UtttBoard {
         }
     }
 
-    fn default_perft_depth(&self) -> Depth {
-        Depth::new(5)
+    fn default_perft_depth(&self) -> DepthPly {
+        DepthPly::new(5)
     }
 
     fn cannot_call_movegen(&self) -> bool {
@@ -825,6 +829,10 @@ impl Board for UtttBoard {
             }
         }
         self.open_bb().num_ones()
+    }
+
+    fn has_no_legal_moves(&self) -> bool {
+        self.open_bb().is_zero()
     }
 
     fn random_legal_move<R: Rng>(&self, rng: &mut R) -> Option<Self::Move> {
@@ -902,9 +910,9 @@ impl Board for UtttBoard {
         self.player_result_no_movegen(history)
     }
 
-    fn no_moves_result(&self) -> PlayerResult {
+    fn no_moves_result(&self) -> Option<PlayerResult> {
         debug_assert!(self.open_bb().is_zero());
-        Draw
+        Some(Draw)
     }
 
     fn can_reasonably_win(&self, _player: Self::Color) -> bool {
@@ -923,7 +931,11 @@ impl Board for UtttBoard {
     // TODO: Don't use a separate open bitboard, just set both players' bitboards to one for squares that are no longer
     // reachable because the sub board has been won, and update the piece_on function
 
-    fn read_fen_and_advance_input(input: &mut Tokens, strictness: Strictness) -> Res<Self> {
+    fn read_fen_and_advance_input_for(
+        input: &mut Tokens,
+        strictness: Strictness,
+        _settings: UtttSettings,
+    ) -> Res<Self> {
         let mut pos = Self::default().into();
         read_common_fen_part::<UtttBoard>(input, &mut pos)?;
 
@@ -946,10 +958,6 @@ impl Board for UtttBoard {
         pos.0.last_move = last_move;
         // The won sub boards bitboard is set in the verify method
         pos.verify_with_level(CheckFen, strictness)
-    }
-
-    fn should_flip_visually() -> bool {
-        false
     }
 
     fn as_diagram(&self, typ: CharType, flip: bool) -> String {
@@ -1093,7 +1101,7 @@ impl UnverifiedBoard<UtttBoard> for UnverifiedUtttBoard {
         Ok(this)
     }
 
-    fn settings(&self) -> UtttSettings {
+    fn settings(&self) -> &UtttSettings {
         self.0.settings()
     }
 

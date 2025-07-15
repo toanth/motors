@@ -272,7 +272,7 @@ mod tests {
         let startpos_weights =
             optimize_dataset(&mut positions, eval_scale, 100, &PistonEval::default(), &mut optimizer);
         let batch = positions.batch(0, 1);
-        let startpos_eval = cp_eval_for_weights(&startpos_weights, batch.datapoint_iter().nth(0).unwrap());
+        let startpos_eval = cp_eval_for_weights(&startpos_weights, batch.datapoint_iter().next().unwrap());
         assert_eq!(startpos_eval, CpScore(0.0));
         let mut optimizer = Adam::<QuadraticLoss>::new(positions.as_batch(), eval_scale);
         let weights = optimize_dataset(&mut positions, eval_scale, 500, &PistonEval::default(), &mut optimizer);

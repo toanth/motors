@@ -18,7 +18,7 @@ use gears::general::board::{Board, BoardHelpers};
 use gears::general::common::Res;
 use gears::general::common::anyhow::bail;
 use gears::output::Message::*;
-use gears::search::{Depth, MAX_DEPTH, NodesLimit, SearchLimit, TimeControl};
+use gears::search::{DepthPly, MAX_DEPTH, NodesLimit, SearchLimit, TimeControl};
 use gears::ugi::EngineOption;
 use lazy_static::lazy_static;
 use whoami::realname;
@@ -379,11 +379,13 @@ impl PlayerBuilder {
             moves_to_go: None,
         });
         let fixed_time = args.move_time.unwrap_or(Duration::MAX);
-        let depth = args.depth.unwrap_or(Depth::MAX);
-        let mate = args.mate.unwrap_or(Depth::MAX);
+        let byoyomi = Duration::ZERO; // not currently supported
+        let depth = args.depth.unwrap_or(DepthPly::MAX);
+        let mate = args.mate.unwrap_or(DepthPly::MAX);
         let nodes = args.nodes.unwrap_or(NodesLimit::MAX);
         let soft_nodes = NodesLimit::MAX;
-        let default_limit = SearchLimit { tc, fixed_time, depth, nodes, soft_nodes, mate, start_time: Instant::now() };
+        let default_limit =
+            SearchLimit { tc, fixed_time, byoyomi, depth, nodes, soft_nodes, mate, start_time: Instant::now() };
 
         // try to set uci/ugi mode based on the game, but possibly change that according to how the engine responds
         let proto =

@@ -12,7 +12,7 @@ use std::ops::{
 use derive_more::{
     BitAnd, BitAndAssign, BitOr, BitOrAssign, BitXor, BitXorAssign, Not, Shl, ShlAssign, Shr, ShrAssign, Sub,
 };
-use num::traits::WrappingSub;
+use num::traits::{WrappingMul, WrappingSub};
 use num::{PrimInt, Unsigned};
 use strum_macros::EnumIter;
 
@@ -155,6 +155,7 @@ pub trait RawBitboard:
     + PrimInt
     + From<u8>
     + WrappingSub
+    + WrappingMul
     + BitAndAssign
     + BitOrAssign
     + BitXorAssign
@@ -163,6 +164,7 @@ pub trait RawBitboard:
     + Unsigned
     + Display
     + Debug
+    + std::fmt::LowerHex
 {
     type WithRev: WithRev<RawBitboard = Self>;
 
@@ -227,6 +229,15 @@ pub trait RawBitboard:
     #[inline]
     fn one_indices(self) -> BitIterator<Self> {
         BitIterator(self)
+    }
+
+    // TODO: Use more frequently
+    fn intersects(self, other: Self) -> bool {
+        (self & other).has_set_bit()
+    }
+
+    fn shift<const UP: bool>(self, amount: usize) -> Self {
+        if UP { self << amount } else { self >> amount }
     }
 }
 
@@ -361,7 +372,7 @@ pub trait Bitboard<R: RawBitboard, C: RectangularCoordinates>:
     fn file_0_for(size: C::Size) -> Self {
         let steps = R::steps_bb(size.internal_width());
         // in theory, the compiler should be smart enough to realize that it can remove this for chess bitboards
-        let bb = steps.remove_ones_above(size.num_squares() - 1);
+        let bb = steps.remove_ones_above(size.internal_width() * size.height().val() - 1);
         Self::new(bb, size)
     }
 
@@ -521,8 +532,8 @@ pub trait Bitboard<R: RawBitboard, C: RectangularCoordinates>:
     /// Includes the bitboard itself
     #[inline]
     fn moore_neighbors(self) -> Self {
-        let line = self | self.south() | self.north();
-        line | line.west() | line.east()
+        let line = self | self.west() | self.east();
+        line | line.north() | line.south()
     }
 
     /// Include the bitboard itself
@@ -533,6 +544,28 @@ pub trait Bitboard<R: RawBitboard, C: RectangularCoordinates>:
             res = res.moore_neighbors();
         }
         res
+    }
+
+    #[inline]
+    fn ranks_containing(self) -> Self {
+        let file_0 = Self::file_0_for(self.size());
+        let max_file = file_0 << (self.internal_width() - 1);
+        let containing = (self | max_file) - file_0;
+        let rows_max = (containing | self) & max_file;
+        let rows_min = rows_max >> (self.internal_width() - 1);
+        (rows_max - rows_min) | rows_max
+    }
+
+    #[inline]
+    fn files_containing(self) -> Self {
+        let w = self.size().internal_width();
+        let bb = self.raw();
+        Self::new(fill_file::<R, false>(bb, w) | fill_file::<R, true>(bb, w), self.size())
+    }
+
+    #[inline]
+    fn is_bit_set(self, c: C) -> bool {
+        self.is_bit_set_at(self.size().internal_key(c))
     }
 
     #[inline]
@@ -550,6 +583,7 @@ pub trait Bitboard<R: RawBitboard, C: RectangularCoordinates>:
     }
 
     fn format(self, f: &mut Formatter<'_>) -> fmt::Result {
+        writeln!(f)?;
         for row in (0..self.size().height().val()).rev() {
             for column in 0..self.size().width().val() {
                 let idx = row * self.size().internal_width() + column;
@@ -559,6 +593,26 @@ pub trait Bitboard<R: RawBitboard, C: RectangularCoordinates>:
         }
         Ok(())
     }
+}
+
+#[inline]
+fn fill_file<R: RawBitboard, const UP: bool>(mut bb: R, w: usize) -> R {
+    let max_shift = size_of::<R>() * 8 - 1;
+    bb |= bb.shift::<UP>(w);
+    bb |= bb.shift::<UP>(2 * w);
+    if 4 * w > max_shift {
+        return bb;
+    }
+    bb |= bb.shift::<UP>(4 * w);
+    if 8 * w > max_shift {
+        return bb;
+    }
+    bb |= bb.shift::<UP>(8 * w);
+    if 16 * w > max_shift {
+        return bb;
+    }
+    bb |= bb.shift::<UP>(16 * w);
+    bb
 }
 
 pub trait KnownSizeBitboard<R: RawBitboard, C: RectangularCoordinates<Size: KnownSize<C>>>: Bitboard<R, C> {
@@ -573,11 +627,6 @@ pub trait KnownSizeBitboard<R: RawBitboard, C: RectangularCoordinates<Size: Know
     #[inline]
     fn idx_of(c: C) -> usize {
         C::Size::default().internal_key(c)
-    }
-
-    #[inline]
-    fn is_bit_set(self, c: C) -> bool {
-        self.is_bit_set_at(Self::idx_of(c))
     }
 
     #[inline]
@@ -734,7 +783,7 @@ impl<const H: usize, const W: usize> KnownSizeBitboard<RawStandardBitboard, Smal
 // This makes comparisons fast but shifts responsibility to the user to properly zero out those,
 // which can be confusing. TODO: Change?
 /// Despite the name, it's technically possible to instantiate this generic struct with a `KnownSize`.
-#[derive(Default, Copy, Clone, PartialEq, Eq, Debug)]
+#[derive(Default, Copy, Clone, PartialEq, Eq)]
 #[must_use]
 pub struct DynamicallySizedBitboard<R: RawBitboard, C: RectangularCoordinates> {
     raw: R,
@@ -746,6 +795,15 @@ impl<'a, R: RawBitboard, C: RectangularCoordinates> Arbitrary<'a> for Dynamicall
     fn arbitrary(u: &mut Unstructured<'a>) -> arbitrary::Result<Self> {
         let (raw, size) = u.arbitrary::<(R, C::Size)>()?;
         Ok(Self { raw, size })
+    }
+}
+
+impl<R: RawBitboard, C: RectangularCoordinates> Debug for DynamicallySizedBitboard<R, C> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        f.debug_struct("DynamicallySizedBitboard")
+            .field("raw", &format_args!("{:#x}", self.raw))
+            .field("size", &self.size)
+            .finish()
     }
 }
 
@@ -928,7 +986,7 @@ impl<R: RawBitboard, C: RectangularCoordinates> DynamicallySizedBitboard<R, C> {
         } else if a.file().wrapping_sub(a.rank()) == b.rank().wrapping_sub(b.file()) {
             Self::anti_diag_for_sq(a, size)
         } else {
-            return Self::new(R::zero(), size);
+            Self::new(R::zero(), size)
         }
     }
 }
@@ -980,8 +1038,8 @@ macro_rules! precompute_leaper_attacks {
         let file = $square_idx as isize % width;
         let mut attacks: $typ = 0;
         let mut i = 0;
+        // for horizontal_dir in [-1, 1], for vertical_dir in [-1, 1]:
         while i < 4 {
-            // for horizontal_dir in [-1, 1], for vertical_dir in [-1, 1]
             let horizontal_dir = i / 2 * 2 - 1;
             let vertical_dir = i % 2 * 2 - 1;
             let mut horizontal_offset = horizontal_dir;
@@ -1127,7 +1185,9 @@ mod tests {
     use crate::games::mnk::MnkBitboard;
     use crate::games::{Height, Width};
     use crate::general::bitboards::chessboard::{ATAXX_LEAPERS, ChessBitboard, KINGS};
-    use crate::general::squares::GridSize;
+    use crate::general::squares::{GridCoordinates, GridSize};
+    use rand::rngs::StdRng;
+    use rand::{Rng, SeedableRng, random};
 
     #[test]
     fn precomputed_test() {
@@ -1140,6 +1200,27 @@ mod tests {
             let leaping = leaping.south() | leaping.north() | leaping;
             assert_eq!(KINGS[i], king ^ bb, "{i}");
             assert_eq!(ATAXX_LEAPERS[i].raw(), leaping.raw() & !king.raw());
+        }
+        let size = GridSize::new(Height::new(11), Width::new(9));
+        for i in 0..99 {
+            let origin = SmallGridSquare::<11, 9, 9>::from_bb_idx(i);
+            let attacks = precompute_leaper_attacks!(i, 1, 2, false, 9, u128)
+                & DynamicallySizedBitboard::<ExtendedRawBitboard, GridCoordinates>::valid_squares_for_size(size).raw();
+            for sq in attacks.one_indices() {
+                let sq = SmallGridSquare::<11, 9, 9>::from_bb_idx(sq);
+                let a = sq.row().abs_diff(origin.row());
+                let b = sq.file().abs_diff(origin.file());
+                let mut s = [a, b];
+                s.sort();
+                assert_eq!(s, [1, 2]);
+            }
+            let neighbors = (precompute_leaper_attacks!(i, 0, 1, false, 9, u128)
+                ^ precompute_leaper_attacks!(i, 1, 1, false, 9, u128))
+                | (1 << i);
+            assert_eq!(
+                neighbors,
+                DynamicallySizedBitboard::<u128, GridCoordinates>::new(1 << i, size).moore_neighbors().raw
+            );
         }
     }
 
@@ -1162,6 +1243,57 @@ mod tests {
         assert_eq!(remove_ones_below!(0x12345, 0, u32), 0x12345);
         assert_eq!(remove_ones_below!(0x12345, 1, u128), 0x12344);
         // assert_eq!(remove_ones_below!(0x12345, 127, u64), 0);
+    }
+
+    #[test]
+    fn ranks_containing_test() {
+        assert_eq!(ChessBitboard::new(0).ranks_containing(), ChessBitboard::new(0));
+        assert_eq!(ChessBitboard::new(1).ranks_containing(), ChessBitboard::rank_0());
+        assert_eq!(ChessBitboard::new(1 << 12).ranks_containing(), ChessBitboard::rank(1));
+        assert_eq!(
+            ChessBitboard::new(0x20_00_ff_00_00_81).ranks_containing(),
+            ChessBitboard::rank(0) | ChessBitboard::rank(3) | ChessBitboard::rank(5)
+        );
+    }
+
+    #[test]
+    fn files_containing_test() {
+        assert_eq!(
+            ChessBitboard::new(0x6_94_04).files_containing() & ChessBitboard::rank_0(),
+            ChessBitboard::new(0x96)
+        );
+        assert_eq!(ChessBitboard::new(0).files_containing(), ChessBitboard::new(0));
+        assert_eq!(ChessBitboard::new(1).files_containing(), ChessBitboard::file_0());
+        assert_eq!(ChessBitboard::new(1 << 12).files_containing(), ChessBitboard::file(4));
+    }
+
+    #[test]
+    fn files_ranks_containing_test() {
+        let seed = random();
+        let mut rng = StdRng::seed_from_u64(seed);
+        let size = GridSize::new(Height(rng.random_range(3..=12)), Width(rng.random_range(2..=10)));
+        let bb = rng.random::<u128>()
+            & rng.random::<u128>()
+            & rng.random::<u128>().remove_ones_above(size.num_squares() - 1);
+        let bb = MnkBitboard::new(bb, size);
+        let files = bb.files_containing();
+        let ranks = bb.ranks_containing();
+        let w = size.internal_width();
+        println!("{seed}\n{w}\n{bb}\n{files}\n{ranks}");
+        for sq in 0..size.num_squares() {
+            let mut exp_rank = false;
+            let mut exp_file = false;
+            for s2 in 0..size.num_squares() {
+                if s2 % w == sq % w && bb.is_bit_set_at(s2) {
+                    exp_file = true;
+                }
+                if s2 / w == sq / w && bb.is_bit_set_at(s2) {
+                    exp_rank = true;
+                }
+            }
+            assert_eq!(files.is_bit_set_at(sq), exp_file, "{sq}");
+            assert_eq!(ranks.is_bit_set_at(sq), exp_rank, "{sq}");
+        }
     }
 
     #[test]
