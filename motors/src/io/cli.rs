@@ -142,26 +142,28 @@ fn print_help() {
     \n\nBy default, this program starts the chess engine `CAPS` with the `LiTE` eval function.\
     \nAs an UCI engine, it's supposed to be used with a chess GUI, although it should be comparatively pleasant to manually interact with.
     There are a number of flags to change the default behavior (all of this can also be changed at runtime, though most GUIs won't make that easy):\
-    \n--{0} sets the game. Currently, only `chess`, `ataxx`, `mnk`, `utt` and 'fairy' are supported; `chess` is the default.\
-    \n--{1} sets the engine, and optionally the eval. For example, `caps-lite` sets the default engine CAPS with the default eval LiTE,\
+    \n--{game} sets the game. Currently, only `chess`, `ataxx`, `mnk`, `utt` and 'fairy' are supported; `chess` is the default.\
+    \n--{engine} sets the engine, and optionally the eval. For example, `caps-lite` sets the default engine CAPS with the default eval LiTE,\
     and `random` sets the engine to be a random mover. Obviously, the engine must be valid for the selected game.\
-    \n--{9} sets the position. Accepts the same syntax as UGI commands, e.g. 'position kiwipete' or 'p f <fen> m e2e4'. Ignored for 'bench'.\
+    \n--{position} sets the position. Accepts the same syntax as UGI commands, e.g. 'position kiwipete' or 'p f <fen> m e2e4'. Ignored for 'bench'.\
     Use quotes around the argument.\
-    \n--{2} turns on debug mode, which makes the engine continue on errors and log all communications.\
-    \n--{8} makes the engine start in non-interactive mode. Try this if the engine can't be used with a GUI. Setting the NO_COLOR environment variable also does this.\
-    \n--{3} can be used to determine how the engine prints extra information; it's mostly useful for development but can also be used to export PGNs, for example.\
-    \n--{4}, --{5} and --{6} are useful for testing the engine and move generation speed,\
+    \n--{command} makes the engine execute a command immediately\
+    \n--{debug} turns on debug mode, which makes the engine continue on errors and log all communications.\
+    \n--{ni} makes the engine start in non-interactive mode. Try this if the engine can't be used with a GUI. Setting the NO_COLOR environment variable also does this.\
+    \n--{add_outputs} can be used to determine how the engine prints extra information; it's mostly useful for development but can also be used to export PGNs, for example.\
+    \n--{bench}, --{perft} and --{splitperft} are useful for testing the engine and move generation speed,\
     `bench` is also useful to get a \"hash\" of the search tree explored by the engine.\
     Typing '{7}' while the program is running will also show help messages",
-             "game".bold(),
-             "engine".bold(),
-             "debug".bold(),
-             "additional-outputs".bold(),
-             "bench".bold(),
-             "perft".bold(),
-             "splitperft".bold(),
-             "help".bold(),
-             "non-interactive".bold(),
-             "position".bold()
+             game = "game".bold(),
+             engine = "engine".bold(),
+             debug = "debug".bold(),
+             add_outputs = "additional-outputs".bold(),
+             bench = "bench".bold(),
+             perft = "perft".bold(),
+             splitperft = "splitperft".bold(),
+             help = "help".bold(),
+             ni = "non-interactive".bold(),
+             position = "position".bold(),
+            command = "command".bold(),
     )
 }
