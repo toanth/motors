@@ -1,15 +1,16 @@
 use crate::games::chess::ChessColor::Black;
-use crate::games::chess::pieces::ChessPieceType;
 use crate::games::chess::pieces::ChessPieceType::Pawn;
-use crate::games::chess::squares::{ChessSquare, NUM_COLUMNS};
+use crate::games::chess::pieces::{ChessPieceType, NUM_CHESS_PIECES};
+use crate::games::chess::squares::{ChessSquare, NUM_COLUMNS, NUM_SQUARES};
 use crate::games::chess::{ChessColor, Chessboard, Hashes};
 use crate::games::{Color, NUM_COLORS, PosHash};
 use crate::general::bitboards::Bitboard;
 use crate::general::board::BitboardBoard;
 use crate::general::squares::RectangularCoordinates;
 
-pub const NUM_PIECE_SQUARE_ENTRIES: usize = 64 * 6;
-pub const NUM_COLORED_PIECE_SQUARE_ENTRIES: usize = NUM_PIECE_SQUARE_ENTRIES * 2;
+// also includes the empty piece to avoid special casing that
+pub const NUM_PIECE_SQUARE_ENTRIES: usize = NUM_SQUARES * (NUM_CHESS_PIECES + 1);
+const NUM_COLORED_PIECE_SQUARE_ENTRIES: usize = NUM_PIECE_SQUARE_ENTRIES * 2;
 
 pub struct PrecomputedZobristKeys {
     pub piece_square_keys: [PosHash; NUM_COLORED_PIECE_SQUARE_ENTRIES],
@@ -20,7 +21,7 @@ pub struct PrecomputedZobristKeys {
 
 impl PrecomputedZobristKeys {
     pub fn piece_key(&self, piece: ChessPieceType, color: ChessColor, square: ChessSquare) -> PosHash {
-        self.piece_square_keys[square.bb_idx() + piece as usize * 64 + color as usize * 64 * 6]
+        self.piece_square_keys[square.bb_idx() + piece as usize * 64 + color as usize * 64 * 7]
     }
 }
 
@@ -57,7 +58,11 @@ pub const ZOBRIST_KEYS: PrecomputedZobristKeys = {
     };
     let mut generator = PcgXslRr128_64Oneseq::new(0x42);
     let mut i = 0;
-    while i < NUM_COLORED_PIECE_SQUARE_ENTRIES {
+    while i < NUM_COLORED_PIECE_SQUARE_ENTRIES - NUM_SQUARES {
+        if i == NUM_SQUARES * NUM_CHESS_PIECES {
+            // All empty squares have a hash of 0
+            i += NUM_SQUARES;
+        }
         res.piece_square_keys[i] = generator.generate();
         i += 1;
     }

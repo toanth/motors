@@ -407,10 +407,12 @@ impl Chessboard {
         ChessSquare::from_rank_file(rank, file)
     }
 
-    // For most moves, this returns the hash after playing that move.
+    /// For most moves, this returns the hash after playing that move.
+    /// Does not handle ep, promotions or castling moves
     pub fn approx_hash_after(&self, mov: ChessMove) -> PosHash {
         let us = self.active;
         let delta = Self::zobrist_delta(us, mov.piece_type(self), mov.src_square(), mov.dest_square());
+        let delta = delta ^ ZOBRIST_KEYS.piece_key(self.piece_type_on(mov.dest_square()), !us, mov.dest_square());
         self.hash_pos() ^ delta ^ ZOBRIST_KEYS.side_to_move_key
     }
 

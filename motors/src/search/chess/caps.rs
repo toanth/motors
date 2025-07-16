@@ -984,6 +984,7 @@ impl Caps {
         let move_scorer = CapsMoveScorer { board: pos, ply };
         let mut child_depth = depth - 128;
         while let Some((mov, move_score)) = move_picker.next(&move_scorer, self) {
+            self.tt().prefetch(pos.approx_hash_after(mov));
             if can_prune && best_score > MAX_SCORE_LOST {
                 // LMP (Late Move Pruning): Trust the move ordering and assume that moves ordered late aren't very interesting,
                 // so don't even bother looking at them in the last few layers.
@@ -1033,7 +1034,6 @@ impl Caps {
             if root && self.excluded_moves.contains(&mov) {
                 continue;
             }
-            self.tt().prefetch(pos.approx_hash_after(mov));
             let Some(new_pos) = pos.make_move(mov) else {
                 continue; // illegal pseudolegal move
             };
@@ -1378,6 +1378,7 @@ impl Caps {
         let mut children_visited = 0;
         while let Some((mov, move_score)) = move_picker.next(&move_scorer, &self.state) {
             debug_assert!(mov.is_tactical(&pos) || pos.is_in_check());
+            self.tt().prefetch(pos.approx_hash_after(mov));
             if !eval.is_game_lost_score() && move_score < MoveScore(0) || children_visited >= 3 {
                 // qsearch see pruning and qsearch late move  pruning (lmp):
                 // If the move has a negative SEE score or if we've already looked at enough moves, don't even bother playing it in qsearch.
@@ -1388,7 +1389,6 @@ impl Caps {
             if hist_score < MoveScore(-500) {
                 break;
             }
-            self.tt().prefetch(pos.approx_hash_after(mov));
             let Some(new_pos) = pos.make_move(mov) else {
                 continue;
             };
