@@ -80,18 +80,18 @@ enum MovePickerState {
     DeferredList,
 }
 
-pub struct MovePicker<B: Board, const MAX_LEN: usize> {
+pub struct MovePicker<'a, B: Board, const MAX_LEN: usize> {
     state: MovePickerState,
     list: ScoredMoveList<B, MAX_LEN>,
-    pos: B,
+    pos: &'a B,
     tactical_only: bool,
     tt_move: B::Move,
     ignored_prefix: usize,
 }
 
-impl<B: Board, const MAX_LEN: usize> MovePicker<B, MAX_LEN> {
+impl<'a, B: Board, const MAX_LEN: usize> MovePicker<'a, B, MAX_LEN> {
     /// Assumes that better moves have a *higher* score.
-    pub fn new(pos: B, best: B::Move, tactical_only: bool) -> Self {
+    pub fn new(pos: &'a B, best: B::Move, tactical_only: bool) -> Self {
         let state = if pos.is_generated_move_pseudolegal(best) && (!tactical_only || best.is_tactical(&pos)) {
             TTMove
         } else {
