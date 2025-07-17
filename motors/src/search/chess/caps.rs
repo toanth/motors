@@ -811,7 +811,7 @@ impl Caps {
             let entry = &self.state.search_stack[ply - 2];
             let mov = entry.last_tried_move();
             if !mov.is_null() {
-                continued = Some((entry.last_tried_move(), &entry.pos));
+                continued = Some((mov, &entry.pos));
             }
         }
         eval = self.state.custom.corr_hist.correct(&pos, continued, eval);
@@ -1269,19 +1269,22 @@ impl Caps {
                 let entry = &self.state.search_stack[ply - 2];
                 let mov = entry.last_tried_move();
                 if !mov.is_null() {
-                    continued = Some((entry.last_tried_move(), &entry.pos));
+                    continued = Some((mov, &entry.pos));
                 }
             }
             self.state.custom.corr_hist.update(&pos, continued, depth, eval, best_score);
         }
         if ply > 0 && bound_so_far == FailLow {
             // give a smaller bonus to the parent's move if we fail low. This rewards PVS researches that don't cause a fail high in the parent.
-            self.update_histories(
-                self.search_stack[ply - 1].last_tried_move(),
-                (depth / 128) / 2 * 128, // TODO: Constant (changes bench)
-                ply - 1,
-                (alpha - best_score) / 2,
-            );
+            let parent_move = self.search_stack[ply - 1].last_tried_move();
+            if !parent_move.is_null() {
+                self.update_histories(
+                    parent_move,
+                    (depth / 128) / 2 * 128, // TODO: Constant (changes bench)
+                    ply - 1,
+                    (alpha - best_score) / 2,
+                );
+            }
         }
 
         Some(best_score)
@@ -1351,7 +1354,7 @@ impl Caps {
                 let entry = &self.state.search_stack[ply - 2];
                 let mov = entry.last_tried_move();
                 if !mov.is_null() {
-                    continued = Some((entry.last_tried_move(), &entry.pos));
+                    continued = Some((mov, &entry.pos));
                 }
             }
             best_score = self.state.custom.corr_hist.correct(&pos, continued, eval);
