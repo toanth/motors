@@ -2053,6 +2053,7 @@ mod tests {
     fn chess_test() {
         let mut ugi = create_chess_game();
         ugi.handle_input("idk").unwrap();
+        ugi.handle_input("idk off").unwrap();
         let state = ugi.state.match_state.clone();
         assert_eq!(state.pos_before_moves, Chessboard::default());
         assert_eq!(state.pos().active_player(), Black);
@@ -2087,6 +2088,7 @@ mod tests {
         let mut rng = StdRng::seed_from_u64(seed);
         cmds.shuffle(&mut rng);
         for c in cmds {
+            eprintln!("<EXECUTING> {c}");
             ugi.handle_input(c).unwrap();
         }
         sleep(Duration::from_millis(5000));
