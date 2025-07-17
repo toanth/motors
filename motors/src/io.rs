@@ -749,7 +749,7 @@ impl<B: Board> EngineUGI<B> {
             self.write_message(
                 Warning,
                 &format_args!(
-                    "Starting a {3} search in position '{2}', but the game is already over. {0}, reason: {1}.",
+                    "Starting a {3} search in position '{2}', but the game is already over. {0} ({1}).",
                     res.result,
                     res.reason,
                     pos.as_fen().bold(),

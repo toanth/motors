@@ -222,7 +222,7 @@ pub enum GameOverReason {
 impl Display for GameOverReason {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
-            GameOverReason::Normal => write!(f, "The game ended normally"),
+            GameOverReason::Normal => write!(f, "The game ended in a normal way"),
             GameOverReason::Adjudication(a) => write!(f, "{a}"),
         }
     }
