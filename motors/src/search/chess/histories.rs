@@ -30,6 +30,7 @@ use gears::games::{Color, NUM_COLORS};
 use gears::general::bitboards::chessboard::ChessBitboard;
 use gears::general::bitboards::{Bitboard, RawBitboard};
 use gears::general::board::Board;
+use gears::general::moves::Move;
 use gears::itertools::Itertools;
 use gears::output::OutputOpts;
 use gears::output::text_output::AdaptFormatter;
@@ -117,8 +118,12 @@ pub(super) struct ContHist(Vec<HistScoreT>); // Can't store this on the stack be
 impl ContHist {
     fn idx(mov: ChessMove, pos: &Chessboard, prev_move: ChessMove, prev_pos: &Chessboard) -> usize {
         let color = pos.active_player();
-        (mov.piece_type(pos) as usize + mov.dest_square().bb_idx() * 6)
-            + (prev_move.piece_type(prev_pos) as usize + prev_move.dest_square().bb_idx() * 6) * 64 * 6
+        debug_assert!(mov.dest_square().bb_idx() < 64);
+        debug_assert!((mov.piece_type(pos) as usize) < 6);
+        debug_assert!(prev_move.dest_square().bb_idx() < 64);
+        debug_assert!((prev_move.piece_type(prev_pos) as usize) < 6);
+        (mov.piece_type(pos) as usize * 64 + mov.dest_square().bb_idx())
+            + (prev_move.piece_type(prev_pos) as usize * 64 + prev_move.dest_square().bb_idx()) * 64 * 6
             + color as usize * 64 * 6 * 64 * 6
     }
     pub(super) fn update(
@@ -134,6 +139,9 @@ impl ContHist {
     }
 
     pub(super) fn score(&self, mov: ChessMove, pos: &Chessboard, prev_move: ChessMove, prev_pos: &Chessboard) -> isize {
+        if prev_move.is_null() {
+            return 0;
+        }
         self[Self::idx(mov, pos, prev_move, prev_pos)] as isize
     }
 }
