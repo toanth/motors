@@ -2083,6 +2083,7 @@ mod tests {
             "eval",
         ];
         let seed = rng().random::<u64>();
+        // let seed = 1880428284001215887;
         eprintln!("Seed: {seed}");
         let mut rng = StdRng::seed_from_u64(seed);
         cmds.shuffle(&mut rng);

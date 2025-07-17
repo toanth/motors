@@ -153,17 +153,17 @@ fn print_help() {
     \n--{add_outputs} can be used to determine how the engine prints extra information; it's mostly useful for development but can also be used to export PGNs, for example.\
     \n--{bench}, --{perft} and --{splitperft} are useful for testing the engine and move generation speed,\
     `bench` is also useful to get a \"hash\" of the search tree explored by the engine.\
-    Typing '{7}' while the program is running will also show help messages",
-             game = "game".bold(),
-             engine = "engine".bold(),
-             debug = "debug".bold(),
-             add_outputs = "additional-outputs".bold(),
-             bench = "bench".bold(),
-             perft = "perft".bold(),
-             splitperft = "splitperft".bold(),
-             help = "help".bold(),
-             ni = "non-interactive".bold(),
-             position = "position".bold(),
-            command = "command".bold(),
+    Typing '{help}' while the program is running will also show help messages",
+        game = "game".bold(),
+        engine = "engine".bold(),
+        debug = "debug".bold(),
+        add_outputs = "additional-outputs".bold(),
+        bench = "bench".bold(),
+        perft = "perft".bold(),
+        splitperft = "splitperft".bold(),
+        help = "help".bold(),
+        ni = "non-interactive".bold(),
+        position = "position".bold(),
+        command = "command".bold(),
     )
 }

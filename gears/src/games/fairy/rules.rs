@@ -575,7 +575,7 @@ impl FilterMovesCondition {
             FilterMovesCondition::NoFilter => (),
             FilterMovesCondition::Any(condition) => {
                 if list.iter_moves().any(|m| {
-                    condition.applies(*m) && (pos.rules().legality == Legal || pos.is_pseudolegal_move_legal(*m))
+                    condition.applies(m) && (pos.rules().legality == Legal || pos.is_pseudolegal_move_legal(m))
                 }) {
                     list.filter_moves(|m| condition.applies(*m));
                 }
