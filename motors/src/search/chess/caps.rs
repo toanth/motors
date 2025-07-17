@@ -1428,7 +1428,7 @@ impl Caps {
 
     fn eval(&mut self, pos: &Chessboard, ply: usize) -> Score {
         let us = self.params.pos.active_player();
-        let res = if ply == 0 {
+        let mut res = if ply == 0 {
             self.eval.eval(pos, 0, us)
         } else {
             let old_pos = &self.state.search_stack[ply - 1].pos;
@@ -1444,6 +1444,9 @@ impl Caps {
             res.0,
             self.eval.eval(pos, ply, us)
         );
+        if pos.ply_draw_clock() > 100 - 64 {
+            res.0 = (res.0 as isize * (100 - pos.ply_draw_clock() as isize) / 64) as ScoreT;
+        }
         res.clamp(MIN_NORMAL_SCORE, MAX_NORMAL_SCORE)
     }
 
