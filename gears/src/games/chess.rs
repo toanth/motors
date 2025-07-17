@@ -631,32 +631,14 @@ impl Board for Chessboard {
         let Some(castling_word) = words.next() else { bail!("FEN ends after color to move, missing castling rights") };
         let castling_rights =
             CastlingFlags::default().parse_castling_rights(castling_word, &mut board.0, strictness)?;
-
-        let Some(ep_square) = words.next() else { bail!("FEN ends after castling rights, missing en passant square") };
-        let ep_square = if ep_square == "-" {
-            None
-        } else {
-            let square = ChessSquare::from_str(ep_square)?;
-            let ep_capturing = square.bb().pawn_advance(!color);
-            let ep_capturing = ep_capturing.west() | ep_capturing.east();
-            // The current FEN standard disallows giving an ep square unless a pawn can legally capture.
-            // This library instead uses pseudolegal ep captures internally and checks legality when creating FENs,
-            // but some existing programs give invalid fens that in some cases contain an ep square after every double pawn push,
-            // so we silently ignore those invalid ep squares unless in strict mode.
-            if (board.0.col_piece_bb(color, Pawn) & ep_capturing).is_zero() {
-                if strictness == Strict {
-                    bail!(
-                        "The ep square is set to {ep_square} even though no pawn can recapture. In strict mode, this is not allowed"
-                    )
-                }
-                None
-            } else {
-                Some(square)
-            }
-        };
-        board.0.ep_square = ep_square;
         board.0.active = color;
         board.0.castling = castling_rights;
+
+        let Some(ep_square) = words.next() else { bail!("FEN ends after castling rights, missing en passant square") };
+        if ep_square != "-" {
+            // will be checked later in `verify_with_level`, because doing so can require movegen
+            board.0.ep_square = Some(ChessSquare::from_str(ep_square)?);
+        }
         read_two_move_numbers::<Chessboard>(words, &mut board, strictness)?;
         // also sets the zobrist hash
         board.verify_with_level(CheckFen, strictness)
@@ -1011,16 +993,8 @@ impl Display for Chessboard {
             write!(f, " b ")?;
         }
         self.castling.write_castle_rights(f, self)?;
-        let mut ep_square = None;
-        if let Some(square) = self.ep_square() {
-            // Internally, the ep square is set whenever a pseudolegal ep move is possible, but the FEN standard requires
-            // the ep square to be set only iff there is a legal ep move possible. So we check for that when outputting
-            // the FEN (printing the FEN should not be performance critical).
-            if self.legal_moves_slow().iter().any(|m| m.is_ep()) {
-                ep_square = Some(square);
-            }
-        }
-        if let Some(square) = ep_square {
+        // we are tracking the ep square correctly, including not setting it when the ep move would be illegal pseudolegal
+        if let Some(square) = self.ep_square {
             write!(f, " {square} ")?;
         } else {
             write!(f, " - ")?;
@@ -1488,6 +1462,7 @@ mod tests {
         let fen = "1nbqkbnr/ppp1pppp/8/r2pP2K/8/8/PPPP1PPP/RNBQ1BNR w k d6 0 2";
         assert!(Chessboard::from_fen(fen, Strict).is_err());
         let pos = Chessboard::from_fen(fen, Relaxed).unwrap();
+        assert!(pos.ep_square.is_none());
         assert_ne!(fen, pos.as_fen());
         // only legal move is to castle
         let fen = "8/8/8/8/4k3/7p/4q2P/6KR w K - 0 1";

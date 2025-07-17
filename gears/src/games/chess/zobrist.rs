@@ -125,6 +125,7 @@ mod tests {
     use crate::general::board::{Board, BoardHelpers};
     use crate::general::moves::Move;
     use std::collections::HashMap;
+    use std::str::FromStr;
 
     #[test]
     fn pcg_test() {
@@ -185,10 +186,11 @@ mod tests {
         let mov = ChessMove::new(
             ChessSquare::from_rank_file(1, E_FILE_NUM),
             ChessSquare::from_rank_file(3, E_FILE_NUM),
-            ChessMoveFlags::NormalMove,
+            ChessMoveFlags::DoublePawnPush,
         );
         let new_pos = position.make_move(mov).unwrap();
         assert_eq!(new_pos.hashes, new_pos.compute_zobrist());
+        assert_eq!(new_pos.ep_square, Some(ChessSquare::from_str("e3").unwrap()));
         let ep_move = ChessMove::new(
             ChessSquare::from_rank_file(3, D_FILE_NUM),
             ChessSquare::from_rank_file(2, E_FILE_NUM),
@@ -206,7 +208,7 @@ mod tests {
                     continue;
                 };
                 assert!(new_pos.debug_verify_invariants(Strict).is_ok(), "{pos} {}", m.compact_formatter(&pos));
-                if !(m.is_double_pawn_push(&pos)
+                if !(m.is_double_pawn_push()
                     || m.is_capture(&pos)
                     || m.is_promotion()
                     || pos.ep_square().is_some()

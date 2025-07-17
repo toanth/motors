@@ -161,53 +161,10 @@ impl UnverifiedBoard<Chessboard> for UnverifiedChessboard {
         }
         this.hashes = this.compute_zobrist();
 
-        // We check the ep square last because this can require doing movegen, which needs most invariants to hold.
-        if let Some(ep_square) = this.ep_square {
-            ensure!(
-                [2, 5].contains(&ep_square.rank()),
-                "FEN specifies invalid ep square (not on the third or sixth rank): '{ep_square}'"
-            );
-            let remove_pawn_square = ep_square.pawn_advance_unchecked(inactive_player);
-            let pawn_origin_square = ep_square.pawn_advance_unchecked(this.active);
-            if !this.is_empty(ep_square) {
-                bail!(
-                    "The en passant square ({ep_square}) must be empty, but it's occupied by a {}",
-                    this.piece_type_on(ep_square).to_name()
-                )
-            } else if this.colored_piece_on(remove_pawn_square).symbol
-                != ColoredChessPieceType::new(inactive_player, Pawn)
-            {
-                bail!(
-                    "FEN specifies en passant square {ep_square}, but there is no {inactive_player}-colored pawn on {remove_pawn_square}"
-                );
-            } else if !this.is_empty(pawn_origin_square) {
-                bail!(
-                    "The en passant square is set to {ep_square}, so the pawn must have come from {pawn_origin_square}. But this square isn't empty"
-                )
-            }
-            let active = this.active_player();
-            // In the current version of the FEN standard, the ep square should only be set if a pawn can capture.
-            // This implementation follows that rule, but many other implementations give the ep square after every double pawn push.
-            // To achieve consistent results, such an incorrect ep square is removed when parsing the FEN; it should
-            // no longer exist at this point.
-            let possible_ep_pawns = remove_pawn_square.bb().west() | remove_pawn_square.bb().east();
-            ensure!(
-                (possible_ep_pawns & this.col_piece_bb(active, Pawn)).has_set_bit(),
-                "The en passant square is set to '{ep_square}', but there is no {active}-colored pawn that could capture on that square"
-            );
-            if strictness == Strict && checks == CheckFen {
-                let legal_ep = this.legal_moves_slow().iter().any(|m| m.is_ep());
-                // this doesn't necessarily mean that the ep pawn capturing is pinned, the king could also be in check.
-                ensure!(
-                    legal_ep,
-                    "The en passant square is set, but even though there is a pseudolegal ep capture move, it is not legal \
-                    (either all pawns that could capture en passant are pinned, or the king is in check). \
-                    This is not allowed when parsing FENs in strict mode"
-                );
-            }
-        }
         this.set_checkers_and_pinned();
         this.threats = this.calc_threats_of(this.inactive_player(), &this.slider_generator());
+        // We check the ep square last because this can require doing movegen, which needs most invariants to hold.
+        this.check_ep(strictness, checks)?;
         Ok(this)
     }
 
@@ -256,6 +213,61 @@ impl UnverifiedBoard<Chessboard> for UnverifiedChessboard {
 
     fn set_halfmove_repetition_clock(&mut self, ply: usize) -> Res<()> {
         self.0.ply_100_ctr = u8::try_from(ply)?;
+        Ok(())
+    }
+}
+
+impl Chessboard {
+    fn check_ep(&mut self, strictness: Strictness, checks: SelfChecks) -> Res<()> {
+        let Some(ep_square) = self.ep_square else { return Ok(()) };
+        ensure!(
+            [2, 5].contains(&ep_square.rank()),
+            "FEN specifies invalid ep square (not on the third or sixth rank): '{ep_square}'"
+        );
+        let inactive = self.inactive_player();
+        let remove_pawn_sq = ep_square.pawn_advance_unchecked(inactive);
+        let pawn_origin_sq = ep_square.pawn_advance_unchecked(self.active);
+        if !self.is_empty(ep_square) {
+            bail!(
+                "The en passant square ({ep_square}) must be empty, but it's occupied by a {}",
+                self.piece_type_on(ep_square).to_name()
+            )
+        } else if self.colored_piece_on(remove_pawn_sq).symbol != ColoredChessPieceType::new(inactive, Pawn) {
+            bail!("FEN specifies en passant square '{ep_square}', but there is no {inactive} pawn on {remove_pawn_sq}");
+        } else if !self.is_empty(pawn_origin_sq) {
+            bail!(
+                "The en passant square is set to '{ep_square}', so the pawn must have come from {pawn_origin_sq}. \
+                    But this square isn't empty, it contains a {}",
+                self.colored_piece_on(pawn_origin_sq)
+            )
+        }
+        let active = self.active_player();
+        // In the current version of the FEN standard, the ep square should only be set if a pawn can legally capture.
+        // This implementation follows that rule, but many other implementations give the ep square after every double pawn push.
+        // To achieve consistent results, such an incorrect ep square is removed when parsing the FEN, this is the only case
+        // where checks == CheckFen is actually stricter than other checks
+        let possible_ep_pawns = remove_pawn_sq.bb().west() | remove_pawn_sq.bb().east();
+        if (possible_ep_pawns & self.col_piece_bb(active, Pawn)).is_zero() {
+            if strictness == Strict || checks != CheckFen {
+                bail!(
+                    "The en passant square is set to '{ep_square}', but there is no {active} pawn that could capture on that square. \
+                        This is only allowed when reading FENs in relaxed mode (and will silently be converted to no ep square)"
+                )
+            }
+            self.ep_square = None;
+            return Ok(());
+        }
+        let legal_ep = self.legal_moves_slow().iter().any(|m| m.is_ep());
+        if !legal_ep {
+            if strictness == Strict || checks != CheckFen {
+                bail!(
+                    "The en passant square is set, but even though there is a pseudolegal ep capture move, it is not legal \
+                            (either all pawns that could capture en passant are pinned, or the king is in check). \
+                            This is not allowed when parsing FENs in strict mode"
+                );
+            }
+            self.ep_square = None
+        }
         Ok(())
     }
 }

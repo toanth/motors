@@ -36,11 +36,7 @@ use crate::general::squares::RectangularCoordinates;
 pub enum ChessMoveFlags {
     #[default]
     NormalMove,
-    // KnightMove,
-    // BishopMove,
-    // RookMove,
-    // QueenMove,
-    // NormalKingMove,
+    DoublePawnPush,
     CastleKingside,
     CastleQueenside,
     EnPassant,
@@ -165,8 +161,8 @@ impl ChessMove {
         self.flags().is_promo()
     }
 
-    pub fn is_double_pawn_push(self, pos: &Chessboard) -> bool {
-        self.piece_type(pos) == Pawn && self.dest_square().rank().abs_diff(self.src_square().rank()) == 2
+    pub fn is_double_pawn_push(self) -> bool {
+        self.flags() == DoublePawnPush
     }
 
     pub fn promo_piece(self) -> ChessPieceType {
@@ -351,6 +347,8 @@ impl Move<Chessboard> for ChessMove {
             }
         } else if piece.uncolored() == Pawn && board.is_empty(to) && from.file() != to.file() {
             flags = EnPassant;
+        } else if piece.uncolored() == Pawn && from.rank().abs_diff(to.rank()) > 1 {
+            flags = DoublePawnPush;
         }
         let res = from.bb_idx() + (to.bb_idx() << 6) + ((flags as usize) << 12);
         let res = ChessMove(res as u16);
@@ -471,11 +469,8 @@ impl Chessboard {
             self.ply_100_ctr = 0;
         } else if piece == Pawn {
             self.ply_100_ctr = 0;
-            let possible_ep_pawns = (to.bb().west() | to.bb().east()) & self.col_piece_bb(them, Pawn);
-            // TODO: Store double pawn push flag in the move?
-            if from.rank().abs_diff(to.rank()) == 2 && possible_ep_pawns.has_set_bit() {
-                self.ep_square = Some(ChessSquare::from_rank_file((to.rank() + from.rank()) / 2, to.file()));
-                special_hash ^= ZOBRIST_KEYS.ep_file_keys[to.file() as usize];
+            if mov.is_double_pawn_push() {
+                self.ep_square = self.calc_ep_sq(to, &mut special_hash, them);
             }
         }
         if piece == King {
@@ -521,6 +516,44 @@ impl Chessboard {
         self.set_checkers_and_pinned();
         debug_assert_eq!(self.hashes, self.compute_zobrist());
         self
+    }
+
+    pub(super) fn calc_ep_sq(
+        &self,
+        to: ChessSquare,
+        special_hash: &mut PosHash,
+        them: ChessColor,
+    ) -> Option<ChessSquare> {
+        let possible_ep_pawns = (to.bb().west() | to.bb().east()) & self.col_piece_bb(them, Pawn);
+        if possible_ep_pawns.is_zero() {
+            return None;
+        }
+        let king_sq = self.king_square(them);
+        let ep_square = to.pawn_advance_unchecked(them);
+        let not_pinned = possible_ep_pawns & !self.pinned[them];
+        if not_pinned.is_zero() {
+            for p in possible_ep_pawns.ones() {
+                let mut pinning = self.ray_attacks(p, king_sq, self.occupied_bb());
+                debug_assert!(pinning.is_single_piece());
+                let pinning = ChessSquare::from_bb_idx(pinning.pop_lsb());
+                let pin_ray = ChessBitboard::ray_inclusive(pinning, king_sq, ChessboardSize::default());
+                if pin_ray.is_bit_set(ep_square) {
+                    *special_hash ^= ZOBRIST_KEYS.ep_file_keys[to.file() as usize];
+                    return Some(ep_square);
+                }
+            }
+            return None;
+        }
+        if king_sq.rank() == to.rank() {
+            // Only the moved pawn and the capturing pawn are between the king and a horizontal slider, so the pawn is effectively pinned for ep.
+            let sq = possible_ep_pawns.ones().next().unwrap();
+            let occ_bb = self.occupied_bb() ^ to.bb() ^ sq.bb();
+            if self.ray_attacks(sq, king_sq, occ_bb).has_set_bit() {
+                return None;
+            }
+        }
+        *special_hash ^= ZOBRIST_KEYS.ep_file_keys[to.file() as usize];
+        Some(ep_square)
     }
 
     fn do_castle(&mut self, mov: ChessMove, from: ChessSquare, to: &mut ChessSquare) {
@@ -1193,6 +1226,17 @@ mod tests {
     #[test]
     fn algebraic_notation_roundtrip_test() {
         GenericTests::long_notation_roundtrip_test();
+    }
+
+    #[test]
+    fn ep_pinned() {
+        let input = "8/8/2k5/8/2pPp3/8/6B1/2RK4 b - d3 0 1";
+        assert!(Chessboard::from_fen(input, Strict).is_err());
+        let pos = Chessboard::from_fen(input, Relaxed).unwrap();
+        assert_eq!(pos.ep_square(), None);
+        for m in pos.pseudolegal_moves() {
+            assert!(!m.is_ep());
+        }
     }
 
     #[test]

@@ -341,6 +341,7 @@ mod tests {
         let pos = load_ugi_pos_simple(input, Strict, &Chessboard::default()).unwrap();
         let mut engine = Caps::for_eval::<PistonEval>();
         let res = engine.search_with_new_tt(pos, SearchLimit::nodes_(200));
+        assert_eq!(pos.ep_square(), Some(ChessSquare::from_str("c6").unwrap()));
         assert!(res.score.is_game_won_score());
         assert_eq!(res.score.plies_until_game_won(), Some(1));
         assert_eq!(res.chosen_move, ChessMove::from_text(":c ep", &pos).unwrap());

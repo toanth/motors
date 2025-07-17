@@ -81,7 +81,7 @@ impl NamedEntity for NameToPos {
 
 /// How many checks to execute.
 /// Enum variants are listed in order; later checks generally include earlier checks.
-/// (Except that the chessboard currently allows illegal pseudolegal ep squares internally but not when parsing FENs in strict mode)
+/// In some cases [`SelfChecks::CheckFen`] silently fixes an incorrect ep square in [`Relaxed`] mode.
 #[derive(Debug, Eq, PartialEq, Copy, Clone)]
 #[must_use]
 pub enum SelfChecks {

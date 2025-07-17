@@ -86,6 +86,9 @@ impl Chessboard {
         if mov.is_castle() {
             piece == King && self.check_castling_move_pseudolegal(mov, us)
         } else if piece == Pawn {
+            if mov.is_double_pawn_push() != (src.rank().abs_diff(mov.dest_square().rank()) != 1) {
+                return false;
+            }
             if mov.is_ep() {
                 return Some(mov.dest_square()) == self.ep_square;
             }
@@ -160,7 +163,11 @@ impl Chessboard {
         self.gen_slider_moves::<T, { Rook as usize }>(moves, filter, &slider_generator);
         self.gen_slider_moves::<T, { Queen as usize }>(moves, filter, &slider_generator);
         self.gen_knight_moves(moves, filter);
-        self.gen_pawn_moves(moves, check_ray, only_tactical);
+        if only_tactical {
+            self.gen_pawn_moves::<T, true>(moves, check_ray);
+        } else {
+            self.gen_pawn_moves::<T, false>(moves, check_ray);
+        }
 
         if cfg!(debug_assertions) {
             for &m in moves.iter_moves() {
@@ -169,7 +176,7 @@ impl Chessboard {
         }
     }
 
-    fn gen_pawn_moves<T: MoveList<Self>>(&self, moves: &mut T, filter: ChessBitboard, only_tactical: bool) {
+    fn gen_pawn_moves<T: MoveList<Self>, const ONLY_TACTICAL: bool>(&self, moves: &mut T, filter: ChessBitboard) {
         let color = self.active;
         let pawns = self.col_piece_bb(color, Pawn);
         let free = !self.occupied_bb();
@@ -191,7 +198,7 @@ impl Chessboard {
             right_pawn_captures = (pawns.south_west() & capturable, -9);
             left_pawn_captures = (pawns.south_east() & capturable, -7);
         }
-        for move_type in [right_pawn_captures, left_pawn_captures, regular_pawn_moves, double_pawn_moves] {
+        for move_type in [right_pawn_captures, left_pawn_captures, regular_pawn_moves] {
             let bb = move_type.0;
             for to in bb.ones() {
                 let from = ChessSquare::from_bb_idx((to.to_u8() as isize - move_type.1) as usize);
@@ -203,16 +210,22 @@ impl Chessboard {
                     for flag in [PromoQueen, PromoKnight] {
                         moves.add_move(ChessMove::new(from, to, flag));
                     }
-                    if !only_tactical {
+                    if !ONLY_TACTICAL {
                         for flag in [PromoRook, PromoBishop] {
                             moves.add_move(ChessMove::new(from, to, flag));
                         }
                     }
                     continue;
-                } else if only_tactical && !is_capture {
+                } else if ONLY_TACTICAL && !is_capture {
                     continue;
                 }
                 moves.add_move(ChessMove::new(from, to, flag));
+            }
+        }
+        if !ONLY_TACTICAL {
+            for to in double_pawn_moves.0.ones() {
+                let from = ChessSquare::from_bb_idx((to.to_u8() as isize - double_pawn_moves.1) as usize);
+                moves.add_move(ChessMove::new(from, to, DoublePawnPush));
             }
         }
     }
