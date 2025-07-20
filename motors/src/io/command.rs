@@ -69,7 +69,7 @@ struct SubCommandsFn(Option<SubCommandFnT>);
 
 impl Debug for SubCommandsFn {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        write!(f, "<subcommands>")
+        f.debug_tuple("SubCommandsFn").finish_non_exhaustive()
     }
 }
 

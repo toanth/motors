@@ -170,10 +170,12 @@ pub const SCORE_LOST: Score = Score(-31_000);
 pub const SCORE_WON: Score = Score(31_000);
 pub const SCORE_TIME_UP: Score = Score(SCORE_LOST.0 - 1000);
 // can't use + directly because derive_more's + isn't `const`
-pub const MIN_SCORE_WON: Score = Score(SCORE_WON.0 - 1000);
-pub const MAX_SCORE_LOST: Score = Score(SCORE_LOST.0 + 1000);
-pub const MIN_NORMAL_SCORE: Score = Score(MAX_SCORE_LOST.0 + 1);
-pub const MAX_NORMAL_SCORE: Score = Score(MIN_SCORE_WON.0 - 1);
+pub const MIN_SCORE_WON: Score = Score(SCORE_WON.0 - 1000 + 1);
+pub const MAX_SCORE_LOST: Score = Score(SCORE_LOST.0 + 1000 - 1);
+pub const BITBASE_WIN: Score = Score(MIN_SCORE_WON.0 - 1);
+pub const BITBASE_LOSS: Score = Score(MAX_SCORE_LOST.0 + 1);
+pub const MAX_NORMAL_SCORE: Score = Score(BITBASE_WIN.0 - 1);
+pub const MIN_NORMAL_SCORE: Score = Score(BITBASE_LOSS.0 + 1);
 pub const NO_SCORE_YET: Score = Score(SCORE_LOST.0 - 100);
 
 pub fn game_result_to_score(res: PlayerResult, ply: usize) -> Score {

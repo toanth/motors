@@ -324,7 +324,7 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
         let our_pawns = pos.col_piece_bb(us, Pawn);
         // handling double pawn pushes lost elo, somehow
         let pawn_advance_threats = (our_pawns.pawn_advance(us) & pos.empty_bb()).pawn_attacks(us);
-        let passer_close = (pos.player_bb(us) & state.passers).moore_neighbors();
+        let passer_close = (pos.player_bb(us) & state.passers).moore_inclusive();
         let pawn_attacks = our_pawns.pawn_attacks(us);
         if (pawn_attacks & king_zone).has_set_bit() {
             score += Tuned::king_zone_attack(Pawn);
