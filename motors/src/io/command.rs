@@ -238,7 +238,7 @@ pub fn ugi_commands() -> CommandList {
             "Flips the side to move, unless this results in an illegal position",
             |ugi, _, _| ugi.handle_flip()
         ),
-        command!(quit, All, "Exits the program immediately", |ugi, _, _| {
+        command!(quit | q, All, "Exits the program immediately", |ugi, _, _| {
             if cfg!(feature = "fuzzing") {
                 eprintln!("Fuzzing is enabled, ignoring 'quit' command");
                 return Ok(());
@@ -258,7 +258,7 @@ pub fn ugi_commands() -> CommandList {
             }
         ),
         command!(
-            query | q,
+            query,
             UgiNotUci,
             "Answer a query about the current match state",
             |ugi, words, _| ugi.handle_query(words),
