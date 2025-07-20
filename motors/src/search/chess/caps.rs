@@ -983,7 +983,9 @@ impl Caps {
         let mut move_picker = MovePicker::<Chessboard, MAX_CHESS_MOVES_IN_POS>::new(pos, best_move, false);
         let move_scorer = CapsMoveScorer { pos, ply };
         let mut child_depth = depth - 128;
-        while let Some((mov, move_score)) = move_picker.next(&move_scorer, self) {
+        while let Some(sm) = move_picker.next(&move_scorer, self) {
+            let mov = sm.mov();
+            let move_score = sm.score();
             self.tt().prefetch(pos.approx_hash_after(mov));
             if can_prune && best_score > MAX_SCORE_LOST {
                 // LMP (Late Move Pruning): Trust the move ordering and assume that moves ordered late aren't very interesting,
@@ -1379,7 +1381,9 @@ impl Caps {
             MovePicker::new(pos, best_move, !in_check);
         let move_scorer = CapsMoveScorer { pos: pos, ply };
         let mut children_visited = 0;
-        while let Some((mov, move_score)) = move_picker.next(&move_scorer, &self.state) {
+        while let Some(sm) = move_picker.next(&move_scorer, &self.state) {
+            let mov = sm.mov();
+            let move_score = sm.score();
             debug_assert!(mov.is_tactical(&pos) || pos.is_in_check());
             self.tt().prefetch(pos.approx_hash_after(mov));
             if !eval.is_game_lost_score() && move_score < MoveScore(0) || children_visited >= 3 {
@@ -1793,9 +1797,9 @@ mod tests {
         let move_scorer = CapsMoveScorer { pos: &pos, ply: 0 };
         let mut moves = vec![];
         let mut scores = vec![];
-        while let Some((mov, score)) = move_picker.next(&move_scorer, &caps.state) {
-            moves.push(mov);
-            scores.push(score);
+        while let Some(sm) = move_picker.next(&move_scorer, &caps.state) {
+            moves.push(sm.mov());
+            scores.push(sm.score());
         }
         assert_eq!(moves.len(), 6);
         assert!(scores.is_sorted_by(|a, b| a > b), "{scores:?} {moves:?} {pos}");

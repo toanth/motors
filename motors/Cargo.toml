@@ -12,6 +12,7 @@ harness = false
 
 [dev-dependencies]
 criterion = "0.5.1"
+proptest = "1.6.0"
 
 [dependencies]
 gears = { path = "../gears", default-features = false }

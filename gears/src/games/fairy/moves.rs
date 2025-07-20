@@ -188,7 +188,7 @@ impl Move<FairyBoard> for FairyMove {
     }
 
     fn to_underlying(self) -> Self::Underlying {
-        (self.from.underlying() as u32) + ((self.to.underlying() as u32) << 8) + ((self.packed as u32) << 16)
+        (self.from.underlying() as u32) | ((self.to.underlying() as u32) << 8) | ((self.packed as u32) << 16)
     }
 }
 
