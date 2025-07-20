@@ -42,10 +42,10 @@ use arbitrary::Arbitrary;
 use colored::Colorize;
 use num::Zero;
 use rand::Rng;
-use std::fmt;
 use std::fmt::{Debug, Display, Formatter};
 use std::num::NonZeroUsize;
 use std::str::Split;
+use std::{fmt, iter};
 use strum_macros::EnumIter;
 
 #[derive(Debug, Copy, Clone)]
@@ -414,6 +414,14 @@ pub trait Board:
         self.colored_piece_on(coords).uncolored()
     }
 
+    /// Returns an iterator over all the pieces in the given player's hand, or an iterator that yields `None`
+    /// if this game doesn't have a meaningful hand. For example, technically a mnk game could be modelled as
+    /// players dropping pieces from their hand, but because their hands are infinite and the contents don't
+    /// matter, this method still returns `None`.
+    fn hand(&self, _color: Self::Color) -> impl Iterator<Item = (usize, PieceTypeOf<Self>)> {
+        iter::empty()
+    }
+
     /// Returns the default depth that should be used for perft if not otherwise specified.
     /// Takes in a reference to self because some boards have a size determined at runtime,
     /// and the default perft depth can change depending on that (or even depending on the current position)
@@ -494,6 +502,11 @@ pub trait Board:
     /// Makes a nullmove, i.e. flips the active player. While this action isn't strictly legal in most games,
     /// it's still very useful and necessary for null move pruning.
     fn make_nullmove(self) -> Option<Self>;
+
+    /// Like [`Self::make_move`], but if `mov` is null it calls [`Self::make_nullmove`].
+    fn make_move_or_nullmove(self, mov: Self::Move) -> Option<Self> {
+        if mov.is_null() { self.make_nullmove() } else { self.make_move(mov) }
+    }
 
     /// See [`Self::is_move_pseudolegal`]. However, this function assumes that the move is pseudolegal
     /// for some unknown position, usually because it has been generated in the past and saved, but it is no
@@ -609,7 +622,7 @@ pub trait Board:
     /// This is not meant to return a FEN, but instead a diagram where the pieces
     /// are identified by their letters in algebraic notation.
     /// Rectangular boards can implement this with the `[board_to_string]` function
-    fn as_diagram(&self, typ: CharType, flip: bool) -> String;
+    fn as_diagram(&self, typ: CharType, flip: bool, mark_active: bool) -> String;
 
     /// Returns a text-based representation of the board that's intended to look pretty.
     /// This can be implemented by calling `as_ascii_diagram` or `as_unicode_diagram`, but the intention
@@ -759,7 +772,7 @@ pub trait BoardHelpers: Board {
         self.clone().make_move(mov).ok_or_else(|| {
             anyhow!(
                 "Move '{}' is pseudolegal but not legal in position '{self}'",
-                mov.extended_formatter(&self, Standard).to_string().red()
+                mov.extended_formatter(&self, Standard, None).to_string().red()
             )
         })
     }
@@ -875,6 +888,10 @@ impl AxesFormat {
         let mut res = Self::default();
         res.orientation = BoardOrientation::PlayerPov;
         res
+    }
+
+    pub fn is_usi_format(&self) -> bool {
+        self.x_axis_symbol == AxisSymbol::NumberReversed && self.y_axis_symbol == AxisSymbol::LetterReversed
     }
 
     fn ith_entry_for(
@@ -1051,15 +1068,27 @@ pub fn common_fen_part<B: RectangularBoard>(f: &mut Formatter<'_>, pos: &B) -> f
     write!(f, " {}", pos.active_player().to_char(pos.settings()))
 }
 
-pub fn simple_fen<T: RectangularBoard>(f: &mut Formatter<'_>, pos: &T, halfmove: bool, fullmove: bool) -> fmt::Result {
-    common_fen_part(f, pos)?;
-    if halfmove {
-        write!(f, " {}", pos.ply_draw_clock())?;
+pub fn simple_fen<B: RectangularBoard>(pos: &B, halfmove: bool, fullmove: bool) -> impl Display {
+    SimpleFenFormatter { pos, halfmove, fullmove }
+}
+
+struct SimpleFenFormatter<'a, B: RectangularBoard> {
+    pos: &'a B,
+    halfmove: bool,
+    fullmove: bool,
+}
+
+impl<B: RectangularBoard> Display for SimpleFenFormatter<'_, B> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        common_fen_part(f, self.pos)?;
+        if self.halfmove {
+            write!(f, " {}", self.pos.ply_draw_clock())?;
+        }
+        if self.fullmove {
+            write!(f, " {}", self.pos.fullmove_ctr_1_based())?;
+        }
+        Ok(())
     }
-    if fullmove {
-        write!(f, " {}", pos.fullmove_ctr_1_based())?;
-    }
-    Ok(())
 }
 
 fn read_position_fen_impl<B: RectangularBoard>(
@@ -1230,6 +1259,7 @@ pub(crate) fn read_common_fen_part<B: RectangularBoard>(words: &mut Tokens, boar
     Ok(())
 }
 
+#[allow(unused)] // suppress warning when building only chess
 pub(crate) fn read_halfmove_clock<B: RectangularBoard>(words: &mut Tokens, board: &mut B::Unverified) -> Res<()> {
     let Some(halfmove_clock) = words.peek().copied() else { return board.set_halfmove_repetition_clock(0) };
     let halfmove_clock = halfmove_clock.parse::<usize>()?;
@@ -1266,6 +1296,7 @@ pub(crate) fn read_two_move_numbers<B: RectangularBoard>(
     Ok(())
 }
 
+#[allow(unused)]
 pub(crate) fn read_single_move_number<B: RectangularBoard>(
     words: &mut Tokens,
     board: &mut B::Unverified,
@@ -1290,6 +1321,7 @@ pub(crate) fn read_single_move_number<B: RectangularBoard>(
     board.set_ply_since_start(plyctr()?)
 }
 
+#[allow(unused)]
 pub(crate) fn read_move_number_in_ply<B: RectangularBoard>(
     words: &mut Tokens,
     board: &mut B::Unverified,

@@ -247,6 +247,12 @@ impl Move<MNKBoard> for FillSquare {
         false
     }
 
+    fn description(self, board: &MNKBoard) -> String {
+        let piece = board.active_player.to_string().bold();
+        let to = self.target.to_string().bold();
+        format!("Place a {piece} on {to}")
+    }
+
     fn format_compact(self, f: &mut Formatter<'_>, _board: &MNKBoard) -> fmt::Result {
         write!(f, "{}", self.target)
     }
@@ -468,12 +474,15 @@ impl MNKBoard {
         self.active_player = player.other();
         self
     }
+
+    pub fn fen_no_rules(&self) -> impl Display {
+        simple_fen(self, false, true)
+    }
 }
 
 impl Display for MNKBoard {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        write!(f, "{} ", self.settings,)?;
-        simple_fen(f, self, false, true)
+        write!(f, "{0} {1}", self.settings, self.fen_no_rules())
     }
 }
 
@@ -763,8 +772,8 @@ impl Board for MNKBoard {
         board.verify_with_level(CheckFen, strictness)
     }
 
-    fn as_diagram(&self, typ: CharType, flip: bool) -> String {
-        board_to_string(self, MnkPiece::to_char, typ, flip)
+    fn as_diagram(&self, typ: CharType, flip: bool, mark_active: bool) -> String {
+        board_to_string(self, MnkPiece::to_char, typ, flip, mark_active)
     }
 
     fn display_pretty(&self, fmt: &mut dyn BoardFormatter<Self>) -> String {

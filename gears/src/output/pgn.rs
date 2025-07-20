@@ -20,7 +20,7 @@
 
 use crate::MatchStatus::*;
 use crate::ProgramStatus::Run;
-use crate::games::{BoardHistory, Color};
+use crate::games::{BoardHistDyn, Color};
 use crate::general::board::Strictness::Relaxed;
 use crate::general::board::{Board, BoardHelpers, Strictness};
 use crate::general::common::{Res, parse_bool_from_str, parse_int_from_str};
@@ -85,7 +85,7 @@ pub fn match_to_pgn_string<B: Board>(m: &dyn GameState<B>) -> String {
         p2_name = B::Color::second().name(board.settings()),
     );
     for (ply, mov) in m.move_history().iter().enumerate() {
-        let mov_str = mov.extended_formatter(&board, Standard);
+        let mov_str = mov.extended_formatter(&board, Standard, None);
         if ply % 2 == 0 {
             res += &format!("\n{}. {mov_str}", ply.div_ceil(2) + 1);
         } else {

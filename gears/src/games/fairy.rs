@@ -15,6 +15,7 @@
  *  You should have received a copy of the GNU General Public License
  *  along with Gears. If not, see <https://www.gnu.org/licenses/>.
  */
+mod algebraic_notation;
 mod attacks;
 mod effects;
 pub mod moves;
@@ -357,13 +358,11 @@ impl UnverifiedBoard<FairyBoard> for UnverifiedFairyBoard {
             "Internal bitboard mismatch: A piece doesn't have a color and isn't neutral: Pieces: {pieces}, colors and neutral: {colors}",
         );
         if strictness == Strict {
-            let max_draw_ctr = rules
-                .game_end_eager
-                .iter()
-                .find_map(|(cond, _)| if let GameEndEager::DrawCounter(val) = cond { Some(*val) } else { None })
-                .unwrap_or(usize::MAX);
-            if self.draw_counter > max_draw_ctr {
-                bail!("Progress counter too large: {0} is larger than {max_draw_ctr}", self.draw_counter);
+            let ctr = self.draw_counter.saturating_sub(1);
+            if rules.game_end_eager.iter().any(|(cond, _)| {
+                if let GameEndEager::DrawCounter(val) = cond { val.satisfied(ctr, &self) } else { false }
+            }) {
+                bail!("Invalid draw progress counter: '{0}' is too large", self.draw_counter);
             }
         }
         if self.ply_since_start >= usize::MAX / 2 {
@@ -459,11 +458,20 @@ impl UnverifiedBoard<FairyBoard> for UnverifiedFairyBoard {
         }
     }
 
-    fn remove_piece(&mut self, coords: FairySquare) {
-        let piece = self.piece_on(coords).symbol;
-        self.remove_piece_impl(coords, piece);
-        // just give up when it comes to flags
-        self.castling_info = FairyCastleInfo::default();
+    fn remove_piece(&mut self, sq: FairySquare) {
+        let piece = self.piece_on(sq).symbol;
+        self.remove_piece_impl(sq, piece);
+        for col in FairyColor::iter() {
+            for side in Side::iter() {
+                if Some(sq) == self.castling_info.players[col].rook_sq(side) {
+                    self.castling_info.unset(col, side);
+                }
+            }
+            if Some(sq) == self.king_square(col) {
+                self.castling_info.unset_both_sides(col);
+            }
+        }
+        // just always remove the ep square
         self.ep = None;
     }
 
@@ -609,6 +617,12 @@ impl UnverifiedFairyBoard {
 
     fn read_ctrs(&mut self, words: &mut Tokens, first: bool) -> Res<()> {
         let ctrs = words.peek().copied().unwrap_or_default();
+        if self.rules().num_additional_ctrs() == 1 {
+            let ctr = if ctrs == "-" { 0 } else { parse_int_from_str(ctrs, "additional counter")? };
+            _ = words.next();
+            self.additional_ctrs[0] = ctr;
+            return Ok(());
+        }
         let Some((c1, c2)) = ctrs.trim_start_matches('+').split_once('+') else {
             bail!("Expected two counters of the form '{0}', got '{1}'", "<number>+<number>".bold(), ctrs.red())
         };
@@ -720,6 +734,10 @@ impl Board for FairyBoard {
         vec![
             NameToPos::strict("kiwipete", "chess r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 0 1"),
             NameToPos::strict("large_mnk", "mnk 11 11 4 11/11/11/11/11/11/11/11/11/11/11 x 1"),
+            NameToPos::strict(
+                "shogi_usi_startpos",
+                "shogi lnsgkgsnl/1r5b1/ppppppppp/9/9/9/PPPPPPPPP/1B5R1/LNSGKGSNL b - 1",
+            ),
         ]
     }
 
@@ -804,6 +822,16 @@ impl Board for FairyBoard {
         }
     }
 
+    fn hand(&self, color: Self::Color) -> impl Iterator<Item = (usize, PieceId)> {
+        let hand = self.rules().format_rules.hand != FenHandInfo::None;
+        self.in_hand[color]
+            .iter()
+            .enumerate()
+            .filter(move |_| hand)
+            .map(|(idx, &count)| (count as usize, PieceId::new(idx)))
+            .filter(|(count, _)| *count > 0)
+    }
+
     fn default_perft_depth(&self) -> DepthPly {
         DepthPly::new(3)
     }
@@ -844,7 +872,11 @@ impl Board for FairyBoard {
     }
 
     fn is_move_pseudolegal(&self, mov: Self::Move) -> bool {
-        self.pseudolegal_moves().contains(&mov)
+        let moves = self.pseudolegal_moves();
+        moves.contains(&mov)
+            || (mov.is_null()
+                && !moves.iter().any(|&m| self.is_pseudolegal_move_legal(m))
+                && self.no_moves_result().is_none())
     }
 
     fn is_pseudolegal_move_legal(&self, mov: Self::Move) -> bool {
@@ -934,8 +966,8 @@ impl Board for FairyBoard {
         self.rules().format_rules.axes_format
     }
 
-    fn as_diagram(&self, typ: CharType, flip: bool) -> String {
-        board_to_string(self, GenericPiece::to_char, typ, flip)
+    fn as_diagram(&self, typ: CharType, flip: bool, mark_active: bool) -> String {
+        board_to_string(self, GenericPiece::to_char, typ, flip, mark_active)
     }
 
     fn display_pretty(&self, formatter: &mut dyn BoardFormatter<Self>) -> String {
@@ -1003,11 +1035,13 @@ impl FairyBoard {
             GenericSelect { name: "5check", val: Box::new(|| RulesRef::new(Rules::n_check(5))) },
             GenericSelect { name: "antichess", val: Box::new(|| RulesRef::new(Rules::antichess())) },
             GenericSelect { name: "shatranj", val: Box::new(|| RulesRef::new(Rules::shatranj())) },
+            GenericSelect { name: "makruk", val: Box::new(|| RulesRef::new(Rules::makruk())) },
             GenericSelect {
                 name: "shogi",
                 val: Box::new(move || RulesRef::new(Rules::shogi(protocol == Protocol::USI))),
             },
             GenericSelect { name: "ataxx", val: Box::new(|| RulesRef::new(Rules::ataxx())) },
+            GenericSelect { name: "droptaxx", val: Box::new(|| RulesRef::new(Rules::droptaxx(FairySize::ataxx()))) },
             GenericSelect { name: "tictactoe", val: Box::new(|| RulesRef::new(Rules::tictactoe())) },
             GenericSelect { name: "mnk", val: Box::new(|| RulesRef::new(Rules::mnk(GridSize::connect4(), 4))) },
             GenericSelect { name: "cfour", val: Box::new(|| RulesRef::new(Rules::cfour(GridSize::connect4(), 4))) },
@@ -1104,17 +1138,30 @@ impl Display for NoRulesFenFormatter<'_> {
                 write!(f, " -")?;
             }
         }
-        if pos.rules().has_additional_ctr() {
+        let fmt_ctr = |f: &mut Formatter, ctr, threshold| {
+            let ctr = if threshold == 0 {
+                if ctr == 0 {
+                    return write!(f, "-");
+                }
+                ctr
+            } else {
+                threshold - ctr
+            };
+            write!(f, "{ctr}")
+        };
+        if pos.rules().num_additional_ctrs() > 0 {
             write!(f, " ")?;
-            if let Some(ctr) = pos.rules().ctr_threshold[0] {
-                write!(f, "{}", ctr - pos.additional_ctrs[0])?;
+            if let Some(threshold) = pos.rules().ctr_threshold[0] {
+                fmt_ctr(f, pos.additional_ctrs[0], threshold)?;
             }
-            write!(f, "+")?;
-            if let Some(ctr) = pos.rules().ctr_threshold[1] {
-                write!(f, "{}", ctr - pos.additional_ctrs[1])?;
+            if pos.rules().num_additional_ctrs() > 1 {
+                write!(f, "+")?;
+            }
+            if let Some(threshold) = pos.rules().ctr_threshold[1] {
+                fmt_ctr(f, pos.additional_ctrs[1], threshold)?;
             }
         }
-        if pos.rules().format_rules.has_halfmove_clock {
+        if pos.rules().format_rules.has_ply_clock {
             write!(f, " {}", pos.ply_draw_clock())?;
         }
         let ctr = match pos.rules().format_rules.move_num_fmt {
@@ -1136,8 +1183,8 @@ impl UnverifiedFairyBoard {
         }
         // does nothing if the rules don't require these parts
         self.read_castling_and_ep_fen_parts(input, strictness)?;
-        let trailing_counters = self.rules().has_additional_ctr() && self.read_ctrs(input, true).is_err();
-        if self.rules().format_rules.has_halfmove_clock {
+        let trailing_counters = self.rules().num_additional_ctrs() > 0 && self.read_ctrs(input, true).is_err();
+        if self.rules().format_rules.has_ply_clock {
             read_halfmove_clock::<FairyBoard>(input, &mut self)?;
         }
         match self.rules().format_rules.move_num_fmt {

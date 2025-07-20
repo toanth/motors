@@ -327,6 +327,12 @@ impl Move<UtttBoard> for UtttMove {
         false
     }
 
+    fn description(self, board: &UtttBoard) -> String {
+        let piece = board.active.to_string().bold();
+        let to = self.0.to_string().bold();
+        format!("Place a {piece} on {to}")
+    }
+
     fn format_compact(self, f: &mut Formatter<'_>, _board: &UtttBoard) -> fmt::Result {
         write!(f, "{self}")
     }
@@ -674,8 +680,7 @@ impl UtttBoard {
 
 impl Display for UtttBoard {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        simple_fen(f, self, false, true)?;
-        write!(f, " {}", self.last_move)
+        write!(f, "{0} {1}", simple_fen(self, false, true), self.last_move)
     }
 }
 
@@ -960,8 +965,8 @@ impl Board for UtttBoard {
         pos.verify_with_level(CheckFen, strictness)
     }
 
-    fn as_diagram(&self, typ: CharType, flip: bool) -> String {
-        board_to_string(self, UtttPiece::to_char, typ, flip)
+    fn as_diagram(&self, typ: CharType, flip: bool, mark_active: bool) -> String {
+        board_to_string(self, UtttPiece::to_char, typ, flip, mark_active)
     }
 
     fn display_pretty(&self, fmt: &mut dyn BoardFormatter<Self>) -> String {

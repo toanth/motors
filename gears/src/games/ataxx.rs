@@ -112,7 +112,7 @@ impl Default for AtaxxBoard {
 
 impl Display for AtaxxBoard {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        simple_fen(f, self, true, true)
+        write!(f, "{}", simple_fen(self, true, true))
     }
 }
 
@@ -219,6 +219,7 @@ impl Board for AtaxxBoard {
             "xx4o/7/7/7/7/6x/oo4x o 0 2",
             "x6/7/4x2/3x3/7/7/o5x o 2 2",
             "oxx3o/xxx4/xxx4/5x1/7/7/x5x x 0 1",
+            "7/7/7/7/-------/-------/x2xxoo o 1 3", // position where the only legal move is to pass
         ];
         fens.iter().map(|fen| Self::from_fen(fen, Strict).unwrap()).collect_vec()
     }
@@ -429,8 +430,8 @@ impl Board for AtaxxBoard {
         Self::read_fen_impl(string, strictness)
     }
 
-    fn as_diagram(&self, typ: CharType, flip: bool) -> String {
-        board_to_string(self, AtaxxPiece::to_char, typ, flip)
+    fn as_diagram(&self, typ: CharType, flip: bool, mark_active: bool) -> String {
+        board_to_string(self, AtaxxPiece::to_char, typ, flip, mark_active)
     }
 
     fn display_pretty(&self, fmt: &mut dyn BoardFormatter<Self>) -> String {

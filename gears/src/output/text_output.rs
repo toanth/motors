@@ -14,12 +14,13 @@ use crate::output::text_output::PrintType::Simple;
 use crate::output::{AbstractOutput, Message, Output, OutputBox, OutputBuilder, OutputOpts};
 use anyhow::{anyhow, bail, ensure};
 use colored::Colorize;
-use std::fmt;
+use std::fmt::Write;
 use std::fs::File;
-use std::io::{Stderr, Stdout, Write, stderr, stdout};
+use std::io::{Stderr, Stdout, stderr, stdout};
 use std::mem::swap;
 use std::path::Path;
 use std::str::SplitWhitespace;
+use std::{fmt, io};
 use strum_macros::EnumIter;
 
 #[derive(Debug)]
@@ -34,7 +35,7 @@ impl TextStream {
         _ = writeln!(self.stream(), "{prefix} {msg}");
     }
 
-    pub fn stream(&mut self) -> &mut dyn Write {
+    pub fn stream(&mut self) -> &mut dyn io::Write {
         match self {
             TextStream::File(f, _) => f,
             TextStream::Stdout(out) => out,
@@ -223,6 +224,14 @@ impl BoardToText {
                 format!("\n{}", res.result)
             }
         };
+        let repetitions = m.board_hist().num_repetitions(m.get_board().hash_pos());
+        let reps = if repetitions == 0 {
+            String::new()
+        } else if repetitions == 1 {
+            "Position occurred once before".to_string()
+        } else {
+            format!("Position occurred {repetitions} times before")
+        };
         let flipped = !m.active_player().is_first();
         if flipped {
             swap(&mut time_below, &mut time_above);
@@ -230,17 +239,29 @@ impl BoardToText {
         match self.typ {
             Pretty => {
                 let mut formatter = m.get_board().pretty_formatter(Some(CharType::Unicode), m.last_move(), opts);
-                format!("{time_above}{}{time_below}{game_result}", m.get_board().display_pretty(formatter.as_mut()))
+                format!(
+                    "{time_above}{}{time_below}{reps}{game_result}",
+                    m.get_board().display_pretty(formatter.as_mut())
+                )
             }
             PrettyAscii => {
                 let mut formatter = m.get_board().pretty_formatter(Some(CharType::Ascii), m.last_move(), opts);
-                format!("{time_above}{}{time_below}{game_result}", m.get_board().display_pretty(formatter.as_mut()))
+                format!(
+                    "{time_above}{}{time_below}{reps}{game_result}",
+                    m.get_board().display_pretty(formatter.as_mut())
+                )
             }
             Ascii => {
-                format!("{time_above}{}{time_below}{game_result}", m.get_board().as_diagram(CharType::Ascii, flipped))
+                format!(
+                    "{time_above}{}{time_below}{reps}{game_result}",
+                    m.get_board().as_diagram(CharType::Ascii, flipped, true)
+                )
             }
             Unicode => {
-                format!("{time_above}{}{time_below}{game_result}", m.get_board().as_diagram(CharType::Unicode, flipped))
+                format!(
+                    "{time_above}{}{time_below}{reps}{game_result}",
+                    m.get_board().as_diagram(CharType::Unicode, flipped, true)
+                )
             }
             Fen => m.get_board().as_fen(),
             Pgn => Self::match_to_pgn(m),
@@ -384,6 +405,7 @@ trait AbstractPrettyBoardPrinter {
     fn max_piece_width(&self) -> usize;
     fn fen(&self) -> String;
     fn side_to_move(&self) -> String;
+    fn is_first_active(&self) -> bool;
     fn settings_text(&self) -> Option<String>;
     fn formatter(&self) -> &dyn AbstractBoardFormatter;
 }
@@ -433,6 +455,10 @@ impl<'a, B: RectangularBoard> AbstractPrettyBoardPrinter for PrettyBoardPrinter<
         self.board.active_player().name(self.board.settings()).to_string()
     }
 
+    fn is_first_active(&self) -> bool {
+        self.board.active_player().is_first()
+    }
+
     fn settings_text(&self) -> Option<String> {
         self.board.settings().text()
     }
@@ -443,12 +469,18 @@ impl<'a, B: RectangularBoard> AbstractPrettyBoardPrinter for PrettyBoardPrinter<
     }
 }
 
-fn board_to_string_impl(printer: &dyn AbstractPrettyBoardPrinter, flip: bool, axes_format: AxesFormat) -> String {
+fn board_to_string_impl(
+    printer: &dyn AbstractPrettyBoardPrinter,
+    flip: bool,
+    axes_format: AxesFormat,
+    mark_active: bool,
+) -> String {
     use std::fmt::Write;
     let mut res = String::new();
     if let Some(text) = printer.settings_text() {
         res = format!("{text}\n");
     }
+    let active = if printer.is_first_active() != flip { 0 } else { printer.height() - 1 };
     for y in 0..printer.height() {
         let y = if flip { y } else { printer.height() - 1 - y };
         write!(&mut res, "{:>2} ", axes_format.ith_y_axis_entry(y, printer.height(), Some(2), flip)).unwrap();
@@ -463,6 +495,9 @@ fn board_to_string_impl(printer: &dyn AbstractPrettyBoardPrinter, flip: bool, ax
                 info.piece_char.to_string()
             };
             write!(&mut res, " {piece}").unwrap();
+        }
+        if y == active && mark_active {
+            write!(&mut res, " (*) ").unwrap();
         }
         res += "\n";
     }
@@ -480,9 +515,10 @@ pub fn board_to_string<B: RectangularBoard, F: Fn(B::Piece, CharType, &B::Settin
     piece_to_char: F,
     typ: CharType,
     request_flip: bool,
+    mark_active: bool,
 ) -> String {
     let printer = PrettyBoardPrinter { board: pos, print_type: Simple(&piece_to_char, typ) };
-    board_to_string_impl(&printer, request_flip, pos.axes_format())
+    board_to_string_impl(&printer, request_flip, pos.axes_format(), mark_active)
 }
 
 pub fn p1_color() -> colored::Color {
@@ -683,6 +719,14 @@ fn display_board_pretty_impl(printer: &dyn AbstractPrettyBoardPrinter, flip: boo
         res.push(line);
     }
     res.push(write_horizontal_bar(printer.get_height(), printer, &colors, flip, sq_width));
+
+    let last_row = res.len() - 2;
+    let (active, inactive) = if printer.is_first_active() { (1, last_row) } else { (last_row, 1) };
+    write!(&mut res[active], " (*) ").unwrap();
+    write!(&mut res[inactive], "     ").unwrap();
+    write!(&mut res[1], "{}", printer.formatter().hand(true)).unwrap();
+    write!(&mut res[last_row], "{}", printer.formatter().hand(false)).unwrap();
+
     if !flip {
         res.reverse();
     }
@@ -717,6 +761,8 @@ pub fn display_board_pretty<B: RectangularBoard>(pos: &B, fmt: &mut dyn BoardFor
 
 pub trait AbstractBoardFormatter {
     fn display_piece_rank_file(&self, rank: usize, file: usize, width: usize) -> String;
+
+    fn hand(&self, first_player: bool) -> String;
 
     fn frame_color_rank_file(&self, rank: usize, file: usize) -> Option<colored::Color>;
 
@@ -766,6 +812,25 @@ impl<B: RectangularBoard> AbstractBoardFormatter for DefaultBoardFormatter<B> {
         self.display_piece(B::Coordinates::from_rank_file(rank as DimT, file as DimT), width)
     }
 
+    fn hand(&self, first_player: bool) -> String {
+        let c = if first_player { B::Color::first() } else { B::Color::second() };
+        let mut hand = self.pos.hand(c);
+        if hand.next().is_none() {
+            return String::new();
+        }
+        let mut res = "[".dimmed().to_string();
+        for (count, piece) in self.pos.hand(c) {
+            let piece = piece.to_display_char(self.piece_to_char, self.pos.settings());
+            if count == 1 {
+                write!(&mut res, "{piece}").unwrap()
+            } else {
+                write!(&mut res, "{count}{piece}",).unwrap();
+            }
+        }
+        write!(&mut res, "{}", "]".dimmed()).unwrap();
+        res
+    }
+
     fn frame_color_rank_file(&self, rank: usize, file: usize) -> Option<colored::Color> {
         self.frame_color(B::Coordinates::from_rank_file(rank as DimT, file as DimT))
     }
@@ -804,7 +869,10 @@ impl<B: RectangularBoard> BoardFormatter<B> for DefaultBoardFormatter<B> {
             )
         };
         let Some(color) = piece.color() else {
-            return sq.dimmed().to_string();
+            if piece.is_empty() {
+                return sq.dimmed().to_string();
+            }
+            return sq.bold().to_string();
         };
         // some (but not all) terminals have trouble with colored bold symbols, and using `bold` would remove the color in some cases.
         // For some reason, only using the ansi color codes (.green(), .red(), etc) creates these problems, but true colors work fine
@@ -840,6 +908,10 @@ impl<B: Board> AbstractBoardFormatter for AdaptFormatter<B> {
     fn display_piece_rank_file(&self, rank: usize, file: usize, width: usize) -> String {
         let sq = B::Coordinates::from_x_y(rank, file);
         self.display_piece(sq, width)
+    }
+
+    fn hand(&self, first_player: bool) -> String {
+        self.underlying.hand(first_player)
     }
 
     fn frame_color_rank_file(&self, rank: usize, file: usize) -> Option<colored::Color> {

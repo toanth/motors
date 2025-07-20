@@ -24,7 +24,7 @@ use gears::games::chess::see::SeeScore;
 use gears::games::chess::squares::NUM_SQUARES;
 use gears::games::chess::zobrist::ZOBRIST_KEYS;
 use gears::games::chess::{ChessColor, Chessboard, MAX_CHESS_MOVES_IN_POS, unverified::UnverifiedChessboard};
-use gears::games::{BoardHistory, ZobristHistory, n_fold_repetition};
+use gears::games::{ZobristHistory, n_fold_repetition};
 use gears::general::bitboards::RawBitboard;
 use gears::general::board::Strictness::Strict;
 use gears::general::board::{BitboardBoard, UnverifiedBoard};
@@ -33,6 +33,7 @@ use gears::general::common::{Res, StaticallyNamedEntity, parse_int_from_str, sel
 use gears::general::move_list::InplaceMoveList;
 use gears::general::moves::{Move, UntrustedMove};
 use gears::itertools::Itertools;
+use gears::num::traits::WrappingAdd;
 use gears::score::{
     MAX_BETA, MAX_NORMAL_SCORE, MAX_SCORE_LOST, MIN_ALPHA, MIN_NORMAL_SCORE, NO_SCORE_YET, SCORE_LOST, ScoreT,
     game_result_to_score,
@@ -385,7 +386,7 @@ impl Engine<Chessboard> for Caps {
         self.original_board_hist.push(pos.hash_pos());
 
         let incomplete = self.iterative_deepening(&pos, soft_limit);
-        if incomplete {
+        if incomplete || self.output_minimal() {
             // send one final search info, but don't send empty PVs
             let mut pv = self.current_mpv_pv();
             if pv.is_empty() {
@@ -393,7 +394,7 @@ impl Engine<Chessboard> for Caps {
                 pv = self.cur_pv_data().pv.list.as_slice();
             }
             if !pv.is_empty() {
-                self.search_state().send_search_info();
+                self.search_state().send_search_info(true);
             }
         }
         self.search_result()
@@ -633,10 +634,10 @@ impl Caps {
             self.cur_pv_data_mut().beta = (pv_score + window_radius).min(MAX_BETA);
 
             if node_type == Exact {
-                self.send_search_info();
+                self.send_search_info(false);
                 return (true, true, Some(pv_score));
             } else if asp_start_time.elapsed().as_millis() >= 1000 {
-                self.send_search_info();
+                self.send_search_info(false);
             }
         }
     }
@@ -1448,6 +1449,11 @@ impl Caps {
             res.0,
             self.eval.eval(pos, ply, us)
         );
+        let res = if us == pos.active_player() {
+            res.wrapping_add(&self.params.contempt)
+        } else {
+            res.wrapping_add(&-self.params.contempt)
+        };
         res.clamp(MIN_NORMAL_SCORE, MAX_NORMAL_SCORE)
     }
 

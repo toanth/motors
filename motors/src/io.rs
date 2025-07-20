@@ -44,7 +44,7 @@ use gears::colored::Color::Red;
 use gears::colored::Colorize;
 use gears::games::CharType::Ascii;
 use gears::games::chess::UCI_CHESS960;
-use gears::games::{AbstractPieceType, Color, ColoredPiece, ColoredPieceType, OutputList};
+use gears::games::{AbstractPieceType, BoardHistDyn, Color, ColoredPiece, ColoredPieceType, OutputList};
 use gears::general::board::Strictness::{Relaxed, Strict};
 use gears::general::board::{Board, BoardHelpers, ColPieceTypeOf, Strictness, Symmetry, UnverifiedBoard};
 use gears::general::common::Description::{NoDescription, WithDescription};
@@ -64,7 +64,7 @@ use gears::output::pgn::parse_pgn;
 use gears::output::text_output::{AdaptFormatter, display_color};
 use gears::output::{Message, OutputBox, OutputBuilder, OutputOpts};
 use gears::rand::rng;
-use gears::score::Score;
+use gears::score::{Score, ScoreT};
 use gears::search::{DepthPly, SearchLimit, TimeControl};
 use gears::ugi::EngineOptionName::*;
 use gears::ugi::EngineOptionType::*;
@@ -92,6 +92,8 @@ use std::{fmt, fs};
 use strum::IntoEnumIterator;
 
 const DEFAULT_MOVE_OVERHEAD_MS: u64 = 50;
+const MIN_CONTEMPT: i64 = -1000;
+const MAX_CONTEMPT: i64 = 1000;
 
 // TODO: Ensure this conforms to <https://expositor.dev/uci/doc/uci-draft-1.pdf>
 
@@ -160,6 +162,10 @@ impl<B: Board> GameState<B> for EngineGameState<B> {
 
     fn game_name(&self) -> &str {
         &self.game_name
+    }
+
+    fn board_hist(&self) -> &dyn BoardHistDyn {
+        &self.board_hist
     }
 
     fn move_history(&self) -> &[B::Move] {
@@ -274,6 +280,7 @@ pub struct EngineUGI<B: Board> {
     strictness: Strictness,
     multi_pv: usize,
     allow_ponder: bool,
+    contempt: Score,
     respond_to_move: bool,
     failed_cmd: Option<String>,
 }
@@ -405,6 +412,7 @@ impl<B: Board> EngineUGI<B> {
             strictness: Relaxed,
             multi_pv: 1,
             allow_ponder: false,
+            contempt: Score(0),
             respond_to_move: true,
             failed_cmd: None,
         };
@@ -588,10 +596,15 @@ impl<B: Board> EngineUGI<B> {
             CurrlineNullmove => {
                 self.output().currline_null_moves = parse_bool_from_str(&value, "show nullmoves in `currline`")?;
             }
+            Minimal => self.output().minimal = parse_bool_from_str(&value, "minimal UCI output")?,
             Strictness => {
                 self.strictness = if parse_bool_from_str(&value, "strictness")? { Strict } else { Relaxed };
             }
             RespondToMove => self.respond_to_move = parse_bool_from_str(&value, "respond to move")?,
+            Contempt => {
+                self.contempt.0 =
+                    parse_int_from_str::<i64>(&value, "contempt")?.clamp(MIN_CONTEMPT, MAX_CONTEMPT) as ScoreT;
+            }
             SetEngine => {
                 self.handle_engine(&mut tokens(&value))?;
             }
@@ -784,7 +797,17 @@ impl<B: Board> EngineUGI<B> {
                     self.state.ponder_limit = None;
                     engine.send_stop(true); // aborts the pondering without printing a search result
                 }
-                engine.start_search(pos, opts.limit, hist, search_moves, opts.multi_pv, false, opts.threads, tt)?;
+                engine.start_search(
+                    pos,
+                    opts.limit,
+                    hist,
+                    search_moves,
+                    opts.multi_pv,
+                    false,
+                    opts.threads,
+                    tt,
+                    self.contempt,
+                )?;
             }
             SearchType::Ponder => {
                 if opts.engine_name.is_none() {
@@ -799,6 +822,7 @@ impl<B: Board> EngineUGI<B> {
                     true,
                     opts.threads,
                     tt,
+                    self.contempt,
                 )?;
             }
             _ => unreachable!("Bench and (Split)Perft should have already been handled"),
@@ -1137,6 +1161,7 @@ impl<B: Board> EngineUGI<B> {
                 UCIShowRefutations => Check(UgiCheck { val: self.output().show_refutation, default: Some(false) }),
                 UCIShowCurrLine => Check(UgiCheck { val: self.output().show_currline, default: Some(false) }),
                 CurrlineNullmove => Check(UgiCheck { val: self.output().show_currline, default: Some(true) }),
+                Minimal => Check(UgiCheck { val: self.output().minimal, default: Some(false) }),
                 MoveOverhead => Spin(UgiSpin {
                     val: self.move_overhead.as_millis() as i64,
                     default: Some(DEFAULT_MOVE_OVERHEAD_MS as i64),
@@ -1145,6 +1170,12 @@ impl<B: Board> EngineUGI<B> {
                 }),
                 Strictness => Check(UgiCheck { val: self.strictness == Strict, default: Some(false) }),
                 RespondToMove => Check(UgiCheck { val: self.respond_to_move, default: Some(true) }),
+                Contempt => Spin(UgiSpin {
+                    val: self.contempt.0 as i64,
+                    default: Some(0),
+                    min: Some(MIN_CONTEMPT),
+                    max: Some(MAX_CONTEMPT),
+                }),
                 SetEngine =>
                 // We would like to send long names, but unfortunately GUIs struggle with that
                 {
@@ -1910,10 +1941,21 @@ fn show_eval_pos<B: Board>(pos: &B, last: Option<B::Move>, eval: Box<dyn Eval<B>
 
 #[cold]
 fn handle_play_impl(ugi: &mut dyn AbstractEngineUgi, words: &mut Tokens) -> Res<()> {
-    let default = ugi.game_name();
-    let game_name = words.next().unwrap_or(default);
-    let game = select_game(game_name)?;
-    let mut opts = EngineOpts::for_game(game, ugi.debug_mode());
+    let Some(game_name) = words.next() else { bail!("Missing game name after '{}'", "play".bold()) };
+    let mut opts = match select_game(game_name) {
+        Ok(game) => EngineOpts::for_game(game, ugi.debug_mode()),
+        Err(err) => {
+            let (game, variant) = game_name.split_once('-').unwrap_or(("fairy", game_name));
+            let Ok(game) = select_game(game) else { return Err(err) };
+            let mut opts = EngineOpts::for_game(game, ugi.debug_mode());
+            opts.pos_name = Some(format!("{variant} startpos"));
+            ugi.write_message(
+                Warning,
+                &format_args!("There is no implementation of '{game_name}', falling back to {}", "fairy".bold()),
+            );
+            opts
+        }
+    };
     if let Some(word) = words.next() {
         opts.engine = word.to_string();
     }
@@ -2024,7 +2066,6 @@ mod tests {
     use crate::{list_chess_evals, list_chess_outputs, list_chess_searchers};
     use gears::cli::Game::Chess;
     use gears::create_selected_output_builders;
-    use gears::games::BoardHistory;
     use gears::games::chess::ChessColor::Black;
     use gears::games::chess::Chessboard;
     use gears::rand::prelude::SliceRandom;

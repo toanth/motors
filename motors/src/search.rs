@@ -11,7 +11,7 @@ use gears::arrayvec::ArrayVec;
 use gears::colored::Color::Red;
 use gears::colored::Colorize;
 use gears::dyn_clone::DynClone;
-use gears::games::{BoardHistory, ZobristHistory};
+use gears::games::{BoardHistDyn, ZobristHistory};
 use gears::general::board::Strictness::Relaxed;
 use gears::general::board::{Board, BoardHelpers};
 use gears::general::common::anyhow::bail;
@@ -421,8 +421,8 @@ pub trait Engine<B: Board>: StaticallyNamedEntity + Send + 'static {
 
     /// Returns a [`SearchInfo`] object with information about the search so far.
     /// Can be called during search, only returns the information regarding the current thread.
-    fn search_info(&self) -> SearchInfo<'_, B> {
-        self.search_state_dyn().to_search_info()
+    fn search_info(&self, final_info: bool) -> SearchInfo<'_, B> {
+        self.search_state_dyn().to_search_info(final_info)
     }
 
     /// Sets an option with the name 'option' to the value 'value'.
@@ -584,6 +584,7 @@ pub struct SearchParams<B: Board> {
     pub restrict_moves: Option<Vec<B::Move>>,
     // may be set to 0 if there are no legal moves
     pub num_multi_pv: usize,
+    pub contempt: Score,
 }
 
 impl<B: Board> SearchParams<B> {
@@ -602,7 +603,7 @@ impl<B: Board> SearchParams<B> {
         tt: TT,
         atomic: Arc<AtomicSearchState<B>>,
     ) -> Self {
-        Self::create(pos, limit, history, tt, None, 0, atomic, Auxiliary)
+        Self::create(pos, limit, history, tt, None, 0, Score(0), atomic, Auxiliary)
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -618,7 +619,7 @@ impl<B: Board> SearchParams<B> {
     ) -> Self {
         let atomic = Arc::new(AtomicSearchState::default());
         let thread_type = SearchThreadType::new_single_thread(output, info, atomic.clone());
-        Self::create(pos, limit, history, tt, restrict_moves, additional_pvs, atomic, thread_type)
+        Self::create(pos, limit, history, tt, restrict_moves, additional_pvs, Score(0), atomic, thread_type)
     }
 
     #[expect(clippy::too_many_arguments)]
@@ -629,10 +630,21 @@ impl<B: Board> SearchParams<B> {
         tt: TT,
         restrict_moves: Option<Vec<B::Move>>,
         additional_pvs: usize,
+        contempt: Score,
         atomic: Arc<AtomicSearchState<B>>,
         thread_type: SearchThreadType<B>,
     ) -> Self {
-        Self { pos, limit, atomic, history, tt, thread_type, restrict_moves, num_multi_pv: additional_pvs + 1 }
+        Self {
+            pos,
+            limit,
+            atomic,
+            history,
+            tt,
+            thread_type,
+            restrict_moves,
+            num_multi_pv: additional_pvs + 1,
+            contempt,
+        }
     }
 
     pub fn restrict_moves(mut self, moves: Vec<B::Move>) -> Self {
@@ -650,6 +662,11 @@ impl<B: Board> SearchParams<B> {
         self
     }
 
+    pub fn with_contempt(mut self, contempt: Score) -> Self {
+        self.contempt = contempt;
+        self
+    }
+
     pub fn auxiliary(&self, atomic: Arc<AtomicSearchState<B>>) -> Self {
         // allow calling this on an auxiliary thread as well
         //assert!(matches!(self.thread_type, Main(_)));
@@ -662,6 +679,7 @@ impl<B: Board> SearchParams<B> {
             thread_type: Auxiliary,
             restrict_moves: self.restrict_moves.clone(),
             num_multi_pv: self.num_multi_pv,
+            contempt: self.contempt,
         }
     }
 
@@ -796,11 +814,14 @@ pub trait AbstractSearchState<B: Board> {
     }
     fn pv_data(&self) -> &[PVData<B>];
     fn to_bench_res(&self) -> BenchResult;
-    fn to_search_info(&self) -> SearchInfo<B>;
+    fn to_search_info(&self, final_info: bool) -> SearchInfo<B>;
     fn aggregated_statistics(&self) -> Statistics;
-    fn send_search_info(&self);
+    fn send_search_info(&self, final_info: bool);
     fn should_show_debug_msg(&self) -> bool {
         self.search_params().thread_type.output().is_some_and(|o| o.show_debug_output)
+    }
+    fn output_minimal(&self) -> bool {
+        self.search_params().thread_type.output().is_some_and(|o| o.minimal)
     }
     fn send_non_ugi(&mut self, typ: Message, message: &fmt::Arguments) {
         if let Some(mut output) = self.search_params().thread_type.output() {
@@ -964,7 +985,7 @@ impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo<B>> AbstractSearchState<B> 
         }
     }
 
-    fn to_search_info(&self) -> SearchInfo<'_, B> {
+    fn to_search_info(&self, final_info: bool) -> SearchInfo<'_, B> {
         let mut res = SearchInfo {
             best_move_of_all_pvs: self.best_move(),
             iterations: self.iterations(),
@@ -981,6 +1002,7 @@ impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo<B>> AbstractSearchState<B> 
             bound: self.cur_pv_data().bound,
             num_threads: 1,
             additional: Self::additional(),
+            final_info,
         };
         if let Main(data) = &self.params.thread_type {
             let shared = data.shared_atomic_state();
@@ -995,9 +1017,9 @@ impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo<B>> AbstractSearchState<B> 
         self.aggregated_statistics.clone()
     }
 
-    fn send_search_info(&self) {
+    fn send_search_info(&self, final_info: bool) {
         if let Some(mut output) = self.search_params().thread_type.output() {
-            output.write_search_info(self.to_search_info());
+            output.write_search_info(self.to_search_info(final_info));
         }
     }
 

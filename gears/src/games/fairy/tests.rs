@@ -31,7 +31,7 @@ mod general {
     use crate::games::fairy::pieces::ColoredPieceId;
     use crate::games::fairy::{FairyBoard, FairyCastleInfo, FairyColor, FairyPiece, FairySquare};
     use crate::games::mnk::MNKBoard;
-    use crate::games::{AbstractPieceType, BoardHistory, Color, Height, NoHistory, Width, ZobristHistory, chess};
+    use crate::games::{AbstractPieceType, Color, Height, NoHistory, Width, ZobristHistory, chess, BoardHistDyn};
     use crate::general::bitboards::{Bitboard, RawBitboard};
     use crate::general::board::Strictness::{Relaxed, Strict};
     use crate::general::board::{BitboardBoard, Board, BoardHelpers, UnverifiedBoard};
@@ -371,6 +371,21 @@ mod general {
     }
 
     #[test]
+    fn simple_makruk_test() {
+        let pos =
+            FairyBoard::from_fen_for("makruk", "rnsmksnr/8/1pp1pppp/p2P4/8/PPPP1PPP/8/RNSKMSNR w - - 0 3", Strict)
+                .unwrap();
+        let pos = pos.make_move_from_str("d5c6m").unwrap();
+        assert_eq!(pos.fen_no_rules(), "rnsmksnr/8/1pM1pppp/p7/8/PPPP1PPP/8/RNSKMSNR b - - 0 3");
+        let pos = FairyBoard::from_fen("makruk 3N4/8/1M2P3/4k3/5n2/4K1m1/8/8 b - - 0 66", Strict).unwrap();
+        let mov = FairyMove::from_compact_text("f4e6", &pos).unwrap();
+        let pos = pos.make_move(mov).unwrap();
+        assert_eq!(pos.fen_no_rules(), "3N4/8/1M2n3/4k3/8/4K1m1/8/8 w - 64 0 67");
+        let pos = pos.make_move_from_str("d8e6").unwrap();
+        assert_eq!(pos.fen_no_rules(), "8/8/1M2N3/4k3/8/4K1m1/8/8 b - 64 1 67");
+    }
+
+    #[test]
     fn simple_shogi_test() {
         let pos = FairyBoard::variant_for("shogi", &mut tokens(""), USI).unwrap();
         assert_eq!(pos.fen_no_rules(), "lnsgkgsnl/1r5b1/ppppppppp/9/9/9/PPPPPPPPP/1B5R1/LNSGKGSNL b - 1");
@@ -425,6 +440,15 @@ mod general {
                 assert_eq!(perft_res.nodes, fairy_perft_res.nodes, "{i} {pos}");
             }
         }
+    }
+
+    #[test]
+    fn simple_droptaxx_test() {
+        let pos = FairyBoard::from_fen_for("droptaxx", "O5O/7/7/7/7/7/X5X x 1", Strict).unwrap();
+        let res = perft(DepthPly::new(3), pos.clone(), false);
+        assert_eq!(res.nodes, 85140);
+        let pos = pos.make_move_from_str("b6").unwrap();
+        assert_eq!(pos.as_fen(), "droptaxx X5O/1X5/7/7/7/7/X5X o 1")
     }
 
     #[test]

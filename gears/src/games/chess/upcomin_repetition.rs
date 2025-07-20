@@ -21,7 +21,7 @@ use crate::games::chess::moves::ChessMoveFlags::NormalMove;
 use crate::games::chess::pieces::ColoredChessPieceType;
 use crate::games::chess::squares::{ChessSquare, ChessboardSize};
 use crate::games::chess::zobrist::ZOBRIST_KEYS;
-use crate::games::{BoardHistory, ColoredPiece, ColoredPieceType, PosHash, ZobristHistory};
+use crate::games::{BoardHistDyn, ColoredPiece, ColoredPieceType, PosHash, ZobristHistory};
 use crate::general::bitboards::chessboard::ChessBitboard;
 use crate::general::bitboards::{Bitboard, RawBitboard};
 use crate::general::board::{BitboardBoard, Board};

@@ -80,6 +80,9 @@ where
     /// knight promotions in chess. Always returning `false` is a valid choice.
     fn is_tactical(self, board: &B) -> bool;
 
+    /// A human-readable and formatted description of this move, e.g. 'move the white knight from g1 to f3'
+    fn description(self, board: &B) -> String;
+
     /// Compact text representation is used by UGI, e.g. for chess it's `<to><from><promo_piece_if_present>`.
     /// Takes a [`Board`] parameter because some move types may not store enough information to be printed in a human-readable
     /// way without that.
@@ -91,7 +94,13 @@ where
 
     /// Returns a longer representation of the move that may require the board, such as long algebraic notation
     /// Implementations of this trait *may* choose to ignore the board and to not require pseudolegality.
-    fn format_extended(self, f: &mut Formatter<'_>, board: &B, _format: ExtendedFormat) -> fmt::Result {
+    fn format_extended(
+        self,
+        f: &mut Formatter<'_>,
+        board: &B,
+        _format: ExtendedFormat,
+        _all_legals: Option<&[B::Move]>,
+    ) -> fmt::Result {
         self.format_compact(f, board)
     }
 
@@ -102,13 +111,20 @@ where
 
     /// Returns a formatter object that implements `Display` such that it prints the result of `to_extended_text`.
     /// Like [`self.format_extended`], an implementation *may* choose to not require pseudolegality.
-    fn extended_formatter(self, pos: &B, format: ExtendedFormat) -> ExtendedFormatter<'_, B> {
-        ExtendedFormatter { pos, mov: self, format }
+    /// Takes an optional list of all legal moves because formatting extended text often requires generating all legal moves,
+    /// which would make formatting all legal moves an O(n^2) operation if each move recomputed that.
+    fn extended_formatter<'a>(
+        self,
+        pos: &'a B,
+        format: ExtendedFormat,
+        all_legals: Option<&'a [B::Move]>,
+    ) -> ExtendedFormatter<'a, B> {
+        ExtendedFormatter { pos, mov: self, format, all_legals }
     }
 
     /// A convenience method based on `format_extended` that returns a `String`.
     fn to_extended_text(self, board: &B, format: ExtendedFormat) -> String {
-        self.extended_formatter(board, format).to_string()
+        self.extended_formatter(board, format, None).to_string()
     }
 
     /// Parse a compact text representation emitted by `to_compact_text`, such as the one used by UCI.
@@ -188,6 +204,7 @@ impl<B: Board> Display for CompactFormatter<'_, B> {
 pub struct ExtendedFormatter<'a, B: Board> {
     pos: &'a B,
     mov: B::Move,
+    all_legals: Option<&'a [B::Move]>,
     format: ExtendedFormat,
 }
 
@@ -196,7 +213,7 @@ impl<B: Board> Display for ExtendedFormatter<'_, B> {
         if self.mov == B::Move::default() {
             write!(f, "0000")
         } else {
-            self.mov.format_extended(f, self.pos, self.format)
+            self.mov.format_extended(f, self.pos, self.format, self.all_legals)
         }
     }
 }

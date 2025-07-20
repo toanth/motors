@@ -195,7 +195,7 @@ impl TypeErasedUgiOutput {
         let mut time = info.time.as_secs_f64();
         let nodes = info.nodes.get();
         let diff_string = if let Some(prev) = &self.previous_exact_info {
-            write_with_suffix(info.nodes.get() - prev.nodes.get(), !important)
+            write_with_suffix(info.nodes.get().saturating_sub(prev.nodes.get()), !important)
         } else {
             " ".repeat(8)
         };
@@ -294,6 +294,7 @@ pub struct UgiOutput<B: Board> {
     pub show_currline: bool,
     pub currline_null_moves: bool,
     pub show_debug_output: bool,
+    pub minimal: bool,
 }
 
 impl<B: Board> Default for UgiOutput<B> {
@@ -307,6 +308,7 @@ impl<B: Board> Default for UgiOutput<B> {
             currline_null_moves: true,
             top_moves: vec![],
             show_debug_output: false,
+            minimal: false,
         }
     }
 }
@@ -350,11 +352,11 @@ impl<B: Board> UgiOutput<B> {
     }
 
     fn can_show_currline(&mut self) -> bool {
-        self.show_currline || self.type_erased.pretty
+        (self.show_currline || self.type_erased.pretty) & !self.minimal
     }
 
     fn can_show_refutation(&mut self) -> bool {
-        self.show_refutation || self.type_erased.pretty
+        (self.show_refutation || self.type_erased.pretty) & !self.minimal
     }
 
     pub fn write_currmove(&mut self, pos: &B, mov: B::Move, move_nr: usize, score: Score, alpha: Score, beta: Score) {
@@ -394,15 +396,15 @@ impl<B: Board> UgiOutput<B> {
         let num_legal = pos.num_legal_moves();
         let variation = variation.collect_vec();
         let (variation, end_pos) = pretty_variation(&variation, pos.clone(), None, None, Exact);
-        let end_pos = end_pos.as_diagram(Unicode, false);
-        let root_pos = pos.as_diagram(Unicode, false);
+        let end_pos = end_pos.as_diagram(Unicode, false, false);
+        let root_pos = pos.as_diagram(Unicode, false, false);
         let mut top_moves = "\nTop moves: ".to_string();
         for (i, (m, score)) in self.top_moves.iter().enumerate() {
             let score = pretty_score(*score, None, None, &self.type_erased.gradient, false, false);
             if i > 0 {
                 write!(top_moves, ", ").unwrap();
             }
-            write!(top_moves, "{0} [{score}]", m.extended_formatter(pos, Standard)).unwrap();
+            write!(top_moves, "{0} [{score}]", m.extended_formatter(pos, Standard, None)).unwrap();
         }
         let top_moves = if self.top_moves.is_empty() { None } else { Some(top_moves.as_ref()) };
         _ = self.type_erased.show_bar(
@@ -431,6 +433,9 @@ impl<B: Board> UgiOutput<B> {
     }
 
     pub fn write_search_info(&mut self, mut info: SearchInfo<B>) {
+        if self.minimal && !info.final_info {
+            return;
+        }
         if !self.type_erased.pretty {
             self.write_ugi(&format_args!("{info}"));
             return;
@@ -455,7 +460,8 @@ impl<B: Board> UgiOutput<B> {
         if mpv_type != SecondaryLine && info.bound == Some(Exact) {
             self.type_erased.previous_exact_info = Some(info);
             self.previous_exact_pv = Some(pv.into());
-            self.type_erased.previous_exact_pv_end_pos = Some((end_pos.as_diagram(Unicode, false), end_pos.as_fen()));
+            self.type_erased.previous_exact_pv_end_pos =
+                Some((end_pos.as_diagram(Unicode, false, false), end_pos.as_fen()));
         }
     }
 
