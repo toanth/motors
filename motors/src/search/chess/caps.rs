@@ -1485,10 +1485,11 @@ impl Caps {
             - ((score_diff.0 + 1).ilog2() * cc::hist_malus_eval_diff()) as HistScoreT;
         let pos = &entry.pos;
         let threats = pos.threats();
+        // always give a malus to tried tactical moves, even if the move was quiet
+        for disappointing in entry.tried_moves.iter().dropping_back(1).filter(|m| m.is_tactical(pos)) {
+            self.state.custom.capt_hist.update(*disappointing, pos, malus);
+        }
         if mov.is_tactical(pos) {
-            for disappointing in entry.tried_moves.iter().dropping_back(1).filter(|m| m.is_tactical(pos)) {
-                self.state.custom.capt_hist.update(*disappointing, pos, malus);
-            }
             self.state.custom.capt_hist.update(mov, pos, bonus);
             return;
         }
