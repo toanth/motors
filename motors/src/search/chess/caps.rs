@@ -16,6 +16,7 @@ use crate::search::statistics::SearchType::{MainSearch, Qsearch};
 use crate::search::tt::{TTEntry, ttc};
 use crate::search::*;
 use crate::send_debug_msg;
+use gears::PlayerResult;
 use gears::PlayerResult::{Lose, Win};
 use gears::arrayvec::ArrayVec;
 use gears::games::chess::moves::ChessMove;
@@ -34,8 +35,8 @@ use gears::general::move_list::InplaceMoveList;
 use gears::general::moves::{Move, UntrustedMove};
 use gears::itertools::Itertools;
 use gears::score::{
-    MAX_BETA, MAX_NORMAL_SCORE, MAX_SCORE_LOST, MIN_ALPHA, MIN_NORMAL_SCORE, NO_SCORE_YET, SCORE_LOST, ScoreT,
-    game_result_to_score,
+    BITBASE_LOSS, BITBASE_WIN, MAX_BETA, MAX_NORMAL_SCORE, MAX_SCORE_LOST, MIN_ALPHA, MIN_NORMAL_SCORE, NO_SCORE_YET,
+    SCORE_LOST, ScoreT, game_result_to_score,
 };
 use gears::search::NodeType::*;
 use gears::search::*;
@@ -239,6 +240,7 @@ impl Engine<Chessboard> for Caps {
 
     fn with_eval(eval: Box<dyn Eval<Chessboard>>) -> Self {
         Chessboard::force_init_upcoming_repetition_table();
+        Chessboard::force_init_bitbase();
         Self { state: SearchState::new(DepthPly::new(SEARCH_STACK_LEN)), eval }
     }
 
@@ -606,7 +608,7 @@ impl Caps {
                             pv.len(),
                             self.uci_nodes()
                         ),
-                        // We don't clear the PV on a fail low node so that we can still send a useful info
+                        // We don't clear the PV on a fail low node so that we can still send a useful info line
                         FailLow => {
                             debug_assert_eq!(0, pv.len());
                         }
@@ -1428,7 +1430,7 @@ impl Caps {
 
     fn eval(&mut self, pos: &Chessboard, ply: usize) -> Score {
         let us = self.params.pos.active_player();
-        let res = if ply == 0 {
+        let score = if ply == 0 {
             self.eval.eval(pos, 0, us)
         } else {
             let old_pos = &self.state.search_stack[ply - 1].pos;
@@ -1439,12 +1441,21 @@ impl Caps {
         };
         // the score must not be in the mate score range unless the position includes too many pieces
         debug_assert!(
-            !res.is_won_or_lost() || UnverifiedChessboard::new(*pos).verify(Strict).is_err(),
-            "{res} {0} {1}, {pos}",
-            res.0,
+            !score.is_won_or_lost() || UnverifiedChessboard::new(*pos).verify(Strict).is_err(),
+            "{score} {0} {1}, {pos}",
+            score.0,
             self.eval.eval(pos, ply, us)
         );
-        res.clamp(MIN_NORMAL_SCORE, MAX_NORMAL_SCORE)
+        let score = score.clamp(MIN_NORMAL_SCORE, MAX_NORMAL_SCORE);
+        if let Some(res) = Chessboard::query_bitbase(pos) {
+            // because it's not useful to return the same won/lost score on all nodes, we interpolate with the static eval
+            return match res {
+                Win => (score + BITBASE_WIN) / 2,
+                Lose => (score + BITBASE_LOSS) / 2,
+                PlayerResult::Draw => Score(0),
+            };
+        }
+        score
     }
 
     fn update_continuation_hist(
