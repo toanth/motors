@@ -355,7 +355,7 @@ impl Board for AtaxxBoard {
     }
 
     fn has_no_legal_moves(&self) -> bool {
-        (self.active_player_bb().extended_moore_neighbors(2) & self.empty_bb()).is_zero()
+        (self.active_player_bb().extended_moore_neighborhood(2) & self.empty_bb()).is_zero()
     }
 
     fn random_legal_move<R: Rng>(&self, rng: &mut R) -> Option<Self::Move> {
@@ -387,7 +387,7 @@ impl Board for AtaxxBoard {
         let color = self.active_player;
         if self.color_bb(color).is_zero() {
             return Some(Lose);
-        } else if (self.color_bb(!color).extended_moore_neighbors(2) & self.empty_bb()).has_set_bit() {
+        } else if (self.color_bb(!color).extended_moore_neighborhood(2) & self.empty_bb()).has_set_bit() {
             if self.ply_100_ctr >= 100 {
                 // losing on the 50mr threshold counts as losing, so we only test this if we'd otherwise continue playing
                 return Some(Draw);

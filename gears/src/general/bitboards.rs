@@ -529,19 +529,29 @@ pub trait Bitboard<R: RawBitboard, C: RectangularCoordinates>:
         self.west().north()
     }
 
-    /// Includes the bitboard itself
+    /// Includes the bitboard itself.
+    /// Also see [`chessboard::KINGS`] for precomputed attacks (without the source square) of a single square on a 8x8 board
     #[inline]
-    fn moore_neighbors(self) -> Self {
+    fn moore_inclusive(self) -> Self {
         let line = self | self.west() | self.east();
         line | line.north() | line.south()
     }
 
-    /// Include the bitboard itself
+    /// Like [`Self::moore_inclusive`], but doesn't include the bitboard itself unless it's a moore neighbor of another bit.
+    /// Also see [`chessboard::KINGS`] for precomputed attacks of a single square on a 8x8 board
     #[inline]
-    fn extended_moore_neighbors(self, radius: usize) -> Self {
+    fn moore_exclusive(self) -> Self {
+        let east_west = self.west() | self.east();
+        let north_south = self.north() | self.south();
+        east_west | north_south | east_west.north() | east_west.south()
+    }
+
+    /// Includes the bitboard itself
+    #[inline]
+    fn extended_moore_neighborhood(self, radius: usize) -> Self {
         let mut res = self;
         for _ in 0..radius {
-            res = res.moore_neighbors();
+            res = res.moore_inclusive();
         }
         res
     }
@@ -666,7 +676,6 @@ pub trait KnownSizeBitboard<R: RawBitboard, C: RectangularCoordinates<Size: Know
 }
 
 #[derive(
-    Debug,
     Default,
     Copy,
     Clone,
@@ -690,6 +699,12 @@ pub trait KnownSizeBitboard<R: RawBitboard, C: RectangularCoordinates<Size: Know
     ShrAssign,
 )]
 pub struct SmallGridBitboard<const H: usize, const W: usize>(pub RawStandardBitboard);
+
+impl<const H: usize, const W: usize> Debug for SmallGridBitboard<H, W> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        write!(f, "SmallGridBitboard<{H},{W}>({:#x})", self.0)
+    }
+}
 
 impl<const H: usize, const W: usize> SmallGridBitboard<H, W> {
     pub const A_FILE: Self = Self::new(0x0101_0101_0101_0101);
@@ -1219,7 +1234,7 @@ mod tests {
                 | (1 << i);
             assert_eq!(
                 neighbors,
-                DynamicallySizedBitboard::<u128, GridCoordinates>::new(1 << i, size).moore_neighbors().raw
+                DynamicallySizedBitboard::<u128, GridCoordinates>::new(1 << i, size).moore_inclusive().raw
             );
         }
     }

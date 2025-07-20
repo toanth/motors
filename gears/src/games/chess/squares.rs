@@ -1,5 +1,6 @@
 use crate::games::DimT;
 use crate::general::squares::{SmallGridSize, SmallGridSquare};
+use std::str::FromStr;
 
 pub const NUM_ROWS: usize = 8;
 pub const NUM_COLUMNS: usize = 8;
@@ -14,5 +15,9 @@ pub const G_FILE_NUM: DimT = 6;
 pub const H_FILE_NUM: DimT = 7;
 
 pub type ChessboardSize = SmallGridSize<8, 8>;
+
+pub fn sq(text: &str) -> ChessSquare {
+    ChessSquare::from_str(text).unwrap()
+}
 
 pub type ChessSquare = SmallGridSquare<8, 8, 8>;

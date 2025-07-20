@@ -48,6 +48,7 @@ use crate::output::text_output::{
 use crate::score::PhaseType;
 use crate::search::DepthPly;
 
+pub mod bitbase;
 pub mod castling;
 mod movegen;
 pub mod moves;
@@ -56,7 +57,7 @@ pub mod pieces;
 pub mod see;
 pub mod squares;
 pub mod unverified;
-mod upcomin_repetition;
+mod upcoming_repetition;
 pub mod zobrist;
 
 /// This is the only global variable in the entire program, and it is only set when reading a `setoption name UCI_Chess960`.
@@ -789,10 +790,8 @@ impl Chessboard {
         self.ply_100_ctr >= 100 && !self.is_checkmate_slow()
     }
 
-    /// Note that this function isn't entire correct according to the FIDE rules because it doesn't check for legality,
-    /// so a position with a possible pseudolegal but illegal en passant move would be considered different from
-    /// its repetition, where the en passant move wouldn't be possible
-    /// TODO: Only set the ep square if there are legal en passants possible
+    /// Note that this function doesn't encode FIDE rules, which are more complicated than "position repeats again => draw",
+    /// and are also not used in engine chess
     pub fn is_3fold_repetition<H: BoardHistory>(&self, history: &H) -> bool {
         // There's no need to test if the repetition is a checkmate, because checkmate positions can't repeat
         n_fold_repetition(3, history, self.hash_pos(), self.ply_draw_clock())
@@ -801,14 +800,14 @@ impl Chessboard {
     /// Check if the current position is a checkmate.
     /// This requires calculating all legal moves and seeing if the side to move is in check.
     pub fn is_stalemate_slow(&self) -> bool {
-        !self.is_in_check() && self.legal_moves_slow().is_empty()
+        !self.is_in_check() && self.has_no_legal_moves()
     }
 
     /// Check if the current position is a checkmate.
     /// This requires calculating all legal moves and seeing if the side to move is in check.
     pub fn is_checkmate_slow(&self) -> bool {
         // test `is_in_check()` first because it's faster and a precondition for generating legal moves
-        self.is_in_check() && self.legal_moves_slow().is_empty()
+        self.is_in_check() && self.has_no_legal_moves()
     }
 
     pub fn has_insufficient_material(&self) -> bool {

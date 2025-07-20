@@ -9,7 +9,8 @@ use arbitrary::Arbitrary;
 use colored::Colorize;
 use std::cmp::max;
 use std::fmt;
-use std::fmt::{Display, Formatter};
+use std::fmt::{Debug, Display, Formatter};
+use std::iter::FusedIterator;
 use std::ops::{Index, IndexMut};
 use std::str::FromStr;
 
@@ -259,7 +260,7 @@ impl<const H: usize, const W: usize, const INTERNAL_WIDTH: usize> Size<SmallGrid
     }
 
     fn valid_coordinates(self) -> impl Iterator<Item = SmallGridSquare<H, W, INTERNAL_WIDTH>> {
-        SmallGridSquare::iter()
+        SmallGridSquare::iter_()
     }
 
     fn coordinates_valid(self, coordinates: SmallGridSquare<H, W, INTERNAL_WIDTH>) -> bool {
@@ -306,10 +307,16 @@ pub enum SquareColor {
 // Ideally, there would be an alias setting `INTERNAL_WIDTH` or a default parameter for `INTERNAL_WIDTH` to `max(8, W)`,
 // but both of those things aren't possible in stable Rust.
 /// A square of a board with at most 255 squares, and some reasonable restrictions on side length (e.g. not 255x1)  .
-#[derive(Default, Debug, Eq, PartialEq, Copy, Clone, Hash, Arbitrary)]
+#[derive(Default, Eq, PartialEq, Copy, Clone, Hash, Arbitrary)]
 #[must_use]
 pub struct SmallGridSquare<const H: usize, const W: usize, const INTERNAL_WIDTH: usize> {
     idx: u8,
+}
+
+impl<const H: usize, const W: usize, const INTERNAL_WIDTH: usize> Debug for SmallGridSquare<H, W, INTERNAL_WIDTH> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        write!(f, "SmallGridSquare<{H},{W},{INTERNAL_WIDTH}>({})", self.to_grid_coordinates())
+    }
 }
 
 impl<const H: usize, const W: usize, const INTERNAL_WIDTH: usize> FromStr for SmallGridSquare<H, W, INTERNAL_WIDTH> {
@@ -426,13 +433,19 @@ impl<const H: usize, const W: usize, const INTERNAL_WIDTH: usize> SmallGridSquar
         rank == 1 || rank == H as DimT - 2
     }
 
-    pub fn iter() -> impl Iterator<Item = Self> {
+    pub fn iter_() -> impl Iterator<Item = Self> + FusedIterator {
         (0..H).flat_map(|i| (INTERNAL_WIDTH * i)..(INTERNAL_WIDTH * i + W)).map(Self::from_bb_idx)
     }
 
     // Ideally, no_coordinates shouldn't be necessary, but sadly there's no `NonMaxU8` (except for a crate that xors U8::MAX on every access)
     pub const fn no_coordinates_const() -> Self {
         Self::unchecked(H * INTERNAL_WIDTH)
+    }
+}
+
+impl<const H: usize, const W: usize> SmallGridSquare<H, W, W> {
+    pub fn iter() -> impl Iterator<Item = Self> + DoubleEndedIterator + ExactSizeIterator + FusedIterator {
+        (0..(H * W)).map(Self::from_bb_idx)
     }
 }
 
@@ -444,7 +457,7 @@ impl<const H: usize, const W: usize> SmallGridSquare<H, W, 8> {
 
 impl<const H: usize, const W: usize, const INTERNAL_WIDTH: usize> Display for SmallGridSquare<H, W, INTERNAL_WIDTH> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        self.to_grid_coordinates().fmt(f)
+        write!(f, "{}", self.to_grid_coordinates())
     }
 }
 

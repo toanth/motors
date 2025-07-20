@@ -683,7 +683,7 @@ impl FairyBoard {
             CheckingAttack::Capture => self.capturing_attack_bb_of(them),
             CheckingAttack::NoRoyalAdjacent => {
                 let their_royals = royals & self.player_bb(them);
-                if (their_royals & our_royals.moore_neighbors()).has_set_bit() {
+                if (their_royals & our_royals.moore_inclusive()).has_set_bit() {
                     return self.zero_bitboard();
                 }
                 self.capturing_attack_bb_of(them)

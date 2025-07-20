@@ -7,6 +7,10 @@ edition = "2024"
 name = "perft_bench"
 harness = false
 
+[[bench]]
+name = "bitbase_bench"
+harness = false
+
 [dev-dependencies]
 criterion = "0.5.1"
 proptest = "1.6.0"
@@ -34,6 +38,7 @@ anyhow = "1.0.96"
 crossterm = "0.28.1"
 colorgrad = "0.7.0"
 rayon = "1.10.0"
+bitvec = "1.0.1"
 # removing the regex dependency by replacing the single instance of using a regex improved compile times from ~30 to ~20 seconds
 
 [features]

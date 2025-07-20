@@ -53,7 +53,7 @@ impl AtaxxBoard {
         let pieces = self.active_player_bb();
         let empty = self.empty_bb();
         // TODO: Use precomputed table
-        let neighbors = pieces.moore_neighbors() & empty;
+        let neighbors = pieces.moore_inclusive() & empty;
         for sq in neighbors.ones() {
             moves.add_move(AtaxxMove::cloning(sq));
         }
@@ -68,7 +68,7 @@ impl AtaxxBoard {
             // if the other player doesn't have any legal moves, the game is over.
             // return an empty move list in that case so that the user can pick up on this
             // otherwise, the only legal move is the passing move
-            if (other_bb.extended_moore_neighbors(2) & empty).has_set_bit() {
+            if (other_bb.extended_moore_neighborhood(2) & empty).has_set_bit() {
                 moves.add_move(AtaxxMove::default());
             }
         }
@@ -77,7 +77,7 @@ impl AtaxxBoard {
     pub(super) fn num_moves(&self) -> usize {
         let pieces = self.active_player_bb();
         let empty = self.empty_bb();
-        let mut res = (pieces.moore_neighbors() & empty).num_ones();
+        let mut res = (pieces.moore_inclusive() & empty).num_ones();
         for source in pieces.ones() {
             let leaps = AtaxxBitboard::new(ATAXX_LEAPERS[source.bb_idx()].raw()) & empty;
             res += leaps.num_ones();
@@ -85,7 +85,7 @@ impl AtaxxBoard {
         if res == 0 && pieces.has_set_bit() {
             // if the other player doesn't have any legal moves, the game is over.
             // otherwise, the only legal move is the passing move
-            if (self.inactive_player_bb().extended_moore_neighbors(2) & empty).has_set_bit() {
+            if (self.inactive_player_bb().extended_moore_neighborhood(2) & empty).has_set_bit() {
                 return 1;
             }
         }
@@ -137,7 +137,7 @@ impl AtaxxBoard {
         }
         let pieces = self.active_player_bb();
         if mov.typ() == Cloning {
-            pieces.moore_neighbors().is_bit_set_at(mov.dest_square().bb_idx())
+            pieces.moore_inclusive().is_bit_set_at(mov.dest_square().bb_idx())
         } else {
             let source = AtaxxSquare::unchecked(mov.source as usize);
             pieces.is_bit_set_at(mov.source as usize) && sup_distance(source, mov.dest_square()) == 2

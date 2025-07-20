@@ -200,7 +200,7 @@ impl SquareFilter {
             }
             SquareFilter::Rank(rank) => FairyBitboard::rank_for(*rank, pos.size()),
             // AttackBitboardFilter::File(file) => FairyBitboard::file_for(file, pos.size()),
-            SquareFilter::Neighbor(nested) => nested.bb(us, pos).moore_neighbors(),
+            SquareFilter::Neighbor(nested) => nested.bb(us, pos).moore_exclusive(),
             SquareFilter::InDirectionOf(nested, dir) => dir.shift(nested.bb(us, pos)),
             SquareFilter::SameFile(cond) => cond.bb(us, pos).files_containing(),
             SquareFilter::SameRow(cond) => cond.bb(us, pos).ranks_containing(),
@@ -505,7 +505,7 @@ pub(super) struct EmptyBoard(Box<dyn Fn(&RulesRef) -> UnverifiedFairyBoard + Sen
 
 impl Debug for EmptyBoard {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        write!(f, "EmptyBoardFn")
+        f.debug_tuple("EmptyBoard").finish_non_exhaustive()
     }
 }
 

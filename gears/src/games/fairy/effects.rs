@@ -338,7 +338,7 @@ pub struct Observers {
 
 impl Debug for Observers {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Observers")
+        f.debug_tuple("Observers").finish_non_exhaustive()
     }
 }
 
@@ -360,7 +360,7 @@ impl Observers {
         let explosion = move |event: Capture, pos: &mut FairyBoard| {
             let bb = FairyBitboard::single_piece_for(event.square, pos.size());
             // Could use precomputed king attacks for this
-            let bb = (bb | (bb.moore_neighbors() & !pos.piece_bb(pawn))).raw();
+            let bb = (bb | (bb.moore_inclusive() & !pos.piece_bb(pawn))).raw();
             pos.emit(RemoveAll { bb })
         };
         res.capture.push(Box::new(explosion));
@@ -417,7 +417,7 @@ impl Observers {
         let place_piece_fn = |event: PlaceSinglePiece, pos: &mut FairyBoard| {
             let bb = FairyBitboard::single_piece_for(event.square, pos.size());
             // Could use precomputed attacks for this
-            let bb = bb.moore_neighbors().raw();
+            let bb = bb.moore_inclusive().raw();
             pos.emit(ConvertAll { bb })
         };
         res.place_single_piece.push(Box::new(place_piece_fn));

@@ -368,7 +368,7 @@ fn effects_for(mov: FairyMove, pos: &mut FairyBoard, r: EffectRules) -> Option<(
         }
     }
     if r.conversion_radius > 0 {
-        let bb = FairyBitboard::single_piece_for(to, pos.size()).extended_moore_neighbors(r.conversion_radius);
+        let bb = FairyBitboard::single_piece_for(to, pos.size()).extended_moore_neighborhood(r.conversion_radius);
         SetColorTo(bb.raw(), pos.active_player()).apply(pos);
     }
     let piece_rules = &pos.rules().pieces[piece.uncolor().val()];
