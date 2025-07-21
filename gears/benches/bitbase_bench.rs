@@ -17,7 +17,6 @@
  */
 use criterion::{Criterion, black_box, criterion_group, criterion_main};
 use gears::games::chess::bitbase::calc_pawn_vs_king;
-use std::time::Duration;
 
 pub fn calc_pawn_vs_king_bench(c: &mut Criterion) {
     c.bench_function("calc bitbase", |b| {
@@ -26,10 +25,5 @@ pub fn calc_pawn_vs_king_bench(c: &mut Criterion) {
 }
 
 criterion_group!(bitbase_benches, calc_pawn_vs_king_bench);
-// criterion_group! {
-//     name = bitbase_benches;
-//     config = Criterion::default().measurement_time(Duration::from_secs(10)).noise_threshold(0.03);
-//     targets = calc_pawn_vs_king_bench,
-// }
 
 criterion_main!(bitbase_benches);

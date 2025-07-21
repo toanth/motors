@@ -75,12 +75,12 @@ fn calc_pawn_vs_king_impl() -> FullBitbase {
         }
     }
 
-    let mut changed;
-    loop {
-        for w_pawn in ChessSquare::iter().rev() {
-            if w_pawn.is_backrank() || w_pawn.file() >= 4 {
-                continue;
-            }
+    for w_pawn in ChessSquare::iter().rev() {
+        if w_pawn.is_backrank() || w_pawn.file() >= 4 {
+            continue;
+        }
+        let mut changed;
+        loop {
             for w_king in ChessSquare::iter() {
                 assert_eq!(res[Black][idx_full(w_pawn, w_king)] & w_pawn.bb(), ChessBitboard::default());
                 let mut won = ChessBitboard::default();
@@ -100,9 +100,7 @@ fn calc_pawn_vs_king_impl() -> FullBitbase {
                 res[White][i] = won & !w_pawn.bb() & !invalid[i];
                 debug_assert_eq!(res[White][i] & invalid[i], ChessBitboard::default());
             }
-        }
-        changed = false;
-        for w_pawn in ChessSquare::iter() {
+            changed = false;
             if w_pawn.is_backrank() || w_pawn.file() >= 4 {
                 continue;
             }
@@ -115,9 +113,9 @@ fn calc_pawn_vs_king_impl() -> FullBitbase {
                 changed |= res[Black][i] != white_win_btm;
                 res[Black][i] = white_win_btm;
             }
-        }
-        if !changed {
-            break;
+            if !changed {
+                break;
+            }
         }
     }
     res

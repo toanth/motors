@@ -1867,7 +1867,7 @@ mod tests {
             let score = res.score;
             println!(
                 "chosen move {0}, fen {1}, iters {2} seldepth {3}, time {4}ms",
-                res.chosen_move.extended_formatter(&pos, Standard),
+                res.chosen_move.extended_formatter(&pos, Standard, None),
                 pos.as_fen(),
                 engine.iterations(),
                 engine.seldepth(),
