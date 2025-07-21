@@ -16,11 +16,11 @@
  *  along with Gears. If not, see <https://www.gnu.org/licenses/>.
  */
 use crate::games::fairy::moves::FairyMove;
-use crate::games::fairy::pieces::{ColoredPieceId, PieceId, SHOGI_PAWN_IDX};
+use crate::games::fairy::pieces::{ColoredPieceId, PAWN_IDX, PieceId};
 use crate::games::fairy::rules::GameEndEager;
-use crate::games::fairy::{FairyBitboard, FairyBoard, FairyColor, FairySquare, RawFairyBitboard, Side};
+use crate::games::fairy::{AdditionalCtrT, FairyBitboard, FairyBoard, FairyColor, FairySquare, RawFairyBitboard, Side};
 use crate::games::{ColoredPieceType, NoHistory};
-use crate::general::bitboards::Bitboard;
+use crate::general::bitboards::{Bitboard, RawBitboard};
 use crate::general::board::{Board, UnverifiedBoard};
 use arbitrary::{Arbitrary, Unstructured};
 use std::fmt::Debug;
@@ -105,7 +105,7 @@ pub struct AddPieceToHand {
 }
 
 #[derive(Debug, Copy, Clone)]
-#[allow(dead_code)]
+/// Emitted after a capture has taken place
 pub struct Capture {
     pub square: FairySquare,
     pub captured: ColoredPieceId,
@@ -123,10 +123,11 @@ pub struct ConvertOne {
     pub square: FairySquare,
 }
 
-// by default, this doesn't create `ConvertOne` events (though this can be set up though an observer, of course)
+// by default, this doesn't create `ConvertOne` events (though this can be set up through an observer, of course)
 #[derive(Debug, Copy, Clone)]
 pub struct ConvertAll {
     pub bb: RawFairyBitboard,
+    pub to: FairyColor,
 }
 
 #[derive(Debug, Copy, Clone)]
@@ -270,8 +271,9 @@ impl Event for Promote {
 
 impl Event for ConvertAll {
     fn execute(self, pos: &mut FairyBoard) {
-        pos.0.color_bitboards[0] ^= self.bb;
-        pos.0.color_bitboards[1] ^= self.bb;
+        let bb = pos.color_bitboards[!self.to] & self.bb;
+        pos.0.color_bitboards[0] ^= bb;
+        pos.0.color_bitboards[1] ^= bb;
     }
 
     fn notify(self, observers: &Observers, pos: &mut FairyBoard) -> Option<()> {
@@ -370,7 +372,7 @@ impl Observers {
     pub fn add_captured_to_hand() -> Box<ObsFn<Capture>> {
         let add_to_hand = |event: Capture, pos: &mut FairyBoard| {
             let mut piece = event.captured.uncolor();
-            if let Some(unpromoted) = piece.get(pos.rules()).promotions.promoted_from {
+            if let Some(unpromoted) = piece.get(pos.rules()).unwrap().promotions.promoted_from {
                 piece = unpromoted;
             }
             pos.emit(AddPieceToHand { piece, color: pos.active_player() })
@@ -394,12 +396,63 @@ impl Observers {
         res
     }
 
+    pub fn makruk() -> Self {
+        let mut res = Self::chess();
+        let ctr = |_: AfterMove, pos: &mut FairyBoard| {
+            // There are three stages: No counter, non-pawns-counter to 64, bare-king-counter.
+            // additional_ctrs[1] gives the stage while additional_ctrs[0] gives the counter limit.
+            const LIMIT: usize = 0;
+            const STAGE: usize = 1;
+            const NO_PAWNS_CTR_TO_64: AdditionalCtrT = 1;
+            const BARE_KING_CTR: AdditionalCtrT = 2;
+            if pos.piece_bb(PieceId::new(PAWN_IDX)).has_set_bit() {
+                pos.0.draw_counter = 0;
+                pos.0.additional_ctrs[LIMIT] = 0;
+                return Some(());
+            }
+            if !(pos.0.color_bitboards[0].is_single_piece() && pos.0.color_bitboards[1].is_single_piece()) {
+                assert_ne!(pos.0.additional_ctrs[1], BARE_KING_CTR);
+                if pos.0.additional_ctrs[STAGE] == 0 {
+                    pos.0.draw_counter = 0;
+                }
+                pos.0.additional_ctrs[STAGE] = NO_PAWNS_CTR_TO_64;
+                pos.0.additional_ctrs[LIMIT] = 64;
+            } else if pos.0.additional_ctrs[STAGE] != BARE_KING_CTR {
+                // first time reaching this condition, initialize max
+                pos.0.additional_ctrs[STAGE] = BARE_KING_CTR;
+                pos.0.draw_counter = pos.occupied_bb().num_ones();
+                const ROOK_IDX: usize = 4;
+                const KHON_IDX: usize = 2;
+                const KNIGHT_IDX: usize = 1;
+                let num_rooks = pos.0.piece_bitboards[ROOK_IDX].num_ones();
+                let num_khons = pos.0.piece_bitboards[KHON_IDX].num_ones();
+                let num_knights = pos.0.piece_bitboards[KNIGHT_IDX].num_ones();
+                pos.0.additional_ctrs[LIMIT] = if num_rooks >= 2 {
+                    8
+                } else if num_rooks == 1 {
+                    16
+                } else if num_khons >= 2 {
+                    22
+                } else if num_knights >= 2 {
+                    32
+                } else if num_khons == 1 {
+                    44
+                } else {
+                    64
+                };
+            }
+            Some(())
+        };
+        res.finish_move.push(Box::new(ctr));
+        res
+    }
+
     pub fn shogi() -> Self {
         let mut res = Self::chess();
         res.capture.push(Self::add_captured_to_hand());
         let no_pawn_drop_mate = |event: AfterMove, pos: &mut FairyBoard| {
             let m = event.last_move;
-            if m.piece(pos).uncolor().val() == SHOGI_PAWN_IDX
+            if m.piece(pos).uncolor().val() == PAWN_IDX
                 && m.is_drop()
                 && pos.is_in_check()
                 && pos.is_game_lost_slow(&NoHistory::default())
@@ -409,18 +462,6 @@ impl Observers {
             Some(())
         };
         res.finish_move.push(Box::new(no_pawn_drop_mate));
-        res
-    }
-
-    pub fn ataxx() -> Self {
-        let mut res = Self::default();
-        let place_piece_fn = |event: PlaceSinglePiece, pos: &mut FairyBoard| {
-            let bb = FairyBitboard::single_piece_for(event.square, pos.size());
-            // Could use precomputed attacks for this
-            let bb = bb.moore_inclusive().raw();
-            pos.emit(ConvertAll { bb })
-        };
-        res.place_single_piece.push(Box::new(place_piece_fn));
         res
     }
 

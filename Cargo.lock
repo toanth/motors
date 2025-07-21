@@ -757,6 +757,7 @@ dependencies = [
  "gears",
  "indicatif",
  "inquire",
+ "proptest",
  "rayon",
  "strum 0.27.1",
  "strum_macros",

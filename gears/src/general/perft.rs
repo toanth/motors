@@ -257,9 +257,9 @@ mod tests {
     #[test]
     fn num_unique_positions_in_tictactoe_test() {
         let pos = MNKBoard::default();
+        assert_eq!(num_unique_positions_up_to(DepthPly::new(1), pos), 10);
         let res = num_unique_positions_up_to(DepthPly::new(9), pos);
         assert_eq!(res, num_unique_positions_up_to(DepthPly::new(10), pos));
-        assert_eq!(res, num_unique_positions_up_to(DepthPly::new(11), pos));
     }
 
     #[test]

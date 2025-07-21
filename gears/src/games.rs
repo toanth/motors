@@ -134,6 +134,22 @@ pub trait AbstractPieceType<B: Board>: Eq + Copy + Debug + Default {
         1
     }
 
+    /// Usually, this simply writes the ascii char, but some variants require additional chars to
+    /// express piece modifiers
+    fn write_as_str(
+        self,
+        settings: &B::Settings,
+        char_type: CharType,
+        display_pretty: bool,
+        f: &mut Formatter<'_>,
+    ) -> fmt::Result {
+        if display_pretty {
+            write!(f, "{}", self.to_display_char(char_type, settings))
+        } else {
+            write!(f, "{}", self.to_char(char_type, settings))
+        }
+    }
+
     /// Names for colored pieces don't have to (but can) include the color, i.e. `x` and `o` could be named `"x"` and `"o"` but
     /// white and black pawn could both be named `"pawn"`, but also `"white pawn"` and `"black pawn"`.
     fn name(&self, _settings: &B::Settings) -> impl AsRef<str>;
@@ -159,12 +175,27 @@ pub trait AbstractPieceType<B: Board>: Eq + Copy + Debug + Default {
     }
 
     fn to_uncolored_idx(self) -> usize;
+
+    /// This method is used when parsing FENs and only does something in some fairy variants.
+    fn make_promoted(&mut self, rules: &B::Settings) -> Res<()> {
+        bail!(
+            "There is no special meaning for a promoted {0} in {1}",
+            self.name(rules).as_ref().bold(),
+            B::game_name().bold()
+        )
+    }
 }
 
 pub trait PieceType<B: Board>: AbstractPieceType<B> {
     type Colored: ColoredPieceType<B>;
 
     fn from_idx(idx: usize) -> Self;
+
+    /// Like [`Self::make_promoted`], this method is used to for FENs.
+    /// For example, in crazyhouse, a promoted piece is suffixed with a '~'.
+    fn promoted_from(&self, _rules: &B::Settings) -> Option<Self> {
+        None
+    }
 }
 
 pub trait ColoredPieceType<B: Board>: AbstractPieceType<B> {
@@ -213,22 +244,6 @@ pub trait ColoredPieceType<B: Board>: AbstractPieceType<B> {
         if let Some(color) = self.color() { Self::new(!color, self.uncolor()) } else { self }
     }
 
-    /// Usually, this simply writes the ascii char, but some variants require additional chars to
-    /// express piece modifiers
-    fn write_as_str(
-        self,
-        settings: &B::Settings,
-        char_type: CharType,
-        display_pretty: bool,
-        f: &mut Formatter<'_>,
-    ) -> fmt::Result {
-        if display_pretty {
-            write!(f, "{}", self.to_display_char(char_type, settings))
-        } else {
-            write!(f, "{}", self.to_char(char_type, settings))
-        }
-    }
-
     fn str_formatter(
         self,
         settings: &B::Settings,
@@ -236,21 +251,6 @@ pub trait ColoredPieceType<B: Board>: AbstractPieceType<B> {
         display_pretty: bool,
     ) -> ColPieceTypeFormatter<B, Self> {
         ColPieceTypeFormatter { piece: self, char_type, display_pretty, settings }
-    }
-
-    /// This method is used when parsing FENs and only does something in some fairy variants.
-    fn make_promoted(&mut self, rules: &B::Settings) -> Res<()> {
-        bail!(
-            "There is no special meaning for a promoted {0} in {1}",
-            self.name(rules).as_ref().bold(),
-            B::game_name().bold()
-        )
-    }
-
-    /// Like [`Self::make_promoted`], this method is used to for FENs.
-    /// For example, in crazyhouse, a promoted piece is suffixed with a '~'.
-    fn promoted_from(&self, _rules: &B::Settings) -> Option<Self::Uncolored> {
-        None
     }
 }
 
@@ -486,12 +486,13 @@ pub trait Settings: Debug {
     }
 }
 
-pub trait BoardHistory: Default + Debug + Clone + 'static {
+pub trait BoardHistDyn {
     fn len(&self) -> usize;
     fn is_empty(&self) -> bool {
         self.len() == 0
     }
     fn is_repetition(&self, hash: PosHash, plies_ago: usize) -> bool;
+    fn num_repetitions(&self, hash: PosHash) -> usize;
     fn push(&mut self, hash: PosHash);
     fn pop(&mut self);
     fn clear(&mut self);
@@ -500,16 +501,24 @@ pub trait BoardHistory: Default + Debug + Clone + 'static {
     }
 }
 
+pub trait BoardHistory: Default + Debug + Clone + 'static + BoardHistDyn {}
+
+impl<B: BoardHistDyn + Default + Debug + Clone + 'static> BoardHistory for B {}
+
 #[derive(Copy, Clone, Eq, PartialEq, Debug, Default)]
 pub struct NoHistory {}
 
-impl BoardHistory for NoHistory {
+impl BoardHistDyn for NoHistory {
     fn len(&self) -> usize {
         0
     }
 
     fn is_repetition(&self, _hash: PosHash, _plies_ago: usize) -> bool {
         false
+    }
+
+    fn num_repetitions(&self, _hash: PosHash) -> usize {
+        0
     }
 
     fn push(&mut self, _hash: PosHash) {}
@@ -529,13 +538,17 @@ impl ZobristHistory {
     }
 }
 
-impl BoardHistory for ZobristHistory {
+impl BoardHistDyn for ZobristHistory {
     fn len(&self) -> usize {
         self.0.len()
     }
 
     fn is_repetition(&self, hash: PosHash, plies_ago: usize) -> bool {
         hash == self.0[self.0.len() - plies_ago]
+    }
+
+    fn num_repetitions(&self, hash: PosHash) -> usize {
+        self.0.iter().filter(|&&h| hash == h).count()
     }
 
     fn push(&mut self, hash: PosHash) {
@@ -554,13 +567,17 @@ impl BoardHistory for ZobristHistory {
 #[must_use]
 pub struct ZobristHistory2Fold(pub ZobristHistory);
 
-impl BoardHistory for ZobristHistory2Fold {
+impl BoardHistDyn for ZobristHistory2Fold {
     fn len(&self) -> usize {
         self.0.len()
     }
 
     fn is_repetition(&self, hash: PosHash, plies_ago: usize) -> bool {
         self.0.is_repetition(hash, plies_ago)
+    }
+
+    fn num_repetitions(&self, hash: PosHash) -> usize {
+        self.0.num_repetitions(hash)
     }
 
     fn push(&mut self, hash: PosHash) {

@@ -23,7 +23,7 @@ use crate::search::{
     NoCustomInfo, PVData, SearchParams,
 };
 use gears::PlayerResult;
-use gears::games::{BoardHistory, Color, PosHash, ZobristHistory2Fold};
+use gears::games::{BoardHistDyn, Color, PosHash, ZobristHistory2Fold};
 use gears::general::board::{Board, BoardHelpers};
 use gears::general::common::StaticallyNamedEntity;
 use gears::general::move_list::MoveList;
@@ -302,15 +302,17 @@ impl<B: Board> AbstractSearchState<B> for ProofNumberSearcher<B> {
         BenchResult::default()
     }
 
-    fn to_search_info(&self) -> SearchInfo<'_, B> {
-        SearchInfo::default()
+    fn to_search_info(&self, final_info: bool) -> SearchInfo<'_, B> {
+        let mut res = SearchInfo::default();
+        res.final_info = final_info;
+        res
     }
 
     fn aggregated_statistics(&self) -> Statistics {
         Statistics::default()
     }
 
-    fn send_search_info(&self) {
+    fn send_search_info(&self, _final_info: bool) {
         // do nothing
     }
 
@@ -387,6 +389,7 @@ impl<B: Board> Engine<B> for ProofNumberSearcher<B> {
                     bound: Some(Exact),
                     num_threads: 1,
                     additional: None,
+                    final_info: true,
                 };
                 o.write_search_info(info);
             }

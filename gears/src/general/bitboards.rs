@@ -1006,6 +1006,7 @@ impl<R: RawBitboard, C: RectangularCoordinates> DynamicallySizedBitboard<R, C> {
     }
 }
 
+// TODO: Remove?!
 impl<R: RawBitboard, C: RectangularCoordinates<Size: KnownSize<C>>> KnownSizeBitboard<R, C>
     for DynamicallySizedBitboard<R, C>
 {

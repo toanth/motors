@@ -164,6 +164,7 @@ impl<B: Board> OwnedSearchInfo<B> {
             bound: self.bound,
             num_threads: 1,
             additional: self.additional.clone(),
+            final_info: false,
         }
     }
 }

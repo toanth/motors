@@ -14,7 +14,7 @@ pub trait MoveList<B: Board>: IntoIterator<Item = B::Move, IntoIter: Send> + Deb
     fn swap_remove_move(&mut self, idx: usize) -> B::Move;
 
     /// Doesn't guarantee any particular iteration order
-    fn iter_moves(&self) -> impl Iterator<Item = &B::Move> + Send;
+    fn iter_moves(&self) -> impl Iterator<Item = B::Move> + Send;
 
     fn remove(&mut self, to_remove: B::Move);
 
@@ -41,8 +41,8 @@ impl<B: Board, const N: usize> MoveList<B> for InplaceMoveList<B, N> {
         self.swap_remove(idx)
     }
 
-    fn iter_moves(&self) -> impl Iterator<Item = &B::Move> {
-        self.iter()
+    fn iter_moves(&self) -> impl Iterator<Item = B::Move> {
+        self.iter().copied()
     }
 
     fn remove(&mut self, to_remove: B::Move) {
@@ -72,8 +72,8 @@ impl<B: Board, const N: usize> MoveList<B> for SboMoveList<B, N> {
         self.swap_remove(idx)
     }
 
-    fn iter_moves(&self) -> impl Iterator<Item = &B::Move> + Send {
-        self.iter()
+    fn iter_moves(&self) -> impl Iterator<Item = B::Move> + Send {
+        self.iter().copied()
     }
 
     fn remove(&mut self, to_remove: B::Move) {

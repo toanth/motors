@@ -17,6 +17,7 @@
  */
 use crate::games::CharType::Ascii;
 use crate::games::fairy::Side::{Kingside, Queenside};
+use crate::games::fairy::algebraic_notation::{MoveParser, format_san};
 use crate::games::fairy::attacks::{EffectRules, MoveKind};
 use crate::games::fairy::effects::{AfterMove, InCheck};
 use crate::games::fairy::moves::MoveEffect::{
@@ -108,6 +109,13 @@ impl FairyMove {
         }
     }
 
+    pub fn promo_piece(self) -> Option<PieceId> {
+        match self.kind() {
+            MoveKind::Promotion(promo) => Some(ColoredPieceId::from_u8(promo).uncolor()),
+            _ => None,
+        }
+    }
+
     pub fn kind(self) -> MoveKind {
         Self::unpack(self.packed).0
     }
@@ -118,6 +126,10 @@ impl FairyMove {
 
     pub fn is_drop(self) -> bool {
         self.from.0 == DimT::MAX
+    }
+
+    pub fn is_castle(self) -> bool {
+        matches!(self.kind(), MoveKind::Castle(_))
     }
 }
 
@@ -141,13 +153,51 @@ impl Move<FairyBoard> for FairyMove {
         self.is_capture()
     }
 
+    fn description(self, board: &FairyBoard) -> String {
+        let from = self.src_square_in(board).unwrap_or_default().to_string().bold();
+        let to = self.dest(board.size()).to_string().bold();
+        let piece = self.piece(board).name(board.settings()).as_ref().bold();
+        if self.is_null() {
+            return "A passing move".to_string();
+        }
+        match self.kind() {
+            MoveKind::Normal | MoveKind::Promotion(_) => {
+                let text = if self.is_capture() {
+                    let victim = board.piece_type_on(self.dest(board.size()));
+                    if victim != PieceId::empty() {
+                        let victim = victim.name(board.settings()).bold();
+                        format!("Capture the {victim} on {to} with the {piece} on {from}")
+                    } else {
+                        format!("Capture: Move the {piece} on {from} to {to}")
+                    }
+                } else {
+                    format!("Move the {piece} on {from} to {to}")
+                };
+                if let MoveKind::Promotion(promo) = self.kind() {
+                    let piece = ColoredPieceId::from_u8(promo).name(board.settings()).as_ref().bold();
+                    format!("{text} and promote it to a {piece}")
+                } else {
+                    text
+                }
+            }
+            MoveKind::DoublePawnPush => format!("Double pawn push from {from} to {to}"),
+            MoveKind::Drop(_) => format!("Place a {piece} on {to}"),
+            MoveKind::Castle(side) => format!("Castle {side}"),
+        }
+    }
+
     fn format_compact(self, f: &mut Formatter<'_>, board: &FairyBoard) -> fmt::Result {
         format_move_compact(f, self, board).unwrap_or_else(|| write!(f, "<Invalid Fairy Move '{self:?}'>"))
     }
 
-    fn format_extended(self, f: &mut Formatter<'_>, board: &FairyBoard, _format: ExtendedFormat) -> fmt::Result {
-        // TODO: Actual implementation
-        self.format_compact(f, board)
+    fn format_extended(
+        self,
+        f: &mut Formatter<'_>,
+        board: &FairyBoard,
+        format: ExtendedFormat,
+        all_legals: Option<&[FairyMove]>,
+    ) -> fmt::Result {
+        format_san(f, self, board, format, all_legals)
     }
 
     fn parse_compact_text<'a>(s: &'a str, board: &FairyBoard) -> Res<(&'a str, FairyMove)> {
@@ -156,15 +206,29 @@ impl Move<FairyBoard> for FairyMove {
         } else if let Some(rest) = s.strip_prefix("0000") {
             return Ok((rest, Self::default()));
         }
-        let moves = board.legal_moves_slow();
+        let moves = board.pseudolegal_moves();
         let mut longest_match = (s, FairyMove::default());
-        for m in &moves {
+        for &m in &moves {
             let as_string = m.compact_formatter(board).to_string();
             if let Some(remaining) = s.strip_prefix(&as_string) {
+                if !board.is_pseudolegal_move_legal(m) {
+                    continue;
+                };
                 // it's common for a legal move to be a prefix of another legal move, e.g. in shogi-style promotions
                 if remaining.len() < longest_match.0.len() {
-                    longest_match = (remaining, *m);
+                    longest_match = (remaining, m);
                 }
+            }
+        }
+        // once again, forced passing moves are an annoying special case
+        if longest_match.0.len() == s.len()
+            && !moves.iter().any(|m| board.is_pseudolegal_move_legal(*m))
+            && board.no_moves_result().is_none()
+        {
+            let m = FairyMove::default();
+            let as_string = m.compact_formatter(board).to_string();
+            if let Some(remaining) = s.strip_prefix(&as_string) {
+                longest_match = (remaining, m);
             }
         }
         if longest_match.0.len() != s.len() {
@@ -176,7 +240,7 @@ impl Move<FairyBoard> for FairyMove {
     }
 
     fn parse_extended_text<'a>(s: &'a str, board: &FairyBoard) -> Res<(&'a str, FairyMove)> {
-        Self::parse_compact_text(s, board)
+        MoveParser::parse(s, board)
     }
 
     fn from_u64_unchecked(val: u64) -> UntrustedMove<FairyBoard> {
@@ -188,7 +252,7 @@ impl Move<FairyBoard> for FairyMove {
     }
 
     fn to_underlying(self) -> Self::Underlying {
-        (self.from.underlying() as u32) + ((self.to.underlying() as u32) << 8) + ((self.packed as u32) << 16)
+        (self.from.underlying() as u32) | ((self.to.underlying() as u32) << 8) | ((self.packed as u32) << 16)
     }
 }
 
@@ -531,5 +595,53 @@ impl FairyBoard {
         self.0.active = !self.0.active;
         self.0.hash = self.compute_hash();
         self.0.ply_since_start += 1;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::games::Color;
+    use crate::games::chess::{Chessboard, UCI_CHESS960};
+    use crate::games::fairy::Side::Queenside;
+    use crate::games::fairy::moves::FairyMove;
+    use crate::games::fairy::{FairyBoard, FairyColor, FairySquare};
+    use crate::general::board::Strictness::{Relaxed, Strict};
+    use crate::general::board::{Board, BoardHelpers, UnverifiedBoard};
+    use crate::general::moves::Move;
+    use crate::general::perft::perft;
+    use crate::search::DepthPly;
+    use std::sync::atomic::Ordering;
+
+    // TODO: Move this test somewhere else
+    #[test]
+    fn castle_test() {
+        assert!(!UCI_CHESS960.load(Ordering::Relaxed));
+        let p = Chessboard::chess_960_startpos(42).unwrap().as_fen();
+        let p = FairyBoard::from_fen(&p, Strict).unwrap();
+        let p = p.remove_piece(FairySquare::algebraic('f', 1).unwrap()).unwrap().verify(Strict).unwrap();
+        assert!(p.debug_verify_invariants(Strict).is_ok());
+        let p2 = FairyBoard::from_fen("bb1r2kr/p1ppppp1/1n2qn2/8/8/8/PPPPPPP1/BB1RQNKR b KQkq - 0 1", Relaxed).unwrap();
+        let tests: &[(FairyBoard, &[&str], u64)] = &[
+            (FairyBoard::from_name("kiwipete").unwrap(), &["0-0", "0-0-0", "e1g1", "e1h1", "e1a1", "e1c1"], 97862),
+            (p, &["0-0", "g1h1"], 8953),
+            (p2, &["0-0", "0-0-0", "g8h8", "g8c8", "g8d8"], 57107),
+        ];
+        for (pos, moves, perft_nodes) in tests.iter() {
+            for mov in *moves {
+                let mov = FairyMove::from_text(mov, pos).unwrap();
+                assert!(mov.is_castle());
+                assert!(!mov.is_capture());
+                assert!(pos.clone().make_move(mov).unwrap().debug_verify_invariants(Strict).is_ok());
+            }
+            let perft_res = perft(DepthPly::new(3), pos.clone(), true);
+            assert_eq!(perft_res.nodes, *perft_nodes);
+        }
+        let fen = "8/4k3/8/8/8/8/8/RK1b4 w A - 0 1";
+        let mut pos = FairyBoard::from_fen(fen, Strict).unwrap();
+        assert!(pos.castling_info.can_castle(FairyColor::first(), Queenside));
+        assert!(pos.clone().make_move_from_str("0-0-0").is_err());
+        pos = pos.make_nullmove().unwrap();
+        pos = pos.make_move_from_str("Be2").unwrap();
+        assert!(pos.make_move_from_str("0-0-0").is_ok());
     }
 }

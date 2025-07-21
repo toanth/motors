@@ -27,13 +27,14 @@ use gears::arrayvec::ArrayVec;
 use gears::cli::Game;
 use gears::colored::Colorize;
 use gears::games::CharType::{Ascii, Unicode};
+#[cfg(feature = "fairy")]
+use gears::games::fairy::FairyBoard;
 use gears::games::{AbstractPieceType, Color, ColoredPiece, Size};
 use gears::general::board::{Board, BoardHelpers, ColPieceTypeOf, Strictness};
 use gears::general::common::anyhow::{anyhow, bail};
 use gears::general::common::{
     Name, NamedEntity, Res, Tokens, parse_duration_ms, parse_int, parse_int_from_str, tokens,
 };
-use gears::general::move_list::MoveList;
 use gears::general::moves::{ExtendedFormat, Move};
 use gears::itertools::Itertools;
 use gears::output::Message::Warning;
@@ -238,7 +239,7 @@ pub fn ugi_commands() -> CommandList {
             "Flips the side to move, unless this results in an illegal position",
             |ugi, _, _| ugi.handle_flip()
         ),
-        command!(quit, All, "Exits the program immediately", |ugi, _, _| {
+        command!(quit | q, All, "Exits the program immediately", |ugi, _, _| {
             if cfg!(feature = "fuzzing") {
                 eprintln!("Fuzzing is enabled, ignoring 'quit' command");
                 return Ok(());
@@ -258,7 +259,7 @@ pub fn ugi_commands() -> CommandList {
             }
         ),
         command!(
-            query | q,
+            query,
             UgiNotUci,
             "Answer a query about the current match state",
             |ugi, words, _| ugi.handle_query(words),
@@ -356,13 +357,22 @@ pub fn ugi_commands() -> CommandList {
                 }
                 ugi.handle_play(words)
             },
-            --> |_| select_command::<Game>(&Game::iter().map(Box::new).collect_vec())
+            --> |_| {
+                #[allow(unused_mut)]
+                let mut games = Game::iter().map(|g| Box::new(Name::new(&g))).collect_vec();
+                #[cfg(feature = "fairy")]
+                {
+                    games.extend(FairyBoard::list_variants().unwrap_or_default().iter().map(|v| Box::new(Name::from_name(&format!("Fairy-{v}")))));
+                }
+                select_command::<Name>(&games)
+            }
         ),
         command!(
             idk | assist | respond,
             Custom,
             "Lets the engine play a move, or use 'on'/'off' to enable/disable automatic response",
-            |ugi, words, _| ugi.handle_assist(words)
+            |ugi, words, _| ugi.handle_assist(words),
+            --> |_| bool_options()
         ),
         command!(undo | take_back | u, Custom, "Undoes 1 or a given number of halfmoves", |ugi, words, _| {
             ugi.handle_undo(words)
@@ -1040,17 +1050,18 @@ pub(super) fn move_command(recurse: bool) -> Command {
 
 pub(super) fn moves_options<B: Board>(pos: &B, recurse: bool) -> CommandList {
     let mut res: CommandList = vec![];
-    for mov in pos.legal_moves_slow().iter_moves() {
+    let legals = pos.legal_moves_slow().into_iter().collect_vec();
+    for &mov in &legals {
         let primary_name = mov.compact_formatter(pos).to_string();
         let mut other_names = ArrayVec::default();
-        let extended = mov.to_extended_text(pos, ExtendedFormat::Standard);
+        let extended = mov.extended_formatter(pos, ExtendedFormat::Standard, Some(legals.as_slice())).to_string();
         if extended != primary_name {
             other_names.push(extended);
         }
         let cmd = Command {
             primary_name: primary_name.clone(),
             other_names,
-            help_text: Some(format!("Play move '{}'", mov.compact_formatter(pos).to_string().bold())),
+            help_text: Some(mov.description(pos)),
             standard: All,
             autocomplete_recurse: false,
             func: |_, _, _| Ok(()),

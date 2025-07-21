@@ -535,7 +535,7 @@ impl MoveKind {
 pub struct EffectRules {
     pub reset_draw_counter_on_capture: bool,
     pub conversion_radius: usize,
-    // pub explosion_radius: usize, // TODO: Atomic chess
+    // pub explosion_radius: usize, // TODO: Remove?
 }
 
 impl Default for EffectRules {
@@ -709,6 +709,11 @@ impl FairyBoard {
         self.is_player_in_check(self.active_player())
     }
 
+    pub fn gives_check_slow(&self, mov: FairyMove) -> bool {
+        debug_assert!(self.is_move_pseudolegal(mov));
+        self.clone().make_move(mov).is_some_and(|new_pos| new_pos.is_in_check())
+    }
+
     // precondition: there must be a piece of `color` on `sq`
     pub(super) fn k_in_row_at(&self, k: usize, sq: FairySquare, color: FairyColor) -> bool {
         debug_assert!(self.player_bb(color).is_bit_set_at(self.size().internal_key(sq)));
@@ -726,21 +731,22 @@ impl FairyBoard {
 
 impl UnverifiedFairyBoard {
     fn find_x_fen_rook_file(&self, side: char, color: FairyColor, king_sq: FairySquare) -> Res<DimT> {
+        let has_rook = |file: DimT| {
+            let sq = FairySquare::from_rank_file(king_sq.rank(), file);
+            let piece = self.piece_on(sq);
+            // `contains` because e.g. 'rook (promoted)' should also match, and there aren't really any piece names that
+            // "accidentally" contain 'rook'.
+            piece.color() == Some(color) && piece.uncolored().get(self.rules()).unwrap().name.contains("rook")
+        };
         if side == 'q' {
             for file in 0..king_sq.file() {
-                let sq = FairySquare::from_rank_file(king_sq.rank(), file);
-                let piece = self.piece_on(sq);
-                // `contains` because e.g. 'rook (promoted)' should also match, and there aren't really any piece names that
-                // "accidentally" contain 'rook'.
-                if piece.color() == Some(color) && piece.uncolored().get(self.rules()).name.contains("rook") {
+                if has_rook(file) {
                     return Ok(file);
                 }
             }
         } else {
             for file in ((king_sq.file() + 1)..self.size().width.get()).rev() {
-                let sq = FairySquare::from_rank_file(king_sq.rank(), file);
-                let piece = self.piece_on(sq);
-                if piece.color() == Some(color) && piece.uncolored().get(self.rules()).name.contains("rook") {
+                if has_rook(file) {
                     return Ok(file);
                 }
             }

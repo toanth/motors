@@ -27,7 +27,7 @@ use gears::games::chess::squares::NUM_SQUARES;
 use gears::games::chess::upcoming_repetition::{UPCOMING_REPETITION_TABLE, UpcomingRepetitionTable};
 use gears::games::chess::zobrist::ZOBRIST_KEYS;
 use gears::games::chess::{ChessColor, Chessboard, MAX_CHESS_MOVES_IN_POS, unverified::UnverifiedChessboard};
-use gears::games::{BoardHistory, ZobristHistory, n_fold_repetition};
+use gears::games::{ZobristHistory, n_fold_repetition};
 use gears::general::bitboards::RawBitboard;
 use gears::general::board::Strictness::Strict;
 use gears::general::board::{BitboardBoard, UnverifiedBoard};
@@ -36,6 +36,7 @@ use gears::general::common::{Res, StaticallyNamedEntity, parse_int_from_str, sel
 use gears::general::move_list::InplaceMoveList;
 use gears::general::moves::{Move, UntrustedMove};
 use gears::itertools::Itertools;
+use gears::num::traits::WrappingAdd;
 use gears::score::{
     BITBASE_LOSS, BITBASE_WIN, MAX_BETA, MAX_NORMAL_SCORE, MAX_SCORE_LOST, MIN_ALPHA, MIN_NORMAL_SCORE, NO_SCORE_YET,
     SCORE_LOST, ScoreT, game_result_to_score,
@@ -393,7 +394,7 @@ impl Engine<Chessboard> for Caps {
         self.original_board_hist.push(pos.hash_pos());
 
         let incomplete = self.iterative_deepening(&pos, soft_limit);
-        if incomplete {
+        if incomplete || self.output_minimal() {
             // send one final search info, but don't send empty PVs
             let mut pv = self.current_mpv_pv();
             if pv.is_empty() {
@@ -401,7 +402,7 @@ impl Engine<Chessboard> for Caps {
                 pv = self.cur_pv_data().pv.list.as_slice();
             }
             if !pv.is_empty() {
-                self.search_state().send_search_info();
+                self.search_state().send_search_info(true);
             }
         }
         self.search_result()
@@ -641,10 +642,10 @@ impl Caps {
             self.cur_pv_data_mut().beta = (pv_score + window_radius).min(MAX_BETA);
 
             if node_type == Exact {
-                self.send_search_info();
+                self.send_search_info(false);
                 return (true, true, Some(pv_score));
             } else if asp_start_time.elapsed().as_millis() >= 1000 {
-                self.send_search_info();
+                self.send_search_info(false);
             }
         }
     }
@@ -991,7 +992,9 @@ impl Caps {
         let mut move_picker = MovePicker::<Chessboard, MAX_CHESS_MOVES_IN_POS>::new(pos, best_move, false);
         let move_scorer = CapsMoveScorer { pos, ply };
         let mut child_depth = depth - 128;
-        while let Some((mov, move_score)) = move_picker.next(&move_scorer, self) {
+        while let Some(sm) = move_picker.next(&move_scorer, self) {
+            let mov = sm.mov();
+            let move_score = sm.score();
             self.tt().prefetch(pos.approx_hash_after(mov));
             if can_prune && best_score > MAX_SCORE_LOST {
                 // LMP (Late Move Pruning): Trust the move ordering and assume that moves ordered late aren't very interesting,
@@ -1387,7 +1390,9 @@ impl Caps {
             MovePicker::new(pos, best_move, !in_check);
         let move_scorer = CapsMoveScorer { pos: pos, ply };
         let mut children_visited = 0;
-        while let Some((mov, move_score)) = move_picker.next(&move_scorer, &self.state) {
+        while let Some(sm) = move_picker.next(&move_scorer, &self.state) {
+            let mov = sm.mov();
+            let move_score = sm.score();
             debug_assert!(mov.is_tactical(&pos) || pos.is_in_check());
             self.tt().prefetch(pos.approx_hash_after(mov));
             if !eval.is_game_lost_score() && move_score < MoveScore(0) || children_visited >= 3 {
@@ -1436,7 +1441,7 @@ impl Caps {
 
     fn eval(&mut self, pos: &Chessboard, ply: usize) -> Score {
         let us = self.params.pos.active_player();
-        let score = if ply == 0 {
+        let mut score = if ply == 0 {
             self.eval.eval(pos, 0, us)
         } else {
             let old_pos = &self.state.search_stack[ply - 1].pos;
@@ -1452,16 +1457,20 @@ impl Caps {
             score.0,
             self.eval.eval(pos, ply, us)
         );
-        let score = score.clamp(MIN_NORMAL_SCORE, MAX_NORMAL_SCORE);
         if let Some(res) = pos.query_bitbase(&self.precomputed.bitbase) {
             // because it's not useful to return the same won/lost score on all nodes, we interpolate with the static eval
-            return match res {
+            score = match res {
                 Win => (score + BITBASE_WIN) / 2,
                 Lose => (score + BITBASE_LOSS) / 2,
                 PlayerResult::Draw => Score(0),
             };
         }
-        score
+        score = if us == pos.active_player() {
+            score.wrapping_add(&self.params.contempt)
+        } else {
+            score.wrapping_add(&-self.params.contempt)
+        };
+        score.clamp(MIN_NORMAL_SCORE, MAX_NORMAL_SCORE)
     }
 
     fn update_continuation_hist(
@@ -1810,9 +1819,9 @@ mod tests {
         let move_scorer = CapsMoveScorer { pos: &pos, ply: 0 };
         let mut moves = vec![];
         let mut scores = vec![];
-        while let Some((mov, score)) = move_picker.next(&move_scorer, &caps.state) {
-            moves.push(mov);
-            scores.push(score);
+        while let Some(sm) = move_picker.next(&move_scorer, &caps.state) {
+            moves.push(sm.mov());
+            scores.push(sm.score());
         }
         assert_eq!(moves.len(), 6);
         assert!(scores.is_sorted_by(|a, b| a > b), "{scores:?} {moves:?} {pos}");

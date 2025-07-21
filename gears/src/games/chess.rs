@@ -649,8 +649,8 @@ impl Board for Chessboard {
         AxesFormat::player_pov()
     }
 
-    fn as_diagram(&self, typ: CharType, flip: bool) -> String {
-        board_to_string(self, ChessPiece::to_char, typ, flip)
+    fn as_diagram(&self, typ: CharType, flip: bool, mark_active: bool) -> String {
+        board_to_string(self, ChessPiece::to_char, typ, flip, mark_active)
     }
 
     fn display_pretty(&self, display_coordinates: &mut dyn BoardFormatter<Self>) -> String {
@@ -1060,7 +1060,7 @@ mod tests {
     use std::collections::HashSet;
 
     use crate::games::chess::squares::{B_FILE_NUM, E_FILE_NUM, F_FILE_NUM, G_FILE_NUM, H_FILE_NUM};
-    use crate::games::{Coordinates, NoHistory, ZobristHistory, char_to_file};
+    use crate::games::{BoardHistDyn, Coordinates, NoHistory, ZobristHistory, char_to_file};
     use crate::general::board::RectangularBoard;
     use crate::general::board::Strictness::Relaxed;
     use crate::general::moves::Move;
@@ -1514,7 +1514,7 @@ mod tests {
 
     #[test]
     fn castling_attack_test() {
-        let fen = "8/8/8/8/8/8/3k4/RK6 b A - 0 1";
+        let fen = "8/8/8/8/8/8/3♚4/♖♔6 b A - 0 1";
         let pos = Chessboard::from_fen(fen, Strict).unwrap();
         let moves = pos.legal_moves_slow();
         // check that castling moves don't count as attacking squares

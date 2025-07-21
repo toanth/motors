@@ -26,10 +26,7 @@ use crate::games::fairy::attacks::MoveKind;
 use crate::games::fairy::moves::FairyMove;
 use crate::games::fairy::rules::{Rules, RulesRef};
 use crate::games::fairy::{FairyBitboard, FairyBoard, FairyColor, FairySquare, Side, UnverifiedFairyBoard};
-use crate::games::{
-    AbstractPieceType, BoardHistory, Color, ColoredPiece, Coordinates, NoHistory, Size, ZobristHistory, chess,
-    n_fold_repetition,
-};
+use crate::games::{AbstractPieceType, Color, ColoredPiece, Coordinates, NoHistory, Size, ZobristHistory, chess, n_fold_repetition, BoardHistDyn};
 use crate::general::bitboards::{Bitboard, RawBitboard};
 use crate::general::board::Strictness::{Relaxed, Strict};
 use crate::general::board::{Board, BoardHelpers, UnverifiedBoard};

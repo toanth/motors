@@ -9,7 +9,7 @@ use crate::GameResult::Aborted;
 use crate::MatchStatus::{NotStarted, Ongoing, Over};
 use crate::PlayerResult::{Draw, Lose, Win};
 use crate::ProgramStatus::Run;
-use crate::games::{BoardHistory, ZobristHistory};
+use crate::games::{BoardHistDyn, ZobristHistory};
 use crate::games::{Color, NoHistory};
 use crate::general::board::{Board, BoardHelpers, Strictness};
 use crate::general::common::Description::WithDescription;
@@ -28,6 +28,7 @@ pub use crossterm;
 pub use dyn_clone;
 pub use itertools;
 use itertools::Itertools;
+pub use num;
 pub use rand;
 use std::fmt::{Debug, Display, Formatter};
 use std::ops::Deref;
@@ -307,6 +308,7 @@ pub trait GameState<B: Board> {
     fn initial_pos(&self) -> &B;
     fn get_board(&self) -> &B;
     fn game_name(&self) -> &str;
+    fn board_hist(&self) -> &dyn BoardHistDyn;
     fn move_history(&self) -> &[B::Move];
     fn active_player(&self) -> B::Color {
         self.get_board().active_player()
@@ -426,7 +428,7 @@ impl<B: Board> UgiPosState<B> {
     }
 
     fn make_move(&mut self, mov: B::Move, check_game_over: bool) -> Res<()> {
-        debug_assert!(self.board.is_move_pseudolegal(mov));
+        debug_assert!(mov.is_null() || self.board.is_move_pseudolegal(mov));
         if let Run(Over(result)) = &self.status {
             bail!(
                 "Cannot play move '{3}' because the game is already over: {0} ({1}). The position is '{2}'",
@@ -438,7 +440,7 @@ impl<B: Board> UgiPosState<B> {
         }
         self.board_hist.push(self.board.hash_pos());
         self.mov_hist.push(mov);
-        self.board = self.board.clone().make_move(mov).ok_or_else(|| {
+        self.board = self.board.clone().make_move_or_nullmove(mov).ok_or_else(|| {
             anyhow!(
                 "Illegal move {0} (pseudolegal but not legal) in position {1}",
                 mov.compact_formatter(&self.board).to_string().red(),

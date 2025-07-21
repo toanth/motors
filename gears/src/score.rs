@@ -25,6 +25,7 @@ use crate::search::NodeType::{Exact, FailHigh, FailLow};
 use anyhow::anyhow;
 use derive_more::{Add, AddAssign, Neg, Sub, SubAssign};
 use num::ToPrimitive;
+use num::traits::WrappingAdd;
 use std::fmt::{Display, Formatter};
 use std::num::Wrapping;
 use std::ops::{Add, Div, DivAssign, Mul, MulAssign, Sub};
@@ -47,6 +48,13 @@ impl Display for Score {
         } else {
             write!(f, "cp {0}", self.0) // TODO: WDL normalization
         }
+    }
+}
+
+impl WrappingAdd for Score {
+    fn wrapping_add(&self, v: &Self) -> Self {
+        let res = self.0.wrapping_add(v.0);
+        Score(res)
     }
 }
 

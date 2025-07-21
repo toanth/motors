@@ -113,7 +113,7 @@ impl<B: Board, R: SeedRng + Clone + Send + 'static> Engine<B> for RandomMover<B,
         Score(0)
     }
 
-    fn search_info(&self) -> SearchInfo<'_, B> {
+    fn search_info(&self, _final_info: bool) -> SearchInfo<'_, B> {
         SearchInfo {
             best_move_of_all_pvs: self.state.best_move(),
             iterations: DepthPly::new(0),
@@ -130,6 +130,7 @@ impl<B: Board, R: SeedRng + Clone + Send + 'static> Engine<B> for RandomMover<B,
             bound: Some(Exact),
             num_threads: 1,
             additional: None,
+            final_info: true,
         }
     }
 

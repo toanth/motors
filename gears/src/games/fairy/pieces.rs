@@ -66,8 +66,8 @@ impl PieceId {
     pub fn as_u8(self) -> u8 {
         self.0
     }
-    pub fn get(self, rules: &Rules) -> &Piece {
-        &rules.pieces[self.val()]
+    pub fn get(self, rules: &Rules) -> Option<&Piece> {
+        rules.pieces.get(self.val())
     }
 }
 
@@ -81,7 +81,7 @@ impl AbstractPieceType<FairyBoard> for PieceId {
     }
 
     fn to_char(self, typ: CharType, rules: &Rules) -> char {
-        self.get(rules).uncolored_symbol[typ as usize]
+        if let Some(p) = self.get(rules) { p.uncolored_symbol[typ as usize] } else { ' ' }
     }
 
     fn from_char(c: char, rules: &Rules) -> Option<Self> {
@@ -90,7 +90,33 @@ impl AbstractPieceType<FairyBoard> for PieceId {
 
     #[allow(refining_impl_trait)]
     fn name(&self, settings: &Rules) -> String {
-        self.get(settings).name.clone()
+        if *self == Self::empty() {
+            return "<No piece>".to_string();
+        }
+        self.get(settings).unwrap().name.clone()
+    }
+
+    fn write_as_str(
+        mut self,
+        rules: &Rules,
+        char_type: CharType,
+        display_pretty: bool,
+        f: &mut Formatter<'_>,
+    ) -> fmt::Result {
+        let to_c = |p: Self| {
+            if display_pretty { p.to_char(char_type, rules) } else { p.to_display_char(char_type, rules) }
+        };
+        if let Some(unpromoted) = self.promoted_from(rules) {
+            match rules.format_rules.promo_fen_modifier {
+                PromoFenModifier::Crazyhouse => write!(f, "{}~", to_c(self)),
+                PromoFenModifier::Shogi => {
+                    self = unpromoted;
+                    write!(f, "+{}", to_c(self))
+                }
+            }
+        } else {
+            write!(f, "{}", to_c(self))
+        }
     }
 
     fn max_num_chars(settings: &Rules) -> usize {
@@ -100,6 +126,18 @@ impl AbstractPieceType<FairyBoard> for PieceId {
     fn to_uncolored_idx(self) -> usize {
         self.val()
     }
+
+    fn make_promoted(&mut self, rules: &Rules) -> Res<()> {
+        let Some(promoted) = self.get(rules).expect("can't promote empty piece").promotions.promoted_version else {
+            bail!(
+                "The piece '{0}' can't be marked as having been promoted. Current variant: {1}",
+                self.name(rules).bold(),
+                rules.name.bold()
+            )
+        };
+        *self = promoted;
+        Ok(())
+    }
 }
 
 impl PieceType<FairyBoard> for PieceId {
@@ -107,6 +145,10 @@ impl PieceType<FairyBoard> for PieceId {
 
     fn from_idx(idx: usize) -> Self {
         Self::new(idx)
+    }
+
+    fn promoted_from(&self, rules: &Rules) -> Option<PieceId> {
+        self.get(rules).expect("empty piece isn't promoted").promotions.promoted_from
     }
 }
 
@@ -163,12 +205,11 @@ impl AbstractPieceType<FairyBoard> for ColoredPieceId {
     }
 
     fn to_char(self, typ: CharType, rules: &Rules) -> char {
+        let Some(piece) = self.id.get(rules) else { return '.' };
         if let Some(color) = self.color {
-            self.id.get(rules).player_symbol[color.idx()][typ as usize]
-        } else if self == Self::empty() {
-            '.'
+            piece.player_symbol[color.idx()][typ as usize]
         } else {
-            self.id.get(rules).uncolored_symbol[typ as usize]
+            piece.uncolored_symbol[typ as usize]
         }
     }
 
@@ -185,6 +226,33 @@ impl AbstractPieceType<FairyBoard> for ColoredPieceId {
         }
     }
 
+    fn max_num_chars(settings: &Rules) -> usize {
+        PieceId::max_num_chars(settings)
+    }
+
+    fn write_as_str(
+        mut self,
+        rules: &Rules,
+        char_type: CharType,
+        display_pretty: bool,
+        f: &mut Formatter<'_>,
+    ) -> fmt::Result {
+        let to_c = |p: Self| {
+            if display_pretty { p.to_char(char_type, rules) } else { p.to_display_char(char_type, rules) }
+        };
+        if let Some(unpromoted) = self.id.promoted_from(rules) {
+            match rules.format_rules.promo_fen_modifier {
+                PromoFenModifier::Crazyhouse => write!(f, "{}~", to_c(self)),
+                PromoFenModifier::Shogi => {
+                    self.id = unpromoted;
+                    write!(f, "+{}", to_c(self))
+                }
+            }
+        } else {
+            write!(f, "{}", to_c(self))
+        }
+    }
+
     fn name(&self, settings: &Rules) -> impl AsRef<str> {
         if let Some(color) = self.color {
             format!("{0} {1}", color.name(settings), self.id.name(settings))
@@ -193,12 +261,12 @@ impl AbstractPieceType<FairyBoard> for ColoredPieceId {
         }
     }
 
-    fn max_num_chars(settings: &Rules) -> usize {
-        PieceId::max_num_chars(settings)
-    }
-
     fn to_uncolored_idx(self) -> usize {
         self.id.val()
+    }
+
+    fn make_promoted(&mut self, rules: &Rules) -> Res<()> {
+        self.id.make_promoted(rules)
     }
 }
 
@@ -219,45 +287,6 @@ impl ColoredPieceType<FairyBoard> for ColoredPieceId {
 
     fn to_colored_idx(self) -> usize {
         self.id.val()
-    }
-
-    fn write_as_str(
-        mut self,
-        rules: &Rules,
-        char_type: CharType,
-        display_pretty: bool,
-        f: &mut Formatter<'_>,
-    ) -> fmt::Result {
-        let to_c = |p: Self| {
-            if display_pretty { p.to_char(char_type, rules) } else { p.to_display_char(char_type, rules) }
-        };
-        if let Some(unpromoted) = self.promoted_from(rules) {
-            match rules.format_rules.promo_fen_modifier {
-                PromoFenModifier::Crazyhouse => write!(f, "{}~", to_c(self)),
-                PromoFenModifier::Shogi => {
-                    self.id = unpromoted;
-                    write!(f, "+{}", to_c(self))
-                }
-            }
-        } else {
-            write!(f, "{}", to_c(self))
-        }
-    }
-
-    fn make_promoted(&mut self, rules: &Rules) -> Res<()> {
-        let Some(promoted) = self.id.get(rules).promotions.promoted_version else {
-            bail!(
-                "The piece '{0}' can't be marked as having been promoted. Current variant: {1}",
-                self.name(rules).as_ref().bold(),
-                rules.name.bold()
-            )
-        };
-        self.id = promoted;
-        Ok(())
-    }
-
-    fn promoted_from(&self, rules: &Rules) -> Option<PieceId> {
-        self.id.get(rules).promotions.promoted_from
     }
 }
 
@@ -345,7 +374,7 @@ impl DrawCtrReset {
     }
 }
 
-pub(super) const CHESS_PAWN_IDX: usize = 0;
+pub(super) const PAWN_IDX: usize = 0;
 #[allow(unused)]
 pub(super) const CHESS_KNIGHT_IDX: usize = 1;
 #[allow(unused)]
@@ -356,8 +385,6 @@ pub(super) const CHESS_ROOK_IDX: usize = 3;
 pub(super) const CHESS_QUEEN_IDX: usize = 4;
 #[allow(unused)]
 pub(super) const CHESS_KING_IDX: usize = 5;
-
-pub(super) const SHOGI_PAWN_IDX: usize = 0;
 
 /// This struct defines the rules for a single piece.
 // Cloning a piece uses copy-on-write semantics for attack bitboards
@@ -380,6 +407,8 @@ pub struct Piece {
     pub(super) can_ep_capture: bool,
     pub(super) resets_draw_counter: DrawCtrReset,
     pub(super) royal: bool,
+    // The move output (compact and SAN) can omit the piece type. This is true for generalized pawns, but also mnk pieces.
+    pub(super) output_omit_piece: bool,
     // true for kings but not for rooks
     pub(super) can_castle: bool,
 }
@@ -399,7 +428,7 @@ impl Piece {
     pub fn new_for(name: &str, attacks: Vec<AttackKind>, ascii_char: char, unicode_chars: Option<[char; 3]>) -> Self {
         let lowercase_ascii = ascii_char.to_ascii_lowercase();
         let uppercase_ascii = ascii_char.to_ascii_uppercase();
-        let [u_white, u_black, u_uncolored] = if let Some(unicode) = unicode_chars {
+        let [white_uni, black_uni, uncolored_uni] = if let Some(unicode) = unicode_chars {
             unicode
         } else {
             [uppercase_ascii, lowercase_ascii, uppercase_ascii]
@@ -407,13 +436,14 @@ impl Piece {
         Self {
             name: name.to_string(),
             uncolored: false,
-            uncolored_symbol: [uppercase_ascii, u_uncolored],
-            player_symbol: [[uppercase_ascii, u_white], [lowercase_ascii, u_black]],
+            uncolored_symbol: [uppercase_ascii, uncolored_uni],
+            player_symbol: [[uppercase_ascii, white_uni], [lowercase_ascii, black_uni]],
             attacks,
             promotions: Promo::none(),
             can_ep_capture: false,
             resets_draw_counter: DrawCtrReset::Never,
             royal: false,
+            output_omit_piece: false,
             can_castle: false,
         }
     }
@@ -474,27 +504,124 @@ impl Piece {
             attack_mode: AttackMode::NoCaptures,
             capture_condition: CaptureCondition::Never,
         };
+        let mut res = Self::pawn_shatranj_no_promo(size);
+        res.name = "pawn".to_string();
+        res.attacks = vec![normal_white, normal_black, white_capture, black_capture, white_double, black_double];
+        res.can_ep_capture = true;
+        res
+    }
+
+    // like the chess pawn, but without double pawn push and ep
+    fn pawn_shatranj_no_promo(size: FairySize) -> Self {
+        let normal_white = AttackKind::pawn_noncapture(
+            Leaping(LeapingBitboards::range_hv(once(0), once(1), size)),
+            Player(FairyColor::first()),
+        );
+        let normal_black = AttackKind::pawn_noncapture(
+            Leaping(LeapingBitboards::range_hv(once(0), once(-1), size)),
+            Player(FairyColor::second()),
+        );
+        let white_capture = AttackKind::pawn_capture(
+            Leaping(LeapingBitboards::range_hv([-1, 1].into_iter(), once(1), size)),
+            Player(FairyColor::first()),
+            SquareFilter::Them,
+        );
+        let black_capture = AttackKind::pawn_capture(
+            Leaping(LeapingBitboards::range_hv([-1, 1].into_iter(), once(-1), size)),
+            Player(FairyColor::second()),
+            SquareFilter::Them,
+        );
         Self {
-            name: "pawn".to_string(),
+            name: "pawn (shatranj)".to_string(),
             uncolored: false,
             uncolored_symbol: ['P', UNICODE_NEUTRAL_PAWN],
             player_symbol: [['P', UNICODE_WHITE_PAWN], ['p', UNICODE_BLACK_PAWN]],
 
-            attacks: vec![normal_white, normal_black, white_double, black_double, white_capture, black_capture],
+            attacks: vec![normal_white, normal_black, white_capture, black_capture],
             // the promotion pieces are set later, once it's known which pieces are available
             promotions: Promo {
                 pieces: vec![],
+                condition: PromoCondition::TargetSquare,
                 forced_promo_zone: SquareFilter::Bitboard(FairyBitboard::backranks_for(size).raw()),
                 optional_promo_zone: NoSquares,
-                condition: PromoCondition::TargetSquare,
                 promoted_from: None,
                 promoted_version: None,
             },
-            can_ep_capture: true,
+            can_ep_capture: false,
             resets_draw_counter: DrawCtrReset::Always,
             royal: false,
+            output_omit_piece: true,
             can_castle: false,
         }
+    }
+
+    fn ferz(size: FairySize) -> Self {
+        Self::leaper("ferz", 1, 1, size, None, Some(['\u{1FA54}', '\u{1FA56}', '\u{1FA55}']))
+    }
+
+    fn knight(size: FairySize) -> Self {
+        Self::leaper(
+            "knight",
+            1,
+            2,
+            size,
+            Some('n'),
+            Some([UNICODE_WHITE_KNIGHT, UNICODE_BLACK_KNIGHT, UNICODE_NEUTRAL_KNIGHT]),
+        )
+    }
+
+    fn silver_no_drop(size: FairySize) -> Self {
+        Self::new_for(
+            "silver general",
+            AttackKind::simple_side_relative(
+                LeapingBitboards::range_hv(-1..=1, once(1), size).combine(LeapingBitboards::range_hv(
+                    [-1, 1].into_iter(),
+                    once(-1),
+                    size,
+                )),
+                size,
+            ),
+            's',
+            Some(['銀', '銀', '銀']),
+        )
+    }
+
+    fn bishop() -> Self {
+        Self::new(
+            "bishop",
+            vec![Rider(SliderDirections::Bishop)],
+            'b',
+            Some([UNICODE_WHITE_BISHOP, UNICODE_BLACK_BISHOP, UNICODE_NEUTRAL_BISHOP]),
+        )
+    }
+
+    fn rook() -> Self {
+        Self::new(
+            "rook",
+            vec![Rider(SliderDirections::Rook)],
+            'r',
+            Some([UNICODE_WHITE_ROOK, UNICODE_BLACK_ROOK, UNICODE_NEUTRAL_ROOK]),
+        )
+    }
+
+    fn queen() -> Self {
+        Self::new(
+            "queen",
+            vec![Rider(SliderDirections::Queen)],
+            'q',
+            Some([UNICODE_WHITE_QUEEN, UNICODE_BLACK_QUEEN, UNICODE_NEUTRAL_QUEEN]),
+        )
+    }
+
+    fn king_shatranj(size: FairySize) -> Self {
+        let mut res = Self::new(
+            "king (shatranj)",
+            vec![Leaping(LeapingBitboards::fixed(1, 1, size).combine(LeapingBitboards::fixed(0, 1, size)))],
+            'k',
+            Some([UNICODE_WHITE_KING, UNICODE_BLACK_KING, UNICODE_NEUTRAL_KING]),
+        );
+        res.royal = true;
+        res
     }
 
     pub fn pieces(size: FairySize) -> Vec<Self> {
@@ -503,16 +630,9 @@ impl Piece {
         // order of leapers matters
         let mut leapers = vec![
             Self::leaper("wazir", 0, 1, size, None, Some(['🨠', '🨦', '🨬'])),
-            Self::leaper("ferz", 1, 1, size, None, Some(['\u{1FA54}', '\u{1FA56}', '\u{1FA55}'])),
+            Self::ferz(size),
             Self::leaper("dabbaba", 0, 2, size, None, None),
-            Self::leaper(
-                "knight",
-                1,
-                2,
-                size,
-                Some('n'),
-                Some([UNICODE_WHITE_KNIGHT, UNICODE_BLACK_KNIGHT, UNICODE_NEUTRAL_KNIGHT]),
-            ),
+            Self::knight(size),
             Self::leaper("alfil", 2, 2, size, None, Some(['\u{1FA55}', '\u{1FA57}', '\u{1FA55}'])),
             Self::leaper("threeleaper", 0, 3, size, Some('h'), None),
             Self::leaper("camel", 1, 3, size, None, Some(['🨢', '🨨', '🨮'])),
@@ -558,43 +678,16 @@ impl Piece {
                     kind: Castle(Queenside),
                     capture_condition: CaptureCondition::Never,
                 };
-                Self {
-                    name: "king".to_string(),
-                    uncolored: false,
-                    uncolored_symbol: ['K', UNICODE_NEUTRAL_KING],
-                    player_symbol: [['K', UNICODE_WHITE_KING], ['k', UNICODE_BLACK_KING]],
-                    attacks: vec![
-                        AttackKind::simple(Leaping(
-                            LeapingBitboards::fixed(1, 1, size).combine(LeapingBitboards::fixed(1, 0, size)),
-                        )),
-                        castle_king_side,
-                        castle_queen_side,
-                    ],
-                    promotions: Promo::none(),
-                    can_ep_capture: false,
-                    resets_draw_counter: DrawCtrReset::Never,
-                    royal: true,
-                    can_castle: true,
-                }
+                let mut res = Self::king_shatranj(size);
+                res.name = "king".to_string();
+                res.attacks.push(castle_king_side);
+                res.attacks.push(castle_queen_side);
+                res.can_castle = true;
+                res
             },
-            Self::new(
-                "queen",
-                vec![Rider(SliderDirections::Queen)],
-                'q',
-                Some([UNICODE_WHITE_QUEEN, UNICODE_BLACK_QUEEN, UNICODE_NEUTRAL_QUEEN]),
-            ),
-            Self::new(
-                "rook",
-                vec![Rider(SliderDirections::Rook)],
-                'r',
-                Some([UNICODE_WHITE_ROOK, UNICODE_BLACK_ROOK, UNICODE_NEUTRAL_ROOK]),
-            ),
-            Self::new(
-                "bishop",
-                vec![Rider(SliderDirections::Bishop)],
-                'b',
-                Some([UNICODE_WHITE_BISHOP, UNICODE_BLACK_BISHOP, UNICODE_NEUTRAL_BISHOP]),
-            ),
+            Self::bishop(),
+            Self::rook(),
+            Self::queen(),
             Self::chess_pawn_no_promo(size),
             {
                 let mut res = Self::chess_pawn_no_promo(size);
@@ -620,57 +713,57 @@ impl Piece {
                 });
                 res
             },
+            Self::king_shatranj(size),
+            Self::pawn_shatranj_no_promo(size),
             {
-                let mut res = Self::new(
-                    "king (shatranj)",
-                    vec![Leaping(LeapingBitboards::fixed(1, 1, size).combine(LeapingBitboards::fixed(0, 1, size)))],
-                    'k',
-                    Some([UNICODE_WHITE_KING, UNICODE_BLACK_KING, UNICODE_NEUTRAL_KING]),
-                );
-                res.royal = true;
-                res
+                let mut cowrie = Self::pawn_shatranj_no_promo(size);
+                cowrie.name = "cowrie".to_string();
+                cowrie.uncolored_symbol[Unicode] = 'บ';
+                cowrie.resets_draw_counter = DrawCtrReset::Never;
+                let h = size.height.get();
+                let rank_3_and_6 =
+                    FairyBitboard::rank_for(h.saturating_sub(3), size) | FairyBitboard::rank_for(2.min(h - 1), size);
+                cowrie.promotions.forced_promo_zone = SquareFilter::Bitboard(rank_3_and_6.raw());
+                cowrie
             },
-            // like the chess pawn, but without double pawn push and ep
             {
-                let normal_white = AttackKind::pawn_noncapture(
-                    Leaping(LeapingBitboards::range_hv(once(0), once(1), size)),
-                    Player(FairyColor::first()),
-                );
-                let normal_black = AttackKind::pawn_noncapture(
-                    Leaping(LeapingBitboards::range_hv(once(0), once(-1), size)),
-                    Player(FairyColor::second()),
-                );
-                let white_capture = AttackKind::pawn_capture(
-                    Leaping(LeapingBitboards::range_hv([-1, 1].into_iter(), once(1), size)),
-                    Player(FairyColor::first()),
-                    SquareFilter::Them,
-                );
-                let black_capture = AttackKind::pawn_capture(
-                    Leaping(LeapingBitboards::range_hv([-1, 1].into_iter(), once(-1), size)),
-                    Player(FairyColor::second()),
-                    SquareFilter::Them,
-                );
-                Self {
-                    name: "pawn (shatranj)".to_string(),
-                    uncolored: false,
-                    uncolored_symbol: ['p', UNICODE_NEUTRAL_PAWN],
-                    player_symbol: [['P', UNICODE_WHITE_PAWN], ['p', UNICODE_BLACK_PAWN]],
-
-                    attacks: vec![normal_white, normal_black, white_capture, black_capture],
-                    // the promotion pieces are set later, once it's known which pieces are available
-                    promotions: Promo {
-                        pieces: vec![],
-                        condition: PromoCondition::TargetSquare,
-                        forced_promo_zone: SquareFilter::Bitboard(FairyBitboard::backranks_for(size).raw()),
-                        optional_promo_zone: NoSquares,
-                        promoted_from: None,
-                        promoted_version: None,
-                    },
-                    can_ep_capture: false,
-                    resets_draw_counter: DrawCtrReset::Always,
-                    royal: false,
-                    can_castle: false,
-                }
+                let mut promo_cowrie = Self::ferz(size);
+                promo_cowrie.name = "promoted cowrie".to_string();
+                promo_cowrie.uncolored_symbol = ['M', 'M'];
+                promo_cowrie.player_symbol = [['M', 'M'], ['m', 'm']];
+                promo_cowrie
+            },
+            {
+                let mut khon = Self::ferz(size);
+                khon.name = "khon".to_string();
+                khon.uncolored_symbol = ['S', 'S'];
+                khon.player_symbol = [['S', 'S'], ['s', 's']];
+                khon
+            },
+            {
+                let mut met = Self::silver_no_drop(size);
+                met.name = "met".to_string();
+                met.uncolored_symbol = ['M', 'ค'];
+                met.player_symbol = [['M', 'M'], ['m', 'm']];
+                met
+            },
+            {
+                let mut ma = Self::knight(size);
+                ma.name = "ma".to_string();
+                ma.uncolored_symbol[Unicode] = 'ม';
+                ma
+            },
+            {
+                let mut ruea = Self::rook();
+                ruea.name = "ruea".to_string();
+                ruea.uncolored_symbol[Unicode] = 'ร';
+                ruea
+            },
+            {
+                let mut khun = Self::king_shatranj(size);
+                khun.name = "khun".to_string();
+                khun.uncolored_symbol[Unicode] = 'ข';
+                khun
             },
             Self::new_for(
                 "pawn (shogi)",
@@ -699,20 +792,7 @@ impl Piece {
                 Some(['金', '金', '金']),
             )
             .add_attack(AttackKind::drop(vec![EmptySquares])),
-            Self::new_for(
-                "silver general",
-                AttackKind::simple_side_relative(
-                    LeapingBitboards::range_hv(-1..=1, once(1), size).combine(LeapingBitboards::range_hv(
-                        [-1, 1].into_iter(),
-                        once(-1),
-                        size,
-                    )),
-                    size,
-                ),
-                's',
-                Some(['銀', '銀', '銀']),
-            )
-            .add_attack(AttackKind::drop(vec![EmptySquares])),
+            Self::silver_no_drop(size).add_attack(AttackKind::drop(vec![EmptySquares])),
             Self::new_for(
                 "knight (shogi)",
                 AttackKind::simple_side_relative(LeapingBitboards::range_hv([-1, 1].into_iter(), once(2), size), size),
@@ -775,6 +855,8 @@ impl Piece {
                 can_ep_capture: false,
                 resets_draw_counter: DrawCtrReset::Never,
                 royal: false,
+                // we set `output_as_pawn` to true because we don't want to print the piece type
+                output_omit_piece: true,
                 can_castle: false,
             },
             Self {
@@ -790,6 +872,7 @@ impl Piece {
                 can_ep_capture: false,
                 resets_draw_counter: DrawCtrReset::Never,
                 royal: false,
+                output_omit_piece: true,
                 can_castle: false,
             },
             Self {
@@ -817,6 +900,7 @@ impl Piece {
                 can_ep_capture: false,
                 resets_draw_counter: DrawCtrReset::MoveKind(vec![MoveKind::Drop(0)]),
                 royal: false,
+                output_omit_piece: true,
                 can_castle: false,
             },
             Self {
@@ -829,6 +913,7 @@ impl Piece {
                 can_ep_capture: false,
                 resets_draw_counter: DrawCtrReset::Never,
                 royal: false,
+                output_omit_piece: true,
                 can_castle: false,
             },
         ];
@@ -866,6 +951,23 @@ impl Piece {
             pieces.remove("king (shatranj)").unwrap(),
         ];
         res[0].promotions.pieces.push(PieceId::new(4));
+        res
+    }
+
+    pub fn makruk_pieces() -> Vec<Piece> {
+        let size = FairySize::chess();
+        let mut pieces = Self::complete_piece_map(size);
+        let mut res = vec![
+            pieces.remove("cowrie").unwrap(),
+            pieces.remove("ma").unwrap(),
+            pieces.remove("khon").unwrap(),
+            pieces.remove("met").unwrap(),
+            pieces.remove("ruea").unwrap(),
+            pieces.remove("khun").unwrap(),
+            pieces.remove("promoted cowrie").unwrap(),
+        ];
+        let promo_id = PieceId::new(res.len() - 1);
+        res[0].promotions.pieces.push(promo_id);
         res
     }
 

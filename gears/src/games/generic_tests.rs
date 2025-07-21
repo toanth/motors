@@ -53,7 +53,7 @@ impl<B: Board> GenericTests<B> {
                     println!("{} {pos}", mov.compact_formatter(&pos));
                     let encoded = mov.to_extended_text(&pos, format);
                     let decoded = B::Move::from_extended_text(&encoded, &pos);
-                    assert!(decoded.is_ok());
+                    assert!(decoded.is_ok(), "{encoded}, {}", decoded.unwrap_err());
                     assert_eq!(decoded.unwrap(), mov);
                 }
             }

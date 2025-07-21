@@ -376,6 +376,9 @@ fn completions_for(
     // ignore all other suggestions if the last complete token requires a subcommand
     // compute this before `next_token` might be changed in the loop
     let add_subcommands = next_token.is_none_or(|n| n == to_complete) || node.autocomplete_recurse();
+    if !add_subcommands && next_token.is_none() {
+        return res; // early exit to avoid having to generate all subcommands, which can be very expensive
+    }
     loop {
         let mut found_subcommand = false;
         for child in &node.sub_commands(state) {

@@ -170,7 +170,7 @@ impl Chessboard {
         }
 
         if cfg!(debug_assertions) {
-            for &m in moves.iter_moves() {
+            for m in moves.iter_moves() {
                 debug_assert!(self.is_generated_move_pseudolegal(m));
             }
         }

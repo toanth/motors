@@ -18,7 +18,7 @@
 use crate::games::fairy::Side::Kingside;
 use crate::games::fairy::moves::FairyMove;
 use crate::games::fairy::{FairyBoard, FairyCastleInfo, FairyColor, FairySquare};
-use crate::games::{BoardHistory, Color, NoHistory, ZobristHistory, chess};
+use crate::games::{Color, NoHistory, ZobristHistory, chess, BoardHistDyn};
 use crate::general::bitboards::RawBitboard;
 use crate::general::board::Strictness::{Relaxed, Strict};
 use crate::general::board::{Board, BoardHelpers};

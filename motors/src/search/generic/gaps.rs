@@ -1,6 +1,6 @@
 use std::fmt::Display;
 
-use gears::games::BoardHistory;
+use gears::games::BoardHistDyn;
 use gears::general::board::{Board, BoardHelpers};
 
 use crate::eval::Eval;
@@ -11,6 +11,7 @@ use crate::search::{
     SearchStateFor,
 };
 use gears::general::common::StaticallyNamedEntity;
+use gears::num::traits::WrappingAdd;
 use gears::score::{
     MAX_NORMAL_SCORE, MIN_NORMAL_SCORE, SCORE_LOST, SCORE_TIME_UP, SCORE_WON, Score, game_result_to_score,
 };
@@ -139,7 +140,7 @@ impl<B: Board> Engine<B> for Gaps<B> {
                     self.state.atomic().set_score(iteration_score);
                     self.state.atomic().set_best_move(best_mpv_move);
                 }
-                self.search_state().send_search_info();
+                self.search_state().send_search_info(false);
                 self.state.excluded_moves.push(best_mpv_move);
             }
             self.state.excluded_moves.truncate(self.state.excluded_moves.len() - self.state.multi_pv());
@@ -148,6 +149,9 @@ impl<B: Board> Engine<B> for Gaps<B> {
         if !self.state.stop_flag() {
             // count an additional node to ensure the game remains reproducible
             _ = self.state.atomic().count_node();
+        }
+        if self.search_state().output_minimal() {
+            self.search_state().send_search_info(true);
         }
 
         SearchResult::move_and_score(self.state.atomic().best_move(), self.state.atomic().score(), pos)
@@ -165,6 +169,17 @@ impl<B: Board> NormalEngine<B> for Gaps<B> {
 }
 
 impl<B: Board> Gaps<B> {
+    fn eval(&mut self, pos: &B, ply: usize) -> Score {
+        let us = self.state.params.pos.active_player();
+        let res = self.static_eval(pos, ply);
+        let res = if us == pos.active_player() {
+            res.wrapping_add(&self.state.params.contempt)
+        } else {
+            res.wrapping_add(&-self.state.params.contempt)
+        };
+        res.clamp(MIN_NORMAL_SCORE, MAX_NORMAL_SCORE)
+    }
+
     #[allow(clippy::too_many_arguments)]
     fn negamax(&mut self, pos: B, ply: usize, depth: isize, mut alpha: Score, beta: Score) -> Score {
         debug_assert!(alpha < beta);
@@ -180,7 +195,7 @@ impl<B: Board> Gaps<B> {
             return game_result_to_score(res, ply);
         }
         if depth <= 0 {
-            return self.static_eval(&pos, ply);
+            return self.eval(&pos, ply);
         }
 
         let mut best_score = SCORE_LOST;
