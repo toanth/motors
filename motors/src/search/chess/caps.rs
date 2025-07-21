@@ -19,10 +19,12 @@ use crate::send_debug_msg;
 use gears::PlayerResult;
 use gears::PlayerResult::{Lose, Win};
 use gears::arrayvec::ArrayVec;
+use gears::games::chess::bitbase::{CompactBitbase, PAWN_V_KING_TABLE};
 use gears::games::chess::moves::ChessMove;
 use gears::games::chess::pieces::ChessPieceType::Pawn;
 use gears::games::chess::see::SeeScore;
 use gears::games::chess::squares::NUM_SQUARES;
+use gears::games::chess::upcoming_repetition::{UPCOMING_REPETITION_TABLE, UpcomingRepetitionTable};
 use gears::games::chess::zobrist::ZOBRIST_KEYS;
 use gears::games::chess::{ChessColor, Chessboard, MAX_CHESS_MOVES_IN_POS, unverified::UnverifiedChessboard};
 use gears::games::{BoardHistory, ZobristHistory, n_fold_repetition};
@@ -179,18 +181,23 @@ type CapsState = SearchState<Chessboard, CapsSearchStackEntry, CapsCustomInfo>;
 
 type DefaultEval = LiTEval;
 
+#[derive(Debug)]
+struct Precomputed {
+    upcoming_repetition: &'static UpcomingRepetitionTable,
+    bitbase: &'static CompactBitbase,
+}
+
 /// Chess-playing Alpha-beta Pruning Search, or in short, CAPS.
 /// Larger than SᴍᴀʟʟCᴀᴘꜱ.
 #[derive(Debug)]
 pub struct Caps {
     state: CapsState,
     eval: Box<dyn Eval<Chessboard>>,
+    precomputed: Precomputed,
 }
 
 impl Default for Caps {
     fn default() -> Self {
-        // ensure the cycle detection table is initialized now so that we don't have to wait for that during search.
-        Chessboard::force_init_upcoming_repetition_table();
         Self::with_eval(Box::new(DefaultEval::default()))
     }
 }
@@ -239,9 +246,8 @@ impl Engine<Chessboard> for Caps {
     type CustomInfo = CapsCustomInfo;
 
     fn with_eval(eval: Box<dyn Eval<Chessboard>>) -> Self {
-        Chessboard::force_init_upcoming_repetition_table();
-        Chessboard::force_init_bitbase();
-        Self { state: SearchState::new(DepthPly::new(SEARCH_STACK_LEN)), eval }
+        let precomputed = Precomputed { upcoming_repetition: &UPCOMING_REPETITION_TABLE, bitbase: &PAWN_V_KING_TABLE };
+        Self { state: SearchState::new(DepthPly::new(SEARCH_STACK_LEN)), eval, precomputed }
     }
 
     fn static_eval(&mut self, pos: &Chessboard, ply: usize) -> Score {
@@ -687,7 +693,7 @@ impl Caps {
         if !root {
             // If there is a move that can repeat a position we've looked at during search, we are guaranteed at least a draw score.
             // So don't even bother searching other moves if the draw score would already cause a cutoff.
-            if pos.has_upcoming_repetition(&self.params.history) {
+            if pos.has_upcoming_repetition(&self.precomputed.upcoming_repetition, &self.params.history) {
                 alpha = alpha.max(Score(0));
                 best_score = Score(0);
             }
@@ -1447,7 +1453,7 @@ impl Caps {
             self.eval.eval(pos, ply, us)
         );
         let score = score.clamp(MIN_NORMAL_SCORE, MAX_NORMAL_SCORE);
-        if let Some(res) = Chessboard::query_bitbase(pos) {
+        if let Some(res) = pos.query_bitbase(&self.precomputed.bitbase) {
             // because it's not useful to return the same won/lost score on all nodes, we interpolate with the static eval
             return match res {
                 Win => (score + BITBASE_WIN) / 2,

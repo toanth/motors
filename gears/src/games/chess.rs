@@ -57,7 +57,7 @@ pub mod pieces;
 pub mod see;
 pub mod squares;
 pub mod unverified;
-mod upcoming_repetition;
+pub mod upcoming_repetition;
 pub mod zobrist;
 
 /// This is the only global variable in the entire program, and it is only set when reading a `setoption name UCI_Chess960`.

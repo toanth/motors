@@ -47,7 +47,7 @@ fn idx_compact(w_pawn: ChessSquare, w_king: ChessSquare) -> usize {
 /// Indexed by the position of white's pawn king, gives the positions of black's king that are won for white, as a bitboard
 type FullBitbase = [[ChessBitboard; NUM_COMPLETE_BITBOARDS]; NUM_COLORS];
 
-type CompactBitbase = [[ChessBitboard; NUM_RELEVANT_BITBOARDS]; NUM_COLORS];
+pub type CompactBitbase = [[ChessBitboard; NUM_RELEVANT_BITBOARDS]; NUM_COLORS];
 
 // based on <https://github.com/kervinck/pfkpk>
 
@@ -131,17 +131,11 @@ pub fn calc_pawn_vs_king() -> CompactBitbase {
     res
 }
 
-pub(super) static PAWN_V_KING_TABLE: LazyLock<CompactBitbase> = LazyLock::new(calc_pawn_vs_king);
+pub static PAWN_V_KING_TABLE: LazyLock<CompactBitbase> = LazyLock::new(calc_pawn_vs_king);
 
 impl Chessboard {
-    // Initializing the bitbase can take up to two milliseconds,
-    // and in STC tests we don't want to pay for that the first time search sees such a position.
-    pub fn force_init_bitbase() {
-        _ = LazyLock::force(&PAWN_V_KING_TABLE);
-    }
-
     #[inline]
-    pub fn query_bitbase(&self) -> Option<PlayerResult> {
+    pub fn query_bitbase(&self, table: &CompactBitbase) -> Option<PlayerResult> {
         if self.occupied_bb().num_ones() != 3 {
             return None;
         }
@@ -152,11 +146,17 @@ impl Chessboard {
         } else {
             (self.king_square(White), self.king_square(Black))
         };
-        Some(query_pawn_v_king(pawn, w_k, b_k, flip))
+        Some(query_pawn_v_king(table, pawn, w_k, b_k, flip))
     }
 }
 
-fn query_pawn_v_king(mut w_p: ChessSquare, mut w_k: ChessSquare, mut b_k: ChessSquare, flip: bool) -> PlayerResult {
+fn query_pawn_v_king(
+    table: &CompactBitbase,
+    mut w_p: ChessSquare,
+    mut w_k: ChessSquare,
+    mut b_k: ChessSquare,
+    flip: bool,
+) -> PlayerResult {
     if w_p.file() >= 4 {
         w_p = w_p.flip_left_right(ChessboardSize::default());
         w_k = w_k.flip_left_right(ChessboardSize::default());
@@ -164,10 +164,10 @@ fn query_pawn_v_king(mut w_p: ChessSquare, mut w_k: ChessSquare, mut b_k: ChessS
     }
     let i = idx_compact(w_p, w_k);
     if flip {
-        let res = PAWN_V_KING_TABLE[Black][i].is_bit_set(b_k);
+        let res = table[Black][i].is_bit_set(b_k);
         if res { Win } else { Draw }
     } else {
-        let res = PAWN_V_KING_TABLE[White][i].is_bit_set(b_k);
+        let res = table[White][i].is_bit_set(b_k);
         if res { Lose } else { Draw }
     }
 }
@@ -177,7 +177,7 @@ mod tests {
     use crate::PlayerResult::Draw;
     use crate::games::chess::ChessColor::{Black, White};
     use crate::games::chess::bitbase::{
-        calc_pawn_vs_king, calc_pawn_vs_king_impl, idx_compact, idx_full, query_pawn_v_king,
+        PAWN_V_KING_TABLE, calc_pawn_vs_king, calc_pawn_vs_king_impl, idx_compact, idx_full, query_pawn_v_king,
     };
     use crate::games::chess::squares::{ChessSquare, sq};
     use crate::games::chess::{ChessBitboardTrait, ChessColor, PAWN_CAPTURES};
@@ -265,8 +265,9 @@ mod tests {
             Testcase { side: Black, w_king: sq("h3"), w_pawn: sq("b2"), b_king: sq("h5"), won: true },
             Testcase { side: White, w_king: sq("g2"), w_pawn: sq("b2"), b_king: sq("g5"), won: true },
         ];
+        let table = &PAWN_V_KING_TABLE;
         for test in testcases {
-            let res = query_pawn_v_king(test.w_pawn, test.w_king, test.b_king, test.side == Black);
+            let res = query_pawn_v_king(table, test.w_pawn, test.w_king, test.b_king, test.side == Black);
             assert_eq!(res != Draw, test.won, "{test:?}");
         }
     }

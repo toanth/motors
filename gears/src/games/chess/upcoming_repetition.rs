@@ -54,7 +54,7 @@ pub struct UpcomingRepetitionTable {
 
 // It might make sense to try a different hashing scheme than cuckoo hashing, like robin hood hashing.
 // That should be more cache efficient, at least.
-pub fn calc_move_hash_table() -> UpcomingRepetitionTable {
+pub(super) fn calc_move_hash_table() -> UpcomingRepetitionTable {
     let mut hashes = [PosHash::default(); SIZE];
     let mut moves = [ChessMove::default(); SIZE];
     let mut count = 0;
@@ -134,17 +134,11 @@ fn has_upcoming_repetition(table: &UpcomingRepetitionTable, history: &ZobristHis
 }
 
 impl Chessboard {
-    pub fn has_upcoming_repetition(&self, history: &ZobristHistory) -> bool {
+    pub fn has_upcoming_repetition(&self, table: &UpcomingRepetitionTable, history: &ZobristHistory) -> bool {
         if self.ply_100_ctr < 3 || history.is_empty() {
             return false;
         }
-        has_upcoming_repetition(&UPCOMING_REPETITION_TABLE, history, self)
-    }
-
-    // Initializing the upcoming repetition table can take a short while,
-    // and in STC tests we don't want to pay for that in the first search call.
-    pub fn force_init_upcoming_repetition_table() {
-        _ = LazyLock::force(&UPCOMING_REPETITION_TABLE);
+        has_upcoming_repetition(table, history, self)
     }
 }
 
@@ -174,32 +168,32 @@ mod tests {
         let moves = ["Qg3", "Bb7", "Qf3"];
         let mut hist = ZobristHistory::default();
         for m in moves {
-            assert!(!pos.has_upcoming_repetition(&hist));
+            assert!(!pos.has_upcoming_repetition(&UPCOMING_REPETITION_TABLE, &hist));
             hist.push(pos.hash_pos());
             pos = pos.make_move_from_str(m).unwrap();
         }
-        assert!(pos.has_upcoming_repetition(&hist));
+        assert!(pos.has_upcoming_repetition(&UPCOMING_REPETITION_TABLE, &hist));
         hist.push(pos.hash_pos());
         pos = pos.make_move_from_str("Ba6").unwrap();
         assert!(pos.match_result_slow(&hist).is_none());
-        assert!(pos.has_upcoming_repetition(&hist));
+        assert!(pos.has_upcoming_repetition(&UPCOMING_REPETITION_TABLE, &hist));
         hist.push(pos.hash_pos());
         pos = pos.make_nullmove().unwrap();
-        assert!(!pos.has_upcoming_repetition(&hist));
+        assert!(!pos.has_upcoming_repetition(&UPCOMING_REPETITION_TABLE, &hist));
         hist.push(pos.hash_pos());
         pos = pos.make_move_from_str("Bb5").unwrap();
-        assert!(!pos.has_upcoming_repetition(&hist));
+        assert!(!pos.has_upcoming_repetition(&UPCOMING_REPETITION_TABLE, &hist));
         hist.push(pos.hash_pos());
         pos = pos.make_nullmove().unwrap();
         pos.ply_100_ctr = 42;
-        assert!(pos.has_upcoming_repetition(&hist));
+        assert!(pos.has_upcoming_repetition(&UPCOMING_REPETITION_TABLE, &hist));
         hist.push(pos.hash_pos());
         pos = pos.make_move_from_str("Ba6").unwrap();
         assert!(hist.0.contains(&pos.hash_pos()));
-        assert!(pos.has_upcoming_repetition(&hist));
+        assert!(pos.has_upcoming_repetition(&UPCOMING_REPETITION_TABLE, &hist));
         hist.push(pos.hash_pos());
         pos = pos.make_nullmove().unwrap();
-        assert!(!pos.has_upcoming_repetition(&hist));
+        assert!(!pos.has_upcoming_repetition(&UPCOMING_REPETITION_TABLE, &hist));
     }
 
     #[test]
@@ -209,14 +203,14 @@ mod tests {
         let mut hist = ZobristHistory::default();
         for m in moves {
             assert!(!n_fold_repetition(2, &hist, pos.hash_pos(), 100));
-            assert!(!pos.has_upcoming_repetition(&hist), "{pos}");
+            assert!(!pos.has_upcoming_repetition(&UPCOMING_REPETITION_TABLE, &hist), "{pos}");
             hist.push(pos.hash_pos());
             pos = pos.make_move_from_str(m).unwrap();
         }
-        assert!(pos.has_upcoming_repetition(&hist)); // Ke5 repeats
+        assert!(pos.has_upcoming_repetition(&UPCOMING_REPETITION_TABLE, &hist)); // Ke5 repeats
         hist.push(pos.hash_pos());
         pos = pos.make_move_from_str("Kd5").unwrap();
         assert!(!n_fold_repetition(2, &hist, pos.hash_pos(), 100));
-        assert!(!pos.has_upcoming_repetition(&hist));
+        assert!(!pos.has_upcoming_repetition(&UPCOMING_REPETITION_TABLE, &hist));
     }
 }
