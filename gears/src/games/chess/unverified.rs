@@ -99,7 +99,7 @@ impl UnverifiedBoard<Chessboard> for UnverifiedChessboard {
         }
         let inactive_player = this.active.other();
 
-        let generator = self.0.slider_generator();
+        let generator = this.slider_generator();
         if this.is_in_check_on_square(inactive_player, this.king_square(inactive_player), &generator) {
             bail!("Player {inactive_player} is in check, but it's not their turn to move");
         } else if strictness == Strict {

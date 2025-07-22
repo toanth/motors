@@ -362,8 +362,10 @@ impl TT {
 
     pub fn load<B: Board>(&self, hash: PosHash, ply: usize) -> Option<TTEntry<B>> {
         let bucket = &self.tt[self.bucket_index_of(hash)];
-        let mut entry =
-            bucket.0.iter().map(|e| TTEntry::<B>::unpack(e)).find(|e| e.hash_part().equals(hash) && !e.is_empty())?;
+        let mut entry = bucket.0.iter().map(|e| TTEntry::<B>::unpack(e)).find(|e| e.hash_part().equals(hash))?;
+        if entry.is_empty() {
+            return None;
+        }
         // Mate score adjustments, see `store`
         if let Some(tt_plies) = entry.score().plies_until_game_won() {
             if tt_plies <= 0 {
