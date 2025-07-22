@@ -49,20 +49,8 @@ type FullBitbase = [[ChessBitboard; NUM_COMPLETE_BITBOARDS]; NUM_COLORS];
 
 pub type CompactBitbase = [[ChessBitboard; NUM_RELEVANT_BITBOARDS]; NUM_COLORS];
 
-// based on <https://github.com/kervinck/pfkpk>
-
+// based on <https://github.com/kervinck/pfkpk>, but improved to take 3/4 of the space and be computed in 1/20 of the time
 fn calc_pawn_vs_king_impl() -> FullBitbase {
-    // bitboard of squares where black's king can't end up after a move. This doesn't include the white pawn if capturing the pawn is legal
-    let mut invalid: [ChessBitboard; NUM_COMPLETE_BITBOARDS + 4 * NUM_SQUARES] =
-        [ChessBitboard::new(0); NUM_COMPLETE_BITBOARDS + 4 * NUM_SQUARES];
-    for w_pawn in ChessSquare::iter() {
-        if w_pawn.file() >= 4 {
-            continue;
-        }
-        for w_king in ChessSquare::iter() {
-            invalid[idx_full(w_pawn, w_king)] = PAWN_CAPTURES[White][w_pawn] | KINGS[w_king] | w_king.bb();
-        }
-    }
     let mut res = [[ChessBitboard::default(); NUM_COMPLETE_BITBOARDS]; NUM_COLORS];
     // The base case is a pawn on the eighth rank; this is won unless black can immediately capture it.
     // It's never a stalemate because we could promote to a rook.
@@ -75,9 +63,15 @@ fn calc_pawn_vs_king_impl() -> FullBitbase {
         }
     }
 
+    // bitboard of squares where black's king can't end up after a move. This doesn't include the white pawn if capturing the pawn is legal
+    let mut invalid: [ChessBitboard; NUM_SQUARES] = [ChessBitboard::new(0); NUM_SQUARES];
+
     for w_pawn in ChessSquare::iter().rev() {
         if w_pawn.is_backrank() || w_pawn.file() >= 4 {
             continue;
+        }
+        for w_king in ChessSquare::iter() {
+            invalid[w_king] = PAWN_CAPTURES[White][w_pawn] | KINGS[w_king] | w_king.bb();
         }
         let mut changed;
         loop {
@@ -97,18 +91,15 @@ fn calc_pawn_vs_king_impl() -> FullBitbase {
                     }
                 }
                 let i = idx_full(w_pawn, w_king);
-                res[White][i] = won & !w_pawn.bb() & !invalid[i];
-                debug_assert_eq!(res[White][i] & invalid[i], ChessBitboard::default());
+                res[White][i] = won & !w_pawn.bb() & !invalid[w_king];
+                debug_assert_eq!(res[White][i] & invalid[w_king], ChessBitboard::default());
             }
             changed = false;
-            if w_pawn.is_backrank() || w_pawn.file() >= 4 {
-                continue;
-            }
             for w_king in ChessSquare::iter() {
                 let i = idx_full(w_pawn, w_king);
-                let no_draw_wtm = res[White][i] | invalid[i];
+                let no_draw_wtm = res[White][i] | invalid[w_king];
                 let draw_btm = (!no_draw_wtm).moore_exclusive();
-                let has_moves_btm = (!invalid[i]).moore_exclusive();
+                let has_moves_btm = (!invalid[w_king]).moore_exclusive();
                 let white_win_btm = has_moves_btm & !draw_btm & !w_pawn.bb();
                 changed |= res[Black][i] != white_win_btm;
                 res[Black][i] = white_win_btm;
