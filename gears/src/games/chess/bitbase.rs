@@ -139,12 +139,12 @@ impl Chessboard {
         }
         let Some(pawn) = self.piece_bb(Pawn).to_square() else { return None };
         let flip = self.col_piece_bb(White, Pawn).is_zero();
-        let (w_k, b_k) = if flip {
-            (self.king_square(Black), self.king_square(White))
+        let (w_p, w_k, b_k) = if flip {
+            (pawn.flip(), self.king_square(Black).flip(), self.king_square(White).flip())
         } else {
-            (self.king_square(White), self.king_square(Black))
+            (pawn, self.king_square(White), self.king_square(Black))
         };
-        Some(query_pawn_v_king(table, pawn, w_k, b_k, flip))
+        Some(query_pawn_v_king(table, w_p, w_k, b_k, flip != (self.active == Black)))
     }
 }
 
@@ -153,7 +153,7 @@ fn query_pawn_v_king(
     mut w_p: ChessSquare,
     mut w_k: ChessSquare,
     mut b_k: ChessSquare,
-    flip: bool,
+    is_black: bool,
 ) -> PlayerResult {
     if w_p.file() >= 4 {
         w_p = w_p.flip_left_right(ChessboardSize::default());
@@ -161,26 +161,28 @@ fn query_pawn_v_king(
         b_k = b_k.flip_left_right(ChessboardSize::default());
     }
     let i = idx_compact(w_p, w_k);
-    if flip {
+    if is_black {
         let res = table[Black][i].is_bit_set(b_k);
-        if res { Win } else { Draw }
+        if res { Lose } else { Draw }
     } else {
         let res = table[White][i].is_bit_set(b_k);
-        if res { Lose } else { Draw }
+        if res { Win } else { Draw }
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::PlayerResult::Draw;
+    use crate::PlayerResult::{Draw, Lose, Win};
     use crate::games::chess::ChessColor::{Black, White};
     use crate::games::chess::bitbase::{
         PAWN_V_KING_TABLE, calc_pawn_vs_king, calc_pawn_vs_king_impl, idx_compact, idx_full, query_pawn_v_king,
     };
     use crate::games::chess::squares::{ChessSquare, sq};
-    use crate::games::chess::{ChessBitboardTrait, ChessColor, PAWN_CAPTURES};
+    use crate::games::chess::{ChessBitboardTrait, ChessColor, Chessboard, PAWN_CAPTURES};
     use crate::general::bitboards::Bitboard;
     use crate::general::bitboards::chessboard::KINGS;
+    use crate::general::board::Strictness::Strict;
+    use crate::general::board::{Board, BoardHelpers};
     use crate::general::squares::{RectangularCoordinates, sup_distance};
 
     #[test]
@@ -309,5 +311,23 @@ mod tests {
             }
         }
         assert_eq!(counts, [0, 0, 0, 0]);
+    }
+
+    #[test]
+    fn chess_test() {
+        let table = calc_pawn_vs_king();
+        let pos = Chessboard::from_fen("1K1k4/1P6/8/8/8/8/8/8 b - - 0 1", Strict).unwrap();
+        assert_eq!(pos.query_bitbase(&table), Some(Lose));
+        let pos = pos.make_nullmove().unwrap();
+        assert_eq!(pos.query_bitbase(&table), Some(Win));
+        let pos = Chessboard::from_fen("3k4/1P6/8/8/8/1K6/8/8 b - - 0 1", Strict).unwrap();
+        assert_eq!(pos.query_bitbase(&table), Some(Draw));
+        let pos = Chessboard::from_fen("3k4/1P6/8/8/8/1K6/8/7R b - - 0 1", Strict).unwrap();
+        assert_eq!(pos.query_bitbase(&table), None);
+
+        let pos = Chessboard::from_fen("3k4/8/8/8/8/1K6/6p1/8 b - - 0 1", Strict).unwrap();
+        assert_eq!(pos.query_bitbase(&table), Some(Win));
+        let pos = pos.make_nullmove().unwrap();
+        assert_eq!(pos.query_bitbase(&table), Some(Lose));
     }
 }

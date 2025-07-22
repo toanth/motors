@@ -1457,19 +1457,19 @@ impl Caps {
             score.0,
             self.eval.eval(pos, ply, us)
         );
-        if let Some(res) = pos.query_bitbase(&self.precomputed.bitbase) {
-            // because it's not useful to return the same won/lost score on all nodes, we interpolate with the static eval
-            score = match res {
-                Win => (score + BITBASE_WIN) / 2,
-                Lose => (score + BITBASE_LOSS) / 2,
-                PlayerResult::Draw => Score(0),
-            };
-        }
         score = if us == pos.active_player() {
             score.wrapping_add(&self.params.contempt)
         } else {
             score.wrapping_add(&-self.params.contempt)
         };
+        if let Some(res) = pos.query_bitbase(&self.precomputed.bitbase) {
+            // because it's not useful to return the same won/lost score on all nodes, we interpolate with the static eval
+            score = match res {
+                Win => (score + BITBASE_WIN) / 2,
+                Lose => (score + BITBASE_LOSS) / 2,
+                PlayerResult::Draw => score / 2, // also reduces contempt on bitbase results
+            };
+        }
         score.clamp(MIN_NORMAL_SCORE, MAX_NORMAL_SCORE)
     }
 
