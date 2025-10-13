@@ -64,7 +64,7 @@ pub(super) fn calc_move_hash_table() -> UpcomingRepetitionTable {
         let piece = piece.uncolor();
         for src in ChessSquare::iter() {
             let attacks = Chessboard::threatening_attacks(src, piece, color, &slider_gen);
-            for dest in attacks.ones() {
+            for dest in attacks {
                 if dest.bb_idx() < src.bb_idx() {
                     continue;
                 }
@@ -114,7 +114,7 @@ fn has_upcoming_repetition(table: &UpcomingRepetitionTable, history: &ZobristHis
         let mut dest = table.moves[idx].dest_square();
 
         let ray = ChessBitboard::ray_exclusive(src, dest, ChessboardSize {});
-        if (ray & pos.occupied_bb()).has_set_bit() {
+        if (ray & pos.occupied_bb()).has_any() {
             continue;
         };
         if cfg!(debug_assertions) {

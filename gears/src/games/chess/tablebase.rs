@@ -136,11 +136,11 @@ pub(super) fn piece_vs_king_is_won(
                 return true;
             }
             // piece can be captured
-            if (KINGS[their_king] & !KINGS[our_king] & our_piece.bb()).has_set_bit() {
+            if (KINGS[their_king] & !KINGS[our_king] & our_piece.bb()).has_any() {
                 return false;
             }
             // stalemate
-            if (their_king.bb() & EDGE_SQUARES).has_set_bit() && (KINGS[their_king] & KINGS[our_king]).has_set_bit() {
+            if EDGE_SQUARES.has(their_king) && KINGS[their_king].intersects(KINGS[our_king]) {
                 let blockers = our_king.bb() | their_king.bb();
                 let slider_gen = ChessSliderGenerator::new(blockers);
                 let attacks = if piece == Rook {
@@ -148,8 +148,7 @@ pub(super) fn piece_vs_king_is_won(
                 } else {
                     slider_gen.queen_attacks(our_piece)
                 };
-                return (KINGS[their_king] & !(attacks | KINGS[our_king])).has_set_bit()
-                    || attacks.is_bit_set(their_king);
+                return KINGS[their_king].intersects(!(attacks | KINGS[our_king])) || attacks.has(their_king);
             }
             true
         }
@@ -175,7 +174,7 @@ fn calc_tablebase_x_vs_x(x_pieces: [ChessPieceType; NUM_COLORS]) -> Vec<i8> {
                         if kings[active] == pieces[!active]
                             || w_king == w_x
                             || b_king == b_x
-                            || (KINGS[w_king] | w_king.bb()).is_bit_set(b_king)
+                            || (KINGS[w_king] | w_king.bb()).has(b_king)
                         {
                             res[i] = INVALID;
                             continue;
@@ -243,7 +242,7 @@ fn calc_tablebase_x_vs_x(x_pieces: [ChessPieceType; NUM_COLORS]) -> Vec<i8> {
                             // will not influence the maximum. Therefore, we don't even need to construct a Chessboard,
                             // we can simply use the attacks of the individual pieces
 
-                            for x_dest in attacks_for(x_pieces[active], pieces[active], blockers).ones() {
+                            for x_dest in attacks_for(x_pieces[active], pieces[active], blockers) {
                                 let i = if active == White {
                                     idx(w_king, b_king, x_dest, b_x, !active)
                                 } else {
@@ -251,7 +250,7 @@ fn calc_tablebase_x_vs_x(x_pieces: [ChessPieceType; NUM_COLORS]) -> Vec<i8> {
                                 };
                                 r = r.min(res[i]);
                             }
-                            for king_dest in KINGS[kings[active]].ones() {
+                            for king_dest in KINGS[kings[active]] {
                                 let i = if active == White {
                                     idx_normalized(king_dest, b_king, w_x, b_x, !active)
                                 } else {
@@ -305,7 +304,7 @@ mod tests {
             if w_king == sq("a1") {
                 assert_eq!(res, MATED);
                 assert_eq!(table[idx_normalized(w_king, sq("b3"), sq("b1"), sq("c2"), Black)], INVALID);
-            } else if ChessBitboard::new(0x7070702).is_bit_set(w_king) {
+            } else if ChessBitboard::new(0x7070702).has(w_king) {
                 assert_eq!(res, INVALID);
             } else {
                 assert_eq!(res, DRAW);

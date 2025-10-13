@@ -371,7 +371,6 @@ pub trait Board:
     // fn variant(name: &str, _additional: &mut Tokens) -> Res<Self> {
     //     bail!("The game {0} does not support any variants, including '{1}'", Self::game_name(), name.red())
     // }
-
     fn variant_for(name: &str, _additional: &mut Tokens, _proto: Protocol) -> Res<Self> {
         bail!("The game {0} does not support any variants, including '{1}'", Self::game_name(), name.red())
     }
@@ -885,9 +884,7 @@ impl Default for AxesFormat {
 
 impl AxesFormat {
     pub fn player_pov() -> Self {
-        let mut res = Self::default();
-        res.orientation = BoardOrientation::PlayerPov;
-        res
+        Self { orientation: BoardOrientation::PlayerPov, ..Default::default() }
     }
 
     pub fn is_usi_format(&self) -> bool {

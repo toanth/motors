@@ -814,7 +814,7 @@ pub trait AbstractSearchState<B: Board> {
     }
     fn pv_data(&self) -> &[PVData<B>];
     fn to_bench_res(&self) -> BenchResult;
-    fn to_search_info(&self, final_info: bool) -> SearchInfo<B>;
+    fn to_search_info(&self, final_info: bool) -> SearchInfo<'_, B>;
     fn aggregated_statistics(&self) -> Statistics;
     fn send_search_info(&self, final_info: bool);
     fn should_show_debug_msg(&self) -> bool {

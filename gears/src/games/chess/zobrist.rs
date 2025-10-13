@@ -4,7 +4,6 @@ use crate::games::chess::pieces::{ChessPieceType, NUM_CHESS_PIECES};
 use crate::games::chess::squares::{ChessSquare, NUM_COLUMNS, NUM_SQUARES};
 use crate::games::chess::{ChessColor, Chessboard, Hashes};
 use crate::games::{Color, NUM_COLORS, PosHash};
-use crate::general::bitboards::Bitboard;
 use crate::general::board::BitboardBoard;
 use crate::general::squares::RectangularCoordinates;
 
@@ -88,8 +87,8 @@ impl Chessboard {
         let mut knb = PosHash(0);
         for color in ChessColor::iter() {
             for piece in ChessPieceType::non_pawn_pieces() {
-                let pieces = self.col_piece_bb(color, piece);
-                for square in pieces.ones() {
+                let pieces_bb = self.col_piece_bb(color, piece);
+                for square in pieces_bb {
                     let key = ZOBRIST_KEYS.piece_key(piece, color, square);
                     nonpawns[color] ^= key;
                     if piece.is_knb() {
@@ -97,7 +96,7 @@ impl Chessboard {
                     }
                 }
             }
-            for square in self.col_piece_bb(color, Pawn).ones() {
+            for square in self.col_piece_bb(color, Pawn) {
                 pawns ^= ZOBRIST_KEYS.piece_key(Pawn, color, square);
             }
         }

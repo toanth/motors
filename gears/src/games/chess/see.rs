@@ -4,7 +4,7 @@ use crate::games::chess::pieces::ChessPieceType::*;
 use crate::games::chess::pieces::{ChessPieceType, NUM_CHESS_PIECES};
 use crate::games::chess::squares::{ChessSquare, ChessboardSize};
 use crate::games::chess::{Chessboard, PAWN_CAPTURES};
-use crate::games::{AbstractPieceType, Board, Color};
+use crate::games::{AbstractPieceType, Board};
 use crate::general::bitboards::chessboard::ChessBitboard;
 use crate::general::bitboards::{Bitboard, KnownSizeBitboard, RawBitboard};
 use crate::general::board::BitboardBoard;
@@ -35,7 +35,7 @@ impl Chessboard {
     fn next_see_attacker(&self, our_remaining_attackers: ChessBitboard) -> Option<(ChessPieceType, ChessSquare)> {
         for piece in ChessPieceType::pieces() {
             let mut current_attackers = self.piece_bb(piece) & our_remaining_attackers;
-            if current_attackers.has_set_bit() {
+            if current_attackers.has_any() {
                 return Some((piece, ChessSquare::from_bb_idx(current_attackers.pop_lsb())));
             };
         }
@@ -51,8 +51,7 @@ impl Chessboard {
         // A simple shortcut to avoid doing most of the work of SEE for a large portion of the cases it's called.
         // This needs to handle the case of the opponent recapturing with a pawn promotion.
         if piece_see_value(our_victim) - piece_see_value(original_moving_piece) >= beta
-            && !(square.is_backrank()
-                && (PAWN_CAPTURES[us as usize][square.bb_idx()] & self.col_piece_bb(us.other(), Pawn)).has_set_bit())
+            && !(square.is_backrank() && PAWN_CAPTURES[us][square].intersects(self.col_piece_bb(!us, Pawn)))
         {
             return beta;
         }
@@ -92,7 +91,7 @@ impl Chessboard {
         let mut see_attack =
             |attacker: ChessSquare, all_remaining_attackers: &mut ChessBitboard, piece: ChessPieceType| {
                 let removed = ChessBitboard::single_piece(attacker);
-                debug_assert!((removed & remaining_blockers).has_set_bit());
+                debug_assert!(removed.intersects(remaining_blockers));
                 // `&= !` instead of `^` because in the case of a regular pawn move, the moving pawn wasn't part of the attacker bb.
                 *all_remaining_attackers &= !removed;
                 remaining_blockers ^= removed;

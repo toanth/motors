@@ -94,12 +94,6 @@ impl Not for UtttColor {
     }
 }
 
-impl From<UtttColor> for usize {
-    fn from(color: UtttColor) -> usize {
-        color as usize
-    }
-}
-
 impl Color for UtttColor {
     type Board = UtttBoard;
 
@@ -549,7 +543,7 @@ impl UtttBoard {
     }
 
     pub fn is_sub_board_open(self, sub_board: UtttSubSquare) -> bool {
-        self.open_sub_board(sub_board).has_set_bit()
+        self.open_sub_board(sub_board).has_any()
     }
 
     pub fn is_open(self, square: UtttSquare) -> bool {
@@ -739,7 +733,7 @@ impl Board for UtttBoard {
             }
             if rng.random_bool(0.5) {
                 let bb = pos.0.inactive_player_bb();
-                if bb.has_set_bit() {
+                if bb.has_any() {
                     let piece = ith_one_u128(rng.random_range(0..bb.num_ones()), bb);
                     pos.0.last_move = UtttMove::new(UtttSquare::from_bb_idx(piece));
                 }
@@ -1025,11 +1019,11 @@ impl UnverifiedBoard<UtttBoard> for UnverifiedUtttBoard {
         if checks != CheckFen {
             for color in UtttColor::iter() {
                 let bb = this.colors_internal[color as usize];
-                if (bb >> (81 + 9)).has_set_bit() {
+                if (bb >> (81 + 9)).has_any() {
                     bail!("The {color} bitboard contains a set bit above the range of used bits, the bitboard is {bb}");
                 }
             }
-            if (this.colors_internal[0] & this.colors_internal[1]).has_set_bit() {
+            if (this.colors_internal[0] & this.colors_internal[1]).has_any() {
                 bail!(
                     "At least one square is occupied by both players, the bitboards are {0} and {1}",
                     this.colors_internal[0],
@@ -1077,7 +1071,7 @@ impl UnverifiedBoard<UtttBoard> for UnverifiedUtttBoard {
             }
         }
         let mut won_by_both = this.won_sub_boards(O) & this.won_sub_boards(X);
-        if won_by_both.has_set_bit() {
+        if won_by_both.has_any() {
             bail!("Sub board {0} has been won by both players", UtttSubSquare::from_bb_idx(won_by_both.pop_lsb()));
         }
         for color in UtttColor::iter() {

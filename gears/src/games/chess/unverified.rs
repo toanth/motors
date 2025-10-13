@@ -88,7 +88,7 @@ impl UnverifiedBoard<Chessboard> for UnverifiedChessboard {
         for color in ChessColor::iter() {
             for side in CastleRight::iter() {
                 let has_eligible_rook =
-                    (this.rook_start_square(color, side).bb() & this.col_piece_bb(color, Rook)).has_set_bit();
+                    this.rook_start_square(color, side).bb().intersects(this.col_piece_bb(color, Rook));
                 if this.castling.can_castle(color, side) && !has_eligible_rook {
                     bail!(
                         "The {color} player can castle {side}, but there is no rook to castle with{}",
@@ -303,7 +303,7 @@ impl UnverifiedChessboard {
             loop {
                 let king_sq2 = rng.random_range(0..64);
                 let king_sq2 = ChessSquare::from_bb_idx(king_sq2);
-                if king_sq2 == king_sq1 || Chessboard::normal_king_attacks_from(king_sq2).is_bit_set(king_sq1) {
+                if king_sq2 == king_sq1 || Chessboard::normal_king_attacks_from(king_sq2).has(king_sq1) {
                     continue;
                 }
                 break king_sq2;

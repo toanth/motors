@@ -186,7 +186,7 @@ pub trait RawBitboard:
     }
 
     #[inline]
-    fn has_set_bit(self) -> bool {
+    fn has_any(self) -> bool {
         !self.is_zero()
     }
 
@@ -208,7 +208,7 @@ pub trait RawBitboard:
 
     #[inline]
     fn more_than_one_bit_set(self) -> bool {
-        (self & (self.wrapping_sub(&Self::one()))).has_set_bit()
+        (self & (self.wrapping_sub(&Self::one()))).has_any()
     }
 
     #[inline]
@@ -231,11 +231,6 @@ pub trait RawBitboard:
         BitIterator(self)
     }
 
-    // TODO: Use more frequently
-    fn intersects(self, other: Self) -> bool {
-        (self & other).has_set_bit()
-    }
-
     fn shift<const UP: bool>(self, amount: usize) -> Self {
         if UP { self << amount } else { self >> amount }
     }
@@ -251,9 +246,20 @@ impl<B: RawBitboard> Iterator for BitIterator<B> {
     fn next(&mut self) -> Option<Self::Item> {
         if self.0.is_zero() { None } else { Some(self.0.pop_lsb()) }
     }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        let n = self.0.num_ones();
+        (n, Some(n))
+    }
 }
 
 impl<B: RawBitboard> FusedIterator for BitIterator<B> {}
+
+impl<B: RawBitboard> ExactSizeIterator for BitIterator<B> {
+    fn len(&self) -> usize {
+        self.0.num_ones()
+    }
+}
 
 pub type RawStandardBitboard = u64;
 
@@ -557,6 +563,11 @@ pub trait Bitboard<R: RawBitboard, C: RectangularCoordinates>:
     }
 
     #[inline]
+    fn intersects(self, other: Self) -> bool {
+        (self & other).has_any()
+    }
+
+    #[inline]
     fn ranks_containing(self) -> Self {
         let file_0 = Self::file_0_for(self.size());
         let max_file = file_0 << (self.internal_width() - 1);
@@ -574,7 +585,7 @@ pub trait Bitboard<R: RawBitboard, C: RectangularCoordinates>:
     }
 
     #[inline]
-    fn is_bit_set(self, c: C) -> bool {
+    fn has(self, c: C) -> bool {
         self.is_bit_set_at(self.size().internal_key(c))
     }
 
@@ -745,7 +756,7 @@ impl<const H: usize, const W: usize> SmallGridBitboard<H, W> {
 }
 
 impl<const H: usize, const W: usize> WrappingSub for SmallGridBitboard<H, W> {
-    #[inline]
+    #[inline(always)]
     fn wrapping_sub(&self, v: &Self) -> Self {
         Self(self.0.wrapping_sub(v.0))
     }
@@ -757,10 +768,31 @@ impl<const H: usize, const W: usize> Display for SmallGridBitboard<H, W> {
     }
 }
 
+impl Iterator for SmallGridBitboard<8, 8> {
+    type Item = SmallGridSquare<8, 8, 8>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.0.is_zero() { None } else { Some(SmallGridSquare::from_bb_idx(self.pop_lsb())) }
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        let n = self.0.num_ones();
+        (n, Some(n))
+    }
+}
+
+impl FusedIterator for SmallGridBitboard<8, 8> {}
+
+impl ExactSizeIterator for SmallGridBitboard<8, 8> {
+    fn len(&self) -> usize {
+        self.0.num_ones()
+    }
+}
+
 impl<const H: usize, const W: usize> Bitboard<RawStandardBitboard, SmallGridSquare<H, W, 8>>
     for SmallGridBitboard<H, W>
 {
-    #[inline]
+    #[inline(always)]
     fn new(raw: RawStandardBitboard, _size: SmallGridSize<H, W>) -> Self {
         Self(raw)
     }
@@ -773,12 +805,12 @@ impl<const H: usize, const W: usize> Bitboard<RawStandardBitboard, SmallGridSqua
         Self::new(RAYS_INCLUSIVE[a.bb_idx()][b.bb_idx()])
     }
 
-    #[inline]
+    #[inline(always)]
     fn raw(self) -> RawStandardBitboard {
         self.0
     }
 
-    #[inline]
+    #[inline(always)]
     fn size(self) -> SmallGridSize<H, W> {
         SmallGridSize::default()
     }
@@ -862,7 +894,7 @@ impl<R: RawBitboard, C: RectangularCoordinates> Sub for DynamicallySizedBitboard
 
 /// Necessary for hyperbola quintessence.
 impl<R: RawBitboard, C: RectangularCoordinates> WrappingSub for DynamicallySizedBitboard<R, C> {
-    #[inline]
+    #[inline(always)]
     fn wrapping_sub(&self, v: &Self) -> Self {
         Self::new(self.raw.wrapping_sub(&v.raw), self.size)
     }
@@ -964,7 +996,7 @@ impl<R: RawBitboard, C: RectangularCoordinates> ShrAssign<usize> for Dynamically
 }
 
 impl<R: RawBitboard, C: RectangularCoordinates> Bitboard<R, C> for DynamicallySizedBitboard<R, C> {
-    #[inline]
+    #[inline(always)]
     fn new(raw: R, size: C::Size) -> Self {
         Self { raw, size }
     }
@@ -981,12 +1013,12 @@ impl<R: RawBitboard, C: RectangularCoordinates> Bitboard<R, C> for DynamicallySi
         Self::new(underlying, size)
     }
 
-    #[inline]
+    #[inline(always)]
     fn raw(self) -> R {
         self.raw
     }
 
-    #[inline]
+    #[inline(always)]
     fn size(self) -> C::Size {
         self.size
     }

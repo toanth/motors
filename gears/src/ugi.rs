@@ -394,17 +394,15 @@ fn parse_ugi_moves_part<B: Board>(
         let mov = match B::Move::from_text(next_word, state.pos()) {
             Ok(mov) => mov,
             Err(err) => {
-                if accept_move_number {
-                    if let Some(remaining) = ignore_move_number(next_word) {
-                        accept_move_number = false;
-                        if remaining.is_empty() {
-                            _ = words.next();
-                            current_word = words.peek().copied();
-                        } else {
-                            current_word = Some(remaining);
-                        }
-                        continue;
+                if accept_move_number && let Some(remaining) = ignore_move_number(next_word) {
+                    accept_move_number = false;
+                    if remaining.is_empty() {
+                        _ = words.next();
+                        current_word = words.peek().copied();
+                    } else {
+                        current_word = Some(remaining);
                     }
+                    continue;
                 }
                 if !parsed_move && has_moves_word {
                     bail!(

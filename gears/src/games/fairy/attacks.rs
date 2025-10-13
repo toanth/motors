@@ -563,7 +563,7 @@ impl UnverifiedFairyBoard {
     }
 
     pub(super) fn player_bb(&self, color: FairyColor) -> FairyBitboard {
-        FairyBitboard::new(self.color_bitboards[color.idx()], self.size())
+        FairyBitboard::new(self.color_bitboards[color], self.size())
     }
 
     pub(super) fn neutral_bb(&self) -> FairyBitboard {
@@ -683,7 +683,7 @@ impl FairyBoard {
             CheckingAttack::Capture => self.capturing_attack_bb_of(them),
             CheckingAttack::NoRoyalAdjacent => {
                 let their_royals = royals & self.player_bb(them);
-                if (their_royals & our_royals.moore_inclusive()).has_set_bit() {
+                if (their_royals & our_royals.moore_inclusive()).has_any() {
                     return self.zero_bitboard();
                 }
                 self.capturing_attack_bb_of(them)
@@ -697,7 +697,7 @@ impl FairyBoard {
         let in_check = self.in_check_bb(color);
         match rule.count {
             CheckCount::AllRoyals => in_check == self.royal_bb_for(color),
-            CheckCount::AnyRoyal => in_check.has_set_bit(),
+            CheckCount::AnyRoyal => in_check.has_any(),
         }
     }
 
@@ -780,7 +780,7 @@ impl UnverifiedFairyBoard {
             let Some(king_sq) = king_bb.to_square() else {
                 bail!(
                     "Castling is only legal when there is a single royal piece, but the {0} player has {1}",
-                    self.rules().colors[color.idx()].name,
+                    self.rules().colors[color].name,
                     king_bb.num_ones()
                 )
             };
@@ -797,14 +797,14 @@ impl UnverifiedFairyBoard {
             let king_dest_file = if side == Kingside { b'g' - b'a' } else { b'c' - b'a' };
             let rook_dest_file = if side == Kingside { king_dest_file - 1 } else { king_dest_file + 1 };
             let move_info = CastlingMoveInfo { rook_file: file, king_dest_file, rook_dest_file, fen_char: c as u8 };
-            let entry = &mut info.players[color.idx()].sides[side as usize];
+            let entry = &mut info.players[color].sides[side as usize];
             ensure!(
                 entry.is_none(),
                 "Attempting to set the same castle right twice for player {0} and file '{1}' ({side})",
                 color.name(self.settings()),
                 b'a' + file
             );
-            info.players[color.idx()].sides[side as usize] = Some(move_info);
+            info.players[color].sides[side as usize] = Some(move_info);
         }
         Ok(info)
     }

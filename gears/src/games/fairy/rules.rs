@@ -495,7 +495,7 @@ impl GameEndEager {
             },
             PieceIn(piece, squares, player) => {
                 let bb = piece.bb(pos) & player.bb(pos);
-                squares.bb(pos.active_player(), pos).intersects(bb.raw())
+                squares.bb(pos.active_player(), pos).intersects(bb)
             }
             CanAchieve(cond) => {
                 let mut h = history.clone();

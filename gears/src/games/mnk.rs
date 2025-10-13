@@ -73,12 +73,6 @@ impl Not for MnkColor {
     }
 }
 
-impl From<MnkColor> for usize {
-    fn from(value: MnkColor) -> usize {
-        value as usize
-    }
-}
-
 impl Color for MnkColor {
     type Board = MNKBoard;
 
@@ -650,7 +644,7 @@ impl Board for MNKBoard {
 
     fn gen_pseudolegal<T: MoveList<Self>>(&self, moves: &mut T) {
         let mut empty = self.empty_bb();
-        while empty.has_set_bit() {
+        while empty.has_any() {
             let idx = empty.pop_lsb();
             if idx >= self.num_squares() {
                 break; // TODO: Necessary?
@@ -872,7 +866,7 @@ impl UnverifiedBoard<MNKBoard> for UnverifiedMnkBoard {
                 )
             }
         }
-        if level != CheckFen && (this.o_bb & this.x_bb).has_set_bit() {
+        if level != CheckFen && (this.o_bb & this.x_bb).has_any() {
             bail!(
                 "At least one square has two pieces on it (square {})",
                 this.size().to_coordinates_unchecked((this.o_bb & this.x_bb).pop_lsb())

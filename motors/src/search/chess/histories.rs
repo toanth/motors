@@ -59,14 +59,14 @@ pub(super) struct HistoryHeuristic(Box<[[HistScoreT; 64 * 64]; 4]>);
 
 impl HistoryHeuristic {
     pub(super) fn update(&mut self, mov: ChessMove, threats: ChessBitboard, bonus: HistScoreT) {
-        let mut threats_idx = threats.is_bit_set(mov.src_square()) as usize;
-        threats_idx = threats_idx * 2 + threats.is_bit_set(mov.dest_square()) as usize;
+        let mut threats_idx = threats.has(mov.src_square()) as usize;
+        threats_idx = threats_idx * 2 + threats.has(mov.dest_square()) as usize;
         update_history_score(&mut self[threats_idx][mov.from_to_square()], bonus);
     }
 
     pub(super) fn score(&self, mov: ChessMove, threats: ChessBitboard) -> isize {
-        let mut threats_idx = threats.is_bit_set(mov.src_square()) as usize;
-        threats_idx = threats_idx * 2 + threats.is_bit_set(mov.dest_square()) as usize;
+        let mut threats_idx = threats.has(mov.src_square()) as usize;
+        threats_idx = threats_idx * 2 + threats.has(mov.dest_square()) as usize;
         self[threats_idx][mov.from_to_square()] as isize
     }
 }

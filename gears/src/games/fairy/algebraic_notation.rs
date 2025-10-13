@@ -96,7 +96,7 @@ fn format_san_impl(
             && m.promo_piece() == mov.promo_piece()
     };
     let moves = if let Some(moves) = all_legals {
-        moves.into_iter().filter(matches).copied().collect_vec()
+        moves.iter().filter(matches).copied().collect_vec()
     } else {
         pos.legal_moves_slow().iter().filter(matches).copied().collect_vec()
     };
@@ -336,10 +336,8 @@ impl<'a> MoveParser<'a> {
     fn parse_piece_char(c: char, pos: &FairyBoard) -> Option<PieceId> {
         if let Some(piece) = ColoredPieceId::from_char(c, pos.rules()) {
             Some(piece.uncolor())
-        } else if let Some(piece) = PieceId::from_char(c, pos.rules()) {
-            Some(piece)
         } else {
-            None
+            PieceId::from_char(c, pos.rules())
         }
     }
 
@@ -470,13 +468,15 @@ impl<'a> MoveParser<'a> {
 
     fn parse_square_rank_or_file(&mut self, pos: &FairyBoard) -> Res<()> {
         let Some(file) = self.current_char() else { bail!("Move '{}' is too short", self.consumed().red()) };
-        if pos.settings().is_usi_fmt() && file.is_ascii_digit() {
-            if let Some(sq) = self.parse_usi_square(pos) {
-                self.start_rank = Some(sq.rank());
-                self.start_file = Some(sq.file());
-                return Ok(());
-            }
+        if pos.settings().is_usi_fmt()
+            && file.is_ascii_digit()
+            && let Some(sq) = self.parse_usi_square(pos)
+        {
+            self.start_rank = Some(sq.rank());
+            self.start_file = Some(sq.file());
+            return Ok(());
         }
+
         if file.is_ascii_alphabetic() && file <= file_to_char(pos.width() - 1) {
             self.start_file = Some(char_to_file(file.to_ascii_lowercase()));
             self.advance_char();
@@ -502,21 +502,22 @@ impl<'a> MoveParser<'a> {
     fn parse_second_square(&mut self, pos: &FairyBoard) {
         let read_so_far = self.num_bytes_read;
         let Some(file) = self.current_char() else { return };
-        if file.is_ascii_digit() && pos.rules().is_usi_fmt() {
-            if let Some(sq) = self.parse_usi_square(pos) {
-                self.target_rank = Some(sq.rank());
-                self.target_file = Some(sq.file());
-                return;
-            }
+        if file.is_ascii_digit()
+            && pos.rules().is_usi_fmt()
+            && let Some(sq) = self.parse_usi_square(pos)
+        {
+            self.target_rank = Some(sq.rank());
+            self.target_file = Some(sq.file());
+            return;
         }
         self.advance_char();
-        if let Ok((rank, rank_str)) = Self::parse_rank(self.remaining()) {
-            if let Ok(square) = FairySquare::algebraic(file, rank as usize + 1) {
-                self.num_bytes_read += rank_str.len();
-                self.target_file = Some(square.file());
-                self.target_rank = Some(square.rank());
-                return;
-            }
+        if let Ok((rank, rank_str)) = Self::parse_rank(self.remaining())
+            && let Ok(square) = FairySquare::algebraic(file, rank as usize + 1)
+        {
+            self.num_bytes_read += rank_str.len();
+            self.target_file = Some(square.file());
+            self.target_rank = Some(square.rank());
+            return;
         }
         // pawn capture
         if self.piece == PieceId::empty() && file.is_ascii_lowercase() && file <= file_to_char(pos.width() - 1) {
@@ -587,12 +588,12 @@ impl<'a> MoveParser<'a> {
             self.advance_char();
             allow_fail = false;
         }
-        if let Some(c) = self.current_char() {
-            if let Some(promo) = Self::parse_piece_char(c, pos) {
-                self.promotion = promo;
-                self.advance_char();
-                return Ok(());
-            }
+        if let Some(c) = self.current_char()
+            && let Some(promo) = Self::parse_piece_char(c, pos)
+        {
+            self.promotion = promo;
+            self.advance_char();
+            return Ok(());
         }
         if !allow_fail {
             bail!("Missing promotion piece after '{0}' in {1}", "=".bold(), self.consumed().red());
@@ -773,7 +774,7 @@ impl<'a> MoveParser<'a> {
         res &= dest.file() == self.target_file.unwrap();
         res &= self.target_rank.is_none_or(|r| r == dest.rank());
         // drop annotations are optional (except for ambiguity) but can only apply to drops
-        res &= !(self.is_drop && !matches!(mov.kind(), MoveKind::Drop(_)));
+        res &= !self.is_drop || matches!(mov.kind(), MoveKind::Drop(_));
         if cmp_promo {
             if let Some(promo) = mov.promo_piece() {
                 let mut matching_promo = promo == self.promotion;
@@ -840,7 +841,7 @@ impl<'a> MoveParser<'a> {
             additional = format!(" ({our_name} is in check)");
         } else if board.pseudolegal_moves().into_iter().any(|m| self.is_matching_pseudolegal(m, board, true)) {
             additional = " (it is pseudolegal but not legal)".to_string();
-        } else if target_sq.is_some_and(|sq| board.player_bb(us).is_bit_set(sq)) {
+        } else if target_sq.is_some_and(|sq| board.player_bb(us).has(sq)) {
             let piece = board.piece_type_on(target_sq.unwrap());
             additional = format!(
                 " (there is already a {our_name} {0} on {1})",

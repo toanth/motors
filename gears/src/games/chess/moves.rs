@@ -110,7 +110,7 @@ impl ChessMove {
     pub fn piece(self, board: &Chessboard) -> ChessPiece {
         let source = self.src_square();
         debug_assert!(board.is_occupied(source), "{}", self.compact_formatter(board));
-        debug_assert!(board.active_player_bb().is_bit_set(source), "{}", self.compact_formatter(board));
+        debug_assert!(board.active_player_bb().has(source), "{}", self.compact_formatter(board));
         ChessPiece::new(ColoredChessPieceType::new(board.active, self.piece_type(board)), source)
     }
 
@@ -144,7 +144,7 @@ impl ChessMove {
     }
 
     pub fn is_non_ep_capture(self, board: &Chessboard) -> bool {
-        board.inactive_player_bb().is_bit_set(self.dest_square())
+        board.inactive_player_bb().has(self.dest_square())
     }
 
     pub fn captured(self, board: &Chessboard) -> ChessPieceType {
@@ -291,7 +291,7 @@ impl Move<Chessboard> for ChessMove {
                 && mov.promo_piece() == self.promo_piece()
         };
         let moves = if let Some(moves) = all_legals {
-            moves.into_iter().filter(matches).copied().collect_vec()
+            moves.iter().filter(matches).copied().collect_vec()
         } else {
             board.legal_moves_slow().iter().filter(matches).copied().collect_vec()
         };
@@ -570,12 +570,12 @@ impl Chessboard {
         let ep_square = to.pawn_advance_unchecked(them);
         let not_pinned = possible_ep_pawns & !self.pinned[them];
         if not_pinned.is_zero() {
-            for p in possible_ep_pawns.ones() {
+            for p in possible_ep_pawns {
                 let mut pinning = self.ray_attacks(p, king_sq, self.occupied_bb());
                 debug_assert!(pinning.is_single_piece());
                 let pinning = ChessSquare::from_bb_idx(pinning.pop_lsb());
                 let pin_ray = ChessBitboard::ray_inclusive(pinning, king_sq, ChessboardSize::default());
-                if pin_ray.is_bit_set(ep_square) {
+                if pin_ray.has(ep_square) {
                     *special_hash ^= ZOBRIST_KEYS.ep_file_keys[to.file() as usize];
                     return Some(ep_square);
                 }
@@ -586,7 +586,7 @@ impl Chessboard {
             // Only the moved pawn and the capturing pawn are between the king and a horizontal slider, so the pawn is effectively pinned for ep.
             let sq = possible_ep_pawns.ones().next().unwrap();
             let occ_bb = self.occupied_bb() ^ to.bb() ^ sq.bb();
-            if self.ray_attacks(sq, king_sq, occ_bb).has_set_bit() {
+            if self.ray_attacks(sq, king_sq, occ_bb).has_any() {
                 return None;
             }
         }
@@ -879,13 +879,13 @@ impl<'a> MoveParser<'a> {
         let file = self.current_char();
         self.advance_char();
         let rank = self.current_char();
-        if file.is_some() && rank.is_some() {
-            if let Ok(square) = ChessSquare::from_chars(file.unwrap(), rank.unwrap()) {
-                self.advance_char();
-                self.target_file = Some(square.file());
-                self.target_rank = Some(square.rank());
-                return;
-            }
+        if let (Some(file), Some(rank)) = (file, rank)
+            && let Ok(square) = ChessSquare::from_chars(file, rank)
+        {
+            self.advance_char();
+            self.target_file = Some(square.file());
+            self.target_rank = Some(square.rank());
+            return;
         }
         if self.piece == Empty && file.is_some() && matches!(file.unwrap(), 'a'..='h') {
             self.target_file = file.map(char_to_file);
@@ -1120,24 +1120,24 @@ impl<'a> MoveParser<'a> {
         } else if board.pseudolegal_moves().iter().any(|m| self.is_matching_pseudolegal(m, board)) {
             return format!("it leaves the {us} king in check");
         } else if let Some(target) = target_sq {
-            if board.player_bb(us).is_bit_set(target) {
+            if board.player_bb(us).has(target) {
                 let piece = board.piece_type_on(target_sq.unwrap());
                 return format!("there is already a {our_name} {0} on {1}", piece.to_name().bold(), target_sq.unwrap());
             } else if (self.promotion != Empty) != (self.piece == Pawn && target.is_backrank()) {
                 return format!("promoting to a {0} is incorrect", self.promotion.to_name().bold());
             }
         }
-        if start_sq.is_some() {
-            let piece = board.colored_piece_on(start_sq.unwrap());
+        if let Some(start_sq) = start_sq {
+            let piece = board.colored_piece_on(start_sq);
             if piece.is_empty() {
-                return format!("there is no piece on {0}", start_sq.unwrap());
+                return format!("there is no piece on {0}", start_sq);
             } else if piece.symbol != ColoredChessPieceType::new(us, self.piece) {
-                return format!("there is a {0} on {1}", piece.to_string().bold(), start_sq.unwrap());
+                return format!("there is a {0} on {1}", piece.to_string().bold(), start_sq);
             }
         } else if self.piece == King {
             // rank and file have already been checked to exist in the move description (only pawns can omit rank)
             let dest = ChessSquare::from_rank_file(self.target_rank.unwrap(), self.target_file.unwrap());
-            if board.threats().is_bit_set(dest) {
+            if board.threats().has(dest) {
                 return format!("The king would be in check on the {dest} square");
             }
         }
@@ -1227,7 +1227,7 @@ mod tests {
         let pos = Chessboard::from_name("unusual").unwrap();
         {
             let pos = pos.make_move_from_str("Rb8").unwrap();
-            assert!(pos.checkers.has_set_bit());
+            assert!(pos.checkers.has_any());
             assert!(!pos.legal_moves_slow().is_empty());
         }
         for (input, output) in transformations {

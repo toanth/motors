@@ -633,7 +633,7 @@ fn write_horizontal_bar(
     use fmt::Write;
     let fmt = printer.formatter();
     // let flip = fmt.flip_board() && B::should_flip_visually();
-    let y_spacer = y % fmt.vertical_spacer_interval() == 0;
+    let y_spacer = y.is_multiple_of(fmt.vertical_spacer_interval());
     let mut res = "    ".to_string();
     let bar = if y == 0 || y == printer.get_height() { HEAVY_HORIZONTAL_BAR } else { HORIZONTAL_BAR };
     for x in 0..=printer.get_width() {
@@ -714,7 +714,7 @@ fn display_board_pretty_impl(printer: &dyn AbstractPrettyBoardPrinter, flip: boo
         line += &with_color(
             HEAVY_VERTICAL_BAR,
             colors[y][printer.get_width() - 1],
-            printer.get_width() % fmt.horizontal_spacer_interval() == 0,
+            printer.get_width().is_multiple_of(fmt.horizontal_spacer_interval()),
         );
         res.push(line);
     }

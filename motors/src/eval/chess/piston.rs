@@ -185,7 +185,7 @@ impl Eval<Chessboard> for PistonEval {
         for color in ChessColor::iter() {
             for piece in ChessPieceType::pieces() {
                 let mut bb = pos.col_piece_bb(color, piece);
-                while bb.has_set_bit() {
+                while bb.has_any() {
                     let idx = bb.pop_lsb();
                     let mg_table = piece as usize * 2;
                     let eg_table = mg_table + 1;

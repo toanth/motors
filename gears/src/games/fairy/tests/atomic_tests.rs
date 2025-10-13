@@ -18,7 +18,7 @@
 use crate::games::fairy::Side::Kingside;
 use crate::games::fairy::moves::FairyMove;
 use crate::games::fairy::{FairyBoard, FairyCastleInfo, FairyColor, FairySquare};
-use crate::games::{Color, NoHistory, ZobristHistory, chess, BoardHistDyn};
+use crate::games::{BoardHistDyn, Color, NoHistory, ZobristHistory, chess};
 use crate::general::bitboards::RawBitboard;
 use crate::general::board::Strictness::{Relaxed, Strict};
 use crate::general::board::{Board, BoardHelpers};
@@ -148,7 +148,7 @@ fn atomic_check_test() {
     assert_eq!(moves[0].compact_formatter(&pos).to_string(), "h4f2");
     let new_pos = pos.make_move_from_str("h4f2").unwrap();
     assert!(!new_pos.is_in_check());
-    assert!(new_pos.in_check_bb(FairyColor::second()).has_set_bit());
+    assert!(new_pos.in_check_bb(FairyColor::second()).has_any());
     assert_eq!(new_pos.player_result_slow(&NoHistory::default()), Some(PlayerResult::Lose));
 }
 

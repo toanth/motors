@@ -206,12 +206,6 @@ impl Not for ChessColor {
     }
 }
 
-impl From<ChessColor> for usize {
-    fn from(color: ChessColor) -> Self {
-        color as usize
-    }
-}
-
 impl Color for ChessColor {
     type Board = Chessboard;
 
@@ -542,7 +536,7 @@ impl Board for Chessboard {
     }
 
     fn make_nullmove(mut self) -> Option<Self> {
-        if self.checkers.has_set_bit() {
+        if self.checkers.has_any() {
             return None;
         }
         // nullmoves count as noisy. This also prevents detecting repetition to before the nullmove
@@ -598,8 +592,8 @@ impl Board for Chessboard {
         }
         // return true if the opponent has pawns because that can create possibilities to force them
         // to restrict the king's mobility
-        if (self.piece_bb(Pawn) | self.col_piece_bb(player, Rook) | self.col_piece_bb(player, Queen)).has_set_bit()
-            || (self.col_piece_bb(player.other(), King) & CORNER_SQUARES).has_set_bit()
+        if (self.piece_bb(Pawn) | self.col_piece_bb(player, Rook) | self.col_piece_bb(player, Queen)).has_any()
+            || self.col_piece_bb(player.other(), King).intersects(CORNER_SQUARES)
         {
             return true;
         }
@@ -812,17 +806,17 @@ impl Chessboard {
     }
 
     pub fn has_insufficient_material(&self) -> bool {
-        if self.piece_bb(Pawn).has_set_bit() {
+        if self.piece_bb(Pawn).has_any() {
             return false;
         }
-        if (self.piece_bb(Queen) | self.piece_bb(Rook)).has_set_bit() {
+        if (self.piece_bb(Queen) | self.piece_bb(Rook)).has_any() {
             return false;
         }
         let bishops = self.piece_bb(Bishop);
-        if (bishops & black_squares()).has_set_bit() && (bishops & white_squares()).has_set_bit() {
+        if bishops.intersects(black_squares()) && bishops.intersects(white_squares()) {
             return false; // opposite-colored bishops (even if they belong to different players)
         }
-        if bishops.has_set_bit() && self.piece_bb(Knight).has_set_bit() {
+        if bishops.has_any() && self.piece_bb(Knight).has_any() {
             return false; // knight and bishop, or knight vs bishop
         }
         // a knight and any additional uncolored piece can create a mate (non-knight pieces have already been ruled out)
@@ -841,7 +835,7 @@ impl Chessboard {
     }
 
     pub fn is_in_check(&self) -> bool {
-        self.checkers.has_set_bit()
+        self.checkers.has_any()
     }
 
     pub fn gives_check(&self, mov: ChessMove) -> bool {

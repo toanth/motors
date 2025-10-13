@@ -9,7 +9,7 @@ use gears::games::chess::ChessColor::White;
 use gears::games::chess::pieces::{ChessPieceType, NUM_CHESS_PIECES};
 use gears::games::chess::squares::{ChessSquare, NUM_SQUARES};
 use gears::games::chess::{ChessColor, Chessboard};
-use gears::general::bitboards::{Bitboard, RawBitboard};
+use gears::general::bitboards::RawBitboard;
 use gears::general::board::BitboardBoard;
 use motors::eval::chess::CHESS_PHASE_VALUES;
 use std::fmt::Formatter;
@@ -53,7 +53,7 @@ fn psqt_trace(pos: &Chessboard) -> TraceNFeatures<NUM_PSQT_FEATURES> {
     for color in ChessColor::iter() {
         for piece in ChessPieceType::pieces() {
             let bb = pos.col_piece_bb(color, piece);
-            for square in bb.ones() {
+            for square in bb {
                 let idx = to_feature_idx(piece, color, square);
                 trace.increment(idx, color);
             }

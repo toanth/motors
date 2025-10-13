@@ -343,9 +343,9 @@ impl MoveEffect {
             //     }
             // }
             SetColorTo(to_flip, color) => {
-                let flipped = board.color_bitboards[color.other().idx()] & to_flip;
-                board.color_bitboards[color.other().idx()] ^= flipped;
-                board.color_bitboards[color.idx()] ^= flipped;
+                let flipped = board.color_bitboards[!color] & to_flip;
+                board.color_bitboards[!color] ^= flipped;
+                board.color_bitboards[color] ^= flipped;
             }
             SetEp(sq) => {
                 board.ep = Some(sq);
@@ -404,7 +404,7 @@ fn effects_for(mov: FairyMove, pos: &mut FairyBoard, r: EffectRules) -> Option<(
             PlaceSinglePiece(to, piece).apply(pos);
             let ep_capture_bb = FairyBitboard::single_piece_for(to, pos.size());
             let ep_capture_bb = ep_capture_bb.west() | ep_capture_bb.east();
-            if (pos.col_piece_bb(piece.color().unwrap().other(), piece.uncolor()) & ep_capture_bb).has_set_bit() {
+            if (pos.col_piece_bb(piece.color().unwrap().other(), piece.uncolor()) & ep_capture_bb).has_any() {
                 set_ep = Some(to.pawn_push(!piece.color().unwrap().is_first()));
             }
         }
@@ -421,7 +421,7 @@ fn effects_for(mov: FairyMove, pos: &mut FairyBoard, r: EffectRules) -> Option<(
         }
         MoveKind::Castle(side) => {
             debug_assert!(pos.0.castling_info.can_castle(pos.active_player(), side));
-            let castling_info = pos.0.castling_info.players[pos.active_player().idx()];
+            let castling_info = pos.0.castling_info.players[pos.active_player()];
             debug_assert_eq!(castling_info.king_dest_sq(side), Some(to));
             let rook_sq = castling_info.rook_sq(side).unwrap();
             let rook = pos.colored_piece_on(rook_sq).symbol;
@@ -495,7 +495,7 @@ impl FairyBoard {
             ^ FairyBitboard::single_piece_for(from, self.size());
         let ray = FairyBitboard::ray_inclusive(from, to, self.size())
             | FairyBitboard::ray_inclusive(rook_sq, rook_dest_sq, self.size());
-        if (occupied & ray).has_set_bit() {
+        if ray.intersects(occupied) {
             return false;
         }
         // For chess, we could simply compute the attack bitboard of the opponent and intersect that with te squares that
@@ -547,7 +547,7 @@ impl FairyBoard {
     }
 
     pub(super) fn end_move(mut self, mov: FairyMove) -> Option<Self> {
-        if self.settings().must_preserve_own_king[self.active.idx()] && self.royal_bb_for(self.active).is_zero() {
+        if self.settings().must_preserve_own_king[self.active] && self.royal_bb_for(self.active).is_zero() {
             return None;
         }
         self.adjust_castling_rights();

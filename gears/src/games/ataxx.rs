@@ -64,12 +64,6 @@ impl Not for AtaxxColor {
     }
 }
 
-impl From<AtaxxColor> for usize {
-    fn from(value: AtaxxColor) -> Self {
-        value as usize
-    }
-}
-
 impl Color for AtaxxColor {
     type Board = AtaxxBoard;
 
@@ -388,7 +382,7 @@ impl Board for AtaxxBoard {
         let color = self.active_player;
         if self.color_bb(color).is_zero() {
             return Some(Lose);
-        } else if (self.color_bb(!color).extended_moore_neighborhood(2) & self.empty_bb()).has_set_bit() {
+        } else if self.color_bb(!color).extended_moore_neighborhood(2).intersects(self.empty_bb()) {
             if self.ply_100_ctr >= 100 {
                 // losing on the 50mr threshold counts as losing, so we only test this if we'd otherwise continue playing
                 return Some(Draw);

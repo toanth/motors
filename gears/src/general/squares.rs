@@ -30,7 +30,7 @@ pub trait RectangularCoordinates: Coordinates<Size: RectangularSize<Self>> {
         Self::from_rank_file(file, rank)
     }
     fn square_color(self) -> SquareColor {
-        if (self.row() as usize + self.column() as usize) % 2 == 0 { Black } else { White }
+        if (self.row() as usize + self.column() as usize).is_multiple_of(2) { Black } else { White }
     }
 }
 
@@ -252,10 +252,12 @@ impl<const H: usize, const W: usize> Display for SmallGridSize<H, W> {
 impl<const H: usize, const W: usize, const INTERNAL_WIDTH: usize> Size<SmallGridSquare<H, W, INTERNAL_WIDTH>>
     for SmallGridSize<H, W>
 {
+    #[inline(always)]
     fn num_squares(self) -> usize {
         H * W
     }
 
+    #[inline(always)]
     fn internal_key(self, coordinates: SmallGridSquare<H, W, INTERNAL_WIDTH>) -> usize {
         coordinates.bb_idx()
     }
@@ -265,7 +267,7 @@ impl<const H: usize, const W: usize, const INTERNAL_WIDTH: usize> Size<SmallGrid
     }
 
     fn valid_coordinates(self) -> impl Iterator<Item = SmallGridSquare<H, W, INTERNAL_WIDTH>> {
-        SmallGridSquare::iter_()
+        (0..H).flat_map(|i| (INTERNAL_WIDTH * i)..(INTERNAL_WIDTH * i + W)).map(SmallGridSquare::from_bb_idx)
     }
 
     fn coordinates_valid(self, coordinates: SmallGridSquare<H, W, INTERNAL_WIDTH>) -> bool {
@@ -379,11 +381,13 @@ impl<const H: usize, const W: usize, const INTERNAL_WIDTH: usize> SmallGridSquar
         GridCoordinates { row: self.row(), column: self.column() }
     }
 
+    #[inline(always)]
     pub const fn to_u8(self) -> u8 {
         self.idx
     }
 
     /// Note that this isn't necessarily consecutive because the bitboard assumes a width of at least 8 for efficiency reasons.
+    #[inline(always)]
     pub const fn bb_idx(self) -> usize {
         self.idx as usize
     }
@@ -438,10 +442,6 @@ impl<const H: usize, const W: usize, const INTERNAL_WIDTH: usize> SmallGridSquar
         rank == 1 || rank == H as DimT - 2
     }
 
-    pub fn iter_() -> impl Iterator<Item = Self> + FusedIterator {
-        (0..H).flat_map(|i| (INTERNAL_WIDTH * i)..(INTERNAL_WIDTH * i + W)).map(Self::from_bb_idx)
-    }
-
     // Ideally, no_coordinates shouldn't be necessary, but sadly there's no `NonMaxU8` (except for a crate that xors U8::MAX on every access)
     pub const fn no_coordinates_const() -> Self {
         Self::unchecked(H * INTERNAL_WIDTH)
@@ -449,7 +449,7 @@ impl<const H: usize, const W: usize, const INTERNAL_WIDTH: usize> SmallGridSquar
 }
 
 impl<const H: usize, const W: usize> SmallGridSquare<H, W, W> {
-    pub fn iter() -> impl Iterator<Item = Self> + DoubleEndedIterator + ExactSizeIterator + FusedIterator {
+    pub fn iter() -> impl DoubleEndedIterator<Item = Self> + ExactSizeIterator + FusedIterator {
         (0..(H * W)).map(Self::from_bb_idx)
     }
 }

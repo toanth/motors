@@ -453,10 +453,10 @@ impl<'a, B: Board> PgnParser<'a, B> {
         self.res.game.board_hist.push(prev_board.hash_pos());
         self.res.game.mov_hist.push(mov);
         self.res.game.board = new_board;
-        if let Some(res) = self.res.game.board.match_result_slow(&self.res.game.board_hist) {
-            if let Run(st) = &mut self.res.game.status {
-                *st = Over(res);
-            }
+        if let Some(res) = self.res.game.board.match_result_slow(&self.res.game.board_hist)
+            && let Run(st) = &mut self.res.game.status
+        {
+            *st = Over(res);
         }
         let remaining_len = remaining.len();
         while self.state.unread().len() != remaining_len {

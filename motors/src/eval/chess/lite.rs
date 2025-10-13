@@ -68,11 +68,11 @@ pub const TEMPO: Score = Score(lc::tempo());
 // TODO: Differentiate between rooks and kings in front of / behind pawns?
 
 fn openness(ray: ChessBitboard, our_pawns: ChessBitboard, their_pawns: ChessBitboard) -> FileOpenness {
-    if (ray & our_pawns).is_zero() && (ray & their_pawns).is_zero() {
+    if !ray.intersects(our_pawns) && !ray.intersects(their_pawns) {
         Open
-    } else if (ray & our_pawns).is_zero() {
+    } else if !ray.intersects(our_pawns) {
         SemiOpen
-    } else if (ray & our_pawns).has_set_bit() && (ray & their_pawns).has_set_bit() {
+    } else if ray.intersects(our_pawns) && ray.intersects(their_pawns) {
         Closed
     } else {
         SemiClosed
@@ -132,7 +132,7 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
         for color in ChessColor::iter() {
             let flip = if pos.king_square(color).file() < 4 { 0x7 } else { 0x0 };
             for piece in ChessPieceType::pieces() {
-                for square in pos.col_piece_bb(color, piece).ones() {
+                for square in pos.col_piece_bb(color, piece) {
                     res += self.tuned.psqt(ChessSquare::from_bb_idx(square.bb_idx() ^ flip), piece, color);
                 }
             }
@@ -148,7 +148,7 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
     fn bad_bishop(pos: &Chessboard, color: ChessColor) -> Tuned::Score {
         let mut score = Tuned::Score::default();
         let pawns = pos.col_piece_bb(color, Pawn);
-        for bishop in pos.col_piece_bb(color, Bishop).ones() {
+        for bishop in pos.col_piece_bb(color, Bishop) {
             let sq_color = bishop.square_color();
             score += Tuned::bad_bishop((COLORED_SQUARES[sq_color as usize] & pawns).num_ones().min(8));
         }
@@ -185,7 +185,7 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
         if (all_pawns & FLANK[our_king.file() as usize]).is_zero() {
             score += Tuned::pawnless_flank();
         }
-        for square in our_pawns.ones() {
+        for square in our_pawns {
             let normalized_square = square.flip_if(us == Black);
             let in_front = (ChessBitboard::A_FILE << (square.flip_if(us == Black).bb_idx() + 8)).flip_if(us == Black);
             let blocking_squares = in_front | in_front.west() | in_front.east();
@@ -204,15 +204,15 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
                 };
                 score += Tuned::passed_pawn(mirrored_sq);
                 let their_king = pos.king_square(!us).flip_if(us == Black);
-                if REACHABLE_PAWNS[their_king.bb_idx()].is_bit_set(normalized_square) {
+                if REACHABLE_PAWNS[their_king.bb_idx()].has(normalized_square) {
                     score += Tuned::stoppable_passer();
                 }
                 let near_king =
                     Chessboard::normal_king_attacks_from(square) & Chessboard::normal_king_attacks_from(our_king);
-                if near_king.has_set_bit() {
+                if near_king.has_any() {
                     score += Tuned::close_king_passer();
                 }
-                if pos.player_bb(!us).is_bit_set(square.pawn_advance_unchecked(us)) {
+                if pos.player_bb(!us).has(square.pawn_advance_unchecked(us)) {
                     score += Tuned::immobile_passer()
                 }
                 *passers |= square.bb();
@@ -224,7 +224,7 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
                 score += Tuned::candidate_passer(normalized_square.rank() - 1);
             }
             let sq_bb = square.bb();
-            if (our_pawns & (sq_bb.east() | sq_bb.west())).has_set_bit() {
+            if our_pawns.intersects(sq_bb.east() | sq_bb.west()) {
                 score += Tuned::phalanx(normalized_square.rank() - 1);
             }
         }
@@ -244,7 +244,7 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
         let their_pawns = pos.col_piece_bb(color.other(), Pawn);
         // Rooks on (semi)open/closed files (semi-closed files are handled by adjusting the base rook values during tuning)
         let rooks = pos.col_piece_bb(color, Rook);
-        for rook in rooks.ones() {
+        for rook in rooks {
             score += Tuned::rook_openness(file_openness(rook.file(), our_pawns, their_pawns));
         }
         // King on (semi)open/closed file
@@ -252,7 +252,7 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
         let king_file = king_square.file();
         score += Tuned::king_openness(file_openness(king_file, our_pawns, their_pawns));
         let bishops = pos.col_piece_bb(color, Bishop);
-        for bishop in bishops.ones() {
+        for bishop in bishops {
             let (diag, len) = diagonal_openness(bishop, our_pawns, their_pawns);
             score += Tuned::bishop_openness(diag, len);
             let (anti_diag, len) = anti_diagonal_openness(bishop, our_pawns, their_pawns);
@@ -277,13 +277,13 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
         let their_king = pos.king_square(!color);
         let blockers = pos.occupied_bb();
         let rook_sliders = (pos.piece_bb(Rook) | pos.piece_bb(Queen)) & pos.player_bb(color);
-        for slider in rook_sliders.ones() {
+        for slider in rook_sliders {
             let ray = ChessBitboard::ray_exclusive(slider, their_king, ChessboardSize::default());
             let blockers = ray & blockers;
             if blockers.is_single_piece() && (slider.rank() == their_king.rank() || slider.file() == their_king.file())
             {
                 let piece = pos.piece_type_on(blockers.ones().next().unwrap());
-                if (blockers & pos.player_bb(color)).has_set_bit() {
+                if blockers.intersects(pos.player_bb(color)) {
                     score += Tuned::discovered_check(piece);
                     if piece != Pawn {
                         state.stm_bonus[color] += Tuned::discovered_check_stm();
@@ -294,13 +294,13 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
             }
         }
         let bishop_sliders = (pos.piece_bb(Bishop) | pos.piece_bb(Queen)) & pos.player_bb(color);
-        for slider in bishop_sliders.ones() {
+        for slider in bishop_sliders {
             let ray = ChessBitboard::ray_exclusive(slider, their_king, ChessboardSize::default());
             let blockers = ray & blockers;
             if blockers.is_single_piece() && (slider.rank() != their_king.rank() && slider.file() != their_king.file())
             {
                 let piece = pos.piece_type_on(blockers.ones().next().unwrap());
-                if (blockers & pos.player_bb(color)).has_set_bit() {
+                if blockers.intersects(pos.player_bb(color)) {
                     score += Tuned::discovered_check(piece);
                     if piece != Pawn {
                         state.stm_bonus[color] += Tuned::discovered_check_stm();
@@ -326,7 +326,7 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
         let pawn_advance_threats = (our_pawns.pawn_advance(us) & pos.empty_bb()).pawn_attacks(us);
         let passer_close = (pos.player_bb(us) & state.passers).moore_inclusive();
         let pawn_attacks = our_pawns.pawn_attacks(us);
-        if (pawn_attacks & king_zone).has_set_bit() {
+        if pawn_attacks.intersects(king_zone) {
             score += Tuned::king_zone_attack(Pawn);
         }
         let mut all_attacks = pawn_attacks;
@@ -341,7 +341,7 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
             score += Tuned::pawn_advance_threat(piece) * threatened_by_pawn_advance.num_ones();
         }
         for piece in ChessPieceType::non_pawn_pieces() {
-            for square in pos.col_piece_bb(us, piece).ones() {
+            for square in pos.col_piece_bb(us, piece) {
                 let attacks = Chessboard::threatening_attacks(square, piece, us, &generator);
                 all_attacks |= attacks;
                 let attacks_no_pawn_recapture = attacks & !attacked_by_pawn;
@@ -353,16 +353,16 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
                     let defended = pos.col_piece_bb(us, threatened_piece) & attacks_no_pawn_recapture;
                     score += Tuned::defended(piece, threatened_piece) * defended.num_ones();
                 }
-                if (attacks_no_pawn_recapture & king_zone).has_set_bit() {
+                if attacks_no_pawn_recapture.intersects(king_zone) {
                     score += Tuned::king_zone_attack(piece);
                 }
                 if piece != King
-                    && (attacks_no_pawn_recapture & !pos.player_bb(us) & checking_squares[piece as usize]).has_set_bit()
+                    && (attacks_no_pawn_recapture & !pos.player_bb(us) & checking_squares[piece as usize]).has_any()
                 {
                     score += Tuned::can_give_check(piece);
                     state.stm_bonus[us] += Tuned::check_stm();
                 }
-                if (attacks & passer_close).has_set_bit() {
+                if attacks.intersects(passer_close) {
                     score += Tuned::passer_protection();
                 }
             }
@@ -519,7 +519,7 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
         let in_front_of_pawns = old_pos.col_piece_bb(White, Pawn).pawn_advance(White)
             | old_pos.col_piece_bb(Black, Pawn).pawn_advance(Black);
         let maybe_pawn_eval_change =
-            in_front_of_pawns.is_bit_set(mov.src_square()) || in_front_of_pawns.is_bit_set(mov.dest_square());
+            in_front_of_pawns.has(mov.src_square()) || in_front_of_pawns.has(mov.dest_square());
         if matches!(piece_type, Pawn | King) || captured == Pawn || maybe_pawn_eval_change {
             state.pawn_score = Self::pawns(new_pos, &mut state.passers);
         }

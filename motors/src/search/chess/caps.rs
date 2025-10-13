@@ -1388,7 +1388,7 @@ impl Caps {
 
         let mut move_picker: MovePicker<Chessboard, MAX_CHESS_MOVES_IN_POS> =
             MovePicker::new(pos, best_move, !in_check);
-        let move_scorer = CapsMoveScorer { pos: pos, ply };
+        let move_scorer = CapsMoveScorer { pos, ply };
         let mut children_visited = 0;
         while let Some(sm) = move_picker.next(&move_scorer, &self.state) {
             let mov = sm.mov();

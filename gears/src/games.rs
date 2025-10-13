@@ -91,13 +91,13 @@ pub trait Color: Debug + Default + Copy + Clone + PartialEq + Eq + Send + Hash +
             Some(Self::second())
         } else {
             let mut chars = name.chars();
-            if let Some(c) = chars.next() {
-                if chars.next().is_none() {
-                    if c.eq_ignore_ascii_case(&Self::first().to_char(settings)) {
-                        return Some(Self::first());
-                    } else if c.eq_ignore_ascii_case(&Self::second().to_char(settings)) {
-                        return Some(Self::second());
-                    }
+            if let Some(c) = chars.next()
+                && chars.next().is_none()
+            {
+                if c.eq_ignore_ascii_case(&Self::first().to_char(settings)) {
+                    return Some(Self::first());
+                } else if c.eq_ignore_ascii_case(&Self::second().to_char(settings)) {
+                    return Some(Self::second());
                 }
             }
             None
@@ -161,13 +161,13 @@ pub trait AbstractPieceType<B: Board>: Eq + Copy + Debug + Default {
             }
         }
         let mut chars = name.chars();
-        if let Some(c) = chars.next() {
-            if chars.next().is_none() {
-                for piece in Self::non_empty(settings) {
-                    // don't ignore case because that's often used to distinguish between colors
-                    if piece.to_char(Ascii, settings) == c || piece.to_char(Unicode, settings) == c {
-                        return Some(piece);
-                    }
+        if let Some(c) = chars.next()
+            && chars.next().is_none()
+        {
+            for piece in Self::non_empty(settings) {
+                // don't ignore case because that's often used to distinguish between colors
+                if piece.to_char(Ascii, settings) == c || piece.to_char(Unicode, settings) == c {
+                    return Some(piece);
                 }
             }
         }
@@ -212,10 +212,10 @@ pub trait ColoredPieceType<B: Board>: AbstractPieceType<B> {
         let copied = words.clone();
         let second_word = words.next().unwrap_or_default();
 
-        if let Some(color) = B::Color::from_name(piece, settings) {
-            if let Some(piece) = Self::Uncolored::from_name(second_word, settings) {
-                return Ok(Self::new(color, piece));
-            }
+        if let Some(color) = B::Color::from_name(piece, settings)
+            && let Some(piece) = Self::Uncolored::from_name(second_word, settings)
+        {
+            return Ok(Self::new(color, piece));
         }
         // There are no pieces with more than 2 words
         let full_name = format!("{second_word} {}", words.peek().copied().unwrap_or_default());
@@ -249,7 +249,7 @@ pub trait ColoredPieceType<B: Board>: AbstractPieceType<B> {
         settings: &B::Settings,
         char_type: CharType,
         display_pretty: bool,
-    ) -> ColPieceTypeFormatter<B, Self> {
+    ) -> ColPieceTypeFormatter<'_, B, Self> {
         ColPieceTypeFormatter { piece: self, char_type, display_pretty, settings }
     }
 }

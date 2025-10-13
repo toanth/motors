@@ -161,7 +161,7 @@ pub struct ColoredPieceId {
 
 impl ColoredPieceId {
     pub fn as_u8(&self) -> u8 {
-        self.id.0 * 3 + self.color.map_or(0, |c| c.idx() as u8 + 1)
+        self.id.0 * 3 + self.color.map_or(0, |c| c.0 as u8 + 1)
     }
     pub fn val(self) -> usize {
         self.as_u8() as usize
@@ -207,7 +207,7 @@ impl AbstractPieceType<FairyBoard> for ColoredPieceId {
     fn to_char(self, typ: CharType, rules: &Rules) -> char {
         let Some(piece) = self.id.get(rules) else { return '.' };
         if let Some(color) = self.color {
-            piece.player_symbol[color.idx()][typ as usize]
+            piece.player_symbol[color][typ as usize]
         } else {
             piece.uncolored_symbol[typ as usize]
         }
@@ -346,11 +346,10 @@ impl Promo {
     pub fn gen_promo(&self, source: FairySquare, dest: FairySquare, pos: &FairyBoard) -> GenPromoMoves {
         match self.condition {
             PromoCondition::Never => GenPromoMoves::NoPromo,
-            PromoCondition::TargetSquare => self.gen_promo_impl(|bb| bb.is_bit_set(dest), pos),
+            PromoCondition::TargetSquare => self.gen_promo_impl(|bb| bb.has(dest), pos),
             PromoCondition::SourceOrTargetNoDrop => {
-                let promo = |bb: FairyBitboard| {
-                    source != FairySquare::no_coordinates() && (bb.is_bit_set(dest) || bb.is_bit_set(source))
-                };
+                let promo =
+                    |bb: FairyBitboard| source != FairySquare::no_coordinates() && (bb.has(dest) || bb.has(source));
                 self.gen_promo_impl(promo, pos)
             }
         }

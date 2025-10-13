@@ -447,10 +447,8 @@ impl<B: Board> UgiPosState<B> {
                 self.board
             )
         })?;
-        if check_game_over {
-            if let Some(res) = self.board.match_result_slow(&self.board_hist) {
-                self.status = Run(Over(res));
-            }
+        if check_game_over && let Some(res) = self.board.match_result_slow(&self.board_hist) {
+            self.status = Run(Over(res));
         }
         Ok(())
     }

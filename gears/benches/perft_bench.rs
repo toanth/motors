@@ -3,7 +3,7 @@ use std::time::Duration;
 use criterion::{Criterion, black_box, criterion_group, criterion_main};
 use gears::games::chess::ChessColor::White;
 use gears::games::chess::Chessboard;
-use gears::general::bitboards::{Bitboard, RawBitboard};
+use gears::general::bitboards::RawBitboard;
 use gears::general::board::Strictness::Relaxed;
 use gears::general::board::{BitboardBoard, Board, BoardHelpers};
 use gears::general::perft::perft;
@@ -94,7 +94,7 @@ pub fn bitboard_ones_bench(c: &mut Criterion) {
         b.iter(|| {
             for pos in &positions {
                 let mut sum = 0;
-                for piece in pos.player_bb(White).ones() {
+                for piece in pos.player_bb(White) {
                     sum += piece.bb_idx();
                 }
                 black_box(sum);
@@ -110,7 +110,7 @@ pub fn bitboard_poplsb_bench(c: &mut Criterion) {
             let mut sum = 0;
             for pos in &positions {
                 let mut bb = pos.player_bb(White);
-                while bb.has_set_bit() {
+                while bb.has_any() {
                     sum += bb.pop_lsb();
                 }
                 black_box(sum);

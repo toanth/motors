@@ -76,7 +76,7 @@ fn calc_pawn_vs_king_impl() -> FullBitbase {
         loop {
             for w_king in ChessSquare::iter() {
                 let mut won = ChessBitboard::default();
-                for to in (KINGS[w_king] & !w_pawn.bb()).ones() {
+                for to in KINGS[w_king] & !w_pawn.bb() {
                     won |= res[Black][idx_full(w_pawn, to)] & !KINGS[to];
                 }
                 let pawn_push = w_pawn.north_unchecked();
@@ -125,7 +125,7 @@ impl Chessboard {
         if self.occupied_bb().num_ones() != 3 {
             return None;
         }
-        let Some(pawn) = self.piece_bb(Pawn).to_square() else { return None };
+        let pawn = self.piece_bb(Pawn).to_square()?;
         let flip = self.col_piece_bb(White, Pawn).is_zero();
         let (w_p, w_k, b_k) = if flip {
             (pawn.flip(), self.king_square(Black).flip(), self.king_square(White).flip())
@@ -150,10 +150,10 @@ pub(super) fn query_pawn_v_king(
     }
     let i = idx_compact(w_p, w_k);
     if is_black {
-        let res = table[Black][i].is_bit_set(b_k);
+        let res = table[Black][i].has(b_k);
         if res { Lose } else { Draw }
     } else {
-        let res = table[White][i].is_bit_set(b_k);
+        let res = table[White][i].has(b_k);
         if res { Win } else { Draw }
     }
 }
@@ -185,15 +185,15 @@ mod tests {
                     if sup_distance(w_king, b_king) <= 1
                         || w_king == w_pawn
                         || b_king == w_pawn
-                        || PAWN_CAPTURES[White][w_pawn].is_bit_set(b_king)
+                        || PAWN_CAPTURES[White][w_pawn].has(b_king)
                     {
                         continue;
                     }
                     let mut expected = false;
                     let is_black_loss = |w_p: ChessSquare, w_k: ChessSquare, b_k: ChessSquare| {
-                        bitbase[Black][idx_full(w_p, w_k)].is_bit_set(b_k)
+                        bitbase[Black][idx_full(w_p, w_k)].has(b_k)
                     };
-                    for to in (KINGS[w_king] & !KINGS[b_king] & !w_pawn.bb()).ones() {
+                    for to in KINGS[w_king] & !KINGS[b_king] & !w_pawn.bb() {
                         expected |= is_black_loss(w_pawn, to, b_king);
                     }
                     if w_pawn.north_unchecked() != w_king {
@@ -206,7 +206,7 @@ mod tests {
                     {
                         expected |= is_black_loss(w_pawn.north_unchecked().north_unchecked(), w_king, b_king);
                     }
-                    let actual = bitbase[White][idx_full(w_pawn, w_king)].is_bit_set(b_king);
+                    let actual = bitbase[White][idx_full(w_pawn, w_king)].has(b_king);
                     assert_eq!(expected, actual, "{w_pawn} {w_king} {b_king}");
                 }
             }
@@ -283,16 +283,16 @@ mod tests {
                     if w_pawn == b_king || sup_distance(w_king, b_king) <= 1 {
                         continue;
                     }
-                    let black_in_check = w_pawn.bb().pawn_attacks(White).is_bit_set(b_king);
+                    let black_in_check = w_pawn.bb().pawn_attacks(White).has(b_king);
 
                     if !black_in_check {
                         counts[0] -= 1
                     }
                     counts[1] -= 1;
-                    if !black_in_check && bitbase[White][i].is_bit_set(b_king) {
+                    if !black_in_check && bitbase[White][i].has(b_king) {
                         counts[2] -= 1
                     }
-                    if bitbase[Black][i].is_bit_set(b_king) {
+                    if bitbase[Black][i].has(b_king) {
                         counts[3] -= 1
                     }
                 }

@@ -17,10 +17,10 @@ use std::hash::{DefaultHasher, Hash, Hasher};
 impl AtaxxBoard {
     pub fn create(blocked: AtaxxBitboard, x_bb: AtaxxBitboard, o_bb: AtaxxBitboard) -> Res<Self> {
         let blocked = blocked | AtaxxBitboard::INVALID_EDGE_MASK;
-        if (o_bb & x_bb).has_set_bit() {
+        if o_bb.intersects(x_bb) {
             return Err(anyhow!("Overlapping x and o pieces (bitboard: {})", o_bb & x_bb));
         }
-        if (blocked & (o_bb | x_bb)).has_set_bit() {
+        if blocked.intersects(o_bb | x_bb) {
             return Err(anyhow!("Pieces on blocked squares (bitboard: {}", blocked & (o_bb | x_bb)));
         }
         // it's legal for the position to not contain any pieces at all
@@ -63,12 +63,12 @@ impl AtaxxBoard {
                 moves.add_move(AtaxxMove::leaping(source, target));
             }
         }
-        if moves.num_moves() == 0 && pieces.has_set_bit() {
+        if moves.num_moves() == 0 && pieces.has_any() {
             let other_bb = self.inactive_player_bb();
             // if the other player doesn't have any legal moves, the game is over.
             // return an empty move list in that case so that the user can pick up on this
             // otherwise, the only legal move is the passing move
-            if (other_bb.extended_moore_neighborhood(2) & empty).has_set_bit() {
+            if other_bb.extended_moore_neighborhood(2).intersects(empty) {
                 moves.add_move(AtaxxMove::default());
             }
         }
@@ -82,10 +82,10 @@ impl AtaxxBoard {
             let leaps = AtaxxBitboard::new(ATAXX_LEAPERS[source.bb_idx()].raw()) & empty;
             res += leaps.num_ones();
         }
-        if res == 0 && pieces.has_set_bit() {
+        if res == 0 && pieces.has_any() {
             // if the other player doesn't have any legal moves, the game is over.
             // otherwise, the only legal move is the passing move
-            if (self.inactive_player_bb().extended_moore_neighborhood(2) & empty).has_set_bit() {
+            if self.inactive_player_bb().extended_moore_neighborhood(2).intersects(empty) {
                 return 1;
             }
         }

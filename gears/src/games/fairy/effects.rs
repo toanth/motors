@@ -405,7 +405,7 @@ impl Observers {
             const STAGE: usize = 1;
             const NO_PAWNS_CTR_TO_64: AdditionalCtrT = 1;
             const BARE_KING_CTR: AdditionalCtrT = 2;
-            if pos.piece_bb(PieceId::new(PAWN_IDX)).has_set_bit() {
+            if pos.piece_bb(PieceId::new(PAWN_IDX)).has_any() {
                 pos.0.draw_counter = 0;
                 pos.0.additional_ctrs[LIMIT] = 0;
                 return Some(());

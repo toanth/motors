@@ -140,7 +140,7 @@ impl ChessSliderGenerator {
     // still slower than this approach.
     pub fn all_bishop_attacks(&self, bishop_sliders: ChessBitboard) -> ChessBitboard {
         let mut res = ChessBitboard::default();
-        for square in bishop_sliders.ones() {
+        for square in bishop_sliders {
             res |= self.bishop_attacks(square);
         }
         res
@@ -148,7 +148,7 @@ impl ChessSliderGenerator {
 
     pub fn all_rook_attacks(&self, rook_sliders: ChessBitboard) -> ChessBitboard {
         let mut res = ChessBitboard::default();
-        for square in rook_sliders.ones() {
+        for square in rook_sliders {
             res |= self.rook_attacks(square);
         }
         res

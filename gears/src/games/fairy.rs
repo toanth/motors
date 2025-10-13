@@ -89,17 +89,8 @@ type FairyMoveList = SboMoveList<FairyBoard, MAX_NO_ALLOC_MOVES>;
 pub struct FairyColor(bool);
 
 impl FairyColor {
-    pub fn idx(&self) -> usize {
-        self.0 as usize
-    }
     pub fn from_idx(idx: usize) -> Self {
         Self(idx != 0)
-    }
-}
-
-impl From<FairyColor> for usize {
-    fn from(value: FairyColor) -> Self {
-        value.idx()
     }
 }
 
@@ -111,12 +102,12 @@ impl Color for FairyColor {
     }
 
     fn to_char(self, settings: &Rules) -> char {
-        settings.colors[self.idx()].ascii_char
+        settings.colors[self].ascii_char
     }
 
     #[allow(refining_impl_trait)]
     fn name(self, settings: &Rules) -> &str {
-        &settings.colors[self.idx()].name
+        &settings.colors[self].name
     }
 }
 
@@ -131,13 +122,13 @@ impl<T> Index<FairyColor> for [T; 2] {
     type Output = T;
 
     fn index(&self, color: FairyColor) -> &Self::Output {
-        &self[color.idx()]
+        &self[color.0 as usize]
     }
 }
 
 impl<T> IndexMut<FairyColor> for [T; 2] {
     fn index_mut(&mut self, color: FairyColor) -> &mut Self::Output {
-        &mut self[color.idx()]
+        &mut self[color.0 as usize]
     }
 }
 
@@ -225,7 +216,7 @@ impl FairyCastleInfo {
         res
     }
     fn player(&self, color: FairyColor) -> &ColoredFairyCastleInfo {
-        &self.players[color.idx()]
+        &self.players[color]
     }
     fn info(&self, color: FairyColor, side: Side) -> Option<CastlingMoveInfo> {
         self.player(color).sides[side as usize]
@@ -234,7 +225,7 @@ impl FairyCastleInfo {
         self.info(color, side).is_some()
     }
     pub fn unset(&mut self, color: FairyColor, side: Side) {
-        self.players[color.idx()].sides[side as usize] = None;
+        self.players[color].sides[side as usize] = None;
     }
     pub fn unset_both_sides(&mut self, color: FairyColor) {
         self.unset(color, Side::Queenside);
@@ -308,7 +299,7 @@ impl UnverifiedFairyBoard {
     }
 
     fn color_name(&self, color: FairyColor) -> &str {
-        &self.rules().colors[color.idx()].name
+        &self.rules().colors[color].name
     }
 }
 
@@ -335,7 +326,7 @@ impl UnverifiedBoard<FairyBoard> for UnverifiedFairyBoard {
         let mut pieces = RawFairyBitboard::default();
         for (id, _piece) in rules.pieces.iter().enumerate() {
             let bb = self.piece_bitboards[id];
-            if (bb & pieces).has_set_bit() {
+            if (bb & pieces).has_any() {
                 bail!("Two pieces on the same square")
             }
             pieces |= bb;
@@ -375,14 +366,14 @@ impl UnverifiedBoard<FairyBoard> for UnverifiedFairyBoard {
                     continue;
                 }
                 let castling = self.castling_info.player(color);
-                if let Some(rook_sq) = castling.rook_sq(side) {
-                    if self.is_empty(rook_sq) {
-                        bail!(
-                            "Color {0} can castle {side}, but there is no piece to castle with{1}",
-                            self.color_name(color),
-                            if level == CheckFen { " (invalid castling flag in FEN?)" } else { "" }
-                        );
-                    }
+                if let Some(rook_sq) = castling.rook_sq(side)
+                    && self.is_empty(rook_sq)
+                {
+                    bail!(
+                        "Color {0} can castle {side}, but there is no piece to castle with{1}",
+                        self.color_name(color),
+                        if level == CheckFen { " (invalid castling flag in FEN?)" } else { "" }
+                    );
                 }
             }
         }
@@ -392,7 +383,7 @@ impl UnverifiedBoard<FairyBoard> for UnverifiedFairyBoard {
         for color in FairyColor::iter() {
             let royals = self.royal_bb_for(color);
             let num = royals.num_ones();
-            match rules.num_royals[color.idx()] {
+            match rules.num_royals[color] {
                 NumRoyals::Exactly(n) => {
                     ensure!(
                         num == n,
@@ -425,12 +416,12 @@ impl UnverifiedBoard<FairyBoard> for UnverifiedFairyBoard {
         ensure!(
             res.rules().check_rules.active_check_ok.satisfied(&res, res.active_player()),
             "Player {} is in check, but that's not allowed in this position",
-            res.rules().colors[res.active_player().idx()].name
+            res.rules().colors[res.active_player()].name
         );
         ensure!(
             res.rules().check_rules.inactive_check_ok.satisfied(&res, res.inactive_player()),
             "Player {} is in check, but that's not allowed in this position (it's not their turn to move)",
-            res.rules().colors[res.inactive_player().idx()].name
+            res.rules().colors[res.inactive_player()].name
         );
 
         Ok(res)
@@ -452,7 +443,7 @@ impl UnverifiedBoard<FairyBoard> for UnverifiedFairyBoard {
         let bb = self.single_piece(coords).raw();
         self.piece_bitboards[piece.to_uncolored_idx()] |= bb;
         if let Some(color) = piece.color() {
-            self.color_bitboards[color.idx()] |= bb;
+            self.color_bitboards[color] |= bb;
         } else {
             self.neutral_bb |= bb;
         }
@@ -571,7 +562,7 @@ impl UnverifiedFairyBoard {
     fn remove_piece_impl(&mut self, square: FairySquare, piece: ColoredPieceId) {
         let bb = self.single_piece(square).raw();
         if let Some(col) = piece.color() {
-            self.color_bitboards[col.idx()] ^= bb;
+            self.color_bitboards[col] ^= bb;
         }
         self.piece_bitboards[piece.uncolor().val()] ^= bb;
     }
@@ -581,9 +572,9 @@ impl UnverifiedFairyBoard {
         let bb = RawFairyBitboard::single_piece_at(idx);
         debug_assert_eq!(
             self.piece_bitboards[piece.val()].is_bit_set_at(idx),
-            self.color_bitboards[color.idx()].is_bit_set_at(idx)
+            self.color_bitboards[color].is_bit_set_at(idx)
         );
-        self.color_bitboards[color.idx()] ^= bb;
+        self.color_bitboards[color] ^= bb;
         self.piece_bitboards[piece.val()] ^= bb;
     }
     // doesn't affect the neutral bitboard
