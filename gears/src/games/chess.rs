@@ -56,6 +56,7 @@ mod perft_tests;
 pub mod pieces;
 pub mod see;
 pub mod squares;
+mod tablebase;
 pub mod unverified;
 pub mod upcoming_repetition;
 pub mod zobrist;
@@ -1054,6 +1055,8 @@ impl ChessBitboardTrait for ChessBitboard {}
 
 pub const CORNER_SQUARES: ChessBitboard = ChessBitboard::new(0x8100_0000_0000_0081);
 
+pub const EDGE_SQUARES: ChessBitboard = ChessBitboard::new(0xff818181818181ff);
+
 #[cfg(test)]
 mod tests {
     use rand::rng;
@@ -1152,12 +1155,12 @@ mod tests {
         assert!(board.castling.can_castle(Black, Kingside));
         assert!(!board.castling.can_castle(Black, Queenside));
         let fens = [
-            // "8/8/8/3K4/8/8/5k2/8 w - - 0 1",
-            // "K7/R7/R7/R7/R7/R7/P7/k7 w - - 0 1",
-            // "QQKBnknn/8/8/8/8/8/8/8 w - - 0 1",
-            // "b5k1/b3Q3/3Q1Q2/5Q2/K1bQ1Qb1/2bbbbb1/6Q1/3QQ2b b - - 0 1",
-            // "rnbq1bn1/pppppp1p/8/K7/5k2/8/PPPP1PPP/RNBQ1BNR w - - 0 1",
-            // &Chessboard::from_fen("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w HhAa - 0 1", Strict).unwrap().as_fen(),
+            "8/8/8/3K4/8/8/5k2/8 w - - 0 1",
+            "K7/R7/R7/R7/R7/R7/P7/k7 w - - 0 1",
+            "QQKBnknn/8/8/8/8/8/8/8 w - - 0 1",
+            "b5k1/b3Q3/3Q1Q2/5Q2/K1bQ1Qb1/2bbbbb1/6Q1/3QQ2b b - - 0 1",
+            "rnbq1bn1/pppppp1p/8/K7/5k2/8/PPPP1PPP/RNBQ1BNR w - - 0 1",
+            &Chessboard::from_fen("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w HhAa - 0 1", Strict).unwrap().as_fen(),
             "rnbqkbnr/1ppppppp/p7/8/8/8/PPPPPPP1/RNBQKBN1 w Ah - 0 1",
             "rnbqkbnr/1ppppppp/p7/8/3pP3/8/PPPP1PP1/RNBQKBN1 b Ah e3 3 1",
             // chess960 fens (from webperft):

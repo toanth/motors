@@ -24,6 +24,11 @@ pub trait RectangularCoordinates: Coordinates<Size: RectangularSize<Self>> {
     fn file(self) -> DimT {
         self.column()
     }
+    fn flip_diagonally(self) -> Self {
+        let rank = self.rank();
+        let file = self.file();
+        Self::from_rank_file(file, rank)
+    }
     fn square_color(self) -> SquareColor {
         if (self.row() as usize + self.column() as usize) % 2 == 0 { Black } else { White }
     }

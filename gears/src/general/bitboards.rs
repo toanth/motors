@@ -712,6 +712,8 @@ impl<const H: usize, const W: usize> SmallGridBitboard<H, W> {
 
     pub const INVALID_EDGE_MASK: Self = Self(Self::files_too_high().0 | Self::ranks_too_high().0);
 
+    pub const ALL: Self = Self(!Self::INVALID_EDGE_MASK.0);
+
     #[inline]
     pub const fn new(raw: RawStandardBitboard) -> Self {
         Self(raw)

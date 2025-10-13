@@ -63,23 +63,20 @@ fn calc_pawn_vs_king_impl() -> FullBitbase {
         }
     }
 
-    // bitboard of squares where black's king can't end up after a move. This doesn't include the white pawn if capturing the pawn is legal
-    let mut invalid: [ChessBitboard; NUM_SQUARES] = [ChessBitboard::new(0); NUM_SQUARES];
-
     for w_pawn in ChessSquare::iter().rev() {
         if w_pawn.is_backrank() || w_pawn.file() >= 4 {
             continue;
         }
+        // Bitboard of squares where black's king can't end up after a move.
+        // This doesn't include the white pawn if capturing the pawn is legal
+        let mut invalid: [ChessBitboard; NUM_SQUARES] = [ChessBitboard::new(0); NUM_SQUARES];
         for w_king in ChessSquare::iter() {
             invalid[w_king] = PAWN_CAPTURES[White][w_pawn] | KINGS[w_king] | w_king.bb();
         }
-        let mut changed;
         loop {
             for w_king in ChessSquare::iter() {
-                assert_eq!(res[Black][idx_full(w_pawn, w_king)] & w_pawn.bb(), ChessBitboard::default());
                 let mut won = ChessBitboard::default();
                 for to in (KINGS[w_king] & !w_pawn.bb()).ones() {
-                    assert_eq!(res[Black][idx_full(w_pawn, to)] & w_pawn.bb(), ChessBitboard::default());
                     won |= res[Black][idx_full(w_pawn, to)] & !KINGS[to];
                 }
                 let pawn_push = w_pawn.north_unchecked();
@@ -94,7 +91,7 @@ fn calc_pawn_vs_king_impl() -> FullBitbase {
                 res[White][i] = won & !w_pawn.bb() & !invalid[w_king];
                 debug_assert_eq!(res[White][i] & invalid[w_king], ChessBitboard::default());
             }
-            changed = false;
+            let mut changed = false;
             for w_king in ChessSquare::iter() {
                 let i = idx_full(w_pawn, w_king);
                 let no_draw_wtm = res[White][i] | invalid[w_king];
@@ -113,10 +110,10 @@ fn calc_pawn_vs_king_impl() -> FullBitbase {
 }
 
 pub fn calc_pawn_vs_king() -> CompactBitbase {
-    let r = calc_pawn_vs_king_impl();
+    let full = calc_pawn_vs_king_impl();
     let mut res = [[ChessBitboard::default(); NUM_RELEVANT_BITBOARDS]; NUM_COLORS];
-    res[White].clone_from_slice(&r[White][OFFSET..NUM_RELEVANT_BITBOARDS + OFFSET]);
-    res[Black].clone_from_slice(&r[Black][OFFSET..NUM_RELEVANT_BITBOARDS + OFFSET]);
+    res[White].clone_from_slice(&full[White][OFFSET..NUM_RELEVANT_BITBOARDS + OFFSET]);
+    res[Black].clone_from_slice(&full[Black][OFFSET..NUM_RELEVANT_BITBOARDS + OFFSET]);
     res
 }
 
@@ -139,7 +136,7 @@ impl Chessboard {
     }
 }
 
-fn query_pawn_v_king(
+pub(super) fn query_pawn_v_king(
     table: &CompactBitbase,
     mut w_p: ChessSquare,
     mut w_k: ChessSquare,
