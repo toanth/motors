@@ -39,7 +39,7 @@ pub const UNICODE_BLACK_ROOK: char = '♜';
 pub const UNICODE_BLACK_QUEEN: char = '♛';
 pub const UNICODE_BLACK_KING: char = '♚';
 
-#[derive(Copy, Clone, Eq, PartialEq, Debug, Default, EnumIter, FromRepr, Arbitrary)]
+#[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Debug, Default, EnumIter, FromRepr, Arbitrary)]
 #[must_use]
 pub enum ChessPieceType {
     Pawn,

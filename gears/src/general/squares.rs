@@ -11,7 +11,7 @@ use std::cmp::max;
 use std::fmt;
 use std::fmt::{Debug, Display, Formatter};
 use std::iter::FusedIterator;
-use std::ops::{Index, IndexMut};
+use std::ops::{BitXor, BitXorAssign, Index, IndexMut};
 use std::str::FromStr;
 
 pub trait RectangularCoordinates: Coordinates<Size: RectangularSize<Self>> {
@@ -392,6 +392,7 @@ impl<const H: usize, const W: usize, const INTERNAL_WIDTH: usize> SmallGridSquar
         self.idx as usize
     }
 
+    #[inline]
     pub fn flip(self) -> Self {
         self.flip_up_down(SmallGridSize::default())
     }
@@ -452,6 +453,11 @@ impl<const H: usize, const W: usize> SmallGridSquare<H, W, W> {
     pub fn iter() -> impl DoubleEndedIterator<Item = Self> + ExactSizeIterator + FusedIterator {
         (0..(H * W)).map(Self::from_bb_idx)
     }
+
+    pub fn set_to_next(&mut self) {
+        debug_assert!((self.idx as usize) < H * W);
+        self.idx += 1;
+    }
 }
 
 impl<const H: usize, const W: usize> SmallGridSquare<H, W, 8> {
@@ -466,11 +472,28 @@ impl<const H: usize, const W: usize, const INTERNAL_WIDTH: usize> Display for Sm
     }
 }
 
+impl<const H: usize, const W: usize, const INTERNAL_WIDTH: usize> BitXor for SmallGridSquare<H, W, INTERNAL_WIDTH> {
+    type Output = Self;
+
+    fn bitxor(self, rhs: Self) -> Self {
+        Self { idx: self.idx ^ rhs.idx }
+    }
+}
+
+impl<const H: usize, const W: usize, const INTERNAL_WIDTH: usize> BitXorAssign
+    for SmallGridSquare<H, W, INTERNAL_WIDTH>
+{
+    fn bitxor_assign(&mut self, rhs: Self) {
+        self.idx ^= rhs.idx;
+    }
+}
+
 impl<const H: usize, const W: usize, const INTERNAL_WIDTH: usize> Coordinates
     for SmallGridSquare<H, W, INTERNAL_WIDTH>
 {
     type Size = SmallGridSize<H, W>;
 
+    #[inline]
     fn flip_up_down(self, _: Self::Size) -> Self {
         // hopefully, this `if` and the constant will be evaluated at compile time
         if H.is_power_of_two() && INTERNAL_WIDTH.is_power_of_two() {
@@ -480,6 +503,7 @@ impl<const H: usize, const W: usize, const INTERNAL_WIDTH: usize> Coordinates
         }
     }
 
+    #[inline]
     fn flip_left_right(self, _: Self::Size) -> Self {
         if W.is_power_of_two() {
             Self { idx: self.idx ^ Self::LEFT_RIGHT_MASK }
@@ -496,6 +520,15 @@ impl<const H: usize, const W: usize, const INTERNAL_WIDTH: usize> Coordinates
 impl<const H: usize, const W: usize, const INTERNAL_WIDTH: usize> RectangularCoordinates
     for SmallGridSquare<H, W, INTERNAL_WIDTH>
 {
+    #[inline]
+    fn flip_diagonally(self) -> Self {
+        if H == 8 && W == 8 && INTERNAL_WIDTH == 8 {
+            let idx = ((self.idx << 3) & 0b111_111) | self.idx >> 3;
+            Self { idx }
+        } else {
+            RectangularCoordinates::flip_diagonally(self)
+        }
+    }
     fn from_rank_file(row: DimT, column: DimT) -> Self {
         Self::from_rank_file(row, column)
     }

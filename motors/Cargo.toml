@@ -5,6 +5,7 @@ authors = ["ToTheAnd"]
 edition = "2024"
 license = "GPL-3"
 description = "A collection of several games and engines"
+build = "../build.rs"
 
 [[bench]]
 name = "bench_caps_bench"

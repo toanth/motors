@@ -24,7 +24,7 @@ use crate::games::chess::squares::{ChessSquare, ChessboardSize};
 use crate::games::chess::{ChessColor, ChessSettings, Chessboard};
 use crate::games::{Color, ColoredPiece, ColoredPieceType, Coordinates};
 use crate::general::bitboards::chessboard::ChessBitboard;
-use crate::general::bitboards::{Bitboard, KnownSizeBitboard, RawBitboard};
+use crate::general::bitboards::{Bitboard, RawBitboard};
 use crate::general::board::SelfChecks::{Assertion, CheckFen};
 use crate::general::board::Strictness::Strict;
 use crate::general::board::{BitboardBoard, Board, BoardHelpers, SelfChecks, Strictness, Symmetry, UnverifiedBoard};
@@ -79,17 +79,15 @@ impl UnverifiedBoard<Chessboard> for UnverifiedChessboard {
                 this.col_piece_bb(color, King).is_single_piece(),
                 "The {color} player does not have exactly one king"
             );
-            ensure!(
-                (this.col_piece_bb(color, Pawn) & (ChessBitboard::rank_0() | ChessBitboard::rank(7))).is_zero(),
-                "The {color} player has a pawn on the first or eight rank"
-            );
+            if this.col_piece_bb(color, Pawn).intersects(ChessBitboard::backranks_for(ChessboardSize::default())) {
+                bail!("The {color} player has a pawn on the first or eight rank")
+            }
         }
 
         for color in ChessColor::iter() {
             for side in CastleRight::iter() {
-                let has_eligible_rook =
-                    this.rook_start_square(color, side).bb().intersects(this.col_piece_bb(color, Rook));
-                if this.castling.can_castle(color, side) && !has_eligible_rook {
+                let eligible_rook = this.col_piece_bb(color, Rook).has(this.rook_start_square(color, side));
+                if this.castling.can_castle(color, side) && !eligible_rook {
                     bail!(
                         "The {color} player can castle {side}, but there is no rook to castle with{}",
                         if checks == CheckFen { " (invalid castling flag in FEN?)" } else { "" }
@@ -120,7 +118,7 @@ impl UnverifiedBoard<Chessboard> for UnverifiedChessboard {
         } else if strictness == Strict && this.ply_draw_clock() > this.halfmove_ctr_since_start() {
             bail!(
                 "The halfmove repetition clock ({0}) is larger than the number of played half moves ({1}), \
-                which is not allowed in strict mode",
+                    which is not allowed in strict mode",
                 this.ply_100_ctr,
                 this.ply
             )
@@ -137,7 +135,7 @@ impl UnverifiedBoard<Chessboard> for UnverifiedChessboard {
                 ensure!(
                     bb.num_ones() <= 10,
                     "There are {0} {color} {piece}s in this position. There can never be more than 10 pieces \
-                    of the same type in a legal chess position (in relaxed mode, this is accepted anyway)",
+                        of the same type in a legal chess position (in relaxed mode, this is accepted anyway)",
                     bb.num_ones()
                 );
             }
@@ -152,11 +150,11 @@ impl UnverifiedBoard<Chessboard> for UnverifiedChessboard {
                     );
                 }
             }
-        }
-        for color in ChessColor::iter() {
-            let num_pawns = this.col_piece_bb(color, Pawn).num_ones() as isize;
-            if strictness == Strict && num_promoted_pawns[color] + num_pawns > 8 {
-                bail!("Incorrect piece distribution for {color} (in relaxed mode, this is allowed)")
+            for color in ChessColor::iter() {
+                let num_pawns = this.col_piece_bb(color, Pawn).num_ones() as isize;
+                if strictness == Strict && num_promoted_pawns[color] + num_pawns > 8 {
+                    bail!("Incorrect piece distribution for {color} (in relaxed mode, this is allowed)")
+                }
             }
         }
         this.hashes = this.compute_zobrist();

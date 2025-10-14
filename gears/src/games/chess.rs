@@ -1,17 +1,3 @@
-use anyhow::{anyhow, bail, ensure};
-use arbitrary::Arbitrary;
-use colored::Color::Red;
-use colored::Colorize;
-use itertools::Itertools;
-use rand::Rng;
-use rand::prelude::IteratorRandom;
-use std::fmt;
-use std::fmt::{Display, Formatter};
-use std::ops::{Index, IndexMut, Not};
-use std::str::FromStr;
-use std::sync::atomic::AtomicBool;
-use strum::IntoEnumIterator;
-
 use crate::PlayerResult;
 use crate::PlayerResult::{Draw, Lose};
 use crate::games::chess::ChessColor::{Black, White};
@@ -30,7 +16,7 @@ use crate::games::{
     AbstractPieceType, Board, BoardHistory, CharType, Color, ColoredPiece, ColoredPieceType, DimT, NUM_COLORS, PosHash,
     Settings, n_fold_repetition,
 };
-use crate::general::bitboards::chessboard::{ChessBitboard, black_squares, white_squares};
+use crate::general::bitboards::chessboard::{ChessBitboard, KINGS, black_squares, white_squares};
 use crate::general::bitboards::{Bitboard, KnownSizeBitboard, RawBitboard, RawStandardBitboard};
 use crate::general::board::SelfChecks::CheckFen;
 use crate::general::board::Strictness::{Relaxed, Strict};
@@ -47,6 +33,20 @@ use crate::output::text_output::{
 };
 use crate::score::PhaseType;
 use crate::search::DepthPly;
+use anyhow::{anyhow, bail, ensure};
+use arbitrary::Arbitrary;
+use colored::Color::Red;
+use colored::Colorize;
+use itertools::Itertools;
+use rand::Rng;
+use rand::prelude::IteratorRandom;
+use std::fmt;
+use std::fmt::{Display, Formatter};
+use std::ops::{Index, IndexMut, Not};
+use std::str::FromStr;
+use std::sync::atomic::AtomicBool;
+use strum::IntoEnumIterator;
+use strum_macros::FromRepr;
 
 pub mod bitbase;
 pub mod castling;
@@ -108,6 +108,7 @@ static STARTPOS: Chessboard = {
         mailbox: startpos_mailbox(),
         threats,
         checkers: ChessBitboard::new(0),
+        // TODO: Why not simply one bitboard?
         pinned: [ChessBitboard::new(0); 2],
         ply: 0,
         ply_100_ctr: 0,
@@ -167,7 +168,7 @@ pub type ChessMoveList = InplaceMoveList<Chessboard, MAX_CHESS_MOVES_IN_POS>;
 impl Settings for ChessSettings {}
 
 /// White is always the first player, Black is always the second
-#[derive(Copy, Clone, Eq, PartialEq, Debug, Default, Hash, Arbitrary)]
+#[derive(Copy, Clone, Eq, PartialEq, Debug, Default, Hash, Arbitrary, FromRepr)]
 #[must_use]
 pub enum ChessColor {
     #[default]
@@ -244,6 +245,7 @@ pub struct Chessboard {
     mailbox: [ChessPieceType; NUM_SQUARES],
     threats: ChessBitboard,
     checkers: ChessBitboard,
+    // TODO: Only one bitboard instead of 2
     pinned: [ChessBitboard; NUM_COLORS],
     ply: u32,
     ply_100_ctr: u8,
@@ -516,6 +518,23 @@ impl Board for Chessboard {
 
     fn gen_tactical_pseudolegal<T: MoveList<Self>>(&self, moves: &mut T) {
         self.gen_pseudolegal_moves(moves, self.player_bb(self.active.other()), true)
+    }
+
+    // This function isn't called from search, but it's still important for e.g. tablebase generation performance
+    fn has_no_legal_moves(&self) -> bool {
+        let us = self.active;
+        let king = self.king_square(us);
+        if !self.is_in_check()
+            && (KINGS[king].intersects(!(self.player_bb(us) | self.threats))
+                || (self.col_piece_bb(us, Pawn) & !self.pinned[us]).pawn_advance(us).intersects(!self.occupied_bb()))
+        {
+            // There's a square we can move our king to, or we're not in check and can push a non-pinned pawn.
+            // So we have at least one legal move and can avoid doing movegen.
+            // In most positions where we're not in check, one of these conditions should be true
+            false
+        } else {
+            self.num_legal_moves() == 0
+        }
     }
 
     fn random_legal_move<T: Rng>(&self, rng: &mut T) -> Option<Self::Move> {
