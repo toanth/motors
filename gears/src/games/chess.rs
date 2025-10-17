@@ -108,8 +108,7 @@ static STARTPOS: Chessboard = {
         mailbox: startpos_mailbox(),
         threats,
         checkers: ChessBitboard::new(0),
-        // TODO: Why not simply one bitboard?
-        pinned: [ChessBitboard::new(0); 2],
+        pinned: ChessBitboard::new(0),
         ply: 0,
         ply_100_ctr: 0,
         active: White,
@@ -245,8 +244,7 @@ pub struct Chessboard {
     mailbox: [ChessPieceType; NUM_SQUARES],
     threats: ChessBitboard,
     checkers: ChessBitboard,
-    // TODO: Only one bitboard instead of 2
-    pinned: [ChessBitboard; NUM_COLORS],
+    pinned: ChessBitboard,
     ply: u32,
     ply_100_ctr: u8,
     active: ChessColor,
@@ -305,7 +303,7 @@ impl Board for Chessboard {
             mailbox: [Empty; NUM_SQUARES],
             threats: ChessBitboard::default(),
             checkers: ChessBitboard::default(),
-            pinned: [ChessBitboard::default(); NUM_COLORS],
+            pinned: ChessBitboard::default(),
             ply: 0,
             ply_100_ctr: 0,
             active: White,
@@ -525,7 +523,7 @@ impl Board for Chessboard {
         let king = self.king_sq(us);
         if !self.is_in_check()
             && (KINGS[king].intersects(!(self.player_bb(us) | self.threats))
-                || (self.col_piece_bb(us, Pawn) & !self.pinned[us]).pawn_advance(us).intersects(!self.occupied_bb()))
+                || (self.col_piece_bb(us, Pawn) & !self.pinned).pawn_advance(us).intersects(!self.occupied_bb()))
         {
             // Happy path: There's a square we can move our king to, or we're not in check and can push a non-pinned pawn.
             // So we have at least one legal move and can avoid doing movegen.

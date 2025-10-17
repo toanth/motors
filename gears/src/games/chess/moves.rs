@@ -568,7 +568,7 @@ impl Chessboard {
         }
         let king_sq = self.king_sq(them);
         let ep_square = to.pawn_advance_unchecked(them);
-        let not_pinned = possible_ep_pawns & !self.pinned[them];
+        let not_pinned = possible_ep_pawns & !self.pinned;
         if not_pinned.is_zero() {
             for p in possible_ep_pawns {
                 let mut pinning = self.ray_attacks(p, king_sq, self.occupied_bb());
@@ -1096,7 +1096,7 @@ impl<'a> MoveParser<'a> {
             board.all_attacking(
                 ChessSquare::from_rank_file(self.target_rank.unwrap(), self.target_file.unwrap()),
                 &board.slider_generator(),
-            ) & board.pinned[board.active]
+            ) & board.pinned
                 & board.col_piece_bb(us, self.piece)
         } else {
             ChessBitboard::default()

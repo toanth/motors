@@ -63,9 +63,8 @@ impl Chessboard {
         ];
         let mut remaining_attackers = self.all_attacking(square, &generator);
         // don't consider pinned pieces unless they're moving along the pin ray. Idea from pawnocchio.
-        let pinned = (self.pinned[White] | self.pinned[Black])
-            & !(self.pinned[White] & king_rays[White])
-            & !(self.pinned[Black] & king_rays[Black]);
+        let pinned =
+            self.pinned & !(self.player_bb(White) & king_rays[White]) & !(self.player_bb(Black) & king_rays[Black]);
         remaining_attackers &= !pinned;
         let mut remaining_blockers = self.occupied_bb();
         let mut their_victim = original_moving_piece;

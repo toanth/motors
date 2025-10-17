@@ -436,7 +436,7 @@ impl Chessboard {
         self.checkers = ((Self::knight_attacks_from(king) & self.piece_bb(Knight))
             | Self::single_pawn_captures(us, king) & self.col_piece_bb(!us, Pawn))
             & their_bb;
-        self.pinned = [ChessBitboard::default(); 2];
+        self.pinned = ChessBitboard::default();
         for color in ChessColor::iter() {
             let their_bb = self.player_bb(!color);
             let our_bb = self.player_bb(color);
@@ -445,20 +445,20 @@ impl Chessboard {
             let rook_sliders = (self.piece_bb(Rook) | self.piece_bb(Queen)) & their_bb;
             let bishop_sliders = (self.piece_bb(Bishop) | self.piece_bb(Queen)) & their_bb;
 
-            let mut update = |slider: ChessSquare, us: ChessColor| {
+            let mut update = |slider: ChessSquare| {
                 let on_ray = ChessBitboard::ray_exclusive(slider, king, ChessboardSize::default()) & our_bb;
                 if on_ray.is_zero() {
                     self.checkers |= slider.bb();
                 } else if on_ray.is_single_piece() {
-                    self.pinned[us] |= on_ray;
+                    self.pinned |= on_ray;
                 }
             };
 
             for slider in rook_sliders & slider_gen.rook_attacks(king) {
-                update(slider, color);
+                update(slider);
             }
             for slider in bishop_sliders & slider_gen.bishop_attacks(king) {
-                update(slider, color);
+                update(slider);
             }
         }
     }
@@ -474,7 +474,7 @@ impl Chessboard {
                 ChessSquare::from_rank_file(src.rank(), to_file),
                 ChessboardSize::default(),
             );
-            (king_ray & self.threats).is_zero() && !self.pinned[self.active].has(dest)
+            (king_ray & self.threats).is_zero() && !self.pinned.has(dest)
         } else if piece == King {
             debug_assert!(!self.threats.has(dest));
             if self.checkers().is_zero() {
@@ -495,13 +495,13 @@ impl Chessboard {
                 // no need to update the mailbox
                 return !b.is_in_check_on_square(b.active_player(), king_sq, &b.slider_generator());
             } else if self.checkers().has_any() {
-                if self.pinned[self.active].has(src) {
+                if self.pinned.has(src) {
                     return false;
                 }
                 let checker = ChessSquare::from_bb_idx(self.checkers().pop_lsb());
                 let ray = ChessBitboard::ray_inclusive(checker, king_sq, ChessboardSize::default());
                 return ray.has(mov.dest_square());
-            } else if self.pinned[self.active].has(src) {
+            } else if self.pinned.has(src) {
                 let mut pinning = self.ray_attacks(src, king_sq, self.occupied_bb());
                 debug_assert!(pinning.is_single_piece());
                 let pinning = ChessSquare::from_bb_idx(pinning.pop_lsb());
