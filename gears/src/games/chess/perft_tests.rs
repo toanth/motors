@@ -96,6 +96,9 @@ mod tests {
             ("4k3/8/8/2PpP3/8/8/8/4K3 w - d6 0 1", vec![1, 9, 47, 376]),
             ("4k3/8/8/8/2pPp3/8/8/4K3 b - d3 0 1", vec![1, 9, 47, 376]),
             // EP - pinned diagonal
+            ("8/5k2/8/2Pp4/8/1B6/8/6K1 w - d6 0 1", vec![1, 13, 101]),
+            ("4k3/b7/8/2Pp4/8/4B3/8/6K1 w - d6 0 1", vec![1, 14, 123]),
+            ("4k3/B7/8/2Pp4/8/8/8/6K1 w - d6 0 1", vec![1, 9, 50]),
             ("4k3/b7/8/2Pp4/8/8/8/6K1 w - d6 0 1", vec![1, 5, 45]),
             ("4k3/7b/8/4pP2/8/8/8/1K6 w - e6 0 1", vec![1, 5, 45]),
             ("6k1/8/8/8/2pP4/8/B7/3K4 b - d3 0 1", vec![1, 5, 45]),
@@ -121,16 +124,24 @@ mod tests {
             // EP - pinned horizontal
             ("4k3/8/8/K2pP2r/8/8/8/8 w - d6 0 1", vec![1, 6, 94]),
             ("4k3/8/8/K2pP2q/8/8/8/8 w - d6 0 1", vec![1, 6, 130]),
+            ("4k3/8/8/r1Pp3K/8/8/8/8 w - d6 0 1", vec![1, 6, 88]),
             ("4k3/8/8/r2pP2K/8/8/8/8 w - d6 0 1", vec![1, 6, 87]),
             ("4k3/8/8/q2pP2K/8/8/8/8 w - d6 0 1", vec![1, 6, 129]),
             ("8/8/8/8/1k1Pp2R/8/8/4K3 b - d3 0 1", vec![1, 8, 125]),
             ("8/8/8/8/1R1Pp2k/8/8/4K3 b - d3 0 1", vec![1, 6, 87]),
+            ("8/8/8/8/1r1Pp2k/8/8/4K3 b - d3 0 1", vec![1, 17, 88]),
+            ("8/8/8/8/1R1PpP1k/8/8/4K3 b - d3 0 1", vec![1, 6, 93]),
+            ("8/8/8/8/1r1PpP1k/8/8/4K3 b - d3 0 1", vec![1, 16, 97]),
+            ("8/8/8/8/1RpPp2k/8/8/4K3 b - d3 0 1", vec![1, 9, 129]),
+            ("8/8/8/8/1rpPp2k/8/8/4K3 b - d3 0 1", vec![1, 17, 88]),
+            ("8/8/8/1k2pPR1/5K2/8/8/8 w - e6 0 1", vec![1, 7, 58]),
             // EP - pinned vertical
             ("k7/8/4r3/3pP3/8/8/8/4K3 w - d6 0 1", vec![1, 5, 70]),
             ("k3K3/8/8/3pP3/8/8/8/4r3 w - d6 0 1", vec![1, 6, 91]),
             // EP - in check
             ("4k3/8/8/4pP2/3K4/8/8/8 w - e6 0 1", vec![1, 9, 49]),
             ("8/8/8/4k3/5Pp1/8/8/3K4 b - f3 0 1", vec![1, 9, 50]),
+            ("5r2/8/8/1k2pPR1/5K2/8/8/8 w - - 0 1", vec![1, 6, 112]),
             // EP - block check
             ("4k3/8/K6r/3pP3/8/8/8/8 w - d6 0 1", vec![1, 6, 109]),
             ("4k3/8/K6q/3pP3/8/8/8/8 w - d6 0 1", vec![1, 6, 151]),
@@ -310,7 +321,10 @@ mod tests {
                         let fen = board.as_fen();
                         let board2 = Chessboard::from_fen(&fen, strictness).unwrap();
                         if board != board2 {
-                            eprintln!("boards differ: {board} vs {board2}, fen was {}", expected.fen);
+                            eprintln!(
+                                "boards differ: '{board}' vs '{board2}', fen was '{}'\n{board:?}\n{board2:?}",
+                                expected.fen
+                            );
                             // it's fine for relaxed FENs to contain illegal pseudolegal ep moves
                             assert_eq!(strictness, Relaxed);
                             assert!(Chessboard::from_fen(expected.fen, Strict).is_err());

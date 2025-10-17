@@ -159,12 +159,12 @@ impl UnverifiedBoard<Chessboard> for UnverifiedChessboard {
         }
         // we allow loading FENs where more than one piece gives check to the king in a way that could not have been reached
         // from startpos, e.g. "B6b/8/8/8/2K5/5k2/8/b6B b - - 0 1"
-        this.hashes = this.compute_zobrist();
 
         this.set_checkers_and_pinned();
         this.threats = this.calc_threats_of(this.inactive_player(), &this.slider_generator());
-        // We check the ep square last because this can require doing movegen, which needs most invariants to hold.
+        // We check the ep square close to last because this can require doing movegen, which needs most invariants to hold.
         this.check_ep(strictness, checks)?;
+        this.hashes = this.compute_zobrist(); // depends on check_ep()
         Ok(this)
     }
 

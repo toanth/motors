@@ -375,6 +375,8 @@ impl Chessboard {
     }
 
     // TODO: Use precomputed rays
+    // Returns a Bitboard of any slider in `self that attacks `target` through `ray_square`, assuming `blockers`.
+    // This bitboard will always have either no or exactly one set bits.
     pub fn ray_attacks(&self, target: ChessSquare, ray_square: ChessSquare, blockers: ChessBitboard) -> ChessBitboard {
         let generator = ChessSliderGenerator::new(blockers);
         let file_diff = target.file().wrapping_sub(ray_square.file());

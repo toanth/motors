@@ -1262,6 +1262,11 @@ mod tests {
         let perft_res = perft(DepthPly::new(4), board, false);
         assert_eq!(perft_res.nodes, 890_435);
 
+        let board =
+            Chessboard::from_fen("1nbqkbnr/p1p1pppp/8/rP1pP2K/8/8/1PPP1PPP/RNBQ1BNR b k - 0 3", Strict).unwrap();
+        let perft_res = perft(DepthPly::new(4), board, true);
+        assert_eq!(perft_res.nodes, 839_770);
+
         // DFRC
         let board =
             Chessboard::from_fen("r1q1k1rn/1p1ppp1p/1npb2b1/p1N3p1/8/1BP4P/PP1PPPP1/1RQ1KRBN w BFag - 0 9", Strict)

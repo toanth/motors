@@ -26,6 +26,7 @@ use crate::general::bitboards::chessboard::ChessBitboard;
 use crate::general::bitboards::{Bitboard, KnownSizeBitboard, RawBitboard};
 use crate::general::board::{BitboardBoard, BoardHelpers};
 use crate::general::common::Res;
+use crate::general::hq::ChessSliderGenerator;
 use crate::general::moves::ExtendedFormat::Standard;
 use crate::general::moves::Legality::PseudoLegal;
 use crate::general::moves::{ExtendedFormat, Legality, Move, UntrustedMove};
@@ -583,10 +584,12 @@ impl Chessboard {
             return None;
         }
         if king_sq.rank() == to.rank() {
-            // Only the moved pawn and the capturing pawn are between the king and a horizontal slider, so the pawn is effectively pinned for ep.
-            let sq = possible_ep_pawns.ones().next().unwrap();
-            let occ_bb = self.occupied_bb() ^ to.bb() ^ sq.bb();
-            if self.ray_attacks(sq, king_sq, occ_bb).has_any() {
+            let sq_bb = ChessBitboard::new(possible_ep_pawns.lsb());
+            let occ_bb = self.occupied_bb() ^ sq_bb;
+            let possibly_pinning = (self.piece_bb(Rook) | self.piece_bb(Queen)) & self.player_bb(!them);
+            if ChessSliderGenerator::new(occ_bb).horizontal_attacks(king_sq).intersects(possibly_pinning) {
+                // Only the moved pawn and the capturing pawn are between the king and a horizontal slider,
+                // so the pawn is effectively pinned for ep.
                 return None;
             }
         }
