@@ -548,7 +548,7 @@ impl Chessboard {
     pub(super) fn flip_side_to_move(mut self) -> Self {
         self.ply += 1;
         let slider_gen = self.slider_generator();
-        debug_assert!(!self.is_in_check_on_square(self.active, self.king_square(self.active), &slider_gen), "{self}");
+        debug_assert!(!self.is_in_check_on_square(self.active, self.king_sq(self.active), &slider_gen), "{self}");
         self.active = self.active.other();
         self.threats = self.calc_threats_of(self.inactive_player(), &slider_gen);
         self.set_checkers_and_pinned();
@@ -566,7 +566,7 @@ impl Chessboard {
         if possible_ep_pawns.is_zero() {
             return None;
         }
-        let king_sq = self.king_square(them);
+        let king_sq = self.king_sq(them);
         let ep_square = to.pawn_advance_unchecked(them);
         let not_pinned = possible_ep_pawns & !self.pinned[them];
         if not_pinned.is_zero() {
@@ -602,7 +602,7 @@ impl Chessboard {
         } else {
             (Queenside, C_FILE_NUM, D_FILE_NUM)
         };
-        debug_assert_eq!(self.king_square(self.active), from);
+        debug_assert_eq!(self.king_sq(self.active), from);
         debug_assert_eq!(
             side == Kingside,
             self.castling.can_castle(color, Kingside)
@@ -760,7 +760,7 @@ impl<'a> MoveParser<'a> {
 
     fn parse_castling(&mut self, board: &Chessboard) -> Option<ChessMove> {
         let color = board.active;
-        let king_square = board.king_square(color);
+        let king_square = board.king_sq(color);
         if self.original_input.starts_with("0-0-0") || self.original_input.starts_with("O-O-O") {
             for _ in 0..5 {
                 self.advance_char();

@@ -130,7 +130,7 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
     fn psqt(&self, pos: &Chessboard) -> Tuned::Score {
         let mut res = Tuned::Score::default();
         for color in ChessColor::iter() {
-            let flip = if pos.king_square(color).file() < 4 { 0x7 } else { 0x0 };
+            let flip = if pos.king_sq(color).file() < 4 { 0x7 } else { 0x0 };
             for piece in ChessPieceType::pieces() {
                 for square in pos.col_piece_bb(color, piece) {
                     res += self.tuned.psqt(ChessSquare::from_bb_idx(square.bb_idx() ^ flip), piece, color);
@@ -157,7 +157,7 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
 
     fn pawn_shield_for(pos: &Chessboard, color: ChessColor) -> SingleFeatureScore<Tuned::Score> {
         let our_pawns = pos.col_piece_bb(color, Pawn);
-        let king_square = pos.king_square(color);
+        let king_square = pos.king_sq(color);
         let idx = pawn_shield_idx(our_pawns, king_square, color);
         Tuned::default().pawn_shield(color, idx)
     }
@@ -180,7 +180,7 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
         let all_pawns = pos.piece_bb(Pawn);
         let mut score = Tuned::Score::default();
         score += Self::pawn_shield_for(pos, us);
-        let our_king = pos.king_square(us);
+        let our_king = pos.king_sq(us);
         // Idea from Stockfish
         if (all_pawns & FLANK[our_king.file() as usize]).is_zero() {
             score += Tuned::pawnless_flank();
@@ -203,7 +203,7 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
                     normalized_square
                 };
                 score += Tuned::passed_pawn(mirrored_sq);
-                let their_king = pos.king_square(!us).flip_if(us == Black);
+                let their_king = pos.king_sq(!us).flip_if(us == Black);
                 if REACHABLE_PAWNS[their_king.bb_idx()].has(normalized_square) {
                     score += Tuned::stoppable_passer();
                 }
@@ -248,7 +248,7 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
             score += Tuned::rook_openness(file_openness(rook.file(), our_pawns, their_pawns));
         }
         // King on (semi)open/closed file
-        let king_square = pos.king_square(color);
+        let king_square = pos.king_sq(color);
         let king_file = king_square.file();
         score += Tuned::king_openness(file_openness(king_file, our_pawns, their_pawns));
         let bishops = pos.col_piece_bb(color, Bishop);
@@ -263,7 +263,7 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
 
     fn checking(pos: &Chessboard, color: ChessColor, generator: &ChessSliderGenerator) -> [ChessBitboard; 5] {
         let mut result = [ChessBitboard::default(); 5];
-        let square = pos.king_square(color);
+        let square = pos.king_sq(color);
         result[Pawn as usize] = Chessboard::single_pawn_captures(!color, square);
         result[Knight as usize] = Chessboard::knight_attacks_from(square);
         result[Bishop as usize] = generator.bishop_attacks(square);
@@ -274,7 +274,7 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
 
     fn pins_and_discovered_checks(state: &mut EvalState<Tuned>, pos: &Chessboard, color: ChessColor) -> Tuned::Score {
         let mut score = Tuned::Score::default();
-        let their_king = pos.king_square(!color);
+        let their_king = pos.king_sq(!color);
         let blockers = pos.occupied_bb();
         let rook_sliders = (pos.piece_bb(Rook) | pos.piece_bb(Queen)) & pos.player_bb(color);
         for slider in rook_sliders {
@@ -320,7 +320,7 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
         let checking_squares = Self::checking(pos, !us, &generator);
 
         let attacked_by_pawn = pos.col_piece_bb(us.other(), Pawn).pawn_attacks(us.other());
-        let king_zone = Chessboard::normal_king_attacks_from(pos.king_square(us.other()));
+        let king_zone = Chessboard::normal_king_attacks_from(pos.king_sq(us.other()));
         let our_pawns = pos.col_piece_bb(us, Pawn);
         // handling double pawn pushes lost elo, somehow
         let pawn_advance_threats = (our_pawns.pawn_advance(us) & pos.empty_bb()).pawn_attacks(us);
@@ -396,17 +396,15 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
         let mut delta = Tuned::Score::default();
         let mut phase_delta = PhaseType::default();
         let piece = mov.piece_type(old_pos);
-        let mirror = new_pos.king_square(moving_player).file() < 4;
+        let mirror = new_pos.king_sq(moving_player).file() < 4;
         let src_sq = mov.src_square().flip_horizontal_if(mirror);
         let dest_sq = mov.dest_square().flip_horizontal_if(mirror);
-        debug_assert!(
-            !(piece == King && (mov.src_square().file() < 4) != (new_pos.king_square(moving_player).file() < 4))
-        );
+        debug_assert!(!(piece == King && (mov.src_square().file() < 4) != (new_pos.king_sq(moving_player).file() < 4)));
         delta -= self.tuned.psqt(src_sq, piece, moving_player);
         if mov.is_castle() {
             let side = mov.castle_side();
             debug_assert_eq!(side, Kingside); // otherwise, we would have mirrored the psqts.
-            delta += self.tuned.psqt(new_pos.king_square(moving_player), King, moving_player);
+            delta += self.tuned.psqt(new_pos.king_sq(moving_player), King, moving_player);
             // since PSQTs are player-relative, castling always takes place on the 0th rank
             let rook_dest_square = ChessSquare::from_rank_file(7, side.rook_dest_file());
             let rook_start_square = ChessSquare::from_rank_file(7, old_pos.rook_start_file(moving_player, side));
@@ -418,7 +416,7 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
             delta += self.tuned.psqt(dest_sq, mov.promo_piece(), moving_player);
             phase_delta += CHESS_PIECE_PHASE[mov.promo_piece() as usize];
         }
-        let mirror_other = new_pos.king_square(!moving_player).file() < 4;
+        let mirror_other = new_pos.king_sq(!moving_player).file() < 4;
         if let Some(ep_sq) = mov.square_of_pawn_taken_by_ep() {
             delta += self.tuned.psqt(ep_sq.flip_horizontal_if(mirror_other), Pawn, !moving_player);
         } else if captured != Empty {
@@ -494,8 +492,7 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
         let piece_type = mov.piece_type(&old_pos);
         let captured = mov.captured(old_pos);
         // also deals with castles, unlike testing mov.dest_square().rank()
-        if piece_type == King
-            && (mov.src_square().file() < 4) != (new_pos.king_square(old_pos.active_player()).file() < 4)
+        if piece_type == King && (mov.src_square().file() < 4) != (new_pos.king_sq(old_pos.active_player()).file() < 4)
         {
             state.psqt_score = self.psqt(new_pos);
             state.phase = 0;

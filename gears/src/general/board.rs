@@ -178,7 +178,7 @@ where
 
     /// Place a piece of the given type and color on the given square. Like all functions that return an [`UnverifiedBoard`],
     /// this doesn't check that the resulting position is legal.
-    /// However, this function can still fail if the piece can't be placed because the coordinates.
+    /// However, this function can still fail if the piece can't be placed.
     /// If there is a piece already on the square, it is implementation-defined what will happen; possible options include
     /// replacing the piece, returning an `Err`, or silently going into a bad state that will return an `Err` on [`Self::verify`].
     /// May perform expensive checks.

@@ -156,7 +156,7 @@ impl CastlingFlags {
             if num_kings != 1 {
                 bail!("the FEN must contain exactly one {color} king, but instead it contains {num_kings}");
             }
-            let king_square = board.king_square(color);
+            let king_square = board.king_sq(color);
             let king_file = king_square.file();
             if king_square != ChessSquare::from_rank_file(rank, king_file) {
                 bail!(
@@ -180,7 +180,7 @@ impl CastlingFlags {
                 };
                 if strictness == Strict
                     && !UCI_CHESS960.load(Relaxed)
-                    && (!rook_on(strict_file) || board.king_square(color).file() != E_FILE_NUM)
+                    && (!rook_on(strict_file) || board.king_sq(color).file() != E_FILE_NUM)
                 {
                     bail!(
                         "In strict mode, X-FEN chess castle rights ('q' and 'k') can only be used for rooks on the a or h files and\
@@ -219,7 +219,7 @@ impl CastlingFlags {
         }
         for color in ChessColor::iter() {
             let can_castle = self.can_castle(color, Kingside) || self.can_castle(color, Queenside);
-            if can_castle && board.king_square(color).file() != E_FILE_NUM {
+            if can_castle && board.king_sq(color).file() != E_FILE_NUM {
                 settings.set_flag(ChessSettings::dfrc_flag(), true);
             }
         }

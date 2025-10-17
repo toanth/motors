@@ -95,22 +95,7 @@ impl UnverifiedBoard<Chessboard> for UnverifiedChessboard {
                 }
             }
         }
-        let inactive_player = this.active.other();
 
-        let generator = this.slider_generator();
-        if this.is_in_check_on_square(inactive_player, this.king_square(inactive_player), &generator) {
-            bail!("Player {inactive_player} is in check, but it's not their turn to move");
-        } else if strictness == Strict {
-            let checkers = this.all_attacking(this.king_square(this.active), &generator) & this.inactive_player_bb();
-            let num_attacking = checkers.num_ones();
-            ensure!(
-                num_attacking <= 2,
-                "{} is in check from {num_attacking} pieces, which is not allowed in strict mode",
-                this.active
-            );
-        }
-        // we allow loading FENs where more than one piece gives check to the king in a way that could not have been reached
-        // from startpos, e.g. "B6b/8/8/8/2K5/5k2/8/b6B b - - 0 1"
         if this.ply_100_ctr > 100 {
             bail!("The 50 move rule has been exceeded (there have already been {0} plies played)", this.ply_100_ctr);
         } else if this.ply >= 20_000 {
@@ -126,37 +111,54 @@ impl UnverifiedBoard<Chessboard> for UnverifiedChessboard {
 
         let mut num_promoted_pawns: [isize; 2] = [0, 0];
         let startpos_piece_count = [8, 2, 2, 2, 1, 1];
-        for piece in ColoredChessPieceType::pieces() {
-            let color = piece.color().unwrap();
-            let bb = this.col_piece_bb(color, piece.uncolor());
-            if strictness == Strict {
-                num_promoted_pawns[color] += 0.max(bb.num_ones() as isize - startpos_piece_count[piece.uncolor()]);
-                // Print a better error message than the generic "invalid piece distribution".
-                ensure!(
-                    bb.num_ones() <= 10,
-                    "There are {0} {color} {piece}s in this position. There can never be more than 10 pieces \
-                        of the same type in a legal chess position (in relaxed mode, this is accepted anyway)",
-                    bb.num_ones()
-                );
-            }
-            if checks != CheckFen {
-                for other_piece in ColoredChessPieceType::pieces() {
-                    if other_piece == piece {
-                        continue;
-                    }
+        for color in ChessColor::iter() {
+            for piece in ChessPieceType::pieces() {
+                let bb = this.col_piece_bb(color, piece);
+                if strictness == Strict {
+                    num_promoted_pawns[color] += 0.max(bb.num_ones() as isize - startpos_piece_count[piece]);
+                    // Print a better error message than the generic "invalid piece distribution".
                     ensure!(
-                        (bb & this.col_piece_bb(other_piece.color().unwrap(), other_piece.uncolor())).is_zero(),
-                        "There are two pieces on the same square: {piece} and {other_piece}"
+                        bb.num_ones() <= 10,
+                        "There are {0} {color} {piece}s in this position. There can never be more than 10 pieces \
+                        of the same type in a legal chess position (in relaxed mode, this is accepted anyway)",
+                        bb.num_ones()
                     );
                 }
-            }
-            for color in ChessColor::iter() {
-                let num_pawns = this.col_piece_bb(color, Pawn).num_ones() as isize;
-                if strictness == Strict && num_promoted_pawns[color] + num_pawns > 8 {
-                    bail!("Incorrect piece distribution for {color} (in relaxed mode, this is allowed)")
+                if checks != CheckFen {
+                    for other_piece in ColoredChessPieceType::pieces() {
+                        if other_piece as usize >= ColoredChessPieceType::new(color, piece) as usize {
+                            break;
+                        }
+                        let mut overlap = bb & this.col_piece_bb(other_piece.color().unwrap(), other_piece.uncolor());
+                        ensure!(
+                            overlap.is_zero(),
+                            "There are two pieces on the same square ({0}): A {other_piece} and a {piece}",
+                            overlap.next().unwrap()
+                        );
+                    }
                 }
             }
+            let num_pawns = this.col_piece_bb(color, Pawn).num_ones() as isize;
+            if strictness == Strict && num_promoted_pawns[color] + num_pawns > 8 {
+                bail!("Incorrect piece distribution for {color} (in relaxed mode, this is allowed)")
+            }
         }
+
+        let inactive_player = this.active.other();
+        let generator = this.slider_generator();
+        if this.is_in_check_on_square(inactive_player, this.king_sq(inactive_player), &generator) {
+            bail!("{inactive_player} is in check, but it's not their turn to move");
+        } else if strictness == Strict {
+            let checkers = this.all_attacking(this.king_sq(this.active), &generator) & this.inactive_player_bb();
+            let num_attacking = checkers.num_ones();
+            ensure!(
+                num_attacking <= 2,
+                "{} is in check from {num_attacking} pieces, which is not allowed in strict mode",
+                this.active
+            );
+        }
+        // we allow loading FENs where more than one piece gives check to the king in a way that could not have been reached
+        // from startpos, e.g. "B6b/8/8/8/2K5/5k2/8/b6B b - - 0 1"
         this.hashes = this.compute_zobrist();
 
         this.set_checkers_and_pinned();

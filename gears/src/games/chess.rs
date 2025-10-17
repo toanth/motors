@@ -520,15 +520,14 @@ impl Board for Chessboard {
         self.gen_pseudolegal_moves(moves, self.player_bb(self.active.other()), true)
     }
 
-    // This function isn't called from search, but it's still important for e.g. tablebase generation performance
     fn has_no_legal_moves(&self) -> bool {
         let us = self.active;
-        let king = self.king_square(us);
+        let king = self.king_sq(us);
         if !self.is_in_check()
             && (KINGS[king].intersects(!(self.player_bb(us) | self.threats))
                 || (self.col_piece_bb(us, Pawn) & !self.pinned[us]).pawn_advance(us).intersects(!self.occupied_bb()))
         {
-            // There's a square we can move our king to, or we're not in check and can push a non-pinned pawn.
+            // Happy path: There's a square we can move our king to, or we're not in check and can push a non-pinned pawn.
             // So we have at least one legal move and can avoid doing movegen.
             // In most positions where we're not in check, one of these conditions should be true
             false
@@ -678,7 +677,7 @@ impl Board for Chessboard {
         opts: OutputOpts,
     ) -> Box<dyn BoardFormatter<Self>> {
         let pos = *self;
-        let king_square = self.king_square(self.active);
+        let king_square = self.king_sq(self.active);
         let color_frame =
             Box::new(move |square, col| if pos.is_in_check() && square == king_square { Some(Red) } else { col });
         Box::new(AdaptFormatter {
@@ -725,7 +724,7 @@ impl BitboardBoard for Chessboard {
     }
 
     fn player_bb(&self, color: Self::Color) -> Self::Bitboard {
-        self.color_bbs[color as usize]
+        self.color_bbs[color]
     }
 
     fn empty_bb(&self) -> Self::Bitboard {
@@ -849,7 +848,7 @@ impl Chessboard {
         self.ep_square
     }
 
-    pub fn king_square(&self, color: ChessColor) -> ChessSquare {
+    pub fn king_sq(&self, color: ChessColor) -> ChessSquare {
         ChessSquare::from_bb_idx(self.col_piece_bb(color, King).num_trailing_zeros())
     }
 
@@ -1126,8 +1125,8 @@ mod tests {
         assert_eq!(board.player_bb(White), ChessBitboard::from_raw(0xffff));
         assert_eq!(board.player_bb(Black), ChessBitboard::from_raw(0xffff_0000_0000_0000));
         assert_eq!(board.occupied_bb(), ChessBitboard::from_raw(0xffff_0000_0000_ffff));
-        assert_eq!(board.king_square(White), E_1);
-        assert_eq!(board.king_square(Black), E_8);
+        assert_eq!(board.king_sq(White), E_1);
+        assert_eq!(board.king_sq(Black), E_8);
         let square = ChessSquare::from_rank_file(4, F_FILE_NUM);
         assert_eq!(board.colored_piece_on(square), ChessPiece::new(ColoredChessPieceType::Empty, square));
         assert_eq!(board.as_fen(), START_FEN);
@@ -1277,7 +1276,7 @@ mod tests {
         let board = Chessboard::from_fen("4k3/8/4K3/8/8/8/8/6R1 w - - 0 1", Strict).unwrap();
         let moves = board.pseudolegal_moves();
         for mov in moves {
-            if mov.src_square() == board.king_square(White) {
+            if mov.src_square() == board.king_sq(White) {
                 assert_eq!(board.is_pseudolegal_move_legal(mov), mov.dest_square().row() != 6);
             } else {
                 assert!(board.is_pseudolegal_move_legal(mov));
@@ -1394,7 +1393,7 @@ mod tests {
         assert_eq!(pos.ply, 4);
         assert!(pos.debug_verify_invariants(Strict).is_ok());
         assert!(pos.is_in_check());
-        assert!(pos.is_in_check_on_square(White, pos.king_square(White), &pos.slider_generator()));
+        assert!(pos.is_in_check_on_square(White, pos.king_sq(White), &pos.slider_generator()));
         let moves = pos.pseudolegal_moves();
         assert!(moves.is_empty()); // we don't even generate moves anymore here
         let moves = pos.legal_moves_slow();
@@ -1498,7 +1497,7 @@ mod tests {
             let num_moves = board.pseudolegal_moves().len();
             assert!((18..=21).contains(&num_moves)); // 21 legal moves because castling can be legal
             assert_eq!(board.castling.allowed_castling_directions(), 0b1111);
-            assert_eq!(board.king_square(White).flip_up_down(board.size()), board.king_square(Black));
+            assert_eq!(board.king_sq(White).flip_up_down(board.size()), board.king_sq(Black));
             assert_eq!(board.piece_bb(Pawn).num_ones(), 16);
             assert_eq!(board.piece_bb(Knight).num_ones(), 4);
             assert_eq!(board.piece_bb(Bishop).num_ones(), 4);

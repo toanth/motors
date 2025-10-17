@@ -95,7 +95,7 @@ const DEFAULT_MOVE_OVERHEAD_MS: u64 = 50;
 const MIN_CONTEMPT: i64 = -1000;
 const MAX_CONTEMPT: i64 = 1000;
 
-// TODO: Ensure this conforms to <https://expositor.dev/uci/doc/uci-draft-1.pdf>
+// TODO: Ensure this conforms to <https://expositor.dev/uci/doc/draft-1.pdf>
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 #[must_use]

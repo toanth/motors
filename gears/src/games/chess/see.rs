@@ -58,8 +58,8 @@ impl Chessboard {
         let size = ChessboardSize {};
         let generator = self.slider_generator();
         let king_rays = [
-            ChessBitboard::ray_exclusive(square, self.king_square(White), size),
-            ChessBitboard::ray_exclusive(square, self.king_square(Black), size),
+            ChessBitboard::ray_exclusive(square, self.king_sq(White), size),
+            ChessBitboard::ray_exclusive(square, self.king_sq(Black), size),
         ];
         let mut remaining_attackers = self.all_attacking(square, &generator);
         // don't consider pinned pieces unless they're moving along the pin ray. Idea from pawnocchio.

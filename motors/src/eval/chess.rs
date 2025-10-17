@@ -151,14 +151,14 @@ mod tests {
     fn pawn_shield_startpos_test() {
         let pos = Chessboard::default();
         let pawns = pos.piece_bb(Pawn);
-        let white = pawn_shield_idx(pawns, pos.king_square(White), White);
-        let black = pawn_shield_idx(pawns, pos.king_square(Black), Black);
+        let white = pawn_shield_idx(pawns, pos.king_sq(White), White);
+        let black = pawn_shield_idx(pawns, pos.king_sq(Black), Black);
         assert_eq!(white, black);
         assert_eq!(white, 0b111);
-        assert_eq!(pawn_shield_idx(pawns, pos.king_square(White), Black), 0);
-        assert_eq!(pawn_shield_idx(pawns, pos.king_square(Black), White), 0);
-        let a = pawn_shield_idx(pos.empty_bb(), pos.king_square(White), White);
-        let b = pawn_shield_idx(pos.empty_bb(), pos.king_square(Black), Black);
+        assert_eq!(pawn_shield_idx(pawns, pos.king_sq(White), Black), 0);
+        assert_eq!(pawn_shield_idx(pawns, pos.king_sq(Black), White), 0);
+        let a = pawn_shield_idx(pos.empty_bb(), pos.king_sq(White), White);
+        let b = pawn_shield_idx(pos.empty_bb(), pos.king_sq(Black), Black);
         assert_eq!(a, b);
         assert_eq!(a, 0b111_000);
         for file in 0..8 {
@@ -178,8 +178,8 @@ mod tests {
     #[test]
     fn pawn_shield_kiwipete_test() {
         let pos = Chessboard::from_name("kiwipete").unwrap();
-        let white = pawn_shield_idx(pos.piece_bb(Pawn), pos.king_square(White), White);
-        let black = pawn_shield_idx(pos.piece_bb(Pawn), pos.king_square(Black), Black);
+        let white = pawn_shield_idx(pos.piece_bb(Pawn), pos.king_sq(White), White);
+        let black = pawn_shield_idx(pos.piece_bb(Pawn), pos.king_sq(Black), Black);
         assert_eq!(white, 0b100);
         assert_eq!(black, 0b010_101);
     }

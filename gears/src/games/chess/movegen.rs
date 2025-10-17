@@ -155,7 +155,7 @@ impl Chessboard {
         let mut check_ray = !ChessBitboard::default();
         if self.checkers.has_any() {
             let checker = ChessSquare::from_bb_idx(self.checkers().pop_lsb());
-            check_ray = ChessBitboard::ray_inclusive(self.king_square(self.active), checker, ChessboardSize::default());
+            check_ray = ChessBitboard::ray_inclusive(self.king_sq(self.active), checker, ChessboardSize::default());
             filter &= check_ray;
         }
         self.gen_slider_moves::<T, { Bishop as usize }>(moves, filter, &slider_generator);
@@ -231,7 +231,7 @@ impl Chessboard {
 
     fn is_castling_pseudolegal(&self, side: CastleRight) -> bool {
         let color = self.active;
-        let king_square = self.king_square(color);
+        let king_square = self.king_sq(color);
         let king = self.col_piece_bb(color, King);
         // Castling, handling the general (D)FRC case.
         let king_file = king_square.file() as usize;
@@ -300,7 +300,7 @@ impl Chessboard {
     fn gen_king_moves<T: MoveList<Self>>(&self, moves: &mut T, filter: ChessBitboard, only_captures: bool) {
         let filter = filter & !self.threats;
         let us = self.active;
-        let king_square = self.king_square(us);
+        let king_square = self.king_sq(us);
         let mut attacks = Self::normal_king_attacks_from(king_square) & filter;
         while attacks.has_any() {
             let target = attacks.pop_lsb();
@@ -410,7 +410,7 @@ impl Chessboard {
     /// Calculate a bitboard of all squares that are attacked by the given player.
     /// This only counts hypothetical captures, so no pawn pushes or castling moves.
     pub(super) fn calc_threats_of(&self, player: ChessColor, slider_gen: &ChessSliderGenerator) -> ChessBitboard {
-        let mut res = Self::normal_king_attacks_from(self.king_square(player));
+        let mut res = Self::normal_king_attacks_from(self.king_sq(player));
         for knight in self.col_piece_bb(player, Knight) {
             res |= Self::knight_attacks_from(knight);
         }
@@ -432,7 +432,7 @@ impl Chessboard {
     pub fn set_checkers_and_pinned(&mut self) {
         let us = self.active_player();
         let their_bb = self.player_bb(!us);
-        let king = self.king_square(us);
+        let king = self.king_sq(us);
         self.checkers = ((Self::knight_attacks_from(king) & self.piece_bb(Knight))
             | Self::single_pawn_captures(us, king) & self.col_piece_bb(!us, Pawn))
             & their_bb;
@@ -440,7 +440,7 @@ impl Chessboard {
         for color in ChessColor::iter() {
             let their_bb = self.player_bb(!color);
             let our_bb = self.player_bb(color);
-            let king = self.king_square(color);
+            let king = self.king_sq(color);
             let slider_gen = ChessSliderGenerator::new(their_bb);
             let rook_sliders = (self.piece_bb(Rook) | self.piece_bb(Queen)) & their_bb;
             let bishop_sliders = (self.piece_bb(Bishop) | self.piece_bb(Queen)) & their_bb;
@@ -486,7 +486,7 @@ impl Chessboard {
             ((rook_sliders & slider_gen.rook_attacks(dest)) | (bishop_sliders & slider_gen.bishop_attacks(dest)))
                 .is_zero()
         } else {
-            let king_sq = self.king_square(self.active);
+            let king_sq = self.king_sq(self.active);
             debug_assert!(!self.checkers().more_than_one_bit_set());
             if mov.is_ep() {
                 let mut b = *self;

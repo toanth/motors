@@ -128,9 +128,9 @@ impl Chessboard {
         let pawn = self.piece_bb(Pawn).to_square()?;
         let flip = self.col_piece_bb(White, Pawn).is_zero();
         let (w_p, w_k, b_k) = if flip {
-            (pawn.flip(), self.king_square(Black).flip(), self.king_square(White).flip())
+            (pawn.flip(), self.king_sq(Black).flip(), self.king_sq(White).flip())
         } else {
-            (pawn, self.king_square(White), self.king_square(Black))
+            (pawn, self.king_sq(White), self.king_sq(Black))
         };
         Some(query_pawn_v_king(table, w_p, w_k, b_k, flip != (self.active == Black)))
     }

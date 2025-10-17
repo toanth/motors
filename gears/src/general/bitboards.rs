@@ -197,6 +197,11 @@ pub trait RawBitboard:
         shift
     }
 
+    #[inline]
+    fn lsb(self) -> Self {
+        self & Self::zero().wrapping_sub(&self)
+    }
+
     #[must_use]
     #[inline]
     fn single_piece_at(idx: usize) -> Self {
