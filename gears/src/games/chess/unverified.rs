@@ -148,20 +148,18 @@ impl UnverifiedBoard<Chessboard> for UnverifiedChessboard {
         let generator = this.slider_generator();
         if this.is_in_check_on_square(inactive_player, this.king_sq(inactive_player), &generator) {
             bail!("{inactive_player} is in check, but it's not their turn to move");
-        } else if strictness == Strict {
-            let checkers = this.all_attacking(this.king_sq(this.active), &generator) & this.inactive_player_bb();
-            let num_attacking = checkers.num_ones();
-            ensure!(
-                num_attacking <= 2,
-                "{} is in check from {num_attacking} pieces, which is not allowed in strict mode",
-                this.active
-            );
         }
-        // we allow loading FENs where more than one piece gives check to the king in a way that could not have been reached
-        // from startpos, e.g. "B6b/8/8/8/2K5/5k2/8/b6B b - - 0 1"
-
         this.set_checkers_and_pinned();
         this.threats = this.calc_threats_of(this.inactive_player(), &this.slider_generator());
+        // in relaxed mode, we allow loading FENs where more than one piece gives check to the king in a way that
+        // could not have been reached from startpos, e.g. "B6b/8/8/8/2K5/5k2/8/b6B b - - 0 1"
+        if strictness == Strict && this.checkers.num_ones() > 2 {
+            bail!(
+                "{0} is in check from {1} pieces, which is not allowed in strict mode",
+                this.active,
+                this.checkers.num_ones()
+            );
+        }
         // We check the ep square close to last because this can require doing movegen, which needs most invariants to hold.
         this.check_ep(strictness, checks)?;
         this.hashes = this.compute_zobrist(); // depends on check_ep()

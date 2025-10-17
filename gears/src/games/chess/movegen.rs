@@ -434,34 +434,42 @@ impl Chessboard {
     pub fn set_checkers_and_pinned(&mut self) {
         let us = self.active_player();
         let their_bb = self.player_bb(!us);
+        let our_bb = self.player_bb(us);
+        let slider_gen = ChessSliderGenerator::new(their_bb);
+        let rook_sliders = self.piece_bb(Rook) | self.piece_bb(Queen);
+        let bishop_sliders = self.piece_bb(Bishop) | self.piece_bb(Queen);
         let king = self.king_sq(us);
         self.checkers = ((Self::knight_attacks_from(king) & self.piece_bb(Knight))
             | Self::single_pawn_captures(us, king) & self.col_piece_bb(!us, Pawn))
             & their_bb;
         self.pinned = ChessBitboard::default();
-        for color in ChessColor::iter() {
-            let their_bb = self.player_bb(!color);
-            let our_bb = self.player_bb(color);
-            let king = self.king_sq(color);
-            let slider_gen = ChessSliderGenerator::new(their_bb);
-            let rook_sliders = (self.piece_bb(Rook) | self.piece_bb(Queen)) & their_bb;
-            let bishop_sliders = (self.piece_bb(Bishop) | self.piece_bb(Queen)) & their_bb;
-
-            let mut update = |slider: ChessSquare| {
-                let on_ray = ChessBitboard::ray_exclusive(slider, king, ChessboardSize::default()) & our_bb;
-                if on_ray.is_zero() {
-                    self.checkers |= slider.bb();
-                } else if on_ray.is_single_piece() {
-                    self.pinned |= on_ray;
-                }
-            };
-
-            for slider in rook_sliders & slider_gen.rook_attacks(king) {
-                update(slider);
+        let mut update = |slider: ChessSquare| {
+            let on_ray = ChessBitboard::ray_exclusive(slider, king, ChessboardSize::default()) & our_bb;
+            if on_ray.is_zero() {
+                self.checkers |= slider.bb();
+            } else if on_ray.is_single_piece() {
+                self.pinned |= on_ray;
             }
-            for slider in bishop_sliders & slider_gen.bishop_attacks(king) {
-                update(slider);
+        };
+        for slider in rook_sliders & their_bb & slider_gen.rook_attacks(king) {
+            update(slider);
+        }
+        for slider in bishop_sliders & their_bb & slider_gen.bishop_attacks(king) {
+            update(slider);
+        }
+        let slider_gen = ChessSliderGenerator::new(our_bb);
+        let king = self.king_sq(!us);
+        let mut update_our_pinned = |slider: ChessSquare| {
+            let on_ray = ChessBitboard::ray_exclusive(slider, king, ChessboardSize::default()) & their_bb;
+            if on_ray.is_single_piece() {
+                self.pinned |= on_ray;
             }
+        };
+        for slider in rook_sliders & our_bb & slider_gen.rook_attacks(king) {
+            update_our_pinned(slider);
+        }
+        for slider in bishop_sliders & our_bb & slider_gen.bishop_attacks(king) {
+            update_our_pinned(slider);
         }
     }
 
