@@ -148,6 +148,7 @@ pub(super) fn query_pawn_v_king(
         w_k = w_k.flip_left_right(ChessboardSize::default());
         b_k = b_k.flip_left_right(ChessboardSize::default());
     }
+    debug_assert!(!w_p.is_backrank());
     let i = idx_compact(w_p, w_k);
     if is_black {
         let res = table[Black][i].has(b_k);

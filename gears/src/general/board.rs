@@ -402,9 +402,7 @@ pub trait Board:
     }
 
     /// Returns the piece at the given coordinates.
-    /// `uncolored_piece_on` can sometimes be implemented more efficiently, e.g. for chess,
-    /// but both methods can be relatively slow. For example, a chess move already stores the moving piece;
-    /// getting it from the chess move is more efficient than getting it from the board.
+    /// [`Self::piece_type_on`] can sometimes be implemented more efficiently, e.g. for chess.
     fn colored_piece_on(&self, coords: Self::Coordinates) -> Self::Piece;
 
     /// Returns the uncolored piece type at the given coordinates.
@@ -428,7 +426,7 @@ pub trait Board:
 
     /// Most games (e.g., chess) don't need any special checks for game-over conditions in perft, but some should explicitly test
     /// if the game is over (e.g. mnk) because movegen wouldn't do this automatically otherwise.
-    /// If this function returns `true`, `player_result_no_movegen` must return a `Some`.
+    /// If this function returns `true`, [`Self::player_result_no_movegen`] must return a `Some`.
     fn cannot_call_movegen(&self) -> bool {
         false
     }
@@ -711,7 +709,7 @@ pub trait BoardHelpers: Board {
 
     /// Returns an iterator over all the positions after making a legal move.
     /// Not very useful for search because it doesn't allow changing the order of generated positions and isn't quite as fast as
-    /// a manual loop, but convenient for some use cases like [`perft`](crate::general::perft::perft).
+    /// a manual loop, but convenient for some use cases, for example [`perft`](crate::general::perft::perft).
     /// Like [`Self::legal_moves_slow`], this handles forced passing moves.
     fn children(&self) -> impl Iterator<Item = Self> + Send {
         let iter = self.pseudolegal_moves().into_iter();
