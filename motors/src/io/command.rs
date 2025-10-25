@@ -217,7 +217,7 @@ pub fn ugi_commands() -> CommandList {
             Ok(())
         }),
         command!(
-            setoption | so,
+            setoption | so | set,
             All,
             "Sets an engine option",
             |ugi, words, _| ugi.handle_setoption(words),
@@ -398,7 +398,7 @@ pub fn ugi_commands() -> CommandList {
             --> |state| state.coords_subcmds(false, true)
         ),
         command!(
-            move_piece,
+            move_piece | mp,
             Custom,
             "Moves the piece on the first given square to the second given square, e.g. 'move a1 a2'",
             |ugi, words, _| ugi.handle_move_piece(words),

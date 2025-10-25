@@ -25,7 +25,7 @@ use crate::games::{Coordinates, NUM_COLORS};
 use crate::general::bitboards::chessboard::{ChessBitboard, KINGS};
 use crate::general::bitboards::{Bitboard, RawBitboard};
 use crate::general::board::BitboardBoard;
-use crate::general::squares::{RectangularCoordinates, sup_distance};
+use crate::general::squares::RectangularCoordinates;
 use std::sync::LazyLock;
 
 const NUM_COMPLETE_BITBOARDS: usize = NUM_SQUARES * NUM_SQUARES / 2;
@@ -57,8 +57,7 @@ fn calc_pawn_vs_king_impl() -> FullBitbase {
     for w_pawn in 64 - 8..64 - 4 {
         let w_pawn = ChessSquare::from_bb_idx(w_pawn);
         for w_king in ChessSquare::iter() {
-            let our_king_dist = sup_distance(w_pawn, w_king);
-            let promo_safe = if our_king_dist == 1 { !ChessBitboard::default() } else { !KINGS[w_pawn] };
+            let promo_safe = if KINGS[w_pawn].has(w_king) { !ChessBitboard::default() } else { !KINGS[w_pawn] };
             res[Black][idx_full(w_pawn, w_king)] = promo_safe & !KINGS[w_king] & !w_king.bb() & !w_pawn.bb();
         }
     }
@@ -120,7 +119,6 @@ pub fn calc_pawn_vs_king() -> CompactBitbase {
 pub static PAWN_V_KING_TABLE: LazyLock<CompactBitbase> = LazyLock::new(calc_pawn_vs_king);
 
 impl Chessboard {
-    #[inline]
     pub fn query_bitbase(&self, table: &CompactBitbase) -> Option<PlayerResult> {
         if self.occupied_bb().num_ones() != 3 {
             return None;

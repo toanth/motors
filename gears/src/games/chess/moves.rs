@@ -1,4 +1,5 @@
 use anyhow::{anyhow, bail};
+use std::backtrace::Backtrace;
 use std::fmt;
 use std::fmt::{Debug, Formatter};
 use std::str::FromStr;
@@ -270,7 +271,13 @@ impl Move<Chessboard> for ChessMove {
         all_legals: Option<&[ChessMove]>,
     ) -> fmt::Result {
         let add_check_mate_suffix = |f: &mut Formatter| {
-            let board = board.make_move(self).unwrap();
+            let Some(board) = board.make_move(self) else {
+                panic!(
+                    "Internal error, tried to play '{0}' in '{board}':'n{1}",
+                    self.compact_formatter(board),
+                    Backtrace::force_capture()
+                );
+            };
             if board.is_checkmate_slow() {
                 write!(f, "#")?;
             } else if board.is_in_check() {
