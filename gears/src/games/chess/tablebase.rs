@@ -26,15 +26,21 @@ use crate::games::chess::{ChessBitboardTrait, ChessColor, Chessboard, EDGE_SQUAR
 use crate::games::{Color, ColoredPieceType, DimT, NUM_COLORS, PieceType};
 use crate::general::bitboards::chessboard::{ChessBitboard, KINGS, KNIGHTS};
 use crate::general::bitboards::{Bitboard, KnownSizeBitboard, RawBitboard};
-use crate::general::board::Strictness::Relaxed;
+use crate::general::board::Strictness::Strict;
 use crate::general::board::{BitboardBoard, Board, UnverifiedBoard};
 use crate::general::hq::ChessSliderGenerator;
 use crate::general::squares::{RectangularCoordinates, SmallGridSquare};
 use arrayvec::ArrayVec;
+use rayon::iter::IntoParallelIterator;
+use rayon::iter::ParallelIterator;
 use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::sync::LazyLock;
+use std::sync::atomic::AtomicI8;
+use std::sync::atomic::Ordering::Relaxed;
 use std::time::Instant;
+
+type Entry = AtomicI8;
 
 // generate up to 6 man tablebases
 const MAX_TB_MAN: usize = 6;
@@ -78,7 +84,6 @@ fn attacks_for(wx_piece: ChessPieceType, w_x: ChessSquare, blockers: ChessBitboa
             let push = bb.pawn_advance(us) & !blockers;
             let d_push = (push & ChessBitboard::pawn_ranks().pawn_advance(us)).pawn_advance(us) & !blockers;
             push | d_push | (bb.pawn_attacks(us) & blockers)
-            // TODO: En passant
         }
         Knight => KNIGHTS[w_x],
         Bishop => ChessSliderGenerator::new(blockers).bishop_attacks(w_x),
@@ -128,8 +133,8 @@ fn piece_type_idx(pieces: &[ChessPieceType]) -> usize {
     debug_assert!(pieces.is_sorted());
     for &p in pieces {
         debug_assert!(p < King);
-        res *= 5; // PAWN, KNIGHT, BISHOP, ROOK, QUEEN
-        res += p as usize;
+        res *= 6; // PAWN, KNIGHT, BISHOP, ROOK, QUEEN
+        res += p as usize + 1;
     }
     res
 }
@@ -140,8 +145,7 @@ struct PosIdx<const N_W: usize, const N_B: usize, const PAWN: bool> {
     b_king: ChessSquare,
     w_nk: [ChessSquare; N_W],
     b_nk: [ChessSquare; N_B],
-    w_pawns: usize,
-    b_pawns: usize,
+    pawns: [usize; NUM_COLORS],
     active: ChessColor,
 }
 
@@ -182,7 +186,7 @@ impl<const N_W: usize, const N_B: usize, const PAWN: bool> PosIdx<N_W, N_B, PAWN
         w_pawns: usize,
         b_pawns: usize,
     ) -> Self {
-        let res = Self { wk_idx: 0, b_king: bk, w_nk, b_nk, active, w_pawns, b_pawns };
+        let res = Self { wk_idx: 0, b_king: bk, w_nk, b_nk, active, pawns: [w_pawns, b_pawns] };
         res.normalize(wk)
     }
 
@@ -220,12 +224,14 @@ impl<const N_W: usize, const N_B: usize, const PAWN: bool> PosIdx<N_W, N_B, PAWN
         debug_assert!(self.wk_idx < Self::num_wk_squares());
         let mut res = 0;
         // hopefully, the compiler can unroll the following loops if PAWN is false.
-        let w_pawns = if Self::has_pawn() { self.w_pawns } else { 0 };
-        let b_pawns = if Self::has_pawn() { self.b_pawns } else { 0 };
-        const PAWN_RANKS: usize = 8; // TODO: Set to 6
+        let w_pawns = if Self::has_pawn() { self.pawns[White] } else { 0 };
+        let b_pawns = if Self::has_pawn() { self.pawns[Black] } else { 0 };
+        // TODO: in the final compressed table, we can use 6 here, but for generating tables it's a lot more convenient to
+        // have base case entries with a pawn on the opponent's back rank
+        const PAWN_RANKS: usize = 8;
         const NUM_FILES: usize = 8;
         for wp in &self.w_nk[..w_pawns] {
-            res *= PAWN_RANKS; // TODO: 8 instead of 8 because pawns can't be on the backrank
+            res *= PAWN_RANKS;
             res += PAWN_RANKS - 1 - wp.rank() as usize;
         }
         for bp in &self.b_nk[..b_pawns] {
@@ -251,7 +257,7 @@ impl<const N_W: usize, const N_B: usize, const PAWN: bool> PosIdx<N_W, N_B, PAWN
             res *= 64;
             res += b_x.bb_idx();
         }
-        debug_assert_eq!(*self, Self::from_usize(res, w_pawns, b_pawns), "{res} {w_pawns} {b_pawns}");
+        debug_assert_eq!(*self, Self::from_usize(res, [w_pawns, b_pawns]), "{res} {w_pawns} {b_pawns}");
         res
     }
 
@@ -300,12 +306,12 @@ impl<const N_W: usize, const N_B: usize, const PAWN: bool> PosIdx<N_W, N_B, PAWN
 
     // TODO: If there are multiple pieces of the same type and color, this assigns different numbers based on which piece is where,
     // instead of treating them as indistinguishable
-    fn from_usize(mut idx: usize, w_pawns: usize, b_pawns: usize) -> Self {
+    fn from_usize(mut idx: usize, pawns: [usize; NUM_COLORS]) -> Self {
         assert!(N_W >= N_B);
-        debug_assert_ne!(w_pawns == 0 && b_pawns == 0, Self::has_pawn());
+        debug_assert_ne!(pawns[White] == 0 && pawns[Black] == 0, Self::has_pawn());
         // hopefully, this allows the compiler to optimize better
-        let w_pawns = if Self::has_pawn() { w_pawns } else { 0 };
-        let b_pawns = if Self::has_pawn() { b_pawns } else { 0 };
+        let w_pawns = if Self::has_pawn() { pawns[White] } else { 0 };
+        let b_pawns = if Self::has_pawn() { pawns[Black] } else { 0 };
         let mut res = Self::default();
         for b_x in res.b_nk[b_pawns..].iter_mut().rev() {
             *b_x = ChessSquare::from_bb_idx(idx % 64);
@@ -326,7 +332,7 @@ impl<const N_W: usize, const N_B: usize, const PAWN: bool> PosIdx<N_W, N_B, PAWN
             // This is because the results for positions after pawn pushes need to be known for computing the current position.
             // We have to iterate over pawn ranks instead of over pawn squares because normalizing the position
             // can mirror the board horizontally, which changes pawn squares but not pawn ranks.
-            const PAWN_ROWS: usize = 8; // TODO: Eventually, can set this to 6
+            const PAWN_ROWS: usize = 8; // TODO: Eventually, can set this to 7
             const NUM_FILES: usize = 8;
             for b_x in res.b_nk[..b_pawns].iter_mut().rev() {
                 *b_x = ChessSquare::from_bb_idx(idx % NUM_FILES);
@@ -347,8 +353,7 @@ impl<const N_W: usize, const N_B: usize, const PAWN: bool> PosIdx<N_W, N_B, PAWN
                 idx /= PAWN_ROWS;
             }
         }
-        res.w_pawns = w_pawns;
-        res.b_pawns = b_pawns;
+        res.pawns = [w_pawns, b_pawns];
         res
     }
 
@@ -356,20 +361,27 @@ impl<const N_W: usize, const N_B: usize, const PAWN: bool> PosIdx<N_W, N_B, PAWN
         (1_usize << (6 * (N_W + N_B + 1) + 1)) * Self::num_wk_squares()
     }
 
-    fn outer_stepsize(w_pawns: usize, b_pawns: usize) -> usize {
-        if PAWN { Self::size() / (1 << 3 * (w_pawns + b_pawns)) } else { Self::size() }
+    fn outer_stepsize(pawns: [usize; NUM_COLORS]) -> usize {
+        if PAWN { Self::size() / (1 << 3 * (pawns[White] + pawns[Black])) } else { Self::size() }
     }
 
-    fn outer_iter(w_pawns: usize, b_pawns: usize) -> impl Iterator<Item = impl Iterator<Item = (usize, Self)> + Clone> {
+    fn outer_iter(
+        pawns: [usize; NUM_COLORS],
+    ) -> impl Iterator<
+        Item = (
+            impl ParallelIterator<Item = (usize, Self)> + Clone,
+            impl ParallelIterator<Item = (usize, Self)> + Clone,
+        ),
+    > {
         let max = Self::size();
-        let step = Self::outer_stepsize(w_pawns, b_pawns);
-        (0..max).step_by(step).map(move |i| Self::inner_iter(i, w_pawns, b_pawns))
-        // (0..max).map(move |i| (i, Self::from_usize(i, w_pawns, b_pawns)))
+        let step = Self::outer_stepsize(pawns);
+        let inner_step = step / NUM_COLORS;
+        (0..max).step_by(step).map(move |i| (Self::inner_iter(i, pawns), Self::inner_iter(i + inner_step, pawns)))
     }
 
-    fn inner_iter(n: usize, w_pawns: usize, b_pawns: usize) -> impl Iterator<Item = (usize, Self)> + Clone {
-        let step = Self::outer_stepsize(w_pawns, b_pawns);
-        (n..n + step).map(move |i| (i, Self::from_usize(i, w_pawns, b_pawns)))
+    fn inner_iter(n: usize, pawns: [usize; NUM_COLORS]) -> impl ParallelIterator<Item = (usize, Self)> + Clone {
+        let step = Self::outer_stepsize(pawns) / NUM_COLORS;
+        (n..n + step).into_par_iter().map(move |i| (i, Self::from_usize(i, pawns)))
     }
 }
 
@@ -381,14 +393,13 @@ impl<const N_W: usize, const N_B: usize, const PAWNS: bool> Default for PosIdx<N
             w_nk: [ChessSquare::default(); N_W],
             b_nk: [ChessSquare::default(); N_B],
             active: ChessColor::default(),
-            w_pawns: 0,
-            b_pawns: 0,
+            pawns: [0, 0],
         }
     }
 }
 
 fn set_base_case(pos: UnverifiedChessboard, captured_or_promo: ChessBitboard) -> i8 {
-    let Ok(pos) = pos.verify(Relaxed) else {
+    let Ok(pos) = pos.verify(Strict) else {
         return INVALID;
     };
     if captured_or_promo.has_any() {
@@ -412,9 +423,10 @@ fn set_base_case(pos: UnverifiedChessboard, captured_or_promo: ChessBitboard) ->
 fn base_case_iter<const N_W: usize, const N_B: usize, const PAWNS: bool>(
     p: PosIdx<N_W, N_B, PAWNS>,
     nk_pieces: [&[ChessPieceType]; NUM_COLORS],
+    active: ChessColor,
 ) -> i8 {
+    assert_eq!(active, p.active);
     let kings = [p.w_king(), p.b_king];
-    let active = p.active;
     let bbs = p.player_bbs();
     let captured: ChessBitboard = bbs[active] & bbs[!active];
     if bbs[White].num_ones() != N_W + 1
@@ -465,138 +477,159 @@ fn base_case_iter<const N_W: usize, const N_B: usize, const PAWNS: bool>(
 // The captured piece can only belong to the active player, as it must have gotten captured in the previous move.
 fn base_case<const N_W: usize, const N_B: usize, const PAWNS: bool>(
     nk_pieces: [&[ChessPieceType]; NUM_COLORS],
-    res: &mut [i8],
-    w_pawns: usize,
-    b_pawns: usize,
+    table: &[Entry],
+    pawns: [usize; NUM_COLORS],
 ) {
-    for iter in PosIdx::<N_W, N_B, PAWNS>::outer_iter(w_pawns, b_pawns) {
-        for (i, p) in iter {
-            res[i] = base_case_iter(p, nk_pieces);
+    for (w_iter, b_iter) in PosIdx::<N_W, N_B, PAWNS>::outer_iter(pawns) {
+        w_iter.for_each(|(i, p)| table[i].store(base_case_iter(p, nk_pieces, White), Relaxed));
+        b_iter.for_each(|(i, p)| table[i].store(base_case_iter(p, nk_pieces, Black), Relaxed));
+    }
+}
+
+fn value_after<const N_W: usize, const N_B: usize, const PAWN: bool>(
+    p: PosIdx<N_W, N_B, PAWN>,
+    piece_i: usize,
+    dest: ChessSquare,
+    table: &[Entry],
+    pawns: [usize; NUM_COLORS],
+    nk_pieces: [&[ChessPieceType]; NUM_COLORS],
+) -> i8 {
+    let mut new_p = PosIdx { active: !p.active, ..p };
+    if p.active == White {
+        new_p.w_nk[piece_i] = dest;
+    } else {
+        new_p.b_nk[piece_i] = dest;
+    };
+    let idx = new_p.idx();
+    debug_assert_eq!(PosIdx::<N_W, N_B, PAWN>::from_usize(idx, pawns), new_p);
+    if nk_pieces[p.active][piece_i] == Pawn {
+        match table[idx].load(Relaxed).cmp(&DRAW) {
+            Ordering::Less => MATED,
+            Ordering::Equal => DRAW,
+            Ordering::Greater => -MATED,
+        }
+    } else {
+        table[idx].load(Relaxed)
+    }
+}
+
+fn step<const N_W: usize, const N_B: usize, const PAWN: bool>(
+    (p_i, p): (usize, PosIdx<N_W, N_B, PAWN>),
+    nk_pieces: [&[ChessPieceType]; NUM_COLORS],
+    table: &[Entry],
+    pawns: [usize; NUM_COLORS],
+    active: ChessColor,
+    iteration: isize,
+) -> bool {
+    assert!(p_i < PosIdx::<N_W, N_B, PAWN>::size());
+    assert_eq!(active, p.active);
+    // if there are two pieces on the same square, the position has been handled in a base case
+    let mut sides = [p.w_king().bb(), p.b_king.bb()];
+    for w_x in p.w_nk {
+        sides[White] |= w_x.bb();
+    }
+    for b_x in p.b_nk {
+        sides[Black] |= b_x.bb();
+    }
+    let blockers = sides[White] | sides[Black];
+    if blockers.num_ones() != N_W + N_B + 2 {
+        return false;
+    }
+    // because we're writing positions with monotonically increasing DTZ, any result we've written
+    // will never change again
+    if table[p_i].load(Relaxed) != DRAW {
+        return false;
+    }
+    let pieces: [&[ChessSquare]; 2] = [&p.w_nk, &p.b_nk];
+    let kings = [p.w_king(), p.b_king];
+    let promo = (0..pawns[!active]).any(|i| pieces[!active][i].is_backrank());
+    if promo {
+        return false;
+    }
+
+    let mut r = INVALID;
+    // no need to test for legality: If the move results in an illegal position, the resulting entry is INVALID and
+    // will not influence the minimum. Therefore, we don't even need to construct a `Chessboard`,
+    // we can simply use the attacks of the individual pieces
+
+    for (i, &x_piece) in pieces[active].iter().enumerate() {
+        let attacks = attacks_for(nk_pieces[active][i], x_piece, blockers, p.active) & !sides[active];
+        for x_dest in attacks {
+            let mut res = value_after(p, i, x_dest, table, pawns, nk_pieces);
+            // handle ep, no need to test for legality.
+            // fortunately, positions with an ep capture can't be base case positions
+            if nk_pieces[active][i] == Pawn && x_dest.rank().abs_diff(x_piece.rank()) == 2 {
+                let mut pawn_bb = ChessBitboard::default();
+                for i in 0..pawns[!active] {
+                    pawn_bb |= pieces[!active][i].bb();
+                }
+                let possible_ep_pawns: ChessBitboard = (x_dest.bb().west() | x_dest.bb().east()) & pawn_bb;
+                for pawn in possible_ep_pawns {
+                    // the position after our opponent captures en passant
+                    let mut new_p = PosIdx { active: !active, ..p };
+                    let mut ps: [&mut [ChessSquare]; 2] = [&mut new_p.w_nk, &mut new_p.b_nk];
+                    let dest = x_piece.pawn_advance_unchecked(active);
+                    ps[active][i] = dest;
+                    let i = ps[!active].iter().position(|p| *p == pawn).unwrap();
+                    let ep_res = value_after(new_p, i, dest, table, pawns, nk_pieces);
+                    // `res` is from the active player's pov instead of the inactive player's
+                    let ep_res = match ep_res.cmp(&DRAW) {
+                        Ordering::Less => -MATED,
+                        Ordering::Equal => DRAW,
+                        Ordering::Greater => MATED,
+                    };
+                    res = res.max(ep_res);
+                }
+            }
+            r = r.min(res);
         }
     }
+    for king_dest in KINGS[kings[active]] {
+        let mut p = PosIdx { active: !active, ..p };
+        let i = if active == White {
+            p.idx_normalized(king_dest)
+        } else {
+            p.b_king = king_dest;
+            p.idx_normalized(p.w_king())
+        };
+        debug_assert_eq!(PosIdx::<N_W, N_B, PAWN>::from_usize(i, pawns).active, !active);
+        r = r.min(table[i].load(Relaxed));
+    }
+    // if all moves lead to an invalid position, the game is a draw by stalemate
+    // (we can't be in check because then we'd already be MATED)
+    if r == INVALID || r == DRAW {
+        return false;
+    }
+    let res = if r < 0 { -r - 1 } else { -r + 1 };
+    table[p_i].store(res, Relaxed);
+    debug_assert!(
+        ((-MATED as isize - iteration * 2)..=(-MATED as isize - (iteration - 2) * 2)).contains(&(res.abs() as isize)),
+        "{iteration} {p_i} {res} {p:?}"
+    );
+    res != DRAW
 }
 
 // Fill out the remaining positions: For each possible position, look at all legal moves and choose the maximum possible result,
 // where the order is INVALID < LOST < DRAW < WON until nothing changes anymore.
 fn fixed_point_iteration<const N_W: usize, const N_B: usize, const PAWN: bool>(
     nk_pieces: [&[ChessPieceType]; NUM_COLORS],
-    table: &mut [i8],
-    w_pawns: usize,
-    b_pawns: usize,
+    table: &[Entry],
+    pawns: [usize; NUM_COLORS],
 ) {
-    assert_ne!(PAWN, w_pawns == 0 && b_pawns == 0);
-    let value_after = |p: PosIdx<N_W, N_B, PAWN>, piece_i: usize, dest: ChessSquare, table: &mut [i8]| {
-        let mut new_p = PosIdx { active: !p.active, ..p };
-        if p.active == White {
-            new_p.w_nk[piece_i] = dest;
-        } else {
-            new_p.b_nk[piece_i] = dest;
-        };
-        let idx = new_p.idx();
-        debug_assert_eq!(PosIdx::<N_W, N_B, PAWN>::from_usize(idx, w_pawns, b_pawns), new_p);
-        if nk_pieces[p.active][piece_i] == Pawn {
-            match table[idx].cmp(&DRAW) {
-                Ordering::Less => MATED,
-                Ordering::Equal => DRAW,
-                Ordering::Greater => -MATED,
-            }
-        } else {
-            table[idx]
-        }
-    };
-    // luckily, positions with an ep capture can't be base case positions
-    for iter in PosIdx::<N_W, N_B, PAWN>::outer_iter(w_pawns, b_pawns) {
+    assert_ne!(PAWN, pawns == [0, 0]);
+
+    for (w_iter, b_iter) in PosIdx::<N_W, N_B, PAWN>::outer_iter(pawns) {
         let mut iteration = 0;
         loop {
             iteration += 1;
-            let mut changed = false;
-            for (p_i, p) in iter.clone() {
-                assert!(p_i < PosIdx::<N_W, N_B, PAWN>::size());
-                // if there are two pieces on the same square, the position has been handled in a base case
-                let mut sides = [p.w_king().bb(), p.b_king.bb()];
-                for w_x in p.w_nk {
-                    sides[White] |= w_x.bb();
-                }
-                for b_x in p.b_nk {
-                    sides[Black] |= b_x.bb();
-                }
-                let blockers = sides[White] | sides[Black];
-                if blockers.num_ones() != N_W + N_B + 2 {
-                    continue;
-                }
-                let active = p.active;
-                // because we're finding mates with monotonically increasing lengths, any result we've written
-                // will never change again
-                if table[p_i] != DRAW {
-                    continue;
-                }
-                let pieces: [&[ChessSquare]; 2] = [&p.w_nk, &p.b_nk];
-                let kings = [p.w_king(), p.b_king];
-                let promo = (0..[w_pawns, b_pawns][!active]).any(|i| pieces[!active][i].is_backrank());
-                if promo {
-                    continue;
-                }
-
-                let mut r = INVALID;
-                // no need to test for legality: If the move results in an illegal position, the resulting entry is INVALID and
-                // will not influence the maximum. Therefore, we don't even need to construct a Chessboard,
-                // we can simply use the attacks of the individual pieces
-
-                for (i, &x_piece) in pieces[active].iter().enumerate() {
-                    let attacks = attacks_for(nk_pieces[active][i], x_piece, blockers, p.active) & !sides[active];
-                    for x_dest in attacks {
-                        let mut res = value_after(p, i, x_dest, table);
-                        // handle ep, no need to test for legality
-                        if nk_pieces[active][i] == Pawn && x_dest.rank().abs_diff(x_piece.rank()) == 2 {
-                            let mut pawn_bb = ChessBitboard::default();
-                            for i in 0..[w_pawns, b_pawns][!active] {
-                                pawn_bb |= pieces[!active][i].bb();
-                            }
-                            let possible_ep_pawns: ChessBitboard = (x_dest.bb().west() | x_dest.bb().east()) & pawn_bb;
-                            for pawn in possible_ep_pawns {
-                                // the position after our opponent captures en passant
-                                let mut new_p = PosIdx { active: !active, ..p };
-                                let mut ps: [&mut [ChessSquare]; 2] = [&mut new_p.w_nk, &mut new_p.b_nk];
-                                let dest = x_piece.pawn_advance_unchecked(active);
-                                ps[active][i] = dest;
-                                let i = ps[!active].iter().position(|p| *p == pawn).unwrap();
-                                let ep_res = value_after(new_p, i, dest, table);
-                                // `res` is from the active player's pov instead of the inactive player's
-                                let ep_res = match ep_res.cmp(&DRAW) {
-                                    Ordering::Less => -MATED,
-                                    Ordering::Equal => DRAW,
-                                    Ordering::Greater => MATED,
-                                };
-                                res = res.max(ep_res);
-                            }
-                        }
-                        r = r.min(res);
-                    }
-                }
-                for king_dest in KINGS[kings[active]] {
-                    let mut p = PosIdx { active: !active, ..p };
-                    let i = if active == White {
-                        p.idx_normalized(king_dest)
-                    } else {
-                        p.b_king = king_dest;
-                        p.idx_normalized(p.w_king())
-                    };
-                    debug_assert_eq!(PosIdx::<N_W, N_B, PAWN>::from_usize(i, w_pawns, b_pawns).active, !active);
-                    r = r.min(table[i]);
-                }
-                // if all moves lead to an invalid position, the game is a draw by stalemate
-                // (we can't be in check because then we'd already be MATED)
-                if r == INVALID || r == DRAW {
-                    continue;
-                }
-                changed = true;
-                table[p_i] = if r < 0 { -r - 1 } else { -r + 1 };
-                debug_assert!(
-                    ((-MATED - iteration * 2)..(-MATED - iteration + 1)).contains(&table[p_i].abs()),
-                    "{iteration} {p_i} {0} {p:?}",
-                    table[p_i]
-                );
-            }
+            let mut changed = w_iter
+                .clone()
+                .fold(|| false, |changed, item| step(item, nk_pieces, table, pawns, White, iteration) || changed)
+                .reduce(|| false, |a, b| a || b);
+            changed |= b_iter
+                .clone()
+                .fold(|| false, |changed, item| step(item, nk_pieces, table, pawns, Black, iteration) || changed)
+                .reduce(|| false, |a, b| a || b);
             if !changed {
                 break;
             }
@@ -606,27 +639,27 @@ fn fixed_point_iteration<const N_W: usize, const N_B: usize, const PAWN: bool>(
 
 fn calc_table<const N_W: usize, const N_B: usize, const PAWNS: bool>(
     nk_pieces: [&[ChessPieceType]; NUM_COLORS],
-    w_pawns: usize,
-    b_pawns: usize,
-) -> Vec<i8> {
+    pawns: [usize; NUM_COLORS],
+) -> Vec<Entry> {
     let start = Instant::now();
     assert!(nk_pieces.into_iter().flatten().all(|p| !matches!(p, King | Empty)));
     assert!(nk_pieces[White].len() == N_W && nk_pieces[Black].len() == N_B);
     assert!(piece_type_idx(nk_pieces[Black]) <= piece_type_idx(nk_pieces[White]));
     // By default, assume that the position is a draw. This means that we don't need to handle the 50mr rule explicitly
-    let mut res = vec![DRAW; PosIdx::<N_W, N_B, PAWNS>::size()];
+    let mut table = vec![];
+    table.resize_with(PosIdx::<N_W, N_B, PAWNS>::size(), || Entry::new(DRAW));
 
-    base_case::<N_W, N_B, PAWNS>(nk_pieces, &mut res, w_pawns, b_pawns);
+    base_case::<N_W, N_B, PAWNS>(nk_pieces, &table, pawns);
     println!("Base case took {0:.3} seconds for {nk_pieces:?}", start.elapsed().as_secs_f64());
-    fixed_point_iteration::<N_W, N_B, PAWNS>(nk_pieces, &mut res, w_pawns, b_pawns);
+    fixed_point_iteration::<N_W, N_B, PAWNS>(nk_pieces, &table, pawns);
     println!("Finished after {0:.3} seconds for {nk_pieces:?}", start.elapsed().as_secs_f64());
-    res
+    table
 }
 
 // for each of the 10 colored non-king piece types [P,N,B,R,Q,p,n,b,r,q], counts how often it appears
 type PieceList = [[usize; 5]; 2];
 
-fn calc_tablebase(pieces: PieceList) -> Vec<i8> {
+fn calc_tablebase(pieces: PieceList) -> Vec<Entry> {
     if pieces[White][0] > 0 || pieces[Black][0] > 0 {
         calc_tablebase_impl::<true>(pieces)
     } else {
@@ -634,39 +667,43 @@ fn calc_tablebase(pieces: PieceList) -> Vec<i8> {
     }
 }
 
-fn calc_tablebase_impl<const PAWNS: bool>(pieces: PieceList) -> Vec<i8> {
-    // nk = non-king
+// nk = non-king
+fn piece_list_to_nk_pieces(list: PieceList) -> [ArrayVec<ChessPieceType, MAX_NON_K_PIECES>; NUM_COLORS] {
     const N: usize = MAX_NON_K_PIECES;
     let mut nk_pieces = [ArrayVec::<ChessPieceType, N>::new(), ArrayVec::<ChessPieceType, N>::new()];
     for c in ChessColor::iter() {
-        for (i, &cnt) in pieces[c].iter().enumerate() {
+        for (i, &cnt) in list[c].iter().enumerate() {
             for _ in 0..cnt {
                 nk_pieces[c].push(ChessPieceType::from_idx(i));
             }
         }
     }
-    let w_pawns = pieces[White][Pawn as usize];
-    let b_pawns = pieces[Black][Pawn as usize];
+    nk_pieces
+}
+
+fn calc_tablebase_impl<const PAWNS: bool>(pieces: PieceList) -> Vec<Entry> {
+    let nk_pieces = piece_list_to_nk_pieces(pieces);
+    let pawns = [pieces[White][Pawn as usize], pieces[Black][Pawn as usize]];
     let nk_pieces = [nk_pieces[White].as_slice(), nk_pieces[Black].as_slice()];
     match nk_pieces[Black].len() {
         0 => match nk_pieces[White].len() {
             0 => unreachable!("Only kings left; already a draw"),
-            1 => calc_table::<1, 0, PAWNS>(nk_pieces, w_pawns, b_pawns),
-            2 => calc_table::<2, 0, PAWNS>(nk_pieces, w_pawns, b_pawns),
-            3 => calc_table::<3, 0, PAWNS>(nk_pieces, w_pawns, b_pawns),
-            4 => calc_table::<4, 0, PAWNS>(nk_pieces, w_pawns, b_pawns),
+            1 => calc_table::<1, 0, PAWNS>(nk_pieces, pawns),
+            2 => calc_table::<2, 0, PAWNS>(nk_pieces, pawns),
+            3 => calc_table::<3, 0, PAWNS>(nk_pieces, pawns),
+            4 => calc_table::<4, 0, PAWNS>(nk_pieces, pawns),
             _ => unreachable!("Too many pieces"),
         },
         1 => match nk_pieces[White].len() {
             0 => unreachable!("#black pieces must be <= #white pieces"),
-            1 => calc_table::<1, 1, PAWNS>(nk_pieces, w_pawns, b_pawns),
-            2 => calc_table::<2, 1, PAWNS>(nk_pieces, w_pawns, b_pawns),
-            3 => calc_table::<3, 1, PAWNS>(nk_pieces, w_pawns, b_pawns),
+            1 => calc_table::<1, 1, PAWNS>(nk_pieces, pawns),
+            2 => calc_table::<2, 1, PAWNS>(nk_pieces, pawns),
+            3 => calc_table::<3, 1, PAWNS>(nk_pieces, pawns),
             _ => unreachable!("Too many pieces"),
         },
         2 => match nk_pieces[White].len() {
             0 | 1 => unreachable!("#black pieces must be <= #white pieces"),
-            2 => calc_table::<2, 2, PAWNS>(nk_pieces, w_pawns, b_pawns),
+            2 => calc_table::<2, 2, PAWNS>(nk_pieces, pawns),
             _ => unreachable!("Too many pieces"),
         },
         _ => unreachable!("Too many pieces"),
@@ -726,7 +763,7 @@ fn to_piece_list(pos: &Chessboard) -> (PieceList, bool) {
     }
 }
 
-type Tablebase = HashMap<PieceList, LazyLock<Vec<i8>, Box<dyn Fn() -> Vec<i8> + Send>>>;
+type Tablebase = HashMap<PieceList, LazyLock<Vec<Entry>, Box<dyn Fn() -> Vec<Entry> + Send>>>;
 
 // This also inserts invalid piece lists, but since they're LazyLocks that's fine - we won't attempt to access them
 fn gen_piece_list(res: &mut Tablebase, list: PieceList, depth: usize) {
@@ -755,6 +792,41 @@ static TB: LazyLock<Tablebase> = LazyLock::new(|| {
     }
     res
 });
+
+/// Ensures this list and all lists required to compute it exist.
+/// Computes them in the right order such that for any table t, all tables required for t have been computed before t is computed.
+/// This ensures all tables can be computed with the maximum parallelism and no thread has to wait for another thread
+/// to finish computing a required table.
+fn force_dtz_table(mut pieces: PieceList) -> &'static [Entry] {
+    let p = piece_list_to_nk_pieces(pieces);
+    let w_idx = piece_type_idx(&p[White]);
+    let b_idx = piece_type_idx(&p[Black]);
+    if w_idx < b_idx {
+        pieces.swap(0, 1);
+    }
+    if w_idx == 0 {
+        return &[];
+    }
+    for c in ChessColor::iter() {
+        for (i, &n) in pieces[c].iter().enumerate() {
+            if n == 0 {
+                continue;
+            }
+            let mut pieces = pieces;
+            pieces[c][i] -= 1;
+            _ = force_dtz_table(pieces);
+            if i == Pawn as usize {
+                for p in [Knight, Bishop, Rook, Queen] {
+                    let mut pieces = pieces;
+                    pieces[c][p as usize] += 1;
+                    _ = force_dtz_table(pieces);
+                }
+            }
+        }
+    }
+    let Some(res) = TB.get(&pieces) else { panic!("piece list not in TB (too many pieces?): {pieces:?}") };
+    &LazyLock::force(res)
+}
 
 fn probe_dtz(mut pos: Chessboard) -> i8 {
     if let Some(sq) = pos.ep_square {
@@ -797,8 +869,9 @@ fn probe_dtz(mut pos: Chessboard) -> i8 {
         panic!("No table for {pos}; too many pieces ({list:?})?");
     };
     let idx = idx_of(&pos);
-    debug_assert_ne!(table[idx], INVALID, "{idx} {list:?} {flipped} {0:?} -- {1:?}", pos.color_bbs, pos.piece_bbs);
-    table[idx]
+    let res = table[idx].load(Relaxed);
+    debug_assert_ne!(res, INVALID, "{idx} {list:?} {flipped} {0:?} -- {1:?}", pos.color_bbs, pos.piece_bbs);
+    res
 }
 
 mod tests {
@@ -820,7 +893,7 @@ mod tests {
 
     /// positions with one non-king non-pawn piece per player
     #[allow(unused)]
-    static QUEEN_VS_ROOK: LazyLock<&'static [i8]> =
+    static QUEEN_VS_ROOK: LazyLock<&'static [Entry]> =
         LazyLock::new(|| TB.get(&[[0, 0, 0, 0, 1], [0, 0, 0, 1, 0]]).unwrap());
 
     #[test]
@@ -828,9 +901,6 @@ mod tests {
         for w_k in ChessSquare::iter() {
             for b_k in ChessSquare::iter() {
                 for p in ChessPieceType::non_king_pieces() {
-                    if p == Pawn {
-                        continue;
-                    }; // TODO: Also support pawns
                     for w_p in ChessSquare::iter() {
                         let mut pos = Chessboard::empty();
                         pos.place_piece(w_k, WhiteKing);
@@ -839,7 +909,7 @@ mod tests {
                         else {
                             continue;
                         };
-                        let Ok(pos) = pos.verify(Relaxed) else { continue };
+                        let Ok(pos) = pos.verify(Strict) else { continue };
                         let dtz = probe_dtz(pos);
                         let won = piece_v_king_is_won(p, w_p, w_k, b_k, White);
                         assert!(dtz >= 0, "{dtz} {pos}, {0:?}", to_piece_list(&pos),);
@@ -854,16 +924,16 @@ mod tests {
     #[test]
     #[ignore]
     fn immediate_game_over_test() {
-        let table = calc_table::<1, 1, false>([&[Knight], &[Knight]], 0, 0);
+        let table = calc_table::<1, 1, false>([&[Knight], &[Knight]], [0, 0]);
 
         for w_king in ChessSquare::iter() {
             let p = PosIdx::<1, 1, false>::normalized(w_king, sq("b3"), [sq("b1")], [sq("c2")], White, 0, 0);
             let i = p.idx();
-            let res = table[i];
+            let res = table[i].load(Relaxed);
             if w_king == sq("a1") {
                 assert_eq!(res, MATED);
                 let p2 = PosIdx { active: Black, ..p };
-                assert_eq!(table[p2.idx_normalized(w_king)], INVALID);
+                assert_eq!(table[p2.idx_normalized(w_king)].load(Relaxed), INVALID);
             } else if ChessBitboard::new(0x7070702).has(w_king) {
                 assert_eq!(res, INVALID);
             } else {
@@ -875,76 +945,73 @@ mod tests {
                 w_nk: [sq("c2")],
                 b_nk: [sq("b1")],
                 active: Black,
-                w_pawns: 0,
-                b_pawns: 0,
+                pawns: [0, 0],
             };
             let j = p2.idx_normalized(sq("b3"));
-            assert_eq!(table[j], res, "{j} {i} {w_king}");
+            assert_eq!(table[j].load(Relaxed), res, "{j} {i} {w_king}");
         }
-        let table = calc_table::<1, 1, false>([&[Rook], &[Bishop]], 0, 0);
+        let table = calc_table::<1, 1, false>([&[Rook], &[Bishop]], [0, 0]);
         let p2 = PosIdx::<1, 1, false> {
             w_nk: [sq("h7")],
             b_nk: [sq("h6")],
             wk_idx: 0,
             b_king: sq("f8"),
             active: Black,
-            w_pawns: 0,
-            b_pawns: 0,
+            pawns: [0, 0],
         };
         let i = p2.idx_normalized(sq("h8"));
-        let res = table[i];
+        let res = table[i].load(Relaxed);
         assert_eq!(res, DRAW);
     }
 
     #[test]
     #[ignore]
     fn game_over_in_one_test() {
-        let table = calc_table::<1, 1, false>([&[Knight], &[Knight]], 0, 0);
+        let table = calc_table::<1, 1, false>([&[Knight], &[Knight]], [0, 0]);
         let p = PosIdx::<1, 1, false>::normalized(sq("c2"), sq("a1"), [sq("c5")], [sq("a2")], White, 0, 0);
         let i = p.idx();
-        assert_eq!(table[i], -MATED - 1, "{i}");
+        assert_eq!(table[i].load(Relaxed), -MATED - 1, "{i}");
         let p = PosIdx { b_king: sq("h1"), ..p };
         let i = p.idx();
-        assert_eq!(table[i], DRAW, "{i}");
+        assert_eq!(table[i].load(Relaxed), DRAW, "{i}");
 
         let table = &**QUEEN_VS_ROOK;
         let p = PosIdx::<1, 1, false>::normalized(sq("c1"), sq("b3"), [sq("g1")], [sq("c2")], White, 0, 0);
         let i = p.idx();
-        assert_ne!(table[i], MATED, "{i}");
+        assert_ne!(table[i].load(Relaxed), MATED, "{i}");
         let p = PosIdx::<1, 1, false>::normalized(sq("b3"), sq("c1"), [sq("c2")], [sq("g1")], Black, 0, 0);
         let i = p.idx();
-        assert_eq!(table[i], MATED, "{i}");
+        assert_eq!(table[i].load(Relaxed), MATED, "{i}");
         let p = PosIdx::<1, 1, false> {
             wk_idx: 0,
             b_king: sq("c3"),
             b_nk: [sq("c2")],
             w_nk: [sq("c1")],
             active: Black,
-            w_pawns: 0,
-            b_pawns: 0,
+            pawns: [0, 0],
         };
         let i = p.idx();
-        assert_eq!(table[i], -MATED - 1, "{i}");
+        assert_eq!(table[i].load(Relaxed), -MATED - 1, "{i}");
         let p = PosIdx::<1, 1, false>::normalized(sq("c3"), sq("a2"), [sq("c1")], [sq("c1")], Black, 0, 0);
         let i = p.idx();
-        assert_eq!(table[i], DRAW, "{i}");
+        assert_eq!(table[i].load(Relaxed), DRAW, "{i}");
         let p = PosIdx::<1, 1, false>::normalized(sq("c3"), sq("a2"), [sq("d1")], [sq("c1")], White, 0, 0);
         let i = p.idx();
-        assert_eq!(table[i], DRAW, "{i}");
+        assert_eq!(table[i].load(Relaxed), DRAW, "{i}");
         let p = PosIdx { active: Black, ..p };
         let i = p.idx();
-        assert_eq!(table[i], INVALID, "{i}");
+        assert_eq!(table[i].load(Relaxed), INVALID, "{i}");
 
         let p = PosIdx::<1, 1, false>::normalized(sq("d4"), sq("h1"), [sq("g4")], [sq("g4")], Black, 0, 0);
         let i = p.idx();
-        assert_eq!(table[i], MATED, "{i}");
+        assert_eq!(table[i].load(Relaxed), MATED, "{i}");
 
         let p = PosIdx::<1, 1, false>::normalized(sq("g1"), sq("f3"), [sq("g2")], [sq("g8")], Black, 0, 0);
         let i = p.idx();
-        assert_eq!(table[i], -MATED - 1, "{i}");
+        assert_eq!(table[i].load(Relaxed), -MATED - 1, "{i}");
         let p = PosIdx::<1, 1, false>::normalized(sq("f3"), sq("g1"), [sq("g8")], [sq("g2")], White, 0, 0);
         let i = p.idx();
-        assert_eq!(table[i], -MATED - 1, "{i}");
+        assert_eq!(table[i].load(Relaxed), -MATED - 1, "{i}");
     }
 
     #[test]
@@ -953,32 +1020,32 @@ mod tests {
         let table = &**QUEEN_VS_ROOK;
         let p = PosIdx::<1, 1, false>::normalized(sq("f3"), sq("h1"), [sq("a2")], [sq("a2")], Black, 0, 0);
         let i = p.idx();
-        assert_eq!(table[i], MATED, "{i}"); // DTM, not an actual mate
+        assert_eq!(table[i].load(Relaxed), MATED, "{i}"); // DTM, not an actual mate
         let p = PosIdx::<1, 1, false>::normalized(sq("f3"), sq("g1"), [sq("g8")], [sq("g2")], White, 0, 0);
         let i = p.idx();
-        assert_eq!(table[i], -MATED - 1, "{i}");
+        assert_eq!(table[i].load(Relaxed), -MATED - 1, "{i}");
         let p = PosIdx::<1, 1, false>::normalized(sq("f3"), sq("h1"), [sq("g8")], [sq("a2")], White, 0, 0);
         let i = p.idx();
-        assert_eq!(table[i], -MATED - 1, "{i}");
+        assert_eq!(table[i].load(Relaxed), -MATED - 1, "{i}");
         let p = PosIdx::<1, 1, false>::normalized(sq("f3"), sq("f1"), [sq("g8")], [sq("a2")], White, 0, 0);
         let i = p.idx();
-        assert_eq!(table[i], -MATED - 1, "{i}");
+        assert_eq!(table[i].load(Relaxed), -MATED - 1, "{i}");
         let p = PosIdx::<1, 1, false>::normalized(sq("f3"), sq("h2"), [sq("g8")], [sq("a2")], White, 0, 0);
         let i = p.idx();
-        assert_eq!(table[i], -MATED - 1, "{i}");
+        assert_eq!(table[i].load(Relaxed), -MATED - 1, "{i}");
         let p = PosIdx::<1, 1, false>::normalized(sq("f3"), sq("g1"), [sq("g8")], [sq("a2")], Black, 0, 0);
         let i = p.idx();
-        assert_eq!(table[i], MATED + 2, "{i}");
+        assert_eq!(table[i].load(Relaxed), MATED + 2, "{i}");
         let p = PosIdx::<1, 1, false>::normalized(sq("f3"), sq("g1"), [sq("h8")], [sq("a2")], White, 0, 0);
         let i = p.idx();
-        assert_eq!(table[i], -MATED - 3, "{i}");
+        assert_eq!(table[i].load(Relaxed), -MATED - 3, "{i}");
         let p = PosIdx::<1, 1, false>::normalized(sq("f3"), sq("g1"), [sq("h7")], [sq("a8")], White, 0, 0);
         let i = p.idx();
-        assert_eq!(table[i], -MATED - 3, "{i}"); // actual mate
+        assert_eq!(table[i].load(Relaxed), -MATED - 3, "{i}"); // actual mate
     }
 
     fn test_consistency<const N_W: usize, const N_B: usize, const PAWN: bool>(
-        table: &[i8],
+        table: &[Entry],
         pieces: [&[ChessPieceType]; NUM_COLORS],
     ) {
         let w_pawns = pieces[White].iter().filter(|&&p| p == Pawn).count();
@@ -989,11 +1056,11 @@ mod tests {
         let dist = Uniform::new(0, table.len()).unwrap();
         for _ in 0..1_000_000 {
             let idx = dist.sample(&mut rng);
-            let res = table[idx];
+            let res = table[idx].load(Relaxed);
             if res == INVALID {
                 continue;
             }
-            let p = PosIdx::<N_W, N_B, PAWN>::from_usize(idx, w_pawns, b_pawns);
+            let p = PosIdx::<N_W, N_B, PAWN>::from_usize(idx, [w_pawns, b_pawns]);
             let bbs = p.player_bbs();
             if bbs[White].intersects(bbs[Black]) {
                 assert!((bbs[White] & bbs[Black]).is_single_piece());
@@ -1012,7 +1079,7 @@ mod tests {
             if pos.0.piece_bbs[Pawn].intersects(ChessBitboard::backranks_for(ChessboardSize::default())) {
                 continue;
             }
-            let pos = pos.verify(Relaxed).unwrap();
+            let pos = pos.verify(Strict).unwrap();
             assert_eq!(idx_of(&pos), idx, "{idx} {pos}");
             assert_eq!(probe_dtz(pos), res, "{res} {pos}");
             let mut max = -120;
@@ -1064,13 +1131,13 @@ mod tests {
         let mut p =
             PosIdx::<2, 1, false>::normalized(sq("b3"), sq("b1"), [sq("c3"), sq("b2")], [sq("h7")], Black, 0, 0);
         let i = p.idx();
-        assert_eq!(table[i], MATED, "{i}");
+        assert_eq!(table[i].load(Relaxed), MATED, "{i}");
         p.active = White;
         p.w_nk[0] = sq("e2");
         let i = p.idx();
-        assert_eq!(table[i], -MATED - 1, "{i}");
-        let pos = Chessboard::from_fen("8/8/8/N7/8/r7/B7/k1K5 b - - 0 1", Relaxed).unwrap();
-        assert_eq!(table[idx_of(&pos)], -MATED - 1);
+        assert_eq!(table[i].load(Relaxed), -MATED - 1, "{i}");
+        let pos = Chessboard::from_fen("8/8/8/N7/8/r7/B7/k1K5 b - - 0 1", Strict).unwrap();
+        assert_eq!(table[idx_of(&pos)].load(Relaxed), -MATED - 1);
 
         test_consistency::<2, 1, false>(&table, [&[Knight, Bishop], &[Rook]]);
     }
@@ -1080,9 +1147,10 @@ mod tests {
         let list: PieceList = [[1, 0, 0, 0, 0], [0, 0, 0, 0, 0]];
         let table = TB.get(&list).unwrap().as_slice();
         let p = PosIdx::<1, 0, true>::normalized(sq("a1"), sq("c1"), [sq("a7")], [], White, 1, 0);
-        assert_eq!(table[p.idx()], -MATED - 1, "{0} {1} {p:?}", p.idx(), table[p.idx()]);
-        for (i, &e) in table.iter().enumerate().rev() {
-            let p = PosIdx::<1, 0, true>::from_usize(i, 1, 0);
+        assert_eq!(table[p.idx()].load(Relaxed), -MATED - 1, "{0} {1} {p:?}", p.idx(), table[p.idx()].load(Relaxed));
+        for (i, e) in table.iter().enumerate().rev() {
+            let e = e.load(Relaxed);
+            let p = PosIdx::<1, 0, true>::from_usize(i, [1, 0]);
             if p.w_nk[0] == p.b_king {
                 assert!([DRAW, INVALID].contains(&e));
                 continue;
@@ -1106,22 +1174,22 @@ mod tests {
     fn piece_vs_pawn_test() {
         let list: PieceList = [[0, 1, 0, 0, 0], [1, 0, 0, 0, 0]];
         let table = TB.get(&list).unwrap().as_slice();
-        let pos = Chessboard::from_fen("8/8/8/8/8/1N6/p1K5/k7 b - - 0 1", Relaxed).unwrap();
+        let pos = Chessboard::from_fen("8/8/8/8/8/1N6/p1K5/k7 b - - 0 1", Strict).unwrap();
         let res = probe_dtz(pos);
         assert_eq!(res, MATED);
-        let pos = Chessboard::from_fen("8/8/8/8/8/p7/2K5/k1N5 b - - 0 1", Relaxed).unwrap();
+        let pos = Chessboard::from_fen("8/8/8/8/8/p7/2K5/k1N5 b - - 0 1", Strict).unwrap();
         let res = probe_dtz(pos);
         assert_eq!(res, MATED + 1, "{0} {1:?}", idx_of(&pos), PosIdx::<1, 1, true>::from_chessboard(&pos));
-        let pos = Chessboard::from_fen("k4N2/8/3K4/8/8/8/p7/8 w - - 0 1", Relaxed).unwrap();
+        let pos = Chessboard::from_fen("k4N2/8/3K4/8/8/8/p7/8 w - - 0 1", Strict).unwrap();
         let res = probe_dtz(pos);
         assert_eq!(res, MATED + 2);
-        let pos = Chessboard::from_fen("k4N2/8/3K4/8/8/p7/8/8 b - - 0 1", Relaxed).unwrap();
+        let pos = Chessboard::from_fen("k4N2/8/3K4/8/8/p7/8/8 b - - 0 1", Strict).unwrap();
         let res = probe_dtz(pos);
         assert_eq!(res, -MATED - 1);
-        let pos = Chessboard::from_fen("8/1K6/8/8/5k2/8/6p1/3N4 w - - 0 1", Relaxed).unwrap();
+        let pos = Chessboard::from_fen("8/1K6/8/8/5k2/8/6p1/3N4 w - - 0 1", Strict).unwrap();
         let res = probe_dtz(pos);
         assert_eq!(res, MATED + 8);
-        let pos = Chessboard::from_fen("8/1K6/8/8/5k2/6p1/8/3N4 b - - 0 1", Relaxed).unwrap();
+        let pos = Chessboard::from_fen("8/1K6/8/8/5k2/6p1/8/3N4 b - - 0 1", Strict).unwrap();
         let res = probe_dtz(pos);
         assert_eq!(res, -MATED - 1);
         test_consistency::<1, 1, true>(table, [&[Knight], &[Pawn]]);
@@ -1131,17 +1199,17 @@ mod tests {
     #[ignore]
     fn pawn_vs_pawn_test() {
         let list: PieceList = [[1, 0, 0, 0, 0], [1, 0, 0, 0, 0]];
-        let table = TB.get(&list).unwrap().as_slice();
-        let pos = Chessboard::from_fen("8/8/8/8/5p2/8/6P1/5K1k w - - 0 1", Relaxed).unwrap();
+        let table = force_dtz_table(list);
+        let pos = Chessboard::from_fen("8/8/8/8/5p2/8/6P1/5K1k w - - 0 1", Strict).unwrap();
         let res = probe_dtz(pos);
         assert_eq!(res, DRAW); // would be won without ep
-        let pos = Chessboard::from_fen("8/8/8/8/5pP1/8/8/5K1k b - - 0 1", Relaxed).unwrap();
+        let pos = Chessboard::from_fen("8/8/8/8/5pP1/8/8/5K1k b - - 0 1", Strict).unwrap();
         let res = probe_dtz(pos);
         assert_eq!(res, MATED + 2); // no ep
-        let pos = Chessboard::from_fen("8/8/8/8/5pP1/8/8/5K1k b - g3 0 1", Relaxed).unwrap();
+        let pos = Chessboard::from_fen("8/8/8/8/5pP1/8/8/5K1k b - g3 0 1", Strict).unwrap();
         let res = probe_dtz(pos);
         assert_eq!(res, -MATED - 1); // ep
-        let pos = Chessboard::from_fen("8/8/8/8/K6p/8/6P1/7k w - - 0 1", Relaxed).unwrap();
+        let pos = Chessboard::from_fen("8/8/8/8/K6p/8/6P1/7k w - - 0 1", Strict).unwrap();
         let res = probe_dtz(pos);
         assert_eq!(res, MATED + 2, "{0}", idx_of(&pos));
         test_consistency::<1, 1, true>(table, [&[Pawn], &[Pawn]]);

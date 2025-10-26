@@ -638,6 +638,9 @@ impl Board for Chessboard {
         settings: ChessSettings,
     ) -> Res<Self> {
         let mut board = Chessboard::empty_for_settings(settings);
+        if strictness == Strict && words.peek().map(|s| *s).unwrap_or_default().contains(|c: char| !c.is_ascii()) {
+            bail!("Position description contains a non-ASCII character; this is not allowed in strict mode");
+        }
         read_common_fen_part::<Chessboard>(words, &mut board)?;
         let color = board.0.active_player();
         let Some(castling_word) = words.next() else { bail!("FEN ends after color to move, missing castling rights") };
@@ -1220,6 +1223,9 @@ mod tests {
         assert!(Chessboard::from_fen(fen, Relaxed).is_err());
         let fen = "1nbqkbnr/ppppppp1/8/r5Pp/6K1/8/PPPP1PPP/RNBQ1BNR w k - 0 2";
         assert!(Chessboard::from_fen(fen, Strict).is_ok());
+        let fen = "♜♞♝♛♚♝♞♜/♟♟♟♟♟♟♟♟/8/8/8/8/♙♙♙♙♙♙♙♙/♖♘♗♕♔♗♘♖ w KQkq - 0 1";
+        assert_eq!(Chessboard::from_fen(fen, Relaxed).unwrap(), Chessboard::startpos());
+        assert!(Chessboard::from_fen(fen, Strict).is_err());
     }
 
     #[test]
