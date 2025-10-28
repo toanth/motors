@@ -69,7 +69,7 @@ pub trait Color: Debug + Default + Copy + Clone + PartialEq + Eq + Send + Hash +
         self == Self::first()
     }
 
-    fn iter() -> impl Iterator<Item = Self> {
+    fn iter() -> impl DoubleEndedIterator<Item = Self> {
         [Self::first(), Self::second()].into_iter()
     }
 

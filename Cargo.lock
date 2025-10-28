@@ -479,6 +479,7 @@ dependencies = [
  "edit-distance",
  "itertools 0.14.0",
  "num",
+ "number-encoding",
  "proptest",
  "rand 0.9.0",
  "rayon",
@@ -853,6 +854,12 @@ checksum = "071dfc062690e90b734c0b2273ce72ad0ffa95f0c74596bc250dcfd960262841"
 dependencies = [
  "autocfg",
 ]
+
+[[package]]
+name = "number-encoding"
+version = "0.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "31d8807ac1448fb1ead99a01fa9aa75f3323d53117d9356d4f65472f0a38b4ef"
 
 [[package]]
 name = "number_prefix"
