@@ -996,6 +996,7 @@ impl<B: Board> EngineUGI<B> {
                 self.handle_output(&mut tokens("debug"))?;
                 self.handle_output(&mut tokens("info"))?;
                 self.output().set_debug(true);
+                self.print_board(OutputOpts::default());
                 self.write_message(Debug, &format_args!("Debug mode enabled"));
                 // don't change the log stream if it's already set
                 if self.output().additional_outputs.iter().any(|o| o.is_logger()) {
