@@ -306,12 +306,10 @@ impl<const N_W: usize, const N_B: usize, const SYMMETRY: usize> PosIdx<N_W, N_B,
     }
 
     const fn num_pawn_squares() -> usize {
-        // TODO: use 64 - 8 for generating pawn tables (still need opponent's backrank for base case)
-        // and 64 - 16 for compact pawn tables
         match Self::symmetry() {
             NoPawns => 0,
-            GeneratePawnTable => 64,
-            CompactPawnTable => 64,
+            GeneratePawnTable => 64 - 8,
+            CompactPawnTable => 64 - 16,
         }
     }
 
@@ -321,7 +319,7 @@ impl<const N_W: usize, const N_B: usize, const SYMMETRY: usize> PosIdx<N_W, N_B,
         let mut r = 0;
         if flip {
             for (i, &sq) in pieces.iter().enumerate() {
-                let idx = Self::num_pawn_squares() - 1 - sq.bb_idx();
+                let idx = Self::num_pawn_squares() - 1 - (sq.bb_idx() - 8);
                 r += COMBINATIONS[idx][pieces.len() - i];
             }
         } else {
@@ -345,10 +343,10 @@ impl<const N_W: usize, const N_B: usize, const SYMMETRY: usize> PosIdx<N_W, N_B,
         // pawns are encoded separately because a) they have to be the outermost loop and b) white pawns must
         // be encoded in reverse order so that pawn pushes lead to positions that have already been computed
         let count = self.pieces[White][Pawn as usize] as usize;
-        res *= COMBINATIONS[64][count];
+        res *= COMBINATIONS[Self::num_pawn_squares()][count];
         res += Self::encode(&self.w_nk[0..count], true);
         let count = self.pieces[Black][Pawn as usize] as usize;
-        res *= COMBINATIONS[64][count];
+        res *= COMBINATIONS[Self::num_pawn_squares()][count];
         res += Self::encode(&self.b_nk[0..count], false);
 
         res *= NUM_COLORS;
@@ -436,7 +434,7 @@ impl<const N_W: usize, const N_B: usize, const SYMMETRY: usize> PosIdx<N_W, N_B,
                 0 => {}
                 1 => {
                     let sq = idx % Self::num_pawn_squares();
-                    let sq = if c == White { Self::num_pawn_squares() - 1 - sq } else { sq };
+                    let sq = if c == White { Self::num_pawn_squares() - 1 - sq + 8 } else { sq };
                     pawns[0] = ChessSquare::from_bb_idx(sq);
                     idx /= Self::num_pawn_squares();
                 }
@@ -445,7 +443,7 @@ impl<const N_W: usize, const N_B: usize, const SYMMETRY: usize> PosIdx<N_W, N_B,
                     combinadics::decode_mut(idx % k, count, &mut arr[0..count]);
                     if c == White {
                         for i in 0..count {
-                            let bb_idx = Self::num_pawn_squares() - 1 - arr[i];
+                            let bb_idx = Self::num_pawn_squares() - 1 - arr[i] + 8;
                             pawns[count - 1 - i] = ChessSquare::from_bb_idx(bb_idx);
                         }
                     } else {
