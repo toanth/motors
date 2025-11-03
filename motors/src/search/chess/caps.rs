@@ -19,7 +19,7 @@ use crate::send_debug_msg;
 use gears::PlayerResult;
 use gears::PlayerResult::{Lose, Win};
 use gears::arrayvec::ArrayVec;
-use gears::games::chess::bitbase::{CompactBitbase, PAWN_V_KING_TABLE};
+use gears::games::chess::bitbase::{Bitbase, PAWN_V_KING_TABLE};
 use gears::games::chess::moves::ChessMove;
 use gears::games::chess::pieces::ChessPieceType::Pawn;
 use gears::games::chess::see::SeeScore;
@@ -185,7 +185,7 @@ type DefaultEval = LiTEval;
 #[derive(Debug)]
 struct Precomputed {
     upcoming_repetition: &'static UpcomingRepetitionTable,
-    bitbase: &'static CompactBitbase,
+    bitbase: &'static Bitbase,
 }
 
 /// Chess-playing Alpha-beta Pruning Search, or in short, CAPS.

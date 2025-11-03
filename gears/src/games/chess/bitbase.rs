@@ -44,14 +44,14 @@ fn idx_compact(w_pawn: ChessSquare, w_king: ChessSquare) -> usize {
     idx_full(w_pawn, w_king) - OFFSET
 }
 
-/// Indexed by the position of white's pawn king, gives the positions of black's king that are won for white, as a bitboard
-type FullBitbase = [[ChessBitboard; NUM_COMPLETE_BITBOARDS]; NUM_COLORS];
-
-pub type CompactBitbase = [[ChessBitboard; NUM_RELEVANT_BITBOARDS]; NUM_COLORS];
+pub type Bitbase = [Vec<ChessBitboard>; NUM_COLORS];
 
 // based on <https://github.com/kervinck/pfkpk>, but improved to take 3/4 of the space and be computed in 1/20 of the time
-fn calc_pawn_vs_king_impl() -> FullBitbase {
-    let mut res = [[ChessBitboard::default(); NUM_COMPLETE_BITBOARDS]; NUM_COLORS];
+fn calc_pawn_vs_king_impl() -> Bitbase {
+    let mut res = [
+        vec![ChessBitboard::default(); NUM_COMPLETE_BITBOARDS],
+        vec![ChessBitboard::default(); NUM_COMPLETE_BITBOARDS],
+    ];
     // The base case is a pawn on the eighth rank; this is won unless black can immediately capture it.
     // It's never a stalemate because we could promote to a rook.
     for w_pawn in 64 - 8..64 - 4 {
@@ -108,18 +108,21 @@ fn calc_pawn_vs_king_impl() -> FullBitbase {
     res
 }
 
-pub fn calc_pawn_vs_king() -> CompactBitbase {
+pub fn calc_pawn_vs_king() -> Bitbase {
     let full = calc_pawn_vs_king_impl();
-    let mut res = [[ChessBitboard::default(); NUM_RELEVANT_BITBOARDS]; NUM_COLORS];
+    let mut res = [
+        vec![ChessBitboard::default(); NUM_RELEVANT_BITBOARDS],
+        vec![ChessBitboard::default(); NUM_RELEVANT_BITBOARDS],
+    ];
     res[White].clone_from_slice(&full[White][OFFSET..NUM_RELEVANT_BITBOARDS + OFFSET]);
     res[Black].clone_from_slice(&full[Black][OFFSET..NUM_RELEVANT_BITBOARDS + OFFSET]);
     res
 }
 
-pub static PAWN_V_KING_TABLE: LazyLock<CompactBitbase> = LazyLock::new(calc_pawn_vs_king);
+pub static PAWN_V_KING_TABLE: LazyLock<Bitbase> = LazyLock::new(calc_pawn_vs_king);
 
 impl Chessboard {
-    pub fn query_bitbase(&self, table: &CompactBitbase) -> Option<PlayerResult> {
+    pub fn query_bitbase(&self, table: &Bitbase) -> Option<PlayerResult> {
         if self.occupied_bb().num_ones() != 3 {
             return None;
         }
@@ -135,7 +138,7 @@ impl Chessboard {
 }
 
 pub(super) fn query_pawn_v_king(
-    table: &CompactBitbase,
+    table: &Bitbase,
     mut w_p: ChessSquare,
     mut w_k: ChessSquare,
     mut b_k: ChessSquare,

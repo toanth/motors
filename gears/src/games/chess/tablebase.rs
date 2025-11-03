@@ -50,58 +50,147 @@ type Entry = AtomicI8;
 const MAX_TB_MAN: usize = 6;
 const MAX_NON_K_PIECES: usize = MAX_TB_MAN - 2;
 
-const KING_SQUARES_SYMMETRY: [ChessSquare; 10] = [
-    ChessSquare::from_bb_idx(A_FILE_NUM as usize),
-    ChessSquare::from_bb_idx(B_FILE_NUM as usize),
-    ChessSquare::from_bb_idx(C_FILE_NUM as usize),
-    ChessSquare::from_bb_idx(D_FILE_NUM as usize),
-    ChessSquare::from_bb_idx(B_FILE_NUM as usize + 8),
-    ChessSquare::from_bb_idx(C_FILE_NUM as usize + 8),
-    ChessSquare::from_bb_idx(D_FILE_NUM as usize + 8),
-    ChessSquare::from_bb_idx(C_FILE_NUM as usize + 16),
-    ChessSquare::from_bb_idx(D_FILE_NUM as usize + 16),
-    ChessSquare::from_bb_idx(D_FILE_NUM as usize + 24),
-];
+const NUM_KING_PAWN_SQUARES: usize = 42;
 
-const KING_SQUARES_PAWN: [ChessSquare; 32] = {
-    let mut res = [ChessSquare::from_bb_idx(0); 32];
-    let mut i = 0;
-    while i < 32 {
-        let idx = (i / 4) * 8 + i % 4;
-        res[i] = ChessSquare::from_bb_idx(idx);
-        i += 1;
-    }
-    res
-};
+mod no_pawns {
+    use super::*;
 
-const NUM_KING_SYMMETRY_SQUARES: usize = 10;
+    const NUM_KING_SYMMETRY_SQUARES: usize = 10;
 
-const NUM_KING_PAWN_SQUARES: usize = 1806;
+    static KING_SQUARES_SYMMETRY: [ChessSquare; NUM_KING_SYMMETRY_SQUARES] = [
+        ChessSquare::from_bb_idx(A_FILE_NUM as usize),
+        ChessSquare::from_bb_idx(B_FILE_NUM as usize),
+        ChessSquare::from_bb_idx(C_FILE_NUM as usize),
+        ChessSquare::from_bb_idx(D_FILE_NUM as usize),
+        ChessSquare::from_bb_idx(B_FILE_NUM as usize + 8),
+        ChessSquare::from_bb_idx(C_FILE_NUM as usize + 8),
+        ChessSquare::from_bb_idx(D_FILE_NUM as usize + 8),
+        ChessSquare::from_bb_idx(C_FILE_NUM as usize + 16),
+        ChessSquare::from_bb_idx(D_FILE_NUM as usize + 16),
+        ChessSquare::from_bb_idx(D_FILE_NUM as usize + 24),
+    ];
 
-const NUM_KING_NO_PAWN_SQUARES: usize = 564;
-
-const fn king_squares() -> [(ChessSquare, ChessSquare); NUM_KING_NO_PAWN_SQUARES] {
-    let mut res = [(ChessSquare::from_bb_idx(0), ChessSquare::from_bb_idx(0)); NUM_KING_NO_PAWN_SQUARES];
-    let mut i = 0;
-    let mut w_king_idx: usize = 0;
-    while w_king_idx < 10 {
-        let w_king = KING_SQUARES_SYMMETRY[w_king_idx];
-        let mut b_king_idx: usize = 0;
-        while b_king_idx < 64 {
-            let b_king = ChessSquare::from_bb_idx(b_king_idx);
-            if ((KINGS[b_king_idx].0 | (1 << b_king_idx)) & (1 << w_king.bb_idx())) != 0 {
-                b_king_idx += 1;
-                continue;
+    static KING_INDICES_SYMMETRY: [usize; 64] = {
+        let mut res: [usize; 64] = [usize::MAX; 64];
+        let mut i = 0;
+        while i < 64 {
+            let mut j = 0;
+            while j < NUM_KING_SYMMETRY_SQUARES {
+                if KING_SQUARES_SYMMETRY[j].bb_idx() == i {
+                    res[i] = j;
+                }
+                j = j + 1;
             }
-            res[i] = (w_king, b_king);
-            i += 1;
-            b_king_idx += 1;
+            i = i + 1;
         }
-        w_king_idx += 1;
+        res
+    };
+
+    pub const NUM_KING_SQUARES: usize = 564;
+
+    pub static KING_SQUARES: [[ChessSquare; NUM_COLORS]; NUM_KING_SQUARES] = {
+        let mut res = [[ChessSquare::from_bb_idx(0), ChessSquare::from_bb_idx(0)]; NUM_KING_SQUARES];
+        let mut i = 0;
+        let mut w_king_idx: usize = 0;
+        while w_king_idx < NUM_KING_SYMMETRY_SQUARES {
+            let w_king = KING_SQUARES_SYMMETRY[w_king_idx];
+            let mut b_king_idx: usize = 0;
+            while b_king_idx < 64 {
+                let b_king = ChessSquare::from_bb_idx(b_king_idx);
+                if ((KINGS[b_king_idx].0 | (1 << b_king_idx)) & (1 << w_king.bb_idx())) != 0 {
+                    b_king_idx += 1;
+                    continue;
+                }
+                res[i] = [w_king, b_king];
+                i += 1;
+                b_king_idx += 1;
+            }
+            w_king_idx += 1;
+        }
+        assert!(i == NUM_KING_SQUARES);
+        res
+    };
+
+    pub static KING_INDICES: [[u16; 64]; NUM_KING_SYMMETRY_SQUARES] = {
+        let mut res = [[u16::MAX; 64]; NUM_KING_SYMMETRY_SQUARES];
+        let mut i = 0;
+        while i < NUM_KING_SQUARES {
+            let [w, b] = KING_SQUARES[i];
+            let w = KING_INDICES_SYMMETRY[w.bb_idx()];
+            res[w][b.bb_idx()] = i as u16;
+            i = i + 1;
+        }
+        res
+    };
+
+    pub fn kings_idx(kings: [ChessSquare; NUM_COLORS]) -> usize {
+        let w = KING_INDICES_SYMMETRY[kings[White]];
+        KING_INDICES[w][kings[Black]] as usize
     }
-    assert!(i == NUM_KING_NO_PAWN_SQUARES);
-    res
 }
+
+mod pawns {
+    use super::*;
+
+    pub const NUM_KING_SQUARES: usize = 3612;
+
+    pub static KING_SQUARES: [[ChessSquare; NUM_COLORS]; NUM_KING_SQUARES] = {
+        let mut res = [[ChessSquare::from_bb_idx(0), ChessSquare::from_bb_idx(0)]; NUM_KING_SQUARES];
+        let mut i = 0;
+        let mut w_king_idx: usize = 0;
+        while w_king_idx < 64 {
+            let w_king = ChessSquare::from_bb_idx(w_king_idx);
+            let mut b_king_idx: usize = 0;
+            while b_king_idx < 64 {
+                let b_king = ChessSquare::from_bb_idx(b_king_idx);
+                if ((KINGS[b_king_idx].0 | (1 << b_king_idx)) & (1 << w_king.bb_idx())) != 0 {
+                    b_king_idx += 1;
+                    continue;
+                }
+                res[i] = [w_king, b_king];
+                i += 1;
+                b_king_idx += 1;
+            }
+            w_king_idx += 1;
+        }
+        assert!(i == NUM_KING_SQUARES);
+        res
+    };
+
+    pub static KING_INDICES: [[u16; 64]; 64] = {
+        let mut res = [[u16::MAX; 64]; 64];
+        let mut i = 0;
+        while i < NUM_KING_SQUARES {
+            let [w, b] = KING_SQUARES[i];
+            res[w.bb_idx()][b.bb_idx()] = i as u16;
+            i = i + 1;
+        }
+        res
+    };
+}
+// static KING_SQUARES_PAWNS: [[ChessSquare; NUM_COLORS]; NUM_KING_PAWN_SQUARES] = {
+//     let mut res = [[ChessSquare::from_bb_idx(0), ChessSquare::from_bb_idx(0)]; NUM_KING_PAWN_SQUARES];
+//     let mut i = 0;
+//     let mut w_king_idx: usize = 0;
+//     while w_king_idx < 64 {
+//         let w_king = ChessSquare::from_bb_idx(w_king_idx);
+//         let mut b_king_idx: usize = 0;
+//         while b_king_idx < 64 {
+//             let b_king = ChessSquare::from_bb_idx(b_king_idx);
+//             if ((KINGS[b_king_idx].0 | (1 << b_king_idx)) & (1 << w_king.bb_idx())) != 0 {
+//                 b_king_idx += 1;
+//                 continue;
+//             }
+//             res[i] = [w_king, b_king];
+//             i += 1;
+//             b_king_idx += 1;
+//         }
+//         w_king_idx += 1;
+//     }
+//     assert!(i == NUM_KING_PAWN_SQUARES);
+//     res
+// };
+
 // TODO: When there are pawns, don't limit the white king to the queenside. Instead, choose the position that minimizes
 // the pawn bitboard expressed as number, with the white king as a tie breaker. Allows treating pawns like other pieces
 // in symmetry considerations, and means the inner loop (inside the fixed point iteration) can get smaller
@@ -173,7 +262,7 @@ fn piece_type_idx(pieces: &[ChessPieceType]) -> usize {
     res
 }
 
-const COMBINATIONS: [[usize; MAX_NON_K_PIECES + 1]; NUM_SQUARES + 1] = {
+static COMBINATIONS: [[usize; MAX_NON_K_PIECES + 1]; NUM_SQUARES + 1] = {
     let mut res = [[0; MAX_NON_K_PIECES + 1]; NUM_SQUARES + 1];
     let mut n = 1;
     res[0][0] = 1;
@@ -208,8 +297,7 @@ enum KingSymmetry {
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 struct PosIdx<const N_W: usize, const N_B: usize, const SYMMETRY: usize> {
-    wk_idx: usize,
-    b_king: ChessSquare,
+    king_idx: usize,
     w_nk: [ChessSquare; N_W],
     b_nk: [ChessSquare; N_B],
     pieces: PieceList,
@@ -257,27 +345,35 @@ impl<const N_W: usize, const N_B: usize, const SYMMETRY: usize> PosIdx<N_W, N_B,
         active: ChessColor,
         pieces: PieceList,
     ) -> Self {
-        let res = Self { wk_idx: 0, b_king: bk, w_nk, b_nk, active, pieces };
-        res.normalize(wk)
+        let res = Self { king_idx: 0, w_nk, b_nk, active, pieces };
+        res.normalize([wk, bk])
     }
 
     const fn has_pawn() -> bool {
         SYMMETRY != NoPawns as usize
     }
 
-    const fn num_wk_squares() -> usize {
+    const fn num_king_squares() -> usize {
         match Self::symmetry() {
-            NoPawns => NUM_KING_SYMMETRY_SQUARES,
-            GeneratePawnTable => 64,
-            CompactPawnTable => 64 / 2,
+            NoPawns => no_pawns::NUM_KING_SQUARES,
+            GeneratePawnTable => pawns::NUM_KING_SQUARES,
+            CompactPawnTable => pawns::NUM_KING_SQUARES / 2,
         }
     }
 
-    fn w_king(&self) -> ChessSquare {
+    fn kings(&self) -> [ChessSquare; NUM_COLORS] {
         match Self::symmetry() {
-            NoPawns => KING_SQUARES_SYMMETRY[self.wk_idx],
-            GeneratePawnTable => ChessSquare::from_bb_idx(self.wk_idx),
-            CompactPawnTable => KING_SQUARES_PAWN[self.wk_idx],
+            NoPawns => no_pawns::KING_SQUARES[self.king_idx],
+            GeneratePawnTable => pawns::KING_SQUARES[self.king_idx],
+            CompactPawnTable => todo!(),
+        }
+    }
+
+    fn kings_index(kings: [ChessSquare; 2]) -> usize {
+        match Self::symmetry() {
+            NoPawns => no_pawns::kings_idx(kings),
+            GeneratePawnTable => pawns::KING_INDICES[kings[White].bb_idx()][kings[Black].bb_idx()] as usize,
+            CompactPawnTable => todo!(),
         }
     }
 
@@ -289,8 +385,8 @@ impl<const N_W: usize, const N_B: usize, const SYMMETRY: usize> PosIdx<N_W, N_B,
         for b_x in self.b_nk {
             res[Black] |= b_x.bb();
         }
-        res[White] |= self.w_king().bb();
-        res[Black] |= self.b_king.bb();
+        res[White] |= self.kings()[White].bb();
+        res[Black] |= self.kings()[Black].bb();
         res
     }
 
@@ -334,7 +430,7 @@ impl<const N_W: usize, const N_B: usize, const SYMMETRY: usize> PosIdx<N_W, N_B,
     fn idx(&self) -> usize {
         // the active player has to be the outermost loop so that we don't try to write an entry before we've seen
         // all the positions that can reach this entry
-        debug_assert!(self.wk_idx < Self::num_wk_squares());
+        debug_assert!(self.king_idx < Self::num_king_squares());
         let mut res = 0;
         // hopefully, the compiler can unroll the following loops if PAWN is false.
         let w_pawns = if Self::has_pawn() { self.pieces[White][0] as usize } else { 0 };
@@ -351,7 +447,8 @@ impl<const N_W: usize, const N_B: usize, const SYMMETRY: usize> PosIdx<N_W, N_B,
 
         res *= NUM_COLORS;
         res += self.active as usize;
-        res = (res * Self::num_wk_squares() + self.wk_idx) * 64 + self.b_king.bb_idx();
+        res *= Self::num_king_squares();
+        res += self.king_idx;
 
         let mut i = w_pawns;
         for c in ChessColor::iter() {
@@ -371,7 +468,7 @@ impl<const N_W: usize, const N_B: usize, const SYMMETRY: usize> PosIdx<N_W, N_B,
     }
 
     fn idx_normalized(self, w_king: ChessSquare) -> usize {
-        self.normalize(w_king).idx()
+        self.normalize([w_king, self.kings()[Black]]).idx()
     }
 
     fn from_idx(mut idx: usize, pieces: PieceList) -> Self {
@@ -386,7 +483,6 @@ impl<const N_W: usize, const N_B: usize, const SYMMETRY: usize> PosIdx<N_W, N_B,
         let mut occupied = ChessBitboard::default();
         let mut i = N_B;
         let mut arr = [0; MAX_NON_K_PIECES];
-        // TODO: Do the same for pawns
         // bijection between an index and two squares with sq.0 < sq.1, used for two pieces of the same colored piece type
         // see <https://en.wikipedia.org/wiki/Combinatorial_number_system>
         for c in ChessColor::iter().rev() {
@@ -417,14 +513,8 @@ impl<const N_W: usize, const N_B: usize, const SYMMETRY: usize> PosIdx<N_W, N_B,
             debug_assert_eq!(i, pieces[c][0] as usize);
             i = N_W;
         }
-        let n = idx % free_squares;
-        // let n = ith_one_u64(n, !occupied.raw());
-        res.b_king = ChessSquare::from_bb_idx(n);
-        occupied |= res.b_king.bb();
-        idx /= free_squares;
-        // free_squares -= 1;
-        res.wk_idx = idx % Self::num_wk_squares();
-        idx /= Self::num_wk_squares();
+        res.king_idx = idx % Self::num_king_squares();
+        idx /= Self::num_king_squares();
         res.active = ChessColor::from_repr(idx % 2).unwrap();
         idx /= 2;
         // pawns give the index in the outer iteration
@@ -460,8 +550,9 @@ impl<const N_W: usize, const N_B: usize, const SYMMETRY: usize> PosIdx<N_W, N_B,
         res
     }
 
-    fn normalize(mut self, mut w_king: ChessSquare) -> Self {
+    fn normalize(mut self, kings: [ChessSquare; NUM_COLORS]) -> Self {
         assert!(N_W >= N_B);
+        let [mut w_king, mut b_king] = kings;
         if Self::symmetry() != GeneratePawnTable {
             // flipping horizontally is an `xor constant`, as is flipping vertically. So we can combine that into a single xor.
             let mut xor = 0;
@@ -472,7 +563,7 @@ impl<const N_W: usize, const N_B: usize, const SYMMETRY: usize> PosIdx<N_W, N_B,
                 xor ^= 0b111_000;
             }
             let xor = ChessSquare::from_bb_idx(xor);
-            self.b_king ^= xor;
+            b_king ^= xor;
             w_king ^= xor;
             for w_x in &mut self.w_nk {
                 *w_x ^= xor;
@@ -483,7 +574,7 @@ impl<const N_W: usize, const N_B: usize, const SYMMETRY: usize> PosIdx<N_W, N_B,
             if !Self::has_pawn() && w_king.rank() > w_king.file() {
                 // if [w_king.rank(), self.b_king.rank()] > [w_king.file(), self.b_king.file()] {
                 w_king = w_king.flip_diagonally();
-                self.b_king = self.b_king.flip_diagonally();
+                b_king = b_king.flip_diagonally();
                 for w_x in &mut self.w_nk {
                     *w_x = w_x.flip_diagonally();
                 }
@@ -502,14 +593,7 @@ impl<const N_W: usize, const N_B: usize, const SYMMETRY: usize> PosIdx<N_W, N_B,
                 i += count as usize;
             }
         }
-        self.wk_idx = match Self::symmetry() {
-            NoPawns => KING_SQUARES_SYMMETRY.iter().position(|&sq| sq == w_king).unwrap(),
-            GeneratePawnTable => w_king.bb_idx(),
-            CompactPawnTable => {
-                debug_assert!(w_king.bb_idx() % 8 < 4);
-                (w_king.bb_idx() / 8) * 4 + w_king.bb_idx() % 8
-            }
-        };
+        self.king_idx = Self::kings_index([w_king, b_king]);
         self
     }
 
@@ -536,7 +620,7 @@ impl<const N_W: usize, const N_B: usize, const SYMMETRY: usize> PosIdx<N_W, N_B,
                 res *= k;
             }
         }
-        res * 64 * Self::num_wk_squares() * NUM_COLORS
+        res * Self::num_king_squares() * NUM_COLORS
     }
 
     fn outer_iter(
@@ -562,8 +646,7 @@ impl<const N_W: usize, const N_B: usize, const SYMMETRY: usize> PosIdx<N_W, N_B,
 impl<const N_W: usize, const N_B: usize, const SYMMETRY: usize> Default for PosIdx<N_W, N_B, SYMMETRY> {
     fn default() -> Self {
         Self {
-            wk_idx: 0,
-            b_king: ChessSquare::default(),
+            king_idx: 0,
             w_nk: [ChessSquare::default(); N_W],
             b_nk: [ChessSquare::default(); N_B],
             active: ChessColor::default(),
@@ -600,21 +683,21 @@ fn base_case_iter<const N_W: usize, const N_B: usize, const SYMMETRY: usize>(
     active: ChessColor,
 ) -> i8 {
     assert_eq!(active, p.active, "{nk_pieces:?} {p:?}");
-    let kings = [p.w_king(), p.b_king];
     let bbs = p.player_bbs();
     let captured: ChessBitboard = bbs[active] & bbs[!active];
+    let kings = p.kings();
     if bbs[White].num_ones() != N_W + 1
         || bbs[Black].num_ones() != N_B + 1
         || captured.more_than_one_bit_set()
         || bbs[!active].has(kings[active])
-        || (KINGS[p.w_king()] | p.w_king().bb()).has(p.b_king)
+        || (KINGS[kings[White]] | kings[White].bb()).has(kings[Black])
     {
         return INVALID;
     }
     let mut pos = Chessboard::empty();
     pos.set_active_player(active);
-    pos.place_piece(p.w_king(), ColoredChessPieceType::new(White, King));
-    pos.place_piece(p.b_king, ColoredChessPieceType::new(Black, King));
+    pos.place_piece(kings[White], ColoredChessPieceType::new(White, King));
+    pos.place_piece(kings[Black], ColoredChessPieceType::new(Black, King));
     for (i, &w_x) in p.w_nk.iter().enumerate() {
         if !(active == White && w_x.bb() == captured) {
             pos.place_piece(w_x, ColoredChessPieceType::new(White, nk_pieces[White][i]));
@@ -706,7 +789,8 @@ fn step<const N_W: usize, const N_B: usize, const SYMMETRY: usize>(
     assert!(p_i < PosIdx::<N_W, N_B, SYMMETRY>::size(pcs));
     assert_eq!(active, p.active, "{p_i} {iteration} {nk_pieces:?} {p:?}",);
     // if there are two pieces on the same square, the position has been handled in a base case
-    let mut sides = [p.w_king().bb(), p.b_king.bb()];
+    let kings = p.kings();
+    let mut sides = kings.map(|sq| sq.bb());
     for w_x in p.w_nk {
         sides[White] |= w_x.bb();
     }
@@ -723,7 +807,6 @@ fn step<const N_W: usize, const N_B: usize, const SYMMETRY: usize>(
         return false;
     }
     let pieces: [&[ChessSquare]; 2] = [&p.w_nk, &p.b_nk];
-    let kings = [p.w_king(), p.b_king];
     let promo = (0..pcs[!active][0] as usize).any(|i| pieces[!active][i].is_backrank());
     if promo {
         return false;
@@ -778,8 +861,9 @@ fn step<const N_W: usize, const N_B: usize, const SYMMETRY: usize>(
         let i = if active == White {
             p.idx_normalized(king_dest)
         } else {
-            p.b_king = king_dest;
-            p.idx_normalized(p.w_king())
+            p.king_idx = PosIdx::<N_W, N_B, SYMMETRY>::kings_index([kings[White], king_dest]);
+            // TODO: Currently unnecessary, but will become necessary when using bk as tie breaker
+            p.idx_normalized(kings[White])
         };
         debug_assert_eq!(PosIdx::<N_W, N_B, SYMMETRY>::from_idx(i, pcs).active, !active);
         r = r.min(table[i].load(Relaxed));
@@ -1154,6 +1238,9 @@ mod tests {
         let table = calc_table::<1, 1, NO_PAWNS>([&[Knight], &[Knight]], pieces);
 
         for w_king in ChessSquare::iter() {
+            if (KINGS[w_king] | w_king.bb()).has(sq("b3")) {
+                continue;
+            }
             let p = PosIdx::<1, 1, NO_PAWNS>::normalized(w_king, sq("b3"), [sq("b1")], [sq("c2")], White, pieces);
             let i = p.idx();
             let res = table[i].load(Relaxed);
@@ -1166,24 +1253,26 @@ mod tests {
             } else {
                 assert_eq!(res, DRAW);
             }
+            if (KINGS[w_king] | w_king.bb()).has(sq("a1")) {
+                continue;
+            }
             let p2 = PosIdx::<1, 1, NO_PAWNS> {
-                wk_idx: 0,
-                b_king: w_king,
+                king_idx: PosIdx::<1, 1, NO_PAWNS>::kings_index([sq("a1"), w_king]),
                 w_nk: [sq("c2")],
                 b_nk: [sq("b1")],
                 active: Black,
                 pieces,
             };
+
             let j = p2.idx_normalized(sq("b3"));
             assert_eq!(table[j].load(Relaxed), res, "{j} {i} {w_king}");
         }
         let pieces = [[0, 0, 0, 1, 0], [0, 0, 1, 0, 0]];
         let table = calc_table::<1, 1, NO_PAWNS>([&[Rook], &[Bishop]], pieces);
         let p2 = PosIdx::<1, 1, NO_PAWNS> {
+            king_idx: PosIdx::<1, 1, NO_PAWNS>::kings_index([sq("a1"), sq("f8")]),
             w_nk: [sq("h7")],
             b_nk: [sq("h6")],
-            wk_idx: 0,
-            b_king: sq("f8"),
             active: Black,
             pieces,
         };
@@ -1200,7 +1289,7 @@ mod tests {
         let p = PosIdx::<1, 1, NO_PAWNS>::normalized(sq("c2"), sq("a1"), [sq("c5")], [sq("a2")], White, pieces);
         let i = p.idx();
         assert_eq!(table[i].load(Relaxed), -MATED - 1, "{i}");
-        let p = PosIdx { b_king: sq("h1"), ..p };
+        let p = PosIdx { king_idx: PosIdx::<1, 1, NO_PAWNS>::kings_index([p.kings()[White], sq("h1")]), ..p };
         let i = p.idx();
         assert_eq!(table[i].load(Relaxed), DRAW, "{i}");
 
@@ -1213,8 +1302,7 @@ mod tests {
         let i = p.idx();
         assert_eq!(table[i].load(Relaxed), MATED, "{i}");
         let p = PosIdx::<1, 1, NO_PAWNS> {
-            wk_idx: 0,
-            b_king: sq("c3"),
+            king_idx: PosIdx::<1, 1, NO_PAWNS>::kings_index([sq("a1"), sq("c3")]),
             b_nk: [sq("c2")],
             w_nk: [sq("c1")],
             active: Black,
@@ -1298,8 +1386,8 @@ mod tests {
             }
             let mut pos = Chessboard::empty();
             pos.set_active_player(p.active);
-            pos.place_piece(p.w_king(), WhiteKing);
-            pos.place_piece(p.b_king, BlackKing);
+            pos.place_piece(p.kings()[White], WhiteKing);
+            pos.place_piece(p.kings()[Black], BlackKing);
             for (i, &pcs) in pieces[White].iter().enumerate() {
                 pos.place_piece(p.w_nk[i], ColoredChessPieceType::new(White, pcs));
             }
@@ -1390,7 +1478,7 @@ mod tests {
         for (i, e) in table.iter().enumerate().rev() {
             let e = e.load(Relaxed);
             let p = PosIdx::<1, 0, PAWNS>::from_idx(i, list);
-            if p.w_nk[0] == p.b_king {
+            if p.w_nk[0] == p.kings()[Black] {
                 assert!([DRAW, INVALID].contains(&e));
                 continue;
             }
@@ -1400,7 +1488,7 @@ mod tests {
             if e == INVALID || p.w_nk[0].is_backrank() {
                 continue;
             }
-            let won = piece_v_king_is_won(Pawn, p.w_nk[0], p.w_king(), p.b_king, p.active);
+            let won = piece_v_king_is_won(Pawn, p.w_nk[0], p.kings()[White], p.kings()[Black], p.active);
             assert_eq!(e != 0, won, "{i} {e} {won} {p:?}");
             if e != 0 {
                 assert_eq!(e > 0, p.active == White, "{i} {e} {won} {p:?}");

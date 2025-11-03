@@ -46,7 +46,7 @@ impl PcgXslRr128_64Oneseq {
     }
 }
 
-pub const ZOBRIST_KEYS: PrecomputedZobristKeys = {
+pub static ZOBRIST_KEYS: PrecomputedZobristKeys = {
     let mut res = {
         PrecomputedZobristKeys {
             piece_square_keys: [PosHash(0); NUM_COLORED_PIECE_SQUARE_ENTRIES],

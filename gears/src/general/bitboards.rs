@@ -131,11 +131,12 @@ macro_rules! ray_between_inclusive {
 // with one extra to make some boundary conditions go away
 pub const MAX_WIDTH: usize = 27;
 
-pub(super) const STEPS_U64: [u64; MAX_STEP_SIZE] = step_bb_for!(u64, 64);
+pub(super) static STEPS_U64: [u64; MAX_STEP_SIZE] = step_bb_for!(u64, 64);
 
-pub(super) const DIAGONALS_U64: [[u64; 64]; MAX_WIDTH] = diagonal_bb_for!(u64, 64, STEPS_U64);
+// TODO: Most widths aren't being used, remove
+pub(super) static DIAGONALS_U64: [[u64; 64]; MAX_WIDTH] = diagonal_bb_for!(u64, 64, STEPS_U64);
 
-pub(super) const ANTI_DIAGONALS_U64: [[u64; 64]; MAX_WIDTH] = anti_diagonal_bb_for!(u64, 64, STEPS_U64);
+pub(super) static ANTI_DIAGONALS_U64: [[u64; 64]; MAX_WIDTH] = anti_diagonal_bb_for!(u64, 64, STEPS_U64);
 
 // These arrays are `static` instead of `const` because they are pretty large
 

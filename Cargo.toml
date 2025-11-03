@@ -7,7 +7,7 @@ default-members = ["motors"]
 [profile.release]
 lto = true
 panic = "abort"
-debug = 1 # useful for profiling, maybe remove this eventually
+#debug = 1 # useful for profiling, maybe remove this eventually
 
 [profile.bench]
 debug = true
