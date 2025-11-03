@@ -309,10 +309,28 @@ impl<const N_W: usize, const N_B: usize, const SYMMETRY: usize> PosIdx<N_W, N_B,
         // TODO: use 64 - 8 for generating pawn tables (still need opponent's backrank for base case)
         // and 64 - 16 for compact pawn tables
         match Self::symmetry() {
-            NoPawns => unreachable!(),
+            NoPawns => 0,
             GeneratePawnTable => 64,
             CompactPawnTable => 64,
         }
+    }
+
+    #[inline]
+    fn encode(pieces: &[ChessSquare], flip: bool) -> usize {
+        debug_assert!(pieces.windows(2).all(|w| w[0].bb_idx() < w[1].bb_idx()));
+        let mut r = 0;
+        if flip {
+            for (i, &sq) in pieces.iter().enumerate() {
+                let idx = Self::num_pawn_squares() - 1 - sq.bb_idx();
+                r += COMBINATIONS[idx][pieces.len() - i];
+            }
+        } else {
+            for (i, &sq) in pieces.iter().enumerate() {
+                let idx = sq.bb_idx();
+                r += COMBINATIONS[idx][i + 1];
+            }
+        }
+        r
     }
 
     fn idx(&self) -> usize {
@@ -323,14 +341,16 @@ impl<const N_W: usize, const N_B: usize, const SYMMETRY: usize> PosIdx<N_W, N_B,
         // hopefully, the compiler can unroll the following loops if PAWN is false.
         let w_pawns = if Self::has_pawn() { self.pieces[White][0] as usize } else { 0 };
         let b_pawns = if Self::has_pawn() { self.pieces[Black][0] as usize } else { 0 };
-        for wp in &self.w_nk[..w_pawns] {
-            res *= Self::num_pawn_squares();
-            res += 64 - 1 - wp.bb_idx();
-        }
-        for bp in &self.b_nk[..b_pawns] {
-            res *= Self::num_pawn_squares();
-            res += bp.bb_idx();
-        }
+
+        // pawns are encoded separately because a) they have to be the outermost loop and b) white pawns must
+        // be encoded in reverse order so that pawn pushes lead to positions that have already been computed
+        let count = self.pieces[White][Pawn as usize] as usize;
+        res *= COMBINATIONS[64][count];
+        res += Self::encode(&self.w_nk[0..count], true);
+        let count = self.pieces[Black][Pawn as usize] as usize;
+        res *= COMBINATIONS[64][count];
+        res += Self::encode(&self.b_nk[0..count], false);
+
         res *= NUM_COLORS;
         res += self.active as usize;
         res = (res * Self::num_wk_squares() + self.wk_idx) * 64 + self.b_king.bb_idx();
@@ -341,7 +361,7 @@ impl<const N_W: usize, const N_B: usize, const SYMMETRY: usize> PosIdx<N_W, N_B,
             for &count in self.pieces[c][1..].iter() {
                 let count = count as usize;
                 res *= COMBINATIONS[64][count];
-                let n = Self::encode(&pieces[i..i + count]);
+                let n = Self::encode(&pieces[i..i + count], false);
                 res += n;
                 i += count;
             }
@@ -352,13 +372,94 @@ impl<const N_W: usize, const N_B: usize, const SYMMETRY: usize> PosIdx<N_W, N_B,
         res
     }
 
-    fn encode(pieces: &[ChessSquare]) -> usize {
-        debug_assert!(pieces.windows(2).all(|w| w[0].bb_idx() < w[1].bb_idx()));
-        let mut r = 0;
-        for (i, &sq) in pieces.iter().enumerate() {
-            r += COMBINATIONS[sq.bb_idx()][i + 1];
+    fn idx_normalized(self, w_king: ChessSquare) -> usize {
+        self.normalize(w_king).idx()
+    }
+
+    fn from_idx(mut idx: usize, pieces: PieceList) -> Self {
+        assert!(N_W >= N_B);
+        debug_assert_ne!(pieces[White][0] == 0 && pieces[Black][0] == 0, Self::has_pawn());
+        // hopefully, this allows the compiler to optimize better
+        let w_pawns = if Self::has_pawn() { pieces[White][0] as usize } else { 0 };
+        let b_pawns = if Self::has_pawn() { pieces[Black][0] as usize } else { 0 };
+        let mut res = Self::default();
+
+        let mut free_squares = 64;
+        let mut occupied = ChessBitboard::default();
+        let mut i = N_B;
+        let mut arr = [0; MAX_NON_K_PIECES];
+        // TODO: Do the same for pawns
+        // bijection between an index and two squares with sq.0 < sq.1, used for two pieces of the same colored piece type
+        // see <https://en.wikipedia.org/wiki/Combinatorial_number_system>
+        for c in ChessColor::iter().rev() {
+            for &count in pieces[c][1..].iter().rev() {
+                let count = count as usize;
+                let k = match count {
+                    0 => continue,
+                    1 => {
+                        arr[0] = idx % free_squares;
+                        free_squares
+                    }
+                    count => {
+                        let k = COMBINATIONS[free_squares][count];
+                        combinadics::decode_mut(idx % k, count, &mut arr[0..count]);
+                        k
+                    }
+                };
+                // free_squares -= count;
+                idx /= k;
+                let pieces: &mut [ChessSquare] = if c == Black { &mut res.b_nk } else { &mut res.w_nk };
+                i -= count;
+                for j in 0..count {
+                    let n = arr[j]; // ith_one_u64(arr[j], !occupied.raw()); // only works for querying, not when computing tables
+                    pieces[i + j] = ChessSquare::from_bb_idx(n);
+                    occupied |= pieces[i + j].bb();
+                }
+            }
+            debug_assert_eq!(i, pieces[c][0] as usize);
+            i = N_W;
         }
-        r
+        let n = idx % free_squares;
+        // let n = ith_one_u64(n, !occupied.raw());
+        res.b_king = ChessSquare::from_bb_idx(n);
+        occupied |= res.b_king.bb();
+        idx /= free_squares;
+        // free_squares -= 1;
+        res.wk_idx = idx % Self::num_wk_squares();
+        idx /= Self::num_wk_squares();
+        res.active = ChessColor::from_repr(idx % 2).unwrap();
+        idx /= 2;
+        // pawns give the index in the outer iteration
+        for c in ChessColor::iter().rev() {
+            let pawns: &mut [ChessSquare] = if c == Black { &mut res.b_nk } else { &mut res.w_nk };
+            match if c == White { w_pawns } else { b_pawns } {
+                0 => {}
+                1 => {
+                    let sq = idx % Self::num_pawn_squares();
+                    let sq = if c == White { Self::num_pawn_squares() - 1 - sq } else { sq };
+                    pawns[0] = ChessSquare::from_bb_idx(sq);
+                    idx /= Self::num_pawn_squares();
+                }
+                count => {
+                    let k = COMBINATIONS[Self::num_pawn_squares()][count];
+                    combinadics::decode_mut(idx % k, count, &mut arr[0..count]);
+                    if c == White {
+                        for i in 0..count {
+                            let bb_idx = Self::num_pawn_squares() - 1 - arr[i];
+                            pawns[count - 1 - i] = ChessSquare::from_bb_idx(bb_idx);
+                        }
+                    } else {
+                        for i in 0..count {
+                            pawns[i] = ChessSquare::from_bb_idx(arr[i]);
+                        }
+                    }
+                    idx /= k;
+                }
+            }
+        }
+        debug_assert_eq!(idx, 0);
+        res.pieces = pieces;
+        res
     }
 
     fn normalize(mut self, mut w_king: ChessSquare) -> Self {
@@ -394,10 +495,9 @@ impl<const N_W: usize, const N_B: usize, const SYMMETRY: usize> PosIdx<N_W, N_B,
             }
         }
         for c in ChessColor::iter() {
-            let mut i = self.pieces[c][Pawn as usize] as usize;
+            let mut i = 0;
             let squares: &mut [ChessSquare] = if c == White { &mut self.w_nk } else { &mut self.b_nk };
-            // TODO: Also sort pawns, once supported
-            for &count in self.pieces[c][1..].iter() {
+            for count in self.pieces[c] {
                 if count > 1 {
                     squares[i..i + count as usize].sort_by_key(|sq| sq.bb_idx());
                 }
@@ -421,89 +521,13 @@ impl<const N_W: usize, const N_B: usize, const SYMMETRY: usize> PosIdx<N_W, N_B,
         62 - i
     }
 
-    fn idx_normalized(self, w_king: ChessSquare) -> usize {
-        self.normalize(w_king).idx()
-    }
-
-    fn from_idx(mut idx: usize, pieces: PieceList) -> Self {
-        assert!(N_W >= N_B);
-        debug_assert_ne!(pieces[White][0] == 0 && pieces[Black][0] == 0, Self::has_pawn());
-        // hopefully, this allows the compiler to optimize better
-        let w_pawns = if Self::has_pawn() { pieces[White][0] as usize } else { 0 };
-        let b_pawns = if Self::has_pawn() { pieces[Black][0] as usize } else { 0 };
-        let mut res = Self::default();
-
-        let mut free_squares = 64;
-        let mut occupied = ChessBitboard::default();
-        let mut i = N_B;
-        let mut arr = [0; MAX_NON_K_PIECES];
-        // TODO: Do the same for pawns
-        // bijection between an index and two squares with sq.0 < sq.1, used for two pieces of the same colored piece type
-        // see <https://en.wikipedia.org/wiki/Combinatorial_number_system>
-        for c in ChessColor::iter().rev() {
-            for &count in pieces[c][1..].iter().rev() {
-                let count = count as usize;
-                let k = match count {
-                    0 => continue,
-                    1 => {
-                        let k = free_squares;
-                        arr[0] = idx % k;
-                        k
-                    }
-                    count => {
-                        let k = COMBINATIONS[free_squares][count];
-                        combinadics::decode_mut(idx % k, count, &mut arr[0..count]);
-                        k
-                    }
-                };
-                // free_squares -= count;
-                idx /= k;
-                let pieces: &mut [ChessSquare] = if c == Black { &mut res.b_nk } else { &mut res.w_nk };
-                i -= count;
-                for j in 0..count {
-                    let n = arr[j]; // ith_one_u64(arr[j], !occupied.raw()); // only works for querying, not when computing tables
-                    pieces[i + j] = ChessSquare::from_bb_idx(n);
-                    occupied |= pieces[i + j].bb();
-                }
-            }
-            debug_assert_eq!(i, pieces[c][0] as usize);
-            i = N_W;
-        }
-        let n = idx % free_squares;
-        // let n = ith_one_u64(n, !occupied.raw());
-        res.b_king = ChessSquare::from_bb_idx(n);
-        occupied |= res.b_king.bb();
-        idx /= free_squares;
-        // free_squares -= 1;
-        res.wk_idx = idx % Self::num_wk_squares();
-        idx /= Self::num_wk_squares();
-        res.active = ChessColor::from_repr(idx % 2).unwrap();
-        idx /= 2;
-        // pawns give the index in the outer iteration
-        // todo: rev should be unnecessary once we discard order
-        for b_x in res.b_nk[..b_pawns].iter_mut().rev() {
-            *b_x = ChessSquare::from_bb_idx(idx % Self::num_pawn_squares());
-            idx /= Self::num_pawn_squares();
-        }
-        for w_x in res.w_nk[..w_pawns].iter_mut().rev() {
-            *w_x = ChessSquare::from_bb_idx(64 - 1 - idx % Self::num_pawn_squares());
-            idx /= Self::num_pawn_squares();
-        }
-        debug_assert_eq!(idx, 0);
-        res.pieces = pieces;
-        res
-    }
-
     fn size(pieces: PieceList) -> usize {
         Self::inner_size(pieces) * Self::outer_size(pieces)
     }
 
     fn outer_size(pieces: PieceList) -> usize {
-        match Self::symmetry() {
-            NoPawns => 1,
-            GeneratePawnTable => (1 << (6 * (pieces[White][Pawn as usize] + pieces[Black][Pawn as usize]))),
-            CompactPawnTable => todo!("COMBINATIONS(Self::pawn_square(), white and black pawns)"),
-        }
+        COMBINATIONS[Self::num_pawn_squares()][pieces[White][Pawn as usize] as usize]
+            * COMBINATIONS[Self::num_pawn_squares()][pieces[Black][Pawn as usize] as usize]
     }
 
     fn inner_size(pieces: PieceList) -> usize {
@@ -651,19 +675,12 @@ fn value_after<const N_W: usize, const N_B: usize, const SYMMETRY: usize>(
     pieces[piece_i] = dest;
     // ensure piece squares are sorted in ascending order for the same colored piece
     let mut i = piece_i;
-    while i > p.pieces[p.active][0] as usize
-        && nk_pieces[i - 1] == nk_pieces[i]
-        && pieces[i].bb_idx() < pieces[i - 1].bb_idx()
-    {
+    while i > 0 && nk_pieces[i - 1] == nk_pieces[i] && pieces[i].bb_idx() < pieces[i - 1].bb_idx() {
         pieces.swap(i, i - 1);
         i -= 1;
     }
     let mut i = piece_i;
-    while nk_pieces[piece_i] != Pawn
-        && i + 1 < nk_pieces.len()
-        && nk_pieces[i + 1] == nk_pieces[i]
-        && pieces[i].bb_idx() > pieces[i + 1].bb_idx()
-    {
+    while i + 1 < nk_pieces.len() && nk_pieces[i + 1] == nk_pieces[i] && pieces[i].bb_idx() > pieces[i + 1].bb_idx() {
         pieces.swap(i, i + 1);
         i += 1;
     }
@@ -775,8 +792,7 @@ fn step<const N_W: usize, const N_B: usize, const SYMMETRY: usize>(
         return false;
     }
     let res = if r < 0 { -r - 1 } else { -r + 1 };
-    // TODO: early return from previous loops if `res` is -MATED as isize - iteration * 2 + (active == Black). Also,
-    // separate draw and uninit values so that we don't try to compute attacks and look up children
+    // TODO: Separate draw and uninit values so that we don't try to compute attacks and look up children
     // for positions that are already known to be draws
     table[p_i].store(res, Relaxed);
 
