@@ -25,7 +25,7 @@ use crate::general::board::{
     board_from_name, position_fen_part, read_common_fen_part, read_two_move_numbers,
 };
 use crate::general::common::{EntityList, Res, StaticallyNamedEntity, Tokens, parse_int_from_str};
-use crate::general::move_list::{InplaceMoveList, MoveList};
+use crate::general::move_list::InplaceMoveList;
 use crate::general::squares::{RectangularCoordinates, SquareColor};
 use crate::output::OutputOpts;
 use crate::output::text_output::{
@@ -37,7 +37,6 @@ use anyhow::{anyhow, bail, ensure};
 use arbitrary::Arbitrary;
 use colored::Color::Red;
 use colored::Colorize;
-use itertools::Itertools;
 use rand::Rng;
 use rand::prelude::IteratorRandom;
 use std::fmt;
@@ -45,7 +44,6 @@ use std::fmt::{Display, Formatter};
 use std::ops::{Index, IndexMut, Not};
 use std::str::FromStr;
 use std::sync::atomic::AtomicBool;
-use strum::IntoEnumIterator;
 use strum_macros::FromRepr;
 
 pub mod bitbase;
@@ -331,39 +329,99 @@ impl Board for Chessboard {
 
     fn name_to_pos_map() -> EntityList<NameToPos> {
         vec![
-            NameToPos::strict("kiwipete", "r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 0 1"),
-            NameToPos::strict("lucena", "1K1k4/1P6/8/8/8/8/r7/2R5 w - - 0 1"),
-            NameToPos::strict("philidor", "3k4/R7/7r/2KP4/8/8/8/8 w - - 0 1"),
-            NameToPos::strict("lasker-reichhelm", "8/k7/3p4/p2P1p2/P2P1P2/8/8/K7 w - - 0 1"),
-            NameToPos::strict("behting", "8/8/7p/3KNN1k/2p4p/8/3P2p1/8 w - - 0 1"),
-            NameToPos::strict("saavedra", "8/8/1KP5/3r4/8/8/8/k7 w - - 0 1"),
-            NameToPos::strict("mate_in_1", "8/7r/8/K1k5/8/8/4p3/8 b - - 10 11"),
-            NameToPos::strict("draw_in_1", "2B2k2/8/8/5B2/8/8/8/KR6 w - - 99 123"),
-            NameToPos::strict("unusual", "2kb1b2/pR2P1P1/P1N1P3/1p2Pp2/P5P1/1N6/4P2B/2qR2K1 w - f6 99 123"),
-            NameToPos::strict("see_win_pawn", "k6q/3n1n2/3b4/2P1p3/3P1P2/3N1NP1/8/1K6 w - - 0 1"),
-            NameToPos::strict("see_xray", "5q1k/8/8/8/RRQ2nrr/8/8/K7 w - - 0 1"),
-            NameToPos::strict("zugzwang", "6Q1/8/8/7k/8/8/3p1pp1/3Kbrrb w - - 26 14"),
-            NameToPos::strict("puzzle", "rk6/p1r3p1/P3B1Kp/1p2B3/8/8/8/8 w - - 0 1"),
+            NameToPos::desc(
+                "kiwipete",
+                "r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 0 1",
+                "Widely used test position",
+            ),
+            NameToPos::desc(
+                "lucena",
+                "1K1k4/1P6/8/8/8/8/r7/2R5 w - - 0 1",
+                "Theoretical endgame position, won for white",
+            ),
+            NameToPos::desc("philidor", "3k4/R7/7r/2KP4/8/8/8/8 w - - 0 1", "Theoretical endgame position, a draw"),
+            NameToPos::desc(
+                "lasker-reichhelm",
+                "8/k7/3p4/p2P1p2/P2P1P2/8/8/K7 w - - 0 1",
+                "Endgame study with corresponding squares, won for white",
+            ),
+            NameToPos::desc(
+                "behting",
+                "8/8/7p/3KNN1k/2p4p/8/3P2p1/8 w - - 0 1",
+                "Chess study; supposedly difficult for engines. A draw",
+            ),
+            NameToPos::desc("saavedra", "8/8/1KP5/3r4/8/8/8/k7 w - - 0 1", "Well-known endgame study, won for white"),
+            NameToPos::desc(
+                "mate_in_1",
+                "8/7r/8/K1k5/8/8/4p3/8 b - - 10 11",
+                "A very simple test position where white can win in 1",
+            ),
+            NameToPos::desc(
+                "draw_in_1",
+                "2B2k2/8/8/5B2/8/8/8/KR6 w - - 99 123",
+                "A test position where every move leads to a draw",
+            ),
+            NameToPos::desc(
+                "unusual",
+                "2kb1b2/pR2P1P1/P1N1P3/1p2Pp2/P5P1/1N6/4P2B/2qR2K1 w - f6 99 123",
+                "A test position for move generation",
+            ),
+            NameToPos::desc(
+                "see_win_pawn",
+                "k6q/3n1n2/3b4/2P1p3/3P1P2/3N1NP1/8/1K6 w - - 0 1",
+                "A test position for SEE",
+            ),
+            NameToPos::desc("see_xray", "5q1k/8/8/8/RRQ2nrr/8/8/K7 w - - 0 1", "Another test position for SEE"),
+            NameToPos::desc(
+                "zugzwang",
+                "6Q1/8/8/7k/8/8/3p1pp1/3Kbrrb w - - 26 14",
+                "A test position for NMP; mate in 4",
+            ),
+            NameToPos::desc(
+                "puzzle",
+                "rk6/p1r3p1/P3B1Kp/1p2B3/8/8/8/8 w - - 0 1",
+                "A somewhat difficult position, mate in 5",
+            ),
             // still very difficult for caps-lite to solve
-            NameToPos::strict("mate_in_16", "1r1q1r2/5pk1/p2p1Np1/2pBp2p/1p2P2P/2PP2P1/1P1Q4/2K2R1b w - - 0 29"),
+            NameToPos::desc(
+                "mate_in_16",
+                "1r1q1r2/5pk1/p2p1Np1/2pBp2p/1p2P2P/2PP2P1/1P1Q4/2K2R1b w - - 0 29",
+                "Another somewhat difficult position, won for white",
+            ),
             NameToPos {
                 name: "futile",
                 fen: "1k6/1p1p1p1p/pPpPpPpP/P1P1P1P1/1B1R3B/1R3RR1/1B2R3/1K1R1RB1 w - - 18 10",
+                description: Some(
+                    "A completely unrealistic position that's a draw despite crushing material advantage",
+                ),
                 strictness: Relaxed,
             },
-            NameToPos::strict("captures", "r1n1n1b1/1P1P1P1P/1N1N1N2/2RnQrRq/2pKp3/3BNQbQ/k7/4Bq2 w - - 0 1"),
-            NameToPos::strict("check", "3rB2k/2P1P3/1NQ1QN2/2Q1QN2/2Q1Q3/1R3R2/3K1B2/8 w - - 0 1"),
+            NameToPos::desc(
+                "captures",
+                "r1n1n1b1/1P1P1P1P/1N1N1N2/2RnQrRq/2pKp3/3BNQbQ/k7/4Bq2 w - - 0 1",
+                "An unrealistic position with very many captures, can cause qsearch to explode in some engines",
+            ),
+            NameToPos::desc(
+                "check",
+                "3rB2k/2P1P3/1NQ1QN2/2Q1QN2/2Q1Q3/1R3R2/3K1B2/8 w - - 0 1",
+                "An unrealistic position where white has many moves despite being in check",
+            ),
             NameToPos {
                 name: "many_moves",
-                fen: "QQQQQQBk/Q6B/Q6Q/Q6Q/Q6Q/Q6Q/Q6Q/KQQQQQQQ w - - 0 1",
+                fen: "QQQQQQBk/Q5RB/Q6Q/Q6Q/Q6Q/Q6Q/Q6Q/KQQQQQQQ w - - 0 1",
+                description: Some("Relaxed position with the maximum possible number of legal moves, 271"),
                 strictness: Relaxed,
             },
-            NameToPos::strict("long_check_sequence", "4r1Q1/B2nr3/5b2/8/4p3/4KbNq/ppppppp1/RR3Nkn w - - 0 1"),
+            NameToPos::desc(
+                "long_check_sequence",
+                "4r1Q1/B2nr3/5b2/8/4p3/4KbNq/ppppppp1/RR3Nkn w - - 0 1",
+                "Position with the longest known sequence of checks, 37 plies in a row",
+            ),
         ]
     }
 
-    fn bench_positions() -> Vec<Self> {
-        let fens = [
+    fn bench_positions() -> impl IntoIterator<Item = Self> {
+        let fens = &[
             // fens from Stormphrax, ultimately from bitgenie, with some new fens.
             "r3k2r/2pb1ppp/2pp1q2/p7/1nP1B3/1P2P3/P2N1PPP/R2QK2R w KQkq - 0 14",
             "4rrk1/2p1b1p1/p1p3q1/4p3/2P2n1p/1P1NR2P/PB3PP1/3R1QK1 b - - 2 24",
@@ -434,9 +492,10 @@ impl Board for Chessboard {
             "1Q2Q3/N2NP1K1/Rn2B3/qQr3n1/1n5N/1P6/4n3/BkN4q w - - 0 1",
             "2n5/1Rp1K1pn/q6Q/1rrr4/k3Br2/7B/1n1N2Q1/1Nn2R2 w - - 0 1",
         ];
-        let mut res = fens.into_iter().map(|fen| Self::from_fen(fen, Strict).unwrap()).collect_vec();
-        res.extend(Self::name_to_pos_map().iter().filter(|e| e.strictness == Strict).map(|e| e.create::<Chessboard>()));
-        res
+        let res = fens.into_iter().map(|fen| Self::from_fen(fen, Strict).unwrap());
+        let other =
+            Self::name_to_pos_map().into_iter().filter(|e| e.strictness == Strict).map(|e| e.create::<Chessboard>());
+        res.chain(other)
     }
 
     fn random_pos(rng: &mut impl Rng, strictness: Strictness, symmetry: Option<Symmetry>) -> Res<Self> {
@@ -507,15 +566,15 @@ impl Board for Chessboard {
     }
 
     fn default_perft_depth(&self) -> DepthPly {
-        DepthPly::new(5)
+        DepthPly::new(6)
     }
 
-    fn gen_pseudolegal<T: MoveList<Self>>(&self, moves: &mut T) {
-        self.gen_pseudolegal_moves(moves, !self.player_bb(self.active), false)
+    fn gen_pseudolegal(&self, callback: impl FnMut(ChessMove)) {
+        self.gen_pseudolegal_moves::<false>(callback, !self.player_bb(self.active))
     }
 
-    fn gen_tactical_pseudolegal<T: MoveList<Self>>(&self, moves: &mut T) {
-        self.gen_pseudolegal_moves(moves, self.player_bb(self.active.other()), true)
+    fn gen_tactical_pseudolegal(&self, callback: impl FnMut(ChessMove)) {
+        self.gen_pseudolegal_moves::<true>(callback, self.player_bb(self.active.other()))
     }
 
     fn has_no_legal_moves(&self) -> bool {
@@ -545,7 +604,8 @@ impl Board for Chessboard {
     }
 
     fn make_move(self, mov: Self::Move) -> Option<Self> {
-        if !self.is_move_legal(mov) {
+        debug_assert!(self.is_move_pseudolegal_impl(mov));
+        if !self.is_pseudolegal_move_legal(mov) {
             return None;
         }
         Some(self.make_move_impl(mov))
@@ -638,7 +698,7 @@ impl Board for Chessboard {
         settings: ChessSettings,
     ) -> Res<Self> {
         let mut board = Chessboard::empty_for_settings(settings);
-        if strictness == Strict && words.peek().map(|s| *s).unwrap_or_default().contains(|c: char| !c.is_ascii()) {
+        if strictness == Strict && words.peek().copied().unwrap_or_default().contains(|c: char| !c.is_ascii()) {
             bail!("Position description contains a non-ASCII character; this is not allowed in strict mode");
         }
         read_common_fen_part::<Chessboard>(words, &mut board)?;
@@ -739,7 +799,7 @@ impl BitboardBoard for Chessboard {
 }
 
 impl Chessboard {
-    fn remove_piece_unchecked(&mut self, square: ChessSquare, piece: ChessPieceType, color: ChessColor) {
+    fn remove_piece_impl(&mut self, square: ChessSquare, piece: ChessPieceType, color: ChessColor) {
         debug_assert_eq!(
             self.colored_piece_on(square),
             ChessPiece::new(ColoredChessPieceType::new(color, piece), square)
@@ -748,34 +808,23 @@ impl Chessboard {
         self.piece_bbs[piece] ^= bb;
         self.color_bbs[color] ^= bb;
         self.mailbox[square] = Empty;
-        // It's not really clear how to so handle these flags when removing pieces, so we just unset them on a best effort basis
-        if piece == Rook {
-            for side in CastleRight::iter() {
-                if self.castling.rook_start_file(color, side) == square.file() && square.rank() == 7 * color as DimT {
-                    self.castling.unset_castle_right(color, side);
-                }
-            }
-        } else if piece == Pawn && self.ep_square.is_some_and(|sq| sq.pawn_advance_unchecked(color) == square) {
-            self.ep_square = None;
-        }
     }
 
     // doesn't update the mailbox because that doesn't work for chess960 castling
     fn move_piece_no_mailbox(&mut self, from: ChessSquare, to: ChessSquare, piece: ChessPieceType) {
         debug_assert_ne!(piece, Empty);
-        // for a castling move, the rook has already been moved to the square still occupied by the king
         debug_assert!(
-            self.piece_bb(piece).is_bit_set_at(from.bb_idx())
-                || (piece == King && self.piece_bb(Rook).is_bit_set_at(from.bb_idx())),
+            self.piece_bb(piece).is_bit_set_at(from.bb_idx()),
             "{0} {1}",
             self.piece_type_on(from),
             self.colored_piece_on(from).uncolored()
         );
         debug_assert!(
             (self.active_player_bb().is_bit_set_at(from.bb_idx()))
-                // in chess960 castling, it's possible that the rook has been sent to the king square,
-                // which means the color bit of the king square is currently not set
-                || (piece == King && self.piece_bb(Rook).is_bit_set_at(from.bb_idx())),
+                // in chess960 castling, it's possible that the king has been sent to the rook square,
+                // which means the color bit of this square is currently not set
+                || (piece == Rook && self.piece_bb(King).is_bit_set_at(from.bb_idx()))
+                || (piece == King && (self.castling.can_castle(self.active, Kingside) || self.castling.can_castle(self.active, Queenside))),
             "{self}"
         );
         // use ^ instead of | for to merge the from and to bitboards because in chess960 castling,
@@ -1072,14 +1121,17 @@ pub const EDGE_SQUARES: ChessBitboard = ChessBitboard::new(0xff818181818181ff);
 
 #[cfg(test)]
 mod tests {
+    use itertools::Itertools;
     use rand::rng;
     use std::collections::HashSet;
+    use strum::IntoEnumIterator;
 
     use crate::games::chess::squares::{B_FILE_NUM, E_FILE_NUM, F_FILE_NUM, G_FILE_NUM, H_FILE_NUM};
     use crate::games::{BoardHistDyn, Coordinates, NoHistory, ZobristHistory, char_to_file};
     use crate::general::board::RectangularBoard;
     use crate::general::board::Strictness::Relaxed;
     use crate::general::moves::Move;
+    use crate::general::perft::Bulkness::{Bulk, NoBulk};
     use crate::general::perft::perft;
     use crate::search::DepthPly;
 
@@ -1223,8 +1275,11 @@ mod tests {
         assert!(Chessboard::from_fen(fen, Relaxed).is_err());
         let fen = "1nbqkbnr/ppppppp1/8/r5Pp/6K1/8/PPPP1PPP/RNBQ1BNR w k - 0 2";
         assert!(Chessboard::from_fen(fen, Strict).is_ok());
-        let fen = "♜♞♝♛♚♝♞♜/♟♟♟♟♟♟♟♟/8/8/8/8/♙♙♙♙♙♙♙♙/♖♘♗♕♔♗♘♖ w KQkq - 0 1";
-        assert_eq!(Chessboard::from_fen(fen, Relaxed).unwrap(), Chessboard::startpos());
+        let fen = "♜♞♝♛♚♝♞♜/♟♟♟♟♟♟♟♟/8/8/4♙3/8/♙♙♙♙1♙♙♙/♖♘♗♕♔♗♘♖ b KQkq - 0 1";
+        assert_eq!(
+            Chessboard::from_fen(fen, Relaxed).unwrap(),
+            Chessboard::startpos().make_move_from_str("e4").unwrap()
+        );
         assert!(Chessboard::from_fen(fen, Strict).is_err());
     }
 
@@ -1235,7 +1290,7 @@ mod tests {
         let board = Chessboard::from_fen(fen, Relaxed).unwrap();
         let moves = board.pseudolegal_moves();
         assert_eq!(moves.len(), 265);
-        let perft_res = perft(DepthPly::new(1), board, false);
+        let perft_res = perft(DepthPly::new(1), board, false, NoBulk);
         assert_eq!(perft_res.nodes, 265);
     }
 
@@ -1243,41 +1298,41 @@ mod tests {
     fn simple_perft_test() {
         let endgame_fen = "6k1/8/6K1/8/3B1N2/8/8/7R w - - 0 1";
         let board = Chessboard::from_fen(endgame_fen, Relaxed).unwrap();
-        let perft_res = perft(DepthPly::new(1), board, false);
+        let perft_res = perft(DepthPly::new(1), board, false, NoBulk);
         assert_eq!(perft_res.depth, DepthPly::new(1));
         assert_eq!(perft_res.nodes, 5 + 7 + 13 + 14);
         assert!(perft_res.time.as_millis() <= 1);
         let board = Chessboard::default();
-        let perft_res = perft(DepthPly::new(1), board, true);
+        let perft_res = perft(DepthPly::new(1), board, true, Bulk);
         assert_eq!(perft_res.depth, DepthPly::new(1));
         assert_eq!(perft_res.nodes, 20);
         assert!(perft_res.time.as_millis() <= 2);
-        let perft_res = perft(DepthPly::new(2), board, false);
+        let perft_res = perft(DepthPly::new(2), board, false, NoBulk);
         assert_eq!(perft_res.depth, DepthPly::new(2));
         assert_eq!(perft_res.nodes, 20 * 20);
         assert!(perft_res.time.as_millis() <= 20);
 
         let board =
             Chessboard::from_fen("r1bqkbnr/1pppNppp/p1n5/8/8/8/PPPPPPPP/R1BQKBNR b KQkq - 0 3", Strict).unwrap();
-        let perft_res = perft(DepthPly::new(1), board, true);
+        let perft_res = perft(DepthPly::new(1), board, true, Bulk);
         assert_eq!(perft_res.nodes, 26);
-        assert_eq!(perft(DepthPly::new(3), board, true).nodes, 16790);
+        assert_eq!(perft(DepthPly::new(3), board, true, NoBulk).nodes, 16790);
 
         let board =
             Chessboard::from_fen("rbbqn1kr/pp2p1pp/6n1/2pp1p2/2P4P/P7/BP1PPPP1/R1BQNNKR w HAha - 0 9", Strict).unwrap();
-        let perft_res = perft(DepthPly::new(4), board, false);
+        let perft_res = perft(DepthPly::new(4), board, false, Bulk);
         assert_eq!(perft_res.nodes, 890_435);
 
         let board =
             Chessboard::from_fen("1nbqkbnr/p1p1pppp/8/rP1pP2K/8/8/1PPP1PPP/RNBQ1BNR b k - 0 3", Strict).unwrap();
-        let perft_res = perft(DepthPly::new(4), board, true);
+        let perft_res = perft(DepthPly::new(4), board, true, Bulk);
         assert_eq!(perft_res.nodes, 839_770);
 
         // DFRC
         let board =
             Chessboard::from_fen("r1q1k1rn/1p1ppp1p/1npb2b1/p1N3p1/8/1BP4P/PP1PPPP1/1RQ1KRBN w BFag - 0 9", Strict)
                 .unwrap();
-        assert_eq!(perft(DepthPly::new(4), board, false).nodes, 1_187_103);
+        assert_eq!(perft(DepthPly::new(4), board, false, Bulk).nodes, 1_187_103);
     }
 
     #[test]
@@ -1402,7 +1457,7 @@ mod tests {
         assert_eq!(pos.ply, 4);
         assert!(pos.debug_verify_invariants(Strict).is_ok());
         assert!(pos.is_in_check());
-        assert!(pos.is_in_check_on_square(White, pos.king_sq(White), &pos.slider_generator()));
+        assert!(pos.is_in_check_on_square(White, pos.king_sq(White), pos.slider_generator()));
         let moves = pos.pseudolegal_moves();
         assert!(moves.is_empty()); // we don't even generate moves anymore here
         let moves = pos.legal_moves_slow();
@@ -1441,7 +1496,7 @@ mod tests {
         let fen = "q2k2q1/2nqn2b/1n1P1n1b/2rnr2Q/1NQ1QN1Q/3Q3B/2RQR2B/Q2K2Q1 w - - 0 1";
         let board = Chessboard::from_fen(fen, Strict).unwrap();
         assert_eq!(board.active, White);
-        assert_eq!(perft(DepthPly::new(3), board, true).nodes, 568_299);
+        assert_eq!(perft(DepthPly::new(3), board, true, Bulk).nodes, 568_299);
         // not a legal chess position, but the board should support this
         let fen = "RRRRRRRR/RRRRRRRR/BBBBBBBB/BBBBBBBB/QQQQQQQQ/QQQQQQQQ/QPPPPPPP/K6k b - - 0 1";
         assert!(Chessboard::from_fen(fen, Strict).is_err());
@@ -1532,19 +1587,19 @@ mod tests {
         let new_pos = pos.make_move_from_str("c5").unwrap();
         assert_eq!(new_pos.ep_square, Some(ChessSquare::from_str("c6").unwrap()));
         _ = new_pos.debug_verify_invariants(Strict).unwrap();
-        let perft = perft(DepthPly::new(4), pos, true);
+        let perft = perft(DepthPly::new(4), pos, true, NoBulk);
         assert_eq!(perft.nodes, 5020);
     }
 
     #[test]
     fn castling_attack_test() {
         let fen = "8/8/8/8/8/8/3♚4/♖♔6 b A - 0 1";
-        let pos = Chessboard::from_fen(fen, Strict).unwrap();
+        let pos = Chessboard::from_fen(fen, Relaxed).unwrap();
         let moves = pos.legal_moves_slow();
         // check that castling moves don't count as attacking squares
         assert!(pos.castling.can_castle(White, Queenside));
         assert_eq!(moves.len(), 6);
-        let attacking = pos.all_attacking(ChessSquare::from_str("d1").unwrap(), &pos.slider_generator());
+        let attacking = pos.all_attacking(ChessSquare::from_str("d1").unwrap(), pos.slider_generator());
         assert_eq!(attacking.num_ones(), 1);
         let fen = "8/8/8/3k4/8/8/8/1KRn4 w C - 0 1";
         let pos = Chessboard::from_fen(fen, Strict).unwrap();

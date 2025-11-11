@@ -506,7 +506,7 @@ impl<B: Board> AbstractGoState for GoState<B> {
     }
 
     fn override_hash(&mut self, words: &mut Tokens) -> Res<()> {
-        self.generic.override_hash_size = Some(parse_int(words, "TT size in MB")?);
+        self.generic.override_hash_size = Some(parse_int(words, "TT size in MiB")?);
         Ok(())
     }
 
@@ -567,6 +567,7 @@ pub struct GenericGoState {
     pub complete: bool,
     pub unique: bool,
     pub compare: bool,
+    pub no_bulk: bool,
     pub move_overhead: Duration,
     pub strictness: Strictness,
     pub override_hash_size: Option<usize>,
@@ -619,6 +620,7 @@ impl<B: Board> GoState<B> {
                 complete: false,
                 unique: false,
                 compare: false,
+                no_bulk: false,
                 move_overhead,
                 strictness,
                 override_hash_size: None,
@@ -636,12 +638,13 @@ impl<B: Board> GoState<B> {
 }
 
 pub(super) fn accept_depth(limit: &mut SearchLimit, words: &mut Tokens) -> Res<()> {
-    if let Some(word) = words.peek() {
-        if let Ok(number) = parse_int_from_str(word, "depth") {
-            limit.depth = DepthPly::try_new(number)?;
-            _ = words.next();
-        }
+    if let Some(word) = words.peek()
+        && let Ok(number) = parse_int_from_str(word, "depth")
+    {
+        limit.depth = DepthPly::try_new(number)?;
+        _ = words.next();
     }
+
     Ok(())
 }
 
@@ -670,7 +673,17 @@ pub(super) fn go_options_impl(
     color_names: [String; 2],
 ) -> CommandList {
     let mut res = vec![depth_cmd()];
-    if !matches!(mode.unwrap_or(Normal), Perft | SplitPerft) {
+    if matches!(mode.unwrap_or(Normal), Perft | SplitPerft) {
+        res.push(command!(
+            threads | t,
+            Custom,
+            "The only valid number is '1' to disable multithreading",
+            |state, words, _| {
+                state.go_state_mut().get_mut().threads = Some(parse_int(words, "threads")?);
+                Ok(())
+            }
+        ));
+    } else {
         let mut additional: CommandList = vec![
             Command {
                 primary_name: format!("{}time", color_chars[0]),
@@ -886,6 +899,17 @@ pub(super) fn go_options_impl(
             }
         );
         res.push(c);
+    }
+    if mode.is_none_or(|m| [Perft, SplitPerft].contains(&m)) {
+        res.push(command!(
+            no_bulk,
+            Custom,
+            "Turn off (pseudo) bulk counting in perft/splitperft; this makes it slower",
+            |state, _words, _| {
+                state.go_state_mut().get_mut().no_bulk = true;
+                Ok(())
+            }
+        ));
     }
     res
 }

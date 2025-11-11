@@ -17,9 +17,9 @@
  */
 #![no_main]
 
-use gears::games::chess::moves::ChessMove;
 use gears::games::chess::Chessboard;
-use gears::general::board::{Board, BoardHelpers};
+use gears::games::chess::moves::ChessMove;
+use gears::general::board::Board;
 use libfuzzer_sys::fuzz_target;
 
 fuzz_target!(|data: ChessMove| {

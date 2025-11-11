@@ -304,8 +304,8 @@ impl<B: Board> InputThread<B> {
             .as_ref()
             .map(|c| c.color)
             .ok_or_else(|| anyhow!("The engine '{engine_name}' is not currently playing in a match"));
-        if let Some(command) = words.next() {
-            if let Err(err) = match status {
+        if let Some(command) = words.next()
+            && let Err(err) = match status {
                 ThinkingSince(_) => Self::handle_ugi_active_state(command, words.clone(), &mut client, c?),
                 // In the idle or sync state, it's possible that the engine isn't participating in a match, so don't use the color to refer to it.
                 Idle => Self::handle_ugi_idle_state(command, words.clone(), &mut client, self.id),
@@ -316,12 +316,12 @@ impl<B: Board> InputThread<B> {
                 Halt(handle_bestmove) => {
                     Self::handle_ugi_halt_state(command, words.clone(), &mut client, c?, handle_bestmove)
                 }
-            } {
-                bail!(
-                    "Invalid UGI message ('{ugi_str}') from engine '{engine_name}' while in state {status}: {err}",
-                    ugi_str = tokens_to_string(command, words).red()
-                )
             }
+        {
+            bail!(
+                "Invalid UGI message ('{ugi_str}') from engine '{engine_name}' while in state {status}: {err}",
+                ugi_str = tokens_to_string(command, words).red()
+            )
         }
         // Empty uci commands should be ignored, according to the spec
         Ok(client.match_state().status.clone())

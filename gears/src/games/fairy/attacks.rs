@@ -826,6 +826,11 @@ impl UnverifiedFairyBoard {
                 ensure!(self.is_empty(ep), "The en passant square ('{ep}') must be empty");
                 Some(ep)
             };
+        } else if words.peek().copied() == Some("-") {
+            _ = words.next(); // Some GUIs always send castling and ep as '-' even if the variant doesn't support them
+            if words.peek().copied() == Some("-") && !self.rules().has_castling {
+                _ = words.next();
+            }
         }
         Ok(())
     }

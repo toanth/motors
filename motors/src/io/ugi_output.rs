@@ -580,9 +580,13 @@ pub fn pretty_score(
             return res + "   ";
         }
         // use both `sigmoid - sigmoid` and `sigmoid(diff)` to weight changes close to 0 stronger
-        let x = ((0.5 + 2.0 * (sigmoid(score, 100.0) as f32 - sigmoid(previous, 100.0) as f32))
-            + sigmoid(score - previous, 50.0) as f32)
-            / 2.0;
+        let x = if score.is_won_or_lost() {
+            0.5 + sigmoid(score - previous, 10.0) as f32
+        } else {
+            ((0.5 + 2.0 * (sigmoid(score, 100.0) as f32 - sigmoid(previous, 100.0) as f32))
+                + sigmoid(score - previous, 50.0) as f32)
+                / 2.0
+        };
         let color = gradient.at(x);
         let [r, g, b, _] = color.to_rgba8();
         let diff = score - previous;

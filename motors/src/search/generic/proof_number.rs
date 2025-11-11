@@ -112,7 +112,7 @@ impl<B: Board> ProofNumberSearcher<B> {
         // TODO: Collect into arrayvec or similar instead, or better use the smallvec crate, also for some movelists
         let nodes = self.params.atomic.count_node();
         if nodes >= self.limit().nodes.get()
-            || (nodes % DEFAULT_CHECK_TIME_INTERVAL == 0
+            || (nodes.is_multiple_of(DEFAULT_CHECK_TIME_INTERVAL)
                 && (self.start_time.elapsed() >= self.params.limit.fixed_time || self.params.atomic.stop_flag()))
         {
             return None;
@@ -303,9 +303,7 @@ impl<B: Board> AbstractSearchState<B> for ProofNumberSearcher<B> {
     }
 
     fn to_search_info(&self, final_info: bool) -> SearchInfo<'_, B> {
-        let mut res = SearchInfo::default();
-        res.final_info = final_info;
-        res
+        SearchInfo { final_info, ..Default::default() }
     }
 
     fn aggregated_statistics(&self) -> Statistics {

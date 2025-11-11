@@ -21,7 +21,7 @@ use crate::general::board::{
 };
 use crate::general::common::*;
 use crate::general::hq::BitReverseSliderGenerator;
-use crate::general::move_list::{InplaceMoveList, MoveList};
+use crate::general::move_list::InplaceMoveList;
 use crate::general::moves::Legality::Legal;
 use crate::general::moves::{Legality, Move, UntrustedMove};
 use crate::general::squares::{GridCoordinates, GridSize, RectangularCoordinates, SquareColor};
@@ -534,12 +534,22 @@ impl Board for MNKBoard {
 
     fn name_to_pos_map() -> EntityList<NameToPos> {
         vec![
-            NameToPos { name: "large", fen: "11 11 4 11/11/11/11/11/11/11/11/11/11/11 x", strictness: Relaxed },
-            NameToPos { name: "tictactoe", fen: "3 3 3 3/3/3 x 1", strictness: Strict },
+            NameToPos {
+                name: "large",
+                description: Some("Starting position on a large board"),
+                fen: "11 11 4 11/11/11/11/11/11/11/11/11/11/11 x",
+                strictness: Relaxed,
+            },
+            NameToPos {
+                name: "tictactoe",
+                fen: "3 3 3 3/3/3 x 1",
+                description: Some("Starting position of Tic-Tac-Toe"),
+                strictness: Strict,
+            },
         ]
     }
 
-    fn bench_positions() -> Vec<Self> {
+    fn bench_positions() -> impl IntoIterator<Item = Self> {
         let fens = &[
             "3 3 3 3/3/3 x",
             "5 5 4 X4/5/O2X1/O1X2/O4 x",
@@ -553,7 +563,7 @@ impl Board for MNKBoard {
             "10 8 5 2X3X1/X4O1X/2OXO2O/O1OO4/1X2X3/X2O2X1/OXOOXO1O/1X1XOO1X/5XO1/XOX1O2X x",
             "10 12 5 12/9X2/12/3O1O2X3/6OO4/4X2X4/3X8/O2O2X4X/4X4O2/12 o",
         ];
-        fens.map(|f| Self::from_fen(f, Relaxed).unwrap()).into_iter().collect()
+        fens.map(|f| Self::from_fen(f, Relaxed).unwrap()).into_iter()
     }
 
     fn random_pos(rng: &mut impl Rng, strictness: Strictness, symmetry: Option<Symmetry>) -> Res<Self> {
@@ -642,7 +652,7 @@ impl Board for MNKBoard {
         self.last_move_won_game()
     }
 
-    fn gen_pseudolegal<T: MoveList<Self>>(&self, moves: &mut T) {
+    fn gen_pseudolegal(&self, mut callback: impl FnMut(Self::Move)) {
         let mut empty = self.empty_bb();
         while empty.has_any() {
             let idx = empty.pop_lsb();
@@ -650,11 +660,11 @@ impl Board for MNKBoard {
                 break; // TODO: Necessary?
             }
             let next_move = FillSquare { target: self.idx_to_coordinates(idx as DimT) };
-            moves.add_move(next_move);
+            callback(next_move);
         }
     }
 
-    fn gen_tactical_pseudolegal<T: MoveList<Self>>(&self, _moves: &mut T) {
+    fn gen_tactical_pseudolegal(&self, _callback: impl FnMut(FillSquare)) {
         // currently, no moves are considered tactical
     }
 
@@ -956,6 +966,7 @@ impl UnverifiedBoard<MNKBoard> for UnverifiedMnkBoard {
 #[cfg(test)]
 mod test {
     use crate::general::board::Strictness::Relaxed;
+    use crate::general::perft::Bulkness::{Bulk, NoBulk};
     use crate::general::perft::{perft, split_perft};
     use crate::search::DepthPly;
 
@@ -1046,7 +1057,7 @@ mod test {
             assert!(board.x_bb().is_single_piece());
             if k == 1 {
                 assert!(board.last_move_won_game());
-                assert_eq!(perft(DepthPly::new(1), board, false).nodes, 0);
+                assert_eq!(perft(DepthPly::new(1), board, false, Bulk).nodes, 0);
             } else {
                 assert_eq!(board.pseudolegal_moves().len() + 1, board.num_squares());
             }
@@ -1055,7 +1066,7 @@ mod test {
 
     #[test]
     fn perft_startpos_test() {
-        let r = perft(DepthPly::new(1), MNKBoard::default(), true);
+        let r = perft(DepthPly::new(1), MNKBoard::default(), true, NoBulk);
         assert_eq!(r.depth.get(), 1);
         assert_eq!(r.nodes, 9);
         assert!(r.time.as_millis() <= 1); // 1 ms should be far more than enough even on a very slow device
@@ -1063,12 +1074,17 @@ mod test {
             DepthPly::new(2),
             MNKBoard::empty_for_settings(MnkSettings::new(Height(8), Width(12), 2)),
             true,
+            Bulk,
         );
         assert_eq!(r.perft_res.depth.get(), 2);
         assert_eq!(r.perft_res.nodes, 96 * 95);
         assert!(r.children.iter().all(|x| x.1 == r.children[0].1));
-        let r =
-            split_perft(DepthPly::new(3), MNKBoard::empty_for_settings(MnkSettings::new(Height(4), Width(3), 3)), true);
+        let r = split_perft(
+            DepthPly::new(3),
+            MNKBoard::empty_for_settings(MnkSettings::new(Height(4), Width(3), 3)),
+            true,
+            Bulk,
+        );
         assert_eq!(r.perft_res.depth.get(), 3);
         assert_eq!(r.perft_res.nodes, 12 * 11 * 10);
         assert!(r.children.iter().all(|x| x.1 == r.children[0].1));
@@ -1076,13 +1092,14 @@ mod test {
             DepthPly::new(5),
             MNKBoard::empty_for_settings(MnkSettings::new(Height(5), Width(5), 5)),
             false,
+            Bulk,
         );
         assert_eq!(r.perft_res.depth.get(), 5);
         assert_eq!(r.perft_res.nodes, 25 * 24 * 23 * 22 * 21);
         assert!(r.children.iter().all(|x| x.1 == r.children[0].1));
         assert!(r.perft_res.time.as_millis() <= 10_000);
 
-        let r = split_perft(DepthPly::new(9), MNKBoard::startpos_for_settings(MnkSettings::titactoe()), true);
+        let r = split_perft(DepthPly::new(9), MNKBoard::startpos_for_settings(MnkSettings::titactoe()), true, Bulk);
         assert_eq!(r.perft_res.depth.get(), 9);
         assert!(r.perft_res.nodes >= 100_000);
         assert!(r.perft_res.nodes <= 9 * 8 * 7 * 6 * 5 * 4 * 3 * 2);
@@ -1093,19 +1110,19 @@ mod test {
         assert!(r.perft_res.time.as_millis() <= 4000);
 
         let board = MNKBoard::empty_for_settings(MnkSettings::new(Height(2), Width(2), 2));
-        let r = split_perft(DepthPly::new(3), board, false);
+        let r = split_perft(DepthPly::new(3), board, false, Bulk);
         assert_eq!(r.perft_res.depth.get(), 3);
         assert_eq!(r.perft_res.nodes, 2 * 3 * 4);
         assert!(r.children.iter().all(|x| x.1 == 2 * 3));
         assert!(r.perft_res.time.as_millis() <= 10);
-        let r = perft(DepthPly::new(4), board, true);
+        let r = perft(DepthPly::new(4), board, true, NoBulk);
         assert_eq!(r.depth.get(), 4);
         assert_eq!(r.nodes, 0);
 
         let board = MNKBoard::empty_for_settings(MnkSettings::new(Height(6), Width(7), 4));
         let expected = [1, 42, 42 * 41, 42 * 41 * 40];
         for (i, e) in expected.into_iter().enumerate() {
-            let r = perft(DepthPly::new(i), board, false);
+            let r = perft(DepthPly::new(i), board, false, Bulk);
             assert_eq!(r.nodes, e);
             assert_eq!(r.depth, DepthPly::new(i));
         }

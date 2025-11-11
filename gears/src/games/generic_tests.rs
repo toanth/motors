@@ -108,7 +108,7 @@ impl<B: Board> GenericTests<B> {
     }
 
     fn basic_test() {
-        assert!(!B::bench_positions().is_empty());
+        assert!(B::bench_positions().into_iter().count() > 0);
         for pos in B::bench_positions() {
             println!("{pos}");
             let ply = pos.halfmove_ctr_since_start();

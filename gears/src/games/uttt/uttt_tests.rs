@@ -22,6 +22,7 @@ use crate::games::uttt::uttt_square::UtttSquare;
 use crate::games::uttt::{UnverifiedUtttBoard, UtttBoard, UtttMove, UtttSubSquare};
 use crate::general::board::Strictness::Strict;
 use crate::general::board::{Board, BoardHelpers, UnverifiedBoard};
+use crate::general::perft::Bulkness::Bulk;
 use crate::general::perft::perft;
 use crate::search::DepthPly;
 use rand::SeedableRng;
@@ -35,7 +36,7 @@ fn perft_tests() {
         println!("{pos}");
         let n = if cfg!(debug_assertions) { 7 } else { 100 };
         for (depth, nodes) in perft_res.iter().enumerate().take(n) {
-            let res = perft(DepthPly::new(depth), pos, false);
+            let res = perft(DepthPly::new(depth), pos, false, Bulk);
             assert_eq!(res.nodes, *nodes, "{fen}, depth {depth}: {0} should be {1}", res.nodes, *nodes);
         }
         let mut rng = StdRng::seed_from_u64(seed);

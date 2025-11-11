@@ -64,6 +64,7 @@ impl U128BitReverseHq {
 }
 
 #[cfg(feature = "chess")]
+#[derive(Debug, Copy, Clone)]
 pub struct ChessSliderGenerator {
     blockers: U64AndRev,
 }
@@ -457,6 +458,7 @@ const _: () = assert!(Horizontal as usize == 0);
 // This only depends on the width, not the height, which means that bits above the border of the board can be set.
 // However, these bitboards are always eventually combined with a blocker bitboard using `&`, which clears those bits
 // This needs 16 * 2 * 5 * 128 * 27 = 540 KiB
+// TODO: Generate on demand for the required width instead of precomputing?
 static BIT_REVERSE_HQ_DATA: [[U128BitReverseHq; 128]; MAX_WIDTH] = {
     let mut res = [[U128BitReverseHq::zeroed(); 128]; MAX_WIDTH];
     let mut width = 1;

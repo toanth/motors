@@ -22,13 +22,14 @@ use crate::games::chess::pieces::ColoredChessPieceType::{BlackKing, WhiteKing};
 use crate::games::chess::pieces::{ChessPiece, ChessPieceType, ColoredChessPieceType};
 use crate::games::chess::squares::{ChessSquare, ChessboardSize};
 use crate::games::chess::{ChessColor, ChessSettings, Chessboard};
-use crate::games::{Color, ColoredPiece, ColoredPieceType, Coordinates};
+use crate::games::{Color, ColoredPiece, ColoredPieceType, Coordinates, DimT, PosHash};
 use crate::general::bitboards::chessboard::ChessBitboard;
-use crate::general::bitboards::{Bitboard, RawBitboard};
+use crate::general::bitboards::{Bitboard, KnownSizeBitboard, RawBitboard};
 use crate::general::board::SelfChecks::{Assertion, CheckFen};
 use crate::general::board::Strictness::Strict;
 use crate::general::board::{BitboardBoard, Board, BoardHelpers, SelfChecks, Strictness, Symmetry, UnverifiedBoard};
 use crate::general::common::{Res, ith_one_u64};
+use crate::general::hq::ChessSliderGenerator;
 use crate::general::squares::RectangularCoordinates;
 use anyhow::{bail, ensure};
 use rand::Rng;
@@ -79,7 +80,7 @@ impl UnverifiedBoard<Chessboard> for UnverifiedChessboard {
                 this.col_piece_bb(color, King).is_single_piece(),
                 "The {color} player does not have exactly one king"
             );
-            if this.col_piece_bb(color, Pawn).intersects(ChessBitboard::backranks_for(ChessboardSize::default())) {
+            if this.col_piece_bb(color, Pawn).intersects(ChessBitboard::backranks()) {
                 bail!("The {color} player has a pawn on the first or eight rank")
             }
         }
@@ -146,7 +147,7 @@ impl UnverifiedBoard<Chessboard> for UnverifiedChessboard {
 
         let inactive_player = this.active.other();
         let generator = this.slider_generator();
-        if this.is_in_check_on_square(inactive_player, this.king_sq(inactive_player), &generator) {
+        if this.is_in_check_on_square(inactive_player, this.king_sq(inactive_player), generator) {
             bail!("{inactive_player} is in check, but it's not their turn to move");
         }
         this.set_checkers_and_pinned();
@@ -185,7 +186,19 @@ impl UnverifiedBoard<Chessboard> for UnverifiedChessboard {
 
     fn remove_piece(&mut self, sq: ChessSquare) {
         let piece = self.0.colored_piece_on(sq);
-        self.0.remove_piece_unchecked(sq, piece.symbol.uncolor(), piece.color().unwrap());
+        let color = piece.color().unwrap();
+        let piece = piece.symbol.uncolor();
+        self.0.remove_piece_impl(sq, piece, color);
+        // It's not really clear how to so handle these flags when removing pieces, so we just unset them on a best effort basis
+        if piece == Rook {
+            for side in CastleRight::iter() {
+                if self.0.castling.rook_start_file(color, side) == sq.file() && sq.rank() == 7 * color as DimT {
+                    self.0.castling.unset_castle_right(color, side);
+                }
+            }
+        } else if piece == Pawn && self.0.ep_square.is_some_and(|sq| sq.pawn_advance_unchecked(color) == sq) {
+            self.0.ep_square = None;
+        }
     }
 
     fn piece_on(&self, coords: ChessSquare) -> ChessPiece {
@@ -240,6 +253,25 @@ impl Chessboard {
             )
         }
         let active = self.active_player();
+        // Not handling this here would cause us to not emit ep moves even though we think that the ep square is set
+        match self.checkers.num_ones() {
+            0 => {}
+            1 => {
+                let blockers_before = (self.occupied_bb() & !remove_pawn_sq.bb()) | pawn_origin_sq.bb();
+                let sliders = ChessSliderGenerator::new(blockers_before);
+                let attacks_before = self.all_attacking(self.king_sq(active), sliders);
+                if !(attacks_before & self.player_bb(inactive) & !remove_pawn_sq.bb()).is_zero() {
+                    bail!(
+                        "The en passant square is set, but the {active} king has been in check before the double pawn push"
+                    )
+                }
+            }
+            _ => bail!(
+                "The en passant square is set, but there is more than one checker.\
+                This means the {active} king has been in check before the double pawn push."
+            ),
+        }
+
         // In the current version of the FEN standard, the ep square should only be set if a pawn can legally capture.
         // This implementation follows that rule, but many other implementations give the ep square after every double pawn push.
         // To achieve consistent results, such an incorrect ep square is removed when parsing the FEN, this is the only case
@@ -255,8 +287,11 @@ impl Chessboard {
             self.ep_square = None;
             return Ok(());
         }
-        let legal_ep = self.legal_moves_slow().iter().any(|m| m.is_ep());
-        if !legal_ep {
+        // an ep capture while in check is only legal if we're in check from the captured pawn.
+        // a position where the capturing pawn would block a slider check is unreachable.
+        let ep_legal = self.calc_ep_sq(remove_pawn_sq, &mut PosHash(0), active).is_some()
+            && !self.checkers.intersects(!remove_pawn_sq.bb());
+        if !ep_legal {
             if strictness == Strict || checks != CheckFen {
                 bail!(
                     "The en passant square is set, but even though there is a pseudolegal ep capture move, it is not legal \

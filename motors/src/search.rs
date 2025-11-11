@@ -921,6 +921,9 @@ impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo<B>> AbstractSearchState<B> 
         if num_moves == 1 && parameters.limit.is_only_time_based() {
             parameters.limit.depth = DepthPly::new(1);
         }
+        if let Some(mut output) = self.params.thread_type.output() {
+            output.new_search();
+        }
         self.params = parameters;
         // it's possible that a stop command has already been received and handled, which means the stop flag
         // can already be set
@@ -1268,7 +1271,6 @@ fn single_bench<B: Board>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use gears::general::board::BoardHelpers;
     use gears::general::moves::Move;
 
     // A testcase that any engine should pass

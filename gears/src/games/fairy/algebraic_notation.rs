@@ -28,7 +28,7 @@ use crate::games::{
     AbstractPieceType, CharType, Color, ColoredPiece, ColoredPieceType, DimT, NoHistory, char_to_file, file_to_char,
 };
 use crate::general::bitboards::{Bitboard, RawBitboard};
-use crate::general::board::{BitboardBoard, Board, BoardHelpers, RectangularBoard, UnverifiedBoard};
+use crate::general::board::{BitboardBoard, Board, RectangularBoard, UnverifiedBoard};
 use crate::general::common::{Res, parse_int_from_str};
 use crate::general::moves::ExtendedFormat::Standard;
 use crate::general::moves::{ExtendedFormat, Move};
@@ -934,6 +934,7 @@ mod tests {
     use crate::general::board::Strictness::Strict;
     use crate::general::moves::ExtendedFormat::{Alternative, Standard};
     use crate::general::moves::Move;
+    use crate::general::perft::Bulkness::Bulk;
     use crate::general::perft::perft;
     use crate::output::pgn::parse_pgn;
     use crate::search::DepthPly;
@@ -1066,7 +1067,7 @@ Na3 ♞a6 2. ♘a3c4 a6c5 3. Na5 Nb3 4. Nc6 Ng8-f6 5. Nf3 Ne4 6. Nh4 Ng5 7. Ng6 
         let data = parse_pgn::<FairyBoard>(pgn, Strict, None).unwrap();
         let pos = data.game.board;
         assert_eq!(pos.fen_no_rules(), "rQ1Q1Q2/q6k/3Q3b/q5QK/1Q1Q1B2/6q1/1Q1q4/qqqQq1qR b - - 0 64");
-        let perft_res = perft(DepthPly::new(3), pos, true);
+        let perft_res = perft(DepthPly::new(3), pos, true, Bulk);
         assert_eq!(perft_res.nodes, 492194);
     }
 }

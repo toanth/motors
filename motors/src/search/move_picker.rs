@@ -16,7 +16,7 @@ impl<B: Board> Copy for ScoredMove<B> {}
 
 impl<B: Board> PartialOrd for ScoredMove<B> {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        Some(self.0.cmp(&other.0))
+        Some(self.cmp(other))
     }
 }
 
@@ -105,7 +105,7 @@ impl<B: Board, E: Engine<B>, const MAX_LEN: usize, Scorer: MoveScorer<B, E>> Mov
         }
     }
 
-    fn filter_moves<F: Fn(&mut B::Move) -> bool>(&mut self, predicate: F) {
+    fn filter_moves(&mut self, predicate: impl Fn(&mut B::Move) -> bool) {
         self.list.retain(|sm| predicate(&mut sm.mov()));
     }
 }
@@ -128,7 +128,7 @@ pub struct MovePicker<'a, B: Board, const MAX_LEN: usize> {
 impl<'a, B: Board, const MAX_LEN: usize> MovePicker<'a, B, MAX_LEN> {
     /// Assumes that better moves have a *higher* score.
     pub fn new(pos: &'a B, best: B::Move, tactical_only: bool) -> Self {
-        let state = if pos.is_generated_move_pseudolegal(best) && (!tactical_only || best.is_tactical(&pos)) {
+        let state = if pos.is_generated_move_pseudolegal(best) && (!tactical_only || best.is_tactical(pos)) {
             TTMove
         } else {
             List
@@ -158,9 +158,9 @@ impl<'a, B: Board, const MAX_LEN: usize> MovePicker<'a, B, MAX_LEN> {
                     let mut list_scorer =
                         MoveListScorer { list: &mut self.list, scorer, state, excluded: self.tt_move };
                     if self.tactical_only {
-                        self.pos.gen_tactical_pseudolegal(&mut list_scorer);
+                        self.pos.gen_tactical_pseudolegal(|m| list_scorer.add_move(m));
                     } else {
-                        self.pos.gen_pseudolegal(&mut list_scorer);
+                        self.pos.gen_pseudolegal(|m| list_scorer.add_move(m));
                     }
                     self.ignored_prefix = 0;
                 }
@@ -180,7 +180,7 @@ impl<'a, B: Board, const MAX_LEN: usize> MovePicker<'a, B, MAX_LEN> {
 
     fn next_from_list<E: Engine<B>, Scorer: MoveScorer<B, E>>(&mut self, scorer: &Scorer) -> Option<ScoredMove<B>> {
         loop {
-            let idx = self.list[self.ignored_prefix..].into_iter().position_max()? + self.ignored_prefix;
+            let idx = self.list[self.ignored_prefix..].iter().position_max()? + self.ignored_prefix;
             if scorer.defer_playing_move(self.list[idx].mov()) {
                 self.list.swap(self.ignored_prefix, idx);
                 self.ignored_prefix += 1;
@@ -204,7 +204,7 @@ mod tests {
     use crate::search::MoveScore;
     use crate::search::move_picker::ScoredMove;
     use gears::games::chess::Chessboard;
-    use gears::general::board::{Board, BoardHelpers};
+    use gears::general::board::Board;
     use proptest::proptest;
 
     proptest! {

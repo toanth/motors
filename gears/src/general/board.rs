@@ -52,12 +52,17 @@ use strum_macros::EnumIter;
 pub struct NameToPos {
     pub name: &'static str,
     pub fen: &'static str,
+    pub description: Option<&'static str>,
     pub strictness: Strictness,
 }
 
 impl NameToPos {
     pub fn strict(name: &'static str, fen: &'static str) -> Self {
-        Self { name, fen, strictness: Strict }
+        Self { name, fen, description: None, strictness: Strict }
+    }
+
+    pub fn desc(name: &'static str, fen: &'static str, desc: &'static str) -> Self {
+        Self { name, fen, description: Some(desc), strictness: Strict }
     }
 
     pub fn create<B: Board>(&self) -> B {
@@ -75,7 +80,7 @@ impl NamedEntity for NameToPos {
     }
 
     fn description(&self) -> Option<String> {
-        None
+        self.description.map(|s| s.to_string())
     }
 }
 
@@ -355,7 +360,7 @@ pub trait Board:
     /// `bench` positions are used in various places, such as for testing the engine, measuring search speed, and in calling `bench`
     /// on an engine.
     #[must_use]
-    fn bench_positions() -> Vec<Self>;
+    fn bench_positions() -> impl IntoIterator<Item = Self>;
 
     /// Return a random legal (but `Relaxed`) position. Not every position has to be able to be generated, and there
     /// are no requirements for the distribution of positions. So always returning startpos would be a valid, if poor,
@@ -431,15 +436,31 @@ pub trait Board:
         false
     }
 
-    /// Generate pseudolegal moves into the supplied move list. Generic over the move list to allow arbitrary code
-    /// upon adding moves, such as scoring or filtering the new move.
+    /// Returns a list of pseudolegal moves, that is, moves which can either be played using
+    /// [`Self::make_move`] or which will cause `make_move` to return `None`.
+    /// Note that an implementation is allowed to filter out illegal pseudolegal moves, so this function does not
+    /// guarantee that e.g. all pseudolegal chess moves are being returned.
+    fn pseudolegal_moves(&self) -> Self::MoveList {
+        let mut moves = Self::MoveList::default();
+        self.gen_pseudolegal(|m| moves.add_move(m));
+        moves
+    }
+
+    /// Returns a list of pseudo legal moves that are considered "tactical", such as captures and promotions in chess.
+    fn tactical_pseudolegal(&self) -> Self::MoveList {
+        let mut moves = Self::MoveList::default();
+        self.gen_tactical_pseudolegal(|m| moves.add_move(m));
+        moves
+    }
+
+    /// Generate pseudolegal moves and calls the provided callable for each move.
     /// This doesn't handle a forced passing move in case of no legal moves.
-    fn gen_pseudolegal<T: MoveList<Self>>(&self, moves: &mut T);
+    fn gen_pseudolegal(&self, callback: impl FnMut(Self::Move));
 
     /// Generate moves that are considered "tactical" into the supplied move list.
     /// Generic over the move list, like [`Self::gen_pseudolegal`].
     /// Note that some games don't consider any moves tactical, so this function may have no effect.
-    fn gen_tactical_pseudolegal<T: MoveList<Self>>(&self, moves: &mut T);
+    fn gen_tactical_pseudolegal(&self, callback: impl FnMut(Self::Move));
 
     /// Returns a list of legal moves, that is, moves that can be played using `make_move`
     /// and will not return `None`.
@@ -688,23 +709,6 @@ pub trait BoardHelpers: Board {
     /// Are these coordinates occupied, i.e., not empty?
     fn is_occupied(&self, coords: Self::Coordinates) -> bool {
         !self.is_empty(coords)
-    }
-
-    /// Returns a list of pseudo legal moves, that is, moves which can either be played using
-    /// [`Self::make_move`] or which will cause `make_move` to return `None`.
-    /// Note that an implementation is allowed to filter out illegal pseudolegal moves, so this function does not
-    /// guarantee that e.g. all pseudolegal chess moves are being returned.
-    fn pseudolegal_moves(&self) -> Self::MoveList {
-        let mut moves = Self::MoveList::default();
-        self.gen_pseudolegal(&mut moves);
-        moves
-    }
-
-    /// Returns a list of pseudo legal moves that are considered "tactical", such as captures and promotions in chess.
-    fn tactical_pseudolegal(&self) -> Self::MoveList {
-        let mut moves = Self::MoveList::default();
-        self.gen_tactical_pseudolegal(&mut moves);
-        moves
     }
 
     /// Returns an iterator over all the positions after making a legal move.
@@ -1257,7 +1261,8 @@ pub(crate) fn read_common_fen_part<B: RectangularBoard>(words: &mut Tokens, boar
 #[allow(unused)] // suppress warning when building only chess
 pub(crate) fn read_halfmove_clock<B: RectangularBoard>(words: &mut Tokens, board: &mut B::Unverified) -> Res<()> {
     let Some(halfmove_clock) = words.peek().copied() else { return board.set_halfmove_repetition_clock(0) };
-    let halfmove_clock = halfmove_clock.parse::<usize>()?;
+    let halfmove_clock =
+        halfmove_clock.parse::<usize>().map_err(|err| anyhow!("Couldn't parse halfmove clock: {err}"))?;
     _ = words.next();
     board.set_halfmove_repetition_clock(halfmove_clock)?;
     Ok(())

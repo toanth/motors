@@ -723,18 +723,39 @@ impl Board for FairyBoard {
     fn name_to_pos_map() -> EntityList<NameToPos> {
         // TODO: add more named positions
         vec![
-            NameToPos::strict("kiwipete", "chess r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 0 1"),
-            NameToPos::strict("large_mnk", "mnk 11 11 4 11/11/11/11/11/11/11/11/11/11/11 x 1"),
-            NameToPos::strict(
+            NameToPos::desc(
+                "kiwipete",
+                "chess r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 0 1",
+                "Classical chess test position",
+            ),
+            NameToPos::desc(
+                "large_mnk",
+                "mnk 11 11 4 11/11/11/11/11/11/11/11/11/11/11 x 1",
+                "Starting position of a large m,n,k board",
+            ),
+            NameToPos::desc(
                 "shogi_usi_startpos",
                 "shogi lnsgkgsnl/1r5b1/ppppppppp/9/9/9/PPPPPPPPP/1B5R1/LNSGKGSNL b - 1",
+                "Shogi startpos, using USI notation instead of UGI notation",
             ),
         ]
     }
 
-    fn bench_positions() -> Vec<Self> {
-        // TODO: More positions covering a wide variety of rules
-        Self::name_to_pos_map().iter().map(|n| Self::from_name(n.name).unwrap()).collect()
+    fn bench_positions() -> impl IntoIterator<Item = Self> {
+        let fens = &[
+            "chess 4r1Q1/B2nr3/5b2/8/4p3/4KbNq/ppppppp1/RR3Nkn w - - 0 1",
+            "3check r2qk2r/1bpp1ppp/ppnb1n2/1B2p3/2NPP3/2P2N1P/PP3PP1/R1BQR1K1 w kq - 0 11 +0+0",
+            "kingofthehill r1b2b1r/4kppp/p1np1n2/1pp5/4PP2/2N1BN2/PPP2KPP/R4B1R b - - 1 11",
+            "shogi 6snl/2+P1k1g2/p1+Bppp1p1/4l1p1p/1p3S1P1/3+b2Pl1/PP3PK1P/7R1/5+n1NL b 2GN2Prg2sp 1",
+            "atomic rnb1kb1r/pp2pppp/1qp5/1B1p4/4P3/2N5/PPPP1PPP/R1B1K2R w KQkq - 3 7",
+            "antichess rnbqk1nr/pppp1pQp/8/8/8/8/PbP1PPPP/RNB1KBNR w - - 0 5",
+            "shatranj 8/p2k4/1pN4p/1Ppp1p2/5Rb1/PNPP2n1/5R2/1KB1r2r b - - 1 38",
+            "makruk 7r/3k4/1nsm1pp1/n1p5/4RM1N/P1S5/1NK5/3R4 b - - 0 38",
+            "ataxx x5o/1x4o/3-3/2---2/3-x2/1o3x1/o5x o - - 0 3",
+        ];
+        fens.into_iter()
+            .map(|fen| Self::from_fen(fen, Strict).unwrap())
+            .chain(Self::name_to_pos_map().into_iter().map(|n| Self::from_name(n.name).unwrap()))
     }
 
     // TODO: We could at least pass settings and do `startpos_for_setting()`, but ideally we'd also randomize the settings.
@@ -835,14 +856,36 @@ impl Board for FairyBoard {
         res
     }
 
-    fn gen_pseudolegal<T: MoveList<Self>>(&self, moves: &mut T) {
-        self.gen_pseudolegal_impl(moves);
+    fn pseudolegal_moves(&self) -> FairyMoveList {
+        let mut moves = FairyMoveList::new();
+        self.gen_pseudolegal_impl(&mut moves);
+        moves
+    }
+
+    fn tactical_pseudolegal(&self) -> FairyMoveList {
+        let mut moves = FairyMoveList::new();
+        self.gen_pseudolegal_impl(&mut moves);
+        MoveList::<FairyBoard>::filter_moves(&mut moves, |m: &mut FairyMove| m.is_tactical(self));
+        moves
+    }
+
+    fn gen_pseudolegal(&self, mut callback: impl FnMut(FairyMove)) {
+        let mut moves = FairyMoveList::new();
+        self.gen_pseudolegal_impl(&mut moves);
+        for m in moves {
+            callback(m);
+        }
     }
 
     // Implemented by simply filtering all pseudolegal moves
-    fn gen_tactical_pseudolegal<T: MoveList<Self>>(&self, moves: &mut T) {
-        self.gen_pseudolegal_impl(moves);
-        moves.filter_moves(|m| m.is_tactical(self));
+    fn gen_tactical_pseudolegal(&self, mut callback: impl FnMut(FairyMove)) {
+        let mut moves = FairyMoveList::new();
+        self.gen_pseudolegal_impl(&mut moves);
+        for m in moves {
+            if m.is_tactical(self) {
+                callback(m);
+            }
+        }
     }
 
     fn random_legal_move<R: Rng>(&self, rng: &mut R) -> Option<Self::Move> {
@@ -919,6 +962,7 @@ impl Board for FairyBoard {
         if variant_name == rules.get().name {
             _ = input.next();
         } else {
+            // TODO: support custom matching, e.g. <n>check for any reasonable `n`
             let variants = Self::variants();
             if let Some(v) = variants.iter().find(|v| v.name.eq_ignore_ascii_case(variant_name)) {
                 _ = input.next();

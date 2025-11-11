@@ -1,7 +1,7 @@
 use std::fmt::Display;
 
 use gears::games::BoardHistDyn;
-use gears::general::board::{Board, BoardHelpers};
+use gears::general::board::Board;
 
 use crate::eval::Eval;
 use crate::eval::rand_eval::RandEval;

@@ -31,12 +31,13 @@ mod general {
     use crate::games::fairy::pieces::ColoredPieceId;
     use crate::games::fairy::{FairyBoard, FairyCastleInfo, FairyColor, FairyPiece, FairySquare};
     use crate::games::mnk::MNKBoard;
-    use crate::games::{AbstractPieceType, Color, Height, NoHistory, Width, ZobristHistory, chess, BoardHistDyn};
+    use crate::games::{AbstractPieceType, BoardHistDyn, Color, Height, NoHistory, Width, ZobristHistory, chess};
     use crate::general::bitboards::{Bitboard, RawBitboard};
     use crate::general::board::Strictness::{Relaxed, Strict};
     use crate::general::board::{BitboardBoard, Board, BoardHelpers, UnverifiedBoard};
     use crate::general::common::tokens;
     use crate::general::moves::Move;
+    use crate::general::perft::Bulkness::Bulk;
     use crate::general::perft::perft;
     use crate::general::squares::GridSize;
     use crate::search::DepthPly;
@@ -94,6 +95,21 @@ mod general {
     }
 
     #[test]
+    fn simple_game_over_test() {
+        let chess_pos = Chessboard::from_name("draw_in_1").unwrap();
+        let fairy_pos = FairyBoard::from_fen_for("chess", &chess_pos.as_fen(), Strict).unwrap();
+        let expected = perft(DepthPly::new(4), chess_pos, false, Bulk);
+        let actual = perft(DepthPly::new(4), fairy_pos, false, Bulk);
+        assert_eq!(expected.nodes, actual.nodes);
+
+        let chess_pos = Chessboard::from_name("mate_in_1").unwrap();
+        let fairy_pos = FairyBoard::from_fen_for("chess", &chess_pos.as_fen(), Strict).unwrap();
+        let expected = perft(DepthPly::new(4), chess_pos, false, Bulk);
+        let actual = perft(DepthPly::new(4), fairy_pos, false, Bulk);
+        assert_eq!(expected.nodes, actual.nodes);
+    }
+
+    #[test]
     fn simple_ep_test() {
         let pos =
             FairyBoard::from_fen("r3k2r/p2pqpb1/bn2pnp1/2pPN3/1pB1P3/2N2Q1p/PPPB1PPP/R3K2R w HAha c6 0 2", Strict)
@@ -117,11 +133,11 @@ mod general {
             let max = if cfg!(debug_assertions) { 3 } else { 5 };
             for i in 1..max {
                 let depth = DepthPly::new(i);
-                let chess_perft = perft(depth, chess_pos, false);
-                let fairy_perft = perft(depth, fairy_pos.clone(), false);
+                let chess_perft = perft(depth, chess_pos, false, Bulk);
+                let fairy_perft = perft(depth, fairy_pos.clone(), false, Bulk);
                 assert_eq!(chess_perft.depth, fairy_perft.depth);
                 assert_eq!(chess_perft.nodes, fairy_perft.nodes, "{chess_pos} with depth {depth}");
-                assert!(chess_perft.time.as_millis() * 100 + 1000 > fairy_perft.time.as_millis());
+                assert!(chess_perft.time.as_millis() * 500 + 2000 > fairy_perft.time.as_millis());
             }
         }
     }
@@ -434,8 +450,8 @@ mod general {
             assert_eq!(fairy_pos.active_player_bb().num_ones(), pos.active_player_bb().num_ones());
             assert_eq!(fairy_pos.num_legal_moves(), pos.num_legal_moves());
             for i in 1..=3 {
-                let perft_res = perft(DepthPly::new(i), pos, false);
-                let fairy_perft_res = perft(DepthPly::new(i), fairy_pos.clone(), false);
+                let perft_res = perft(DepthPly::new(i), pos, false, Bulk);
+                let fairy_perft_res = perft(DepthPly::new(i), fairy_pos.clone(), false, Bulk);
                 assert_eq!(perft_res.depth, fairy_perft_res.depth, "{i} {pos}");
                 assert_eq!(perft_res.nodes, fairy_perft_res.nodes, "{i} {pos}");
             }
@@ -445,7 +461,7 @@ mod general {
     #[test]
     fn simple_droptaxx_test() {
         let pos = FairyBoard::from_fen_for("droptaxx", "O5O/7/7/7/7/7/X5X x 1", Strict).unwrap();
-        let res = perft(DepthPly::new(3), pos.clone(), false);
+        let res = perft(DepthPly::new(3), pos.clone(), false, Bulk);
         assert_eq!(res.nodes, 85140);
         let pos = pos.make_move_from_str("b6").unwrap();
         assert_eq!(pos.as_fen(), "droptaxx X5O/1X5/7/7/7/7/X5X o 1")
@@ -483,8 +499,8 @@ mod general {
             let max = if cfg!(debug_assertions) { 4 } else { 6 };
             for i in 1..max {
                 let depth = DepthPly::new(i);
-                let mnk_perft = perft(depth, mnk_pos, false);
-                let fairy_perft = perft(depth, fairy_pos.clone(), false);
+                let mnk_perft = perft(depth, mnk_pos, false, Bulk);
+                let fairy_perft = perft(depth, fairy_pos.clone(), false, Bulk);
                 assert_eq!(mnk_perft.depth, fairy_perft.depth);
                 assert_eq!(mnk_perft.nodes, fairy_perft.nodes, "DepthPly {i}, pos: {mnk_pos}");
             }

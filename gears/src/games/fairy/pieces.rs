@@ -632,7 +632,7 @@ impl Piece {
             Self::ferz(size),
             Self::leaper("dabbaba", 0, 2, size, None, None),
             Self::knight(size),
-            Self::leaper("alfil", 2, 2, size, None, Some(['\u{1FA55}', '\u{1FA57}', '\u{1FA55}'])),
+            Self::leaper("alfil", 2, 2, size, Some('b'), Some(['\u{1FA55}', '\u{1FA57}', '\u{1FA55}'])),
             Self::leaper("threeleaper", 0, 3, size, Some('h'), None),
             Self::leaper("camel", 1, 3, size, None, Some(['🨢', '🨨', '🨮'])),
             Self::leaper("zebra", 2, 3, size, None, None),

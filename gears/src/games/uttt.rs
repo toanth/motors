@@ -40,7 +40,7 @@ use crate::general::board::{
     read_common_fen_part, simple_fen,
 };
 use crate::general::common::{EntityList, Res, StaticallyNamedEntity, Tokens, ith_one_u64, ith_one_u128, parse_int};
-use crate::general::move_list::{InplaceMoveList, MoveList};
+use crate::general::move_list::InplaceMoveList;
 use crate::general::moves::Legality::Legal;
 use crate::general::moves::{Legality, Move, UntrustedMove};
 use crate::general::squares::{RectangularCoordinates, SmallGridSize, SmallGridSquare, SquareColor};
@@ -52,7 +52,6 @@ use crate::search::DepthPly;
 use anyhow::bail;
 use arbitrary::Arbitrary;
 use colored::Colorize;
-use itertools::Itertools;
 use rand::Rng;
 use std::fmt::{Display, Formatter};
 use std::hash::{DefaultHasher, Hash, Hasher};
@@ -699,19 +698,21 @@ impl Board for UtttBoard {
 
     fn name_to_pos_map() -> EntityList<NameToPos> {
         vec![
-            NameToPos::strict("midgame", "o1o4x1/9/xox4x1/x2x5/4o4/o2x1o3/o2x1o3/1x1xo1ox1/oxx1o1ox1 o 14 h9"),
-            NameToPos::strict(
+            NameToPos::desc(
+                "midgame",
+                "o1o4x1/9/xox4x1/x2x5/4o4/o2x1o3/o2x1o3/1x1xo1ox1/oxx1o1ox1 o 14 h9",
+                "A random midgame position",
+            ),
+            NameToPos::desc(
                 "mate_in_6",
                 "oxoooxoxx/x2o2o1x/xox1x2x1/xxox2x1o/xox1oxo1o/o2x1o3/o2xoo3/1x1xo1ox1/oxx1o1ox1 o 25 g6",
+                "A forced win in 6",
             ),
         ]
     }
 
-    fn bench_positions() -> Vec<Self> {
-        Self::perft_test_positions()
-            .iter()
-            .map(|(fen, _res)| Self::from_alternative_fen(fen, Strict).unwrap())
-            .collect_vec()
+    fn bench_positions() -> impl IntoIterator<Item = Self> {
+        Self::perft_test_positions().iter().map(|(fen, _res)| Self::from_alternative_fen(fen, Strict).unwrap())
     }
 
     fn random_pos(rng: &mut impl Rng, strictness: Strictness, symmetry: Option<Symmetry>) -> Res<Self> {
@@ -792,8 +793,8 @@ impl Board for UtttBoard {
         self.last_move_won_game()
     }
 
-    // TODO: Testcase that it's impossible to lead a FEN where a player won the game
-    fn gen_pseudolegal<T: MoveList<Self>>(&self, moves: &mut T) {
+    // TODO: Testcase that it's impossible to load a FEN where a player won the game
+    fn gen_pseudolegal(&self, mut callback: impl FnMut(UtttMove)) {
         debug_assert!(!self.last_move_won_game(), "{self}");
         if self.last_move != UtttMove::NULL {
             let sub_board = self.last_move.dest_square().sub_square();
@@ -802,18 +803,18 @@ impl Board for UtttBoard {
                 let sub_bitboard = self.open_sub_board(sub_board);
                 for idx in sub_bitboard.one_indices() {
                     let square = UtttSquare::new(sub_board, UtttSubSquare::from_bb_idx(idx));
-                    moves.add_move(UtttMove::new(square));
+                    callback(UtttMove::new(square));
                 }
                 return;
             }
         }
 
         for sq in self.open_bb().one_indices() {
-            moves.add_move(UtttMove::new(UtttSquare::from_bb_idx(sq)));
+            callback(UtttMove::new(UtttSquare::from_bb_idx(sq)));
         }
     }
 
-    fn gen_tactical_pseudolegal<T: MoveList<Self>>(&self, _moves: &mut T) {
+    fn gen_tactical_pseudolegal(&self, _callback: impl FnMut(UtttMove)) {
         // TODO: Test considering moves that win a sub-board as tactical
         // currently, no moves are considered tactical
     }

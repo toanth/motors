@@ -18,7 +18,7 @@ pub trait MoveList<B: Board>: IntoIterator<Item = B::Move, IntoIter: Send> + Deb
 
     fn remove(&mut self, to_remove: B::Move);
 
-    fn filter_moves<F: Fn(&mut B::Move) -> bool>(&mut self, predicate: F);
+    fn filter_moves(&mut self, predicate: impl Fn(&mut B::Move) -> bool);
 }
 
 #[allow(type_alias_bounds)]
@@ -51,7 +51,7 @@ impl<B: Board, const N: usize> MoveList<B> for InplaceMoveList<B, N> {
         }
     }
 
-    fn filter_moves<F: Fn(&mut B::Move) -> bool>(&mut self, predicate: F) {
+    fn filter_moves(&mut self, predicate: impl Fn(&mut B::Move) -> bool) {
         self.retain(predicate)
     }
 }
@@ -82,7 +82,7 @@ impl<B: Board, const N: usize> MoveList<B> for SboMoveList<B, N> {
         }
     }
 
-    fn filter_moves<F: Fn(&mut B::Move) -> bool>(&mut self, predicate: F) {
+    fn filter_moves(&mut self, predicate: impl Fn(&mut B::Move) -> bool) {
         self.retain(predicate)
     }
 }

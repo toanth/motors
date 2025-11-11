@@ -212,7 +212,7 @@ impl<B: Board> AtomicSearchState<B> {
     }
 
     pub fn iterations(&self) -> DepthPly {
-        DepthPly::new(self.iteration.load(Relaxed) as usize)
+        DepthPly::new(self.iteration.load(Relaxed))
     }
 
     pub fn seldepth(&self) -> DepthPly {

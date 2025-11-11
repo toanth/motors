@@ -399,10 +399,13 @@ fn tune_scaling_factor<B: Board, E: Eval<B>>(weights: &Weights, batch: Batch, ev
             eval scale in case this doesn't work, or try again with different datasets"
         );
         let (dir, _loss) = grad_for_eval_scale(weights, batch, scale);
-        if prev_dir.is_none() {
-            prev_dir = Some(dir);
-        } else if prev_dir.unwrap() != dir {
-            break;
+        match prev_dir {
+            None => prev_dir = Some(dir),
+            Some(d) => {
+                if d != dir {
+                    break;
+                }
+            }
         }
         match dir {
             Up => scale *= 2.0,

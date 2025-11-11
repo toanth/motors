@@ -142,7 +142,8 @@ pub(super) static ANTI_DIAGONALS_U64: [[u64; 64]; MAX_WIDTH] = anti_diagonal_bb_
 
 pub(super) static STEPS_U128: [u128; MAX_STEP_SIZE] = step_bb_for!(u128, 128);
 
-// TODO: Remove
+// TODO: Remove?
+// Uses 16B * 128 * 27 = 54KiB
 pub(super) static DIAGONALS_U128: [[u128; 128]; MAX_WIDTH] = diagonal_bb_for!(u128, 128, STEPS_U128);
 
 pub(super) static ANTI_DIAGONALS_U128: [[u128; 128]; MAX_WIDTH] = anti_diagonal_bb_for!(u128, 128, STEPS_U128);
@@ -574,6 +575,11 @@ pub trait Bitboard<R: RawBitboard, C: RectangularCoordinates>:
     }
 
     #[inline]
+    fn contains(self, other: Self) -> bool {
+        (!self & other).is_zero()
+    }
+
+    #[inline]
     fn ranks_containing(self) -> Self {
         let file_0 = Self::file_0_for(self.size());
         let max_file = file_0 << (self.internal_width() - 1);
@@ -690,6 +696,11 @@ pub trait KnownSizeBitboard<R: RawBitboard, C: RectangularCoordinates<Size: Know
     fn anti_diagonal(sq: C) -> Self {
         Bitboard::anti_diag_for_sq(sq, C::Size::default())
     }
+
+    #[inline]
+    fn backranks() -> Self {
+        Bitboard::backranks_for(C::Size::default())
+    }
 }
 
 #[derive(
@@ -731,7 +742,7 @@ impl<const H: usize, const W: usize> SmallGridBitboard<H, W> {
 
     pub const ALL: Self = Self(!Self::INVALID_EDGE_MASK.0);
 
-    #[inline]
+    #[inline(always)]
     pub const fn new(raw: RawStandardBitboard) -> Self {
         Self(raw)
     }
@@ -803,10 +814,12 @@ impl<const H: usize, const W: usize> Bitboard<RawStandardBitboard, SmallGridSqua
         Self(raw)
     }
 
+    #[inline(always)]
     fn ray_exclusive(a: SmallGridSquare<H, W, 8>, b: SmallGridSquare<H, W, 8>, _size: SmallGridSize<H, W>) -> Self {
         Self::new(RAYS_EXCLUSIVE[a.bb_idx()][b.bb_idx()])
     }
 
+    #[inline(always)]
     fn ray_inclusive(a: SmallGridSquare<H, W, 8>, b: SmallGridSquare<H, W, 8>, _size: SmallGridSize<H, W>) -> Self {
         Self::new(RAYS_INCLUSIVE[a.bb_idx()][b.bb_idx()])
     }

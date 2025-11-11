@@ -63,7 +63,7 @@ impl ChessMoveFlags {
 }
 
 /// Members are stored as follows:
-/// Bits 0-5: from square
+/// Bits 0-5: From square
 /// Bits 6 - 11: To square
 /// Bits 12-15: Move type
 #[derive(Copy, Clone, Eq, PartialEq, Default, Ord, PartialOrd, Hash, Arbitrary)]
@@ -97,7 +97,6 @@ impl ChessMove {
     }
 
     pub fn square_of_pawn_taken_by_ep(self) -> Option<ChessSquare> {
-        // TODO: Use board.ep_square instead
         if self.flags() != EnPassant {
             return None;
         }
@@ -111,8 +110,8 @@ impl ChessMove {
 
     pub fn piece(self, board: &Chessboard) -> ChessPiece {
         let source = self.src_square();
-        debug_assert!(board.is_occupied(source), "{}", self.compact_formatter(board));
-        debug_assert!(board.active_player_bb().has(source), "{}", self.compact_formatter(board));
+        debug_assert!(board.is_occupied(source), "{board} {}", self.compact_formatter(board));
+        debug_assert!(board.active_player_bb().has(source), "{board} {}", self.compact_formatter(board));
         ChessPiece::new(ColoredChessPieceType::new(board.active, self.piece_type(board)), source)
     }
 
@@ -137,6 +136,8 @@ impl ChessMove {
     }
 
     #[inline]
+    /// Correctly handles ep captures, but usually [`Self::is_tactical`] or [`Self::is_non_ep_capture`]
+    /// are the better choices
     pub fn is_capture(self, board: &Chessboard) -> bool {
         self.is_non_ep_capture(board) || self.is_ep()
     }
@@ -468,63 +469,84 @@ impl Chessboard {
         let us = self.active;
         let them = us.other();
         let from = mov.src_square();
-        let mut to = mov.dest_square();
+        let to = mov.dest_square();
         let hash_delta = Self::zobrist_delta(us, piece, from, to);
         debug_assert_eq!(us, mov.piece(&self).color().unwrap());
         // `perft` doesn't check for draw conditions, so perft(1000) could overflow the counter.
         // In that case, we don't care about the counter value, and `wrapping_add` is the same speed as `+` in release mode.
         self.ply_100_ctr = self.ply_100_ctr.wrapping_add(1);
-        if piece == Pawn {
-            self.hashes.pawns ^= hash_delta;
-        } else {
-            self.hashes.nonpawns[us] ^= hash_delta;
-            if piece.is_knb() {
-                self.hashes.knb ^= hash_delta;
-            }
-        }
-        // remove old castling flags and ep square, they'll later be set again
-        let mut special_hash = PosHash(0);
-        if us == White {
-            special_hash ^= ZOBRIST_KEYS.side_to_move_key;
-        }
         self.ep_square = None;
-        self.mailbox[from] = Empty; // needs to be done before moving the rook in chess960 castling
-        if mov.is_castle() {
-            self.do_castle(mov, from, &mut to);
-        } else if mov.is_ep() {
-            let taken_pawn = mov.square_of_pawn_taken_by_ep().unwrap();
-            debug_assert_eq!(self.colored_piece_on(taken_pawn).symbol, ColoredChessPieceType::new(them, Pawn));
-            self.remove_piece_unchecked(taken_pawn, Pawn, them);
-            self.hashes.pawns ^= ZOBRIST_KEYS.piece_key(Pawn, them, taken_pawn);
-            self.ply_100_ctr = 0;
-        } else if mov.is_non_ep_capture(&self) {
+        if mov.is_non_ep_capture(&self) {
             let captured = self.piece_type_on(to);
             assert!(self.colored_piece_on(to).color().is_some(), "{to} {self} {mov:?} {captured}");
-            debug_assert_eq!(self.colored_piece_on(to).color().unwrap(), them, "{self} {mov:?}");
+            debug_assert_eq!(self.colored_piece_on(to).color().unwrap(), them, "{self} {mov:?} {captured}");
             debug_assert_ne!(captured, King);
-            self.remove_piece_unchecked(to, captured, them);
+            self.remove_piece_impl(to, captured, them);
+            let removed_key = ZOBRIST_KEYS.piece_key(captured, them, to);
             if captured == Pawn {
-                self.hashes.pawns ^= ZOBRIST_KEYS.piece_key(captured, them, to);
+                self.hashes.pawns ^= removed_key;
             } else {
-                let removed = ZOBRIST_KEYS.piece_key(captured, them, to);
-                self.hashes.nonpawns[them] ^= ZOBRIST_KEYS.piece_key(captured, them, to);
-                if captured.is_knb() {
-                    self.hashes.knb ^= removed;
+                self.hashes.nonpawns[them] ^= removed_key;
+                if [Knight, Bishop].contains(&captured) {
+                    self.hashes.knb ^= removed_key;
                 }
             }
             self.ply_100_ctr = 0;
-        } else if piece == Pawn {
-            self.ply_100_ctr = 0;
-            if mov.is_double_pawn_push() {
-                self.ep_square = self.calc_ep_sq(to, &mut special_hash, them);
-            }
         }
-        if piece == King {
-            self.castling.clear_castle_rights(us);
-        } else if from == self.rook_start_square(us, Queenside) {
-            self.castling.unset_castle_right(us, Queenside);
-        } else if from == self.rook_start_square(us, Kingside) {
-            self.castling.unset_castle_right(us, Kingside);
+        self.move_piece_no_mailbox(from, to, piece);
+        self.mailbox[from] = Empty; // needs to be done before moving the rook in chess960 castling
+        self.mailbox[to] = piece; // needs to be done before handling promotions
+        self.hashes.nonpawns[us] ^= hash_delta;
+        // remove old castling flags and ep square, they'll later be set again
+        let mut special_hash = PosHash(0);
+        match piece {
+            Pawn => {
+                self.hashes.nonpawns[us] ^= hash_delta; // undo this change
+                self.hashes.pawns ^= hash_delta;
+                self.ply_100_ctr = 0;
+                if mov.is_ep() {
+                    let taken_pawn = mov.square_of_pawn_taken_by_ep().unwrap();
+                    debug_assert_eq!(self.colored_piece_on(taken_pawn).symbol, ColoredChessPieceType::new(them, Pawn));
+                    self.remove_piece_impl(taken_pawn, Pawn, them);
+                    self.hashes.pawns ^= ZOBRIST_KEYS.piece_key(Pawn, them, taken_pawn);
+                    self.ply_100_ctr = 0;
+                } else if mov.is_double_pawn_push() {
+                    self.ep_square = self.calc_ep_sq(to, &mut special_hash, them);
+                } else if mov.is_promotion() {
+                    let piece = mov.flags().promo_piece();
+                    let bb = to.bb();
+                    self.piece_bbs[Pawn] ^= bb;
+                    self.piece_bbs[piece] ^= bb;
+                    self.mailbox[to] = piece;
+                    self.hashes.pawns ^= ZOBRIST_KEYS.piece_key(Pawn, us, to);
+                    let new = ZOBRIST_KEYS.piece_key(piece, us, to);
+                    self.hashes.nonpawns[us] ^= new;
+                    if [Knight, Bishop].contains(&piece) {
+                        self.hashes.knb ^= new;
+                    }
+                }
+            }
+            King => {
+                self.hashes.knb ^= hash_delta;
+                if mov.is_castle() {
+                    self.do_castle(mov, from, to);
+                }
+                self.castling.clear_castle_rights(us);
+            }
+            Knight | Bishop => {
+                self.hashes.knb ^= hash_delta;
+            }
+            Rook => {
+                if from == self.rook_start_square(us, Queenside) {
+                    self.castling.unset_castle_right(us, Queenside);
+                } else if from == self.rook_start_square(us, Kingside) {
+                    self.castling.unset_castle_right(us, Kingside);
+                }
+            }
+            _ => {}
+        }
+        if us == White {
+            special_hash ^= ZOBRIST_KEYS.side_to_move_key;
         }
         if to == self.rook_start_square(them, Queenside) {
             self.castling.unset_castle_right(them, Queenside);
@@ -532,22 +554,6 @@ impl Chessboard {
             self.castling.unset_castle_right(them, Kingside);
         }
         special_hash ^= ZOBRIST_KEYS.castle_keys[self.castling.allowed_castling_directions()];
-        self.move_piece_no_mailbox(from, to, piece);
-        self.mailbox[to] = piece;
-        if mov.is_promotion() {
-            let piece = mov.flags().promo_piece();
-            let bb = to.bb();
-            self.piece_bbs[Pawn] ^= bb;
-            self.piece_bbs[piece] ^= bb;
-            self.mailbox[to] = piece;
-            self.hashes.pawns ^= ZOBRIST_KEYS.piece_key(Pawn, us, to);
-            let new_piece = mov.flags().promo_piece();
-            let new = ZOBRIST_KEYS.piece_key(piece, us, to);
-            self.hashes.nonpawns[us] ^= new;
-            if new_piece.is_knb() {
-                self.hashes.knb ^= new;
-            }
-        }
         self.hashes.total = special_hash ^ self.hashes.pawns ^ self.hashes.nonpawns[0] ^ self.hashes.nonpawns[1];
         self.flip_side_to_move()
     }
@@ -556,7 +562,7 @@ impl Chessboard {
     pub(super) fn flip_side_to_move(mut self) -> Self {
         self.ply += 1;
         let slider_gen = self.slider_generator();
-        debug_assert!(!self.is_in_check_on_square(self.active, self.king_sq(self.active), &slider_gen), "{self}");
+        debug_assert!(!self.is_in_check_on_square(self.active, self.king_sq(self.active), slider_gen), "{self}");
         self.active = self.active.other();
         self.threats = self.calc_threats_of(self.inactive_player(), &slider_gen);
         self.set_checkers_and_pinned();
@@ -564,6 +570,7 @@ impl Chessboard {
         self
     }
 
+    // correctly sets the ep square, which means not setting it if an ep capture would be illegal pseudolegal
     pub(super) fn calc_ep_sq(
         &self,
         to: ChessSquare,
@@ -579,7 +586,7 @@ impl Chessboard {
         let not_pinned = possible_ep_pawns & !self.pinned;
         if not_pinned.is_zero() {
             for p in possible_ep_pawns {
-                let mut pinning = self.ray_attacks(p, king_sq, self.occupied_bb());
+                let mut pinning = self.ray_attacks(p, king_sq, self.occupied_bb() & !to.bb());
                 debug_assert!(pinning.is_single_piece());
                 let pinning = ChessSquare::from_bb_idx(pinning.pop_lsb());
                 let pin_ray = ChessBitboard::ray_inclusive(pinning, king_sq, ChessboardSize::default());
@@ -592,7 +599,7 @@ impl Chessboard {
         }
         if king_sq.rank() == to.rank() {
             let sq_bb = ChessBitboard::new(possible_ep_pawns.lsb());
-            let occ_bb = self.occupied_bb() ^ sq_bb;
+            let occ_bb = (self.occupied_bb() ^ sq_bb) & !to.bb();
             let possibly_pinning = (self.piece_bb(Rook) | self.piece_bb(Queen)) & self.player_bb(!them);
             if ChessSliderGenerator::new(occ_bb).horizontal_attacks(king_sq).intersects(possibly_pinning) {
                 // Only the moved pawn and the capturing pawn are between the king and a horizontal slider,
@@ -604,7 +611,7 @@ impl Chessboard {
         Some(ep_square)
     }
 
-    fn do_castle(&mut self, mov: ChessMove, from: ChessSquare, to: &mut ChessSquare) {
+    fn do_castle(&mut self, mov: ChessMove, from: ChessSquare, to: ChessSquare) {
         let color = self.active;
         let rook_file = to.file() as isize;
         let (side, to_file, rook_to_file) = if mov.flags() == CastleKingside {
@@ -612,7 +619,8 @@ impl Chessboard {
         } else {
             (Queenside, C_FILE_NUM, D_FILE_NUM)
         };
-        debug_assert_eq!(self.king_sq(self.active), from);
+        let king_to = ChessSquare::from_rank_file(from.rank(), to_file);
+        // can't call king_sq here as the bitboards might be out of sync until we also move the rook
         debug_assert_eq!(
             side == Kingside,
             self.castling.can_castle(color, Kingside)
@@ -624,30 +632,27 @@ impl Chessboard {
                 && rook_file == self.castling.rook_start_file(color, Queenside) as isize
         );
 
-        let king_ray = ChessBitboard::ray_inclusive(
-            from,
-            ChessSquare::from_rank_file(from.rank(), to_file),
-            ChessboardSize::default(),
-        );
+        let king_ray = ChessBitboard::ray_inclusive(from, king_to, ChessboardSize::default());
         debug_assert!((king_ray & self.threats).is_zero());
-        let rook_from = self.rook_start_square(color, side);
+        debug_assert_eq!(to, self.rook_start_square(color, side));
+        let rook_from = to;
         let rook_to = ChessSquare::from_rank_file(from.rank(), rook_to_file);
-        debug_assert!(self.colored_piece_on(rook_from).symbol == ColoredChessPieceType::new(color, Rook));
+        // debug_assert!(self.colored_piece_on(rook_from).symbol == ColoredChessPieceType::new(color, Rook));
         self.move_piece_no_mailbox(rook_from, rook_to, Rook);
-        self.mailbox[rook_from] = Empty;
+        self.mailbox[rook_from] = Empty; // might get overwritten with `King` below
         self.mailbox[rook_to] = Rook;
-        let mut delta = PosHash(0);
-        delta ^= ZOBRIST_KEYS.piece_key(King, color, *to);
-        *to = ChessSquare::from_rank_file(from.rank(), to_file);
-        delta ^= ZOBRIST_KEYS.piece_key(King, color, *to);
-        self.hashes.knb ^= delta;
-        delta ^= ZOBRIST_KEYS.piece_key(Rook, color, rook_to);
-        delta ^= ZOBRIST_KEYS.piece_key(Rook, color, rook_from);
-        self.hashes.nonpawns[color] ^= delta;
+        // castling moves are encoded as king captures rook, so we've moved the king onto the rook.
+        // now we must move it to its actual destination square
+        self.move_piece_no_mailbox(to, king_to, King);
+        self.mailbox[king_to] = King;
+        let delta = Self::zobrist_delta(color, Rook, rook_from, rook_to);
+        let king_delta = Self::zobrist_delta(color, King, to, king_to);
+        self.hashes.nonpawns[color] ^= delta ^ king_delta;
+        self.hashes.knb ^= king_delta;
         debug_assert!(!self.is_in_check_on_square(
             self.active,
             ChessSquare::from_rank_file(from.rank(), to_file),
-            &self.slider_generator(),
+            self.slider_generator(),
         ));
     }
 }
@@ -1105,7 +1110,7 @@ impl<'a> MoveParser<'a> {
         let pinned = if self.target_rank.is_some() && self.target_file.is_some() {
             board.all_attacking(
                 ChessSquare::from_rank_file(self.target_rank.unwrap(), self.target_file.unwrap()),
-                &board.slider_generator(),
+                board.slider_generator(),
             ) & board.pinned
                 & board.col_piece_bb(us, self.piece)
         } else {
@@ -1197,6 +1202,7 @@ mod tests {
     use crate::general::board::UnverifiedBoard;
     use crate::general::moves::ExtendedFormat::{Alternative, Standard};
     use crate::general::moves::Move;
+    use crate::general::perft::Bulkness::Bulk;
     use crate::general::perft::perft;
     use crate::output::pgn::parse_pgn;
     use crate::search::DepthPly;
@@ -1250,7 +1256,7 @@ mod tests {
 
     #[test]
     fn failed_test() {
-        let pos = Chessboard::from_fen("8/7r/8/K1k5/8/8/4p3/8 b - - 10 11", Strict).unwrap();
+        let pos = Chessboard::from_fen("    8/7r/8/K1k5/8/8/4p3/8 b - - 10 11", Strict).unwrap();
         let mov = ChessMove::from_extended_text("e1=Q+", &pos).unwrap();
         assert!(pos.is_move_legal(mov));
     }
@@ -1339,7 +1345,7 @@ mod tests {
                 assert_eq!(i != 0, pos.settings.is_set(ChessSettings::dfrc_flag()));
                 assert_eq!(*pos == p, pos.settings.is_set(ChessSettings::shredder_fen_flag()));
             }
-            let perft_res = perft(DepthPly::new(3), *pos, false);
+            let perft_res = perft(DepthPly::new(3), *pos, false, Bulk);
             assert_eq!(perft_res.nodes, *perft_nodes);
         }
         let pos = Chessboard::from_fen("5k2/8/8/8/8/8/8/4K2R w K - 0 1", Strict).unwrap();
@@ -1398,7 +1404,7 @@ Na3 ♞a6 2. ♘a3c4 a6c5 3. Na5 Nb3 4. Nc6 Nf6 5. Nf3 Ne4 6. Nh4 Ng5 7. Ng6 Nf3
         let data = parse_pgn::<Chessboard>(pgn, Strict, None).unwrap();
         let pos = data.game.board;
         assert_eq!(pos.as_fen(), "rQ1Q1Q2/q6k/3Q3b/q5QK/1Q1Q1B2/6q1/1Q1q4/qqqQq1qR b - - 0 64");
-        let perft_res = perft(DepthPly::new(3), pos, true);
+        let perft_res = perft(DepthPly::new(3), pos, true, Bulk);
         assert_eq!(perft_res.nodes, 492194);
     }
 }

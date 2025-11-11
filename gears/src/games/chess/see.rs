@@ -61,7 +61,7 @@ impl Chessboard {
             ChessBitboard::ray_exclusive(square, self.king_sq(White), size),
             ChessBitboard::ray_exclusive(square, self.king_sq(Black), size),
         ];
-        let mut remaining_attackers = self.all_attacking(square, &generator);
+        let mut remaining_attackers = self.all_attacking(square, generator);
         // don't consider pinned pieces unless they're moving along the pin ray. Idea from pawnocchio.
         let pinned =
             self.pinned & !(self.player_bb(White) & king_rays[White]) & !(self.player_bb(Black) & king_rays[Black]);

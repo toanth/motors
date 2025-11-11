@@ -994,6 +994,7 @@ impl Rules {
     pub fn n_check(n: usize) -> Self {
         let mut rules = Self::chess();
         rules.name = format!("{n}check");
+        rules.format_rules.startpos_fen += " +0+0";
         rules.observers = Observers::n_check();
         rules.game_end_eager.push((AdditionalCounter, InactivePlayerWin));
         rules.ctr_threshold = [Some(n as AdditionalCtrT); 2];
@@ -1021,7 +1022,7 @@ impl Rules {
     pub fn shatranj() -> Self {
         let mut rules = Self::chess();
         rules.name = "shatranj".to_string();
-        rules.format_rules.startpos_fen = "rnakfanr/pppppppp/8/8/8/8/PPPPPPPP/RNAKFANR w 0 1".to_string();
+        rules.format_rules.startpos_fen = "rnbkfbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBKFBNR w 0 1".to_string();
         rules.pieces = Piece::shatranj_pieces();
         let bare_king = NoPiece(PieceCond::NonRoyal, PlayerCond::Active);
         rules.game_end_eager = vec![

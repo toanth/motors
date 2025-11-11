@@ -56,6 +56,7 @@ use gears::general::common::{
 use gears::general::common::{Res, Tokens};
 use gears::general::moves::ExtendedFormat::{Alternative, Standard};
 use gears::general::moves::Move;
+use gears::general::perft::Bulkness::{Bulk, NoBulk};
 use gears::general::perft::{SplitPerftRes, num_unique_positions_up_to, perft_for, split_perft};
 use gears::itertools::Itertools;
 use gears::output::Message::*;
@@ -713,24 +714,25 @@ impl<B: Board> EngineUGI<B> {
                 return self.play_engine_move(Some(params));
             }
             Bench => {
-                let bench_positions: Vec<B> = if opts.complete { B::bench_positions() } else { vec![board] };
+                let bench_positions: Vec<B> =
+                    if opts.complete { B::bench_positions().into_iter().collect() } else { vec![board] };
                 return self.bench(limit, &bench_positions);
             }
             Perft => {
-                let positions = if opts.complete { B::bench_positions() } else { vec![board.clone()] };
+                let positions =
+                    if opts.complete { B::bench_positions().into_iter().collect() } else { vec![board.clone()] };
                 let threads = opts.threads.unwrap_or(0);
                 if threads > 1 {
                     bail!("For 'perft' runs, the 'Threads' options can only be used to set threads to 1")
                 }
+                let pseudo_bulk = if opts.no_bulk { NoBulk } else { Bulk };
                 for i in 1..=limit.depth.get() {
                     if opts.unique {
-                        self.output().write_ugi(&format_args!(
-                            "# unique positions at depth {i}: {}",
-                            num_unique_positions_up_to(DepthPly::new(i), board.clone()).to_string().bold()
-                        ))
+                        let num_unique = num_unique_positions_up_to(DepthPly::new(i), board.clone()).to_string().bold();
+                        self.output().write_ugi(&format_args!("# unique positions at depth {i}: {num_unique}",))
                     } else {
-                        self.output()
-                            .write_ugi(&format_args!("{}", perft_for(DepthPly::new(i), &positions, threads != 1)))
+                        let perft_res = perft_for(DepthPly::new(i), &positions, threads != 1, pseudo_bulk);
+                        self.output().write_ugi(&format_args!("{perft_res}"))
                     }
                 }
             }
@@ -742,7 +744,8 @@ impl<B: Board> EngineUGI<B> {
                 if threads > 1 {
                     bail!("For 'splitperft' runs, the 'Threads' options can only be used to set threads to 1")
                 }
-                let res = split_perft(limit.depth, board, threads != 1);
+                let pseudo_bulk = if opts.no_bulk { NoBulk } else { Bulk };
+                let res = split_perft(limit.depth, board, threads != 1, pseudo_bulk);
                 self.write_ugi(&format_args!("{res}"));
                 if self.go_state_mut().get_mut().compare {
                     compare_splitperft(self, res)?;
@@ -1855,10 +1858,10 @@ fn format_tt_entry<B: Board>(state: MatchState<B>, entry: TTEntry<B>) -> String 
     let mut formatter = AdaptFormatter {
         underlying: formatter,
         color_frame: Box::new(move |coords, color| {
-            if let Some(mov) = mov {
-                if Some(coords) == mov.src_square_in(&pos) || coords == mov.dest_square_in(&pos) {
-                    return Some(Red);
-                }
+            if let Some(mov) = mov
+                && (Some(coords) == mov.src_square_in(&pos) || coords == mov.dest_square_in(&pos))
+            {
+                return Some(Red);
             };
             color
         }),

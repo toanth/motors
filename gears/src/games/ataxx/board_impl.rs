@@ -5,11 +5,8 @@ use crate::games::{Board, Color, PosHash};
 use crate::general::bitboards::chessboard::{ATAXX_LEAPERS, KINGS};
 use crate::general::bitboards::{Bitboard, KnownSizeBitboard, RawBitboard};
 use crate::general::board::SelfChecks::CheckFen;
-use crate::general::board::{
-    BitboardBoard, BoardHelpers, Strictness, UnverifiedBoard, read_common_fen_part, read_two_move_numbers,
-};
+use crate::general::board::{BitboardBoard, Strictness, UnverifiedBoard, read_common_fen_part, read_two_move_numbers};
 use crate::general::common::{Res, Tokens};
-use crate::general::move_list::MoveList;
 use crate::general::squares::sup_distance;
 use anyhow::anyhow;
 use std::hash::{DefaultHasher, Hash, Hasher};
@@ -49,27 +46,29 @@ impl AtaxxBoard {
         !(self.empty | self.colors[0] | self.colors[1])
     }
 
-    pub(super) fn gen_legal<T: MoveList<Self>>(&self, moves: &mut T) {
+    pub(super) fn gen_legal(&self, mut callback: impl FnMut(AtaxxMove)) {
         let pieces = self.active_player_bb();
         let empty = self.empty_bb();
         // TODO: Use precomputed table
         let neighbors = pieces.moore_inclusive() & empty;
+        let mut moves = neighbors;
         for sq in neighbors.ones() {
-            moves.add_move(AtaxxMove::cloning(sq));
+            callback(AtaxxMove::cloning(sq));
         }
         for source in pieces.ones() {
             let leaps = AtaxxBitboard::new(ATAXX_LEAPERS[source.bb_idx()].raw()) & empty;
+            moves |= leaps;
             for target in leaps.ones() {
-                moves.add_move(AtaxxMove::leaping(source, target));
+                callback(AtaxxMove::leaping(source, target));
             }
         }
-        if moves.num_moves() == 0 && pieces.has_any() {
+        if moves.is_zero() && pieces.has_any() {
             let other_bb = self.inactive_player_bb();
             // if the other player doesn't have any legal moves, the game is over.
             // return an empty move list in that case so that the user can pick up on this
             // otherwise, the only legal move is the passing move
             if other_bb.extended_moore_neighborhood(2).intersects(empty) {
-                moves.add_move(AtaxxMove::default());
+                callback(AtaxxMove::default());
             }
         }
     }

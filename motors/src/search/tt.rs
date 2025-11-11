@@ -398,7 +398,6 @@ mod test {
     use crate::search::{AbstractSearchState, Engine, NormalEngine, SearchParams};
     use gears::games::ZobristHistory;
     use gears::games::chess::moves::ChessMove;
-    use gears::general::board::BoardHelpers;
     use gears::rand::distr::Uniform;
     use gears::rand::{Rng, RngCore, rng};
     use gears::score::{MAX_NORMAL_SCORE, MIN_NORMAL_SCORE};

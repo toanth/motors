@@ -647,10 +647,10 @@ impl<B: Board> Client<B> {
         }
         swap(&mut self.state.the_match.p1, &mut self.state.the_match.p2);
         for color in B::Color::iter() {
-            if let Engine(engine) = self.state.get_player_mut(color) {
-                if let Some(m) = engine.current_match.as_mut() {
-                    m.color = color;
-                }
+            if let Engine(engine) = self.state.get_player_mut(color)
+                && let Some(m) = engine.current_match.as_mut()
+            {
+                m.color = color;
             }
         }
         if let Some(color) = active {

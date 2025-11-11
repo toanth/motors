@@ -320,21 +320,18 @@ impl Engine<Chessboard> for Caps {
         value: String,
     ) -> Res<()> {
         let name = option.to_string();
-        if let Other(name) = &option.name {
-            if let Ok(val) = parse_int_from_str(&value, "spsa option value") {
-                if cc::set_value(name, val).is_ok() {
-                    return Ok(());
-                } else if let Ok(()) = lc::set_value(name, val) {
-                    return Ok(());
-                } else if let Ok(()) = ttc::set_value(name, val) {
-                    return Ok(());
-                } else if let Ok(()) = lc::set_value(name, val) {
-                    return Ok(());
-                } else if let Ok(()) = ttc::set_value(name, val) {
-                    return Ok(());
-                }
+        if let Other(name) = &option.name
+            && let Ok(val) = parse_int_from_str(&value, "spsa option value")
+        {
+            if cc::set_value(name, val).is_ok() {
+                return Ok(());
+            } else if let Ok(()) = lc::set_value(name, val) {
+                return Ok(());
+            } else if let Ok(()) = ttc::set_value(name, val) {
+                return Ok(());
             }
         }
+
         select_name_static(&name, self.engine_info().additional_options().iter(), "uci option", "chess", NoDescription)
             .map(|_| {}) // only called to produce an error message
     }
@@ -529,8 +526,7 @@ impl Caps {
             let beta = self.cur_pv_data().beta;
             let mut window_radius = self.cur_pv_data().radius;
             // limit.fixed time is the min of the fixed time and the remaining time
-            let mut soft_limit =
-                unscaled_soft_limit.mul_f64(soft_limit_fail_low_extension).min(self.params.limit.fixed_time);
+            let mut soft_limit = unscaled_soft_limit.mul_f64(soft_limit_fail_low_extension);
             soft_limit_fail_low_extension = 1.0;
             if budget > cc::soft_limit_node_scale_min_budget() && self.multi_pvs.len() == 1 {
                 let node_frac = self.root_move_nodes.frac_1024(self.cur_pv_data().pv.list[0], self.uci_nodes());
@@ -538,10 +534,12 @@ impl Caps {
                     .mul_f64(((1024 + 512 - node_frac) * cc::soft_limit_node_scale()) as f64 / (1024.0 * 1024.0));
             }
             let limit = self.params.limit.tc;
-            let soft_limit = soft_limit.min(
-                (limit.remaining.saturating_sub(limit.increment)) * cc::inv_soft_limit_div_clamp() / 1024
-                    + limit.increment,
-            );
+            let soft_limit = soft_limit
+                .min(
+                    (limit.remaining.saturating_sub(limit.increment)) * cc::inv_soft_limit_div_clamp() / 1024
+                        + limit.increment,
+                )
+                .min(self.params.limit.fixed_time);
             let elapsed = self.start_time().elapsed();
             if self.should_not_start_negamax(
                 elapsed,
@@ -561,7 +559,7 @@ impl Caps {
             self.atomic().set_iteration(iter + 1); // set the iteration now so that an immediate stop doesn't increment the depth
 
             let asp_start_time = Instant::now();
-            let Some(pv_score) = self.negamax(&pos, 0, aw_budget, alpha, beta, Exact) else {
+            let Some(pv_score) = self.negamax(pos, 0, aw_budget, alpha, beta, Exact) else {
                 send_debug_msg!(
                     self.state,
                     "Exiting aw window after reaching a stop condition in negamax, after {} microseconds",
@@ -694,7 +692,7 @@ impl Caps {
         if !root {
             // If there is a move that can repeat a position we've looked at during search, we are guaranteed at least a draw score.
             // So don't even bother searching other moves if the draw score would already cause a cutoff.
-            if pos.has_upcoming_repetition(&self.precomputed.upcoming_repetition, &self.params.history) {
+            if pos.has_upcoming_repetition(self.precomputed.upcoming_repetition, &self.params.history) {
                 alpha = alpha.max(Score(0));
                 best_score = Score(0);
             }
@@ -731,7 +729,7 @@ impl Caps {
         }
         // limit.mate() is the min of the original limit.mate and DEPTH_HARD_LIMIT
         if depth <= 0 || ply >= self.ply_hard_limit {
-            return self.qsearch(&pos, alpha, beta, ply);
+            return self.qsearch(pos, alpha, beta, ply);
         }
 
         let can_prune = !is_pv_node && !in_check;
@@ -759,7 +757,7 @@ impl Caps {
                 let tt_bound = tt_entry.bound();
                 debug_assert!(tt_entry.hash_part().equals(pos.hash_pos()));
 
-                if let Some(tt_move) = tt_entry.mov(&pos) {
+                if let Some(tt_move) = tt_entry.mov(pos) {
                     best_move = tt_move;
                 }
                 let tt_score = tt_entry.score();
@@ -774,7 +772,7 @@ impl Caps {
                         self.statistics.tt_cutoff(MainSearch, tt_bound);
                         // Idea from stormphrax
                         if tt_score >= beta
-                            && !best_move.is_tactical(&pos)
+                            && !best_move.is_tactical(pos)
                             && self.search_stack[ply].pos.is_generated_move_pseudolegal(best_move)
                         {
                             self.search_stack[ply].killer = best_move;
@@ -812,7 +810,7 @@ impl Caps {
             }
         } else {
             self.statistics.tt_miss(MainSearch);
-            raw_eval = self.eval(&pos, ply);
+            raw_eval = self.eval(pos, ply);
             eval = raw_eval;
         };
         let mut continued = None;
@@ -823,7 +821,7 @@ impl Caps {
                 continued = Some((mov, &entry.pos));
             }
         }
-        eval = self.state.custom.corr_hist.correct(&pos, continued, eval);
+        eval = self.state.custom.corr_hist.correct(pos, continued, eval);
 
         self.record_pos(pos, eval, ply);
 
@@ -831,7 +829,7 @@ impl Caps {
         // However, captures and promos are generally good moves, so if our eval is the static eval instead of adjusted from the TT,
         // a noisy condition would mean we're doing even better than expected. // TODO: Apply noisy for RFP etc only if eval is TT eval?
         // If it's from the TT, however, and the first move didn't produce a beta cutoff, we're probably worse than expected
-        let pos_noisy = in_check || (best_move != ChessMove::default() && best_move.is_tactical(&pos));
+        let pos_noisy = in_check || (best_move != ChessMove::default() && best_move.is_tactical(pos));
 
         // Like the commonly used `improving` and `regressing`, these variables compare the current static eval with
         // the static eval 2 plies ago to recognize blunders. Conceptually, `improving` and `regressing` can be seen as
@@ -859,10 +857,11 @@ impl Caps {
                 // TODO: Multiplicative constant (changes bench)
                 margin /= cc::rfp_fail_high_div();
             }
-            if let Some(entry) = old_entry {
-                if entry.score() <= eval && entry.bound() == NodeType::upper_bound() {
-                    margin += margin * cc::rfp_tt_upper_bound() / 1024;
-                }
+            if let Some(entry) = old_entry
+                && entry.score() <= eval
+                && entry.bound() == NodeType::upper_bound()
+            {
+                margin += margin * cc::rfp_tt_upper_bound() / 1024;
             }
             if pos_noisy {
                 margin += margin * cc::rfp_noisy_pos() / 1024;
@@ -975,7 +974,7 @@ impl Caps {
             depth -= cc::iir_reduction();
         }
 
-        self.maybe_send_currline(&pos, alpha, beta, ply, None);
+        self.maybe_send_currline(pos, alpha, beta, ply, None);
 
         // An uninteresting move is a quiet move or bad capture unless it's the TT or killer move
         // (i.e. it's every move that gets ordered after the killer). The name is a bit dramatic, the first few of those
@@ -1061,7 +1060,7 @@ impl Caps {
             if move_score < KILLER_SCORE {
                 num_uninteresting_visited += 1;
             }
-            let tactical = mov.is_tactical(&pos);
+            let tactical = mov.is_tactical(pos);
 
             let nodes_before_move = self.state.uci_nodes();
             // PVS (Principal Variation Search): Assume that the TT move is the best move, so we only need to prove
@@ -1129,7 +1128,7 @@ impl Caps {
                     reduction += cc::tt_capt_reduction();
                 }
                 if tactical {
-                    let hist = self.capt_hist.get(mov, &pos);
+                    let hist = self.capt_hist.get(mov, pos);
                     if hist <= MoveScore(cc::lmr_bad_capthist()) {
                         reduction += cc::lmr_bad_capthist_reduction();
                     } else if hist >= MoveScore(cc::lmr_good_capthist()) {
@@ -1271,7 +1270,7 @@ impl Caps {
 
         // Corrhist updates
         if !(in_check
-            || (!best_move.is_null() && best_move.is_tactical(&pos))
+            || (!best_move.is_null() && best_move.is_tactical(pos))
             || (best_score <= eval && bound_so_far == NodeType::lower_bound())
             || (best_score >= eval && bound_so_far == NodeType::upper_bound()))
         {
@@ -1283,7 +1282,7 @@ impl Caps {
                     continued = Some((mov, &entry.pos));
                 }
             }
-            self.state.custom.corr_hist.update(&pos, continued, depth, eval, best_score);
+            self.state.custom.corr_hist.update(pos, continued, depth, eval, best_score);
         }
         if ply > 0 && bound_so_far == FailLow {
             // give a smaller bonus to the parent's move if we fail low. This rewards PVS researches that don't cause a fail high in the parent.
@@ -1351,11 +1350,11 @@ impl Caps {
             {
                 eval = tt_score;
             };
-            if let Some(mov) = tt_entry.mov(&pos) {
+            if let Some(mov) = tt_entry.mov(pos) {
                 best_move = mov;
             }
         } else {
-            raw_eval = if in_check { SCORE_LOST + ply as ScoreT } else { self.eval(&pos, ply) };
+            raw_eval = if in_check { SCORE_LOST + ply as ScoreT } else { self.eval(pos, ply) };
             eval = raw_eval;
         }
         let mut best_score = eval;
@@ -1368,7 +1367,7 @@ impl Caps {
                     continued = Some((mov, &entry.pos));
                 }
             }
-            best_score = self.state.custom.corr_hist.correct(&pos, continued, eval);
+            best_score = self.state.custom.corr_hist.correct(pos, continued, eval);
         }
         // Saving to the TT is probably unnecessary since the score is either from the TT or just the static eval,
         // which is not very valuable. Also, the fact that there's no best move might have unfortunate interactions with
@@ -1384,7 +1383,7 @@ impl Caps {
         }
         self.record_pos(pos, best_score, ply);
 
-        self.maybe_send_currline(&pos, alpha, beta, ply, Some(best_score));
+        self.maybe_send_currline(pos, alpha, beta, ply, Some(best_score));
 
         let mut move_picker: MovePicker<Chessboard, MAX_CHESS_MOVES_IN_POS> =
             MovePicker::new(pos, best_move, !in_check);
@@ -1393,14 +1392,14 @@ impl Caps {
         while let Some(sm) = move_picker.next(&move_scorer, &self.state) {
             let mov = sm.mov();
             let move_score = sm.score();
-            debug_assert!(mov.is_tactical(&pos) || pos.is_in_check());
+            debug_assert!(mov.is_tactical(pos) || pos.is_in_check());
             self.tt().prefetch(pos.approx_hash_after(mov));
             if !eval.is_game_lost_score() && move_score < MoveScore(0) || children_visited >= 3 {
                 // qsearch see pruning and qsearch late move  pruning (lmp):
                 // If the move has a negative SEE score or if we've already looked at enough moves, don't even bother playing it in qsearch.
                 break;
             }
-            let hist_score = self.capt_hist.get(mov, &pos);
+            let hist_score = self.capt_hist.get(mov, pos);
             // qsearch history pruning
             if hist_score < MoveScore(-500) {
                 break;
@@ -1462,7 +1461,7 @@ impl Caps {
         } else {
             score.wrapping_add(&-self.params.contempt)
         };
-        if let Some(res) = pos.query_bitbase(&self.precomputed.bitbase) {
+        if let Some(res) = pos.query_bitbase(self.precomputed.bitbase) {
             // because it's not useful to return the same won/lost score on all nodes, we interpolate with the static eval
             score = match res {
                 Win => (score + BITBASE_WIN) / 2,
@@ -1594,10 +1593,10 @@ impl MoveScorer<Chessboard, Caps> for CapsMoveScorer<'_> {
     fn score_move_eager_part(&self, mov: ChessMove, state: &CapsState) -> MoveScore {
         // The move list is iterated backwards, which is why better moves get higher scores
         // No need to check against the TT move because that's already handled by the move picker
-        if mov.is_tactical(&self.pos) {
-            let captured = mov.captured(&self.pos);
+        if mov.is_tactical(self.pos) {
+            let captured = mov.captured(self.pos);
             let base_val = MoveScore(HIST_DIVISOR * 10);
-            let hist_val = state.capt_hist.get(mov, &self.pos);
+            let hist_val = state.capt_hist.get(mov, self.pos);
             base_val + MoveScore(captured as i16 * HIST_DIVISOR) + hist_val
         } else if mov == state.search_stack[self.ply].killer {
             // `else` ensures that tactical moves can't be killers
@@ -1605,13 +1604,13 @@ impl MoveScorer<Chessboard, Caps> for CapsMoveScorer<'_> {
         } else {
             let countermove_score = if self.ply > 0 {
                 let prev_move = state.search_stack[self.ply - 1].last_tried_move();
-                state.countermove_hist.score(mov, &self.pos, prev_move, &state.search_stack[self.ply - 1].pos)
+                state.countermove_hist.score(mov, self.pos, prev_move, &state.search_stack[self.ply - 1].pos)
             } else {
                 0
             };
             let follow_up_score = if self.ply > 1 {
                 let prev_move = state.search_stack[self.ply - 2].last_tried_move();
-                state.follow_up_move_hist.score(mov, &self.pos, prev_move, &state.search_stack[self.ply - 2].pos)
+                state.follow_up_move_hist.score(mov, self.pos, prev_move, &state.search_stack[self.ply - 2].pos)
             } else {
                 0
             };
@@ -1629,7 +1628,7 @@ impl MoveScorer<Chessboard, Caps> for CapsMoveScorer<'_> {
     /// Only compute SEE scores for moves when we're actually trying to play them.
     /// Idea from Cosmo.
     fn defer_playing_move(&self, mov: ChessMove) -> bool {
-        mov.is_tactical(&self.pos) && !self.pos.see_at_least(mov, SeeScore(0))
+        mov.is_tactical(self.pos) && !self.pos.see_at_least(mov, SeeScore(0))
     }
 }
 

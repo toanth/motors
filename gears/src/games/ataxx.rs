@@ -19,7 +19,7 @@ use crate::general::board::{
     BitboardBoard, BoardHelpers, PieceTypeOf, SelfChecks, Strictness, Symmetry, UnverifiedBoard, simple_fen,
 };
 use crate::general::common::{Res, StaticallyNamedEntity, Tokens, ith_one_u64};
-use crate::general::move_list::{InplaceMoveList, MoveList};
+use crate::general::move_list::InplaceMoveList;
 use crate::general::moves::Move;
 use crate::general::squares::SquareColor::White;
 use crate::general::squares::{SmallGridSize, SmallGridSquare, SquareColor};
@@ -28,7 +28,6 @@ use crate::output::text_output::{BoardFormatter, DefaultBoardFormatter, board_to
 use crate::search::DepthPly;
 use anyhow::{bail, ensure};
 use arbitrary::Arbitrary;
-use itertools::Itertools;
 use rand::Rng;
 use rand::prelude::IndexedRandom;
 use std::cmp::Ordering;
@@ -160,8 +159,8 @@ impl Board for AtaxxBoard {
         Self::default()
     }
 
-    fn bench_positions() -> Vec<Self> {
-        let fens = vec![
+    fn bench_positions() -> impl IntoIterator<Item = Self> {
+        let fens = &[
             "x-1-1-o/-1-1-1-/1-1-1-1/-1-1-1-/1-1-1-1/-1-1-1-/o-1-1-x x 0 1",
             "x-1-1-o/1-1-1-1/1-1-1-1/1-1-1-1/1-1-1-1/1-1-1-1/o-1-1-x x 0 1",
             "x1-1-1o/2-1-2/-------/2-1-2/-------/2-1-2/o1-1-1x x 0 1",
@@ -215,7 +214,7 @@ impl Board for AtaxxBoard {
             "oxx3o/xxx4/xxx4/5x1/7/7/x5x x 0 1",
             "7/7/7/7/-------/-------/x2xxoo o 1 3", // position where the only legal move is to pass
         ];
-        fens.iter().map(|fen| Self::from_fen(fen, Strict).unwrap()).collect_vec()
+        fens.iter().map(|fen| Self::from_fen(fen, Strict).unwrap())
     }
 
     fn random_pos(rng: &mut impl Rng, strictness: Strictness, symmetry: Option<Symmetry>) -> Res<Self> {
@@ -337,11 +336,11 @@ impl Board for AtaxxBoard {
         DepthPly::new(5)
     }
 
-    fn gen_pseudolegal<T: MoveList<Self>>(&self, moves: &mut T) {
-        self.gen_legal(moves)
+    fn gen_pseudolegal(&self, callback: impl FnMut(AtaxxMove)) {
+        self.gen_legal(callback)
     }
 
-    fn gen_tactical_pseudolegal<T: MoveList<Self>>(&self, _moves: &mut T) {
+    fn gen_tactical_pseudolegal(&self, _callback: impl FnMut(AtaxxMove)) {
         // currently, no moves are considered tactical
     }
 
@@ -594,6 +593,7 @@ mod tests {
     use super::*;
     use crate::general::board::Strictness::Relaxed;
     use crate::general::moves::Move;
+    use crate::general::perft::Bulkness::Bulk;
     use crate::general::perft::perft;
 
     #[test]
@@ -658,7 +658,7 @@ mod tests {
         let pos = AtaxxBoard::from_fen("7/7/7/7/-------/-------/--x3o x 1 2", Strict).unwrap();
         let expected = [1, 2, 3, 3, 4, 5, 5, 3, 3, 3, 2, 3, 3, 2, 3, 3, 2, 3, 3, 2, 3, 3, 2, 3, 3, 2, 3, 3, 2, 3, 3];
         for (i, &nodes) in expected.iter().enumerate() {
-            let res = perft(DepthPly::new(i), pos, false);
+            let res = perft(DepthPly::new(i), pos, false, Bulk);
             assert_eq!(res.nodes, nodes, "Depth {i}: {pos}");
         }
     }

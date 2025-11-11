@@ -1,5 +1,5 @@
 use crate::games::chess::ChessColor::Black;
-use crate::games::chess::pieces::ChessPieceType::Pawn;
+use crate::games::chess::pieces::ChessPieceType::{Bishop, King, Knight, Pawn};
 use crate::games::chess::pieces::{ChessPieceType, NUM_CHESS_PIECES};
 use crate::games::chess::squares::{ChessSquare, NUM_COLUMNS, NUM_SQUARES};
 use crate::games::chess::{ChessColor, Chessboard, Hashes};
@@ -19,6 +19,7 @@ pub struct PrecomputedZobristKeys {
 }
 
 impl PrecomputedZobristKeys {
+    #[inline]
     pub fn piece_key(&self, piece: ChessPieceType, color: ChessColor, square: ChessSquare) -> PosHash {
         self.piece_square_keys[square.bb_idx() + piece as usize * 64 + color as usize * 64 * 7]
     }
@@ -91,7 +92,7 @@ impl Chessboard {
                 for square in pieces_bb {
                     let key = ZOBRIST_KEYS.piece_key(piece, color, square);
                     nonpawns[color] ^= key;
-                    if piece.is_knb() {
+                    if [King, Knight, Bishop].contains(&piece) {
                         knb ^= key;
                     }
                 }
@@ -118,7 +119,6 @@ mod tests {
     use super::*;
     use crate::games::chess::ChessColor::White;
     use crate::games::chess::moves::{ChessMove, ChessMoveFlags};
-    use crate::games::chess::pieces::ChessPieceType::*;
     use crate::games::chess::squares::{D_FILE_NUM, E_FILE_NUM};
     use crate::general::board::Strictness::Strict;
     use crate::general::board::{Board, BoardHelpers};

@@ -21,6 +21,7 @@ mod tests {
     use crate::games::fairy::FairyBoard;
     use crate::general::board::BoardHelpers;
     use crate::general::board::Strictness::Relaxed;
+    use crate::general::perft::Bulkness::Bulk;
     use crate::general::perft::perft;
     use crate::search::DepthPly;
     use crate::ugi::load_ugi_pos_simple;
@@ -36,7 +37,7 @@ mod tests {
             }
             let i = i + 1;
             let depth = DepthPly::new(i);
-            let res = perft(depth, pos.clone(), true);
+            let res = perft(depth, pos.clone(), true, Bulk);
             assert_eq!(res.depth, depth);
             assert_eq!(res.nodes, expected, "depth {i}, fen '{fen}' ({pos})");
         }
@@ -76,7 +77,7 @@ mod tests {
             ("chess rqbbknr1/1ppp2pp/p5n1/4pp2/P7/1PP5/1Q1PPPPP/R1BBKNRN w GAga - 0 9", vec![24, 600, 15347, 408_207]),
             ("shatranj", vec![16, 256, 4176, 68_122, 1_164_248]),
             (
-                "fen shatranj rnaf1k1r/pp1Pappp/2p5/8/2A5/8/PPP1NnPP/RNAFK2R w 1 8",
+                "fen shatranj rnbf1k1r/pp1Pbppp/2p5/8/2B5/8/PPP1NnPP/RNBFK2R w 1 8",
                 vec![23, 476, 10688, 220_593, 5_116_523],
             ),
             ("tictactoe", vec![9, 9 * 8, 9 * 8 * 7, 9 * 8 * 7 * 6, 9 * 8 * 7 * 6 * 5]),

@@ -56,7 +56,9 @@ use gears::general::board::{Board, BoardHelpers};
 use gears::general::common::Description::WithDescription;
 use gears::general::common::anyhow::anyhow;
 use gears::general::common::{Res, select_name_dyn};
+use gears::general::perft::Bulkness::Bulk;
 use gears::general::perft::{perft, split_perft};
+use gears::itertools::Itertools;
 use gears::output::normal_outputs;
 use gears::search::{DepthPly, SearchLimit};
 use gears::ugi::load_ugi_pos_simple;
@@ -106,7 +108,8 @@ impl<B: Board> AbstractRun for BenchRun<B> {
         let engine = self.engine.as_mut();
         let nodes = if self.with_nodes { Some(SearchLimit::nodes(engine.default_bench_nodes())) } else { None };
         let depth = self.depth.unwrap_or(engine.default_bench_depth());
-        let res = run_bench_with(engine, SearchLimit::depth(depth), nodes, &B::bench_positions(), None);
+        let positions = B::bench_positions().into_iter().collect_vec();
+        let res = run_bench_with(engine, SearchLimit::depth(depth), nodes, &positions, None);
         println!("{res}");
         QuitProgram
     }
@@ -141,10 +144,10 @@ impl<B: Board> AbstractRun for PerftRun<B> {
         };
         let depth = self.depth.unwrap_or(pos.default_perft_depth());
         if self.split {
-            let res = split_perft(depth, pos, true);
+            let res = split_perft(depth, pos, true, Bulk);
             println!("{res}");
         } else {
-            let res = perft(depth, pos, true);
+            let res = perft(depth, pos, true, Bulk);
             println!("{res}");
         }
         QuitProgram

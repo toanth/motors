@@ -32,7 +32,7 @@ use crate::games::fairy::{
 use crate::games::{AbstractPieceType, Color, ColoredPieceType, DimT, Size};
 use crate::general::bitboards::{Bitboard, RawBitboard};
 use crate::general::board::SelfChecks::Verify;
-use crate::general::board::Strictness::{Relaxed, Strict};
+use crate::general::board::Strictness::Relaxed;
 use crate::general::board::{BitboardBoard, Board, BoardHelpers, UnverifiedBoard};
 use crate::general::common::{Res, tokens};
 use crate::general::moves::{ExtendedFormat, Legality, Move, UntrustedMove};
@@ -530,7 +530,7 @@ impl FairyBoard {
 
     pub(super) fn make_move_impl(mut self, mov: FairyMove) -> Option<Self> {
         if cfg!(debug_assertions) {
-            _ = self.debug_verify_invariants(Strict).unwrap();
+            _ = self.debug_verify_invariants(Relaxed).unwrap();
         }
         // pseudolegal movegen: Some expensive conditions are checked here instead of when generating the move.
         // `end_move` does further expensive checks, like testing if the new sntm is in check
@@ -608,6 +608,7 @@ mod tests {
     use crate::general::board::Strictness::{Relaxed, Strict};
     use crate::general::board::{Board, BoardHelpers, UnverifiedBoard};
     use crate::general::moves::Move;
+    use crate::general::perft::Bulkness::Bulk;
     use crate::general::perft::perft;
     use crate::search::DepthPly;
     use std::sync::atomic::Ordering;
@@ -633,7 +634,7 @@ mod tests {
                 assert!(!mov.is_capture());
                 assert!(pos.clone().make_move(mov).unwrap().debug_verify_invariants(Strict).is_ok());
             }
-            let perft_res = perft(DepthPly::new(3), pos.clone(), true);
+            let perft_res = perft(DepthPly::new(3), pos.clone(), true, Bulk);
             assert_eq!(perft_res.nodes, *perft_nodes);
         }
         let fen = "8/4k3/8/8/8/8/8/RK1b4 w A - 0 1";

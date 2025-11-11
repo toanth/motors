@@ -342,6 +342,7 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
         }
         for piece in ChessPieceType::non_pawn_pieces() {
             for square in pos.col_piece_bb(us, piece) {
+                // TODO: Maybe it makes sense to ensure the compiler unrolls this loop
                 let attacks = Chessboard::threatening_attacks(square, piece, us, &generator);
                 all_attacks |= attacks;
                 let attacks_no_pawn_recapture = attacks & !attacked_by_pawn;
@@ -436,17 +437,19 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
     }
 
     fn eval_from_scratch(&self, pos: &Chessboard) -> EvalState<Tuned> {
-        let mut state = EvalState::default();
-
-        state.phase = pos.phase();
-
-        let psqt_score = self.psqt(pos);
-        state.psqt_score = psqt_score.clone();
-        let pawn_score = Self::pawns(pos, &mut state.passers);
-        state.pawn_score = pawn_score.clone();
-        state.hash = pos.hash_pos();
-        state.pawn_key = pos.pawn_key();
-        state.total_score = Self::recomputed_every_time(&mut state, pos) + psqt_score + pawn_score;
+        let mut state = EvalState {
+            hash: pos.hash_pos(),
+            pawn_key: pos.pawn_key(),
+            passers: Default::default(),
+            phase: pos.phase(),
+            psqt_score: self.psqt(pos),
+            pawn_score: Default::default(),
+            stm_bonus: Default::default(),
+            total_score: Default::default(),
+        };
+        state.pawn_score = Self::pawns(pos, &mut state.passers);
+        state.total_score =
+            Self::recomputed_every_time(&mut state, pos) + state.psqt_score.clone() + state.pawn_score.clone();
         state
     }
 
@@ -489,7 +492,7 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
         );
         debug_assert_eq!(&old_pos.make_move(mov).unwrap(), new_pos);
 
-        let piece_type = mov.piece_type(&old_pos);
+        let piece_type = mov.piece_type(old_pos);
         let captured = mov.captured(old_pos);
         // also deals with castles, unlike testing mov.dest_square().rank()
         if piece_type == King && (mov.src_square().file() < 4) != (new_pos.king_sq(old_pos.active_player()).file() < 4)
