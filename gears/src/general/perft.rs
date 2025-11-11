@@ -77,9 +77,10 @@ fn do_perft<B: Board>(depth: usize, pos: B, pseudo_bulk: Bulkness) -> u64 {
     if pseudo_bulk == Bulk && depth == 1 {
         return pos.num_legal_moves() as u64;
     }
-    for new_pos in pos.children() {
+    pos.gen_pseudolegal(|m| {
+        let Some(new_pos) = pos.clone().make_move(m) else { return };
         nodes += do_perft(depth - 1, new_pos, pseudo_bulk);
-    }
+    });
     // no need to handle the case of no legal moves, since `children()` and `num_legal_moves()`
     // already take care of forced passing moves.
     nodes

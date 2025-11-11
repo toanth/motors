@@ -656,6 +656,7 @@ impl Board for Chessboard {
         if no_moves { self.no_moves_result() } else { None }
     }
 
+    #[inline]
     fn no_moves_result(&self) -> Option<PlayerResult> {
         Some(if self.is_in_check() { Lose } else { Draw })
     }

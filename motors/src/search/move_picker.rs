@@ -77,36 +77,12 @@ impl<B: Board, E: Engine<B>, const MAX_LEN: usize, Scorer: MoveScorer<B, E>> Int
     }
 }
 
-impl<B: Board, E: Engine<B>, const MAX_LEN: usize, Scorer: MoveScorer<B, E>> MoveList<B>
-    for MoveListScorer<'_, B, E, MAX_LEN, Scorer>
-{
-    fn add_move(&mut self, mov: B::Move) {
+impl<B: Board, E: Engine<B>, const MAX_LEN: usize, Scorer: MoveScorer<B, E>> MoveListScorer<'_, B, E, MAX_LEN, Scorer> {
+    pub fn add_move(&mut self, mov: B::Move) {
         if self.excluded != mov {
             let score = self.scorer.score_move_eager_part(mov, self.state);
             self.list.push(ScoredMove::new(mov, score));
         }
-    }
-
-    fn num_moves(&self) -> usize {
-        self.list.len()
-    }
-
-    fn swap_remove_move(&mut self, idx: usize) -> B::Move {
-        self.list.swap_remove(idx).mov()
-    }
-
-    fn iter_moves(&self) -> impl Iterator<Item = B::Move> {
-        self.list.iter().map(|sm| sm.mov())
-    }
-
-    fn remove(&mut self, to_remove: B::Move) {
-        if let Some((idx, _)) = self.list.iter().find_position(|sm| sm.mov() == to_remove) {
-            _ = self.swap_remove_move(idx);
-        }
-    }
-
-    fn filter_moves(&mut self, predicate: impl Fn(&mut B::Move) -> bool) {
-        self.list.retain(|sm| predicate(&mut sm.mov()));
     }
 }
 

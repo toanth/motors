@@ -319,7 +319,7 @@ impl GameEndRes {
                 // this is pretty slow, but that's fine since it only happens when the game is over (possibly during search),
                 // and this result tends to be triggered rarely.
                 let mut hist = history.clone();
-                let idx = usize::from(pos.children().any(move |c| {
+                let idx = usize::from(pos.children().any(|c| {
                     hist.push(c.hash_pos());
                     let res = condition.satisfied(&c, history);
                     hist.pop();

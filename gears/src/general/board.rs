@@ -43,6 +43,7 @@ use colored::Colorize;
 use num::Zero;
 use rand::Rng;
 use std::fmt::{Debug, Display, Formatter};
+use std::iter::FusedIterator;
 use std::num::NonZeroUsize;
 use std::str::Split;
 use std::{fmt, iter};
@@ -481,7 +482,9 @@ pub trait Board:
     /// Returns the number of pseudolegal moves. Can sometimes be implemented more efficiently
     /// than generating all pseudolegal moves and counting their number.
     fn num_pseudolegal_moves(&self) -> usize {
-        self.pseudolegal_moves().num_moves()
+        let mut ctr = 0;
+        self.gen_pseudolegal(|_| ctr += 1);
+        ctr
     }
 
     /// Returns the number of legal moves. Automatically falls back to [`Self::num_pseudolegal_moves`] for games
@@ -491,7 +494,13 @@ pub trait Board:
             let res = self.num_pseudolegal_moves();
             if res == 0 && self.no_moves_result().is_none() { 1 } else { res }
         } else {
-            self.legal_moves_slow().num_moves()
+            let mut ctr = 0;
+            self.gen_pseudolegal(|m| {
+                if self.is_pseudolegal_move_legal(m) {
+                    ctr += 1;
+                }
+            });
+            ctr
         }
     }
 
@@ -1378,3 +1387,11 @@ impl<B: Board> Iterator for ChildrenIter<'_, B> {
         }
     }
 }
+
+impl<B: Board> ExactSizeIterator for ChildrenIter<'_, B> {
+    fn len(&self) -> usize {
+        self.iter.len()
+    }
+}
+
+impl<B: Board> FusedIterator for ChildrenIter<'_, B> {}

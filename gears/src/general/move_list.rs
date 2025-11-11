@@ -5,7 +5,7 @@ use std::fmt::Debug;
 
 /// A list of moves as returned by the board's `pseudolegal_moves`.
 /// Moves may or may not be ordered and may or may not be computed lazily.
-pub trait MoveList<B: Board>: IntoIterator<Item = B::Move, IntoIter: Send> + Debug {
+pub trait MoveList<B: Board>: IntoIterator<Item = B::Move, IntoIter: Send + ExactSizeIterator> + Debug {
     fn add_move(&mut self, mov: B::Move);
 
     fn num_moves(&self) -> usize;
