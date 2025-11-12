@@ -604,7 +604,7 @@ impl Board for Chessboard {
     }
 
     fn make_move(self, mov: Self::Move) -> Option<Self> {
-        debug_assert!(self.is_move_pseudolegal_impl(mov));
+        debug_assert!(self.is_move_pseudolegal_impl(mov), "{self} {mov:?}");
         if !self.is_pseudolegal_move_legal(mov) {
             return None;
         }
@@ -626,15 +626,11 @@ impl Board for Chessboard {
     }
 
     fn is_generated_move_pseudolegal(&self, mov: ChessMove) -> bool {
-        let res = self.is_generated_move_pseudolegal_impl(mov);
-        debug_assert!(res || !self.is_move_pseudolegal_impl(mov), "{mov:?} {self}");
-        res
+        self.is_move_pseudolegal_impl(mov)
     }
 
     fn is_move_pseudolegal(&self, mov: ChessMove) -> bool {
-        let res = self.is_move_pseudolegal_impl(mov);
-        debug_assert!(!res || self.is_generated_move_pseudolegal_impl(mov), "{mov:?} {self}");
-        res
+        self.is_move_pseudolegal_impl(mov)
     }
 
     fn is_pseudolegal_move_legal(&self, mov: Self::Move) -> bool {

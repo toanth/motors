@@ -8,7 +8,7 @@ use crate::games::chess::pieces::{ChessPieceType, ColoredChessPieceType};
 use crate::games::chess::squares::{C_FILE_NUM, ChessSquare, ChessboardSize, G_FILE_NUM};
 use crate::games::chess::{ChessBitboardTrait, ChessColor, Chessboard, PAWN_CAPTURES};
 use crate::games::{Board, Color, ColoredPieceType};
-use crate::general::bitboards::chessboard::{BISHOPS, ChessBitboard, KINGS, KNIGHTS, ROOKS};
+use crate::general::bitboards::chessboard::{BISHOPS, ChessBitboard, KINGS, KNIGHTS, RAYS_INCLUSIVE, ROOKS};
 use crate::general::bitboards::{Bitboard, KnownSizeBitboard, RawBitboard};
 use crate::general::board::BitboardBoard;
 use crate::general::hq::ChessSliderGenerator;
@@ -56,81 +56,61 @@ impl Chessboard {
 
     fn check_castling_move_pseudolegal(&self, mov: ChessMove, color: ChessColor) -> bool {
         self.col_piece_bb(color, King).has(mov.src_square())
-            && (self.rook_start_square(color, Kingside) == mov.dest_square()
+            && ((self.rook_start_square(color, Kingside) == mov.dest_square()
                 && mov.castle_side() == Kingside
                 && self.is_castling_pseudolegal(Kingside))
-            || (self.rook_start_square(color, Queenside) == mov.dest_square()
-                && mov.castle_side() == Queenside
-                && self.is_castling_pseudolegal(Queenside))
-    }
-
-    fn simple_illegal(&self, piece: ChessPieceType, dest: ChessSquare) -> bool {
-        if piece == King {
-            if self.threats().has(dest) {
-                return true;
-            }
-        } else if self.checkers.more_than_one_bit_set() {
-            return true;
-        }
-        false
+                || (self.rook_start_square(color, Queenside) == mov.dest_square()
+                    && mov.castle_side() == Queenside
+                    && self.is_castling_pseudolegal(Queenside)))
     }
 
     pub fn is_move_pseudolegal_impl(&self, mov: ChessMove) -> bool {
         let src = mov.src_square();
         let dest = mov.dest_square();
         let us = self.active;
-        if !self.player_bb(us).has(src) {
+        if !self.player_bb(us).has(src) || mov.try_get_flags().is_none() {
             return false;
         }
-        let piece = mov.piece_type(self);
         if mov.is_castle() {
-            piece == King && self.check_castling_move_pseudolegal(mov, us)
-        } else if piece == Pawn {
+            return self.check_castling_move_pseudolegal(mov, us);
+        }
+        let piece = mov.piece_type(self);
+        let invalid = if piece == King {
+            self.threats.has(dest)
+        } else {
+            match self.checkers.num_ones() {
+                0 => false,
+                1 => {
+                    if mov.is_ep() {
+                        false
+                    } else {
+                        let checker = self.checkers().to_square().unwrap();
+                        !RAYS_INCLUSIVE[self.king_sq(us)][checker].is_bit_set_at(dest.bb_idx())
+                    }
+                }
+                _ => true,
+            }
+        };
+        if invalid {
+            return false;
+        };
+
+        if piece == Pawn {
             if mov.is_double_pawn_push() != (src.rank().abs_diff(dest.rank()) != 1) {
                 return false;
             }
             if mov.is_ep() {
-                return Some(dest) == self.ep_square;
+                return Some(dest) == self.ep_square && src.bb().pawn_attacks(us).has(dest);
             }
             let incorrect_promo = mov.is_promotion() != dest.is_backrank();
             let capturable = self.player_bb(us.other());
             !incorrect_promo && Self::single_pawn_moves(us, src, capturable, self.empty_bb()).has(dest)
         } else {
-            if mov.is_promotion() || mov.is_ep() || self.simple_illegal(piece, dest) {
+            if mov.is_promotion() || mov.is_ep() || mov.is_double_pawn_push() {
                 return false;
             }
             let generator = self.slider_generator();
             (Self::threatening_attacks(src, mov.piece_type(self), us, &generator) & !self.active_player_bb()).has(dest)
-        }
-    }
-
-    /// Unlike [`Self::is_move_pseudolegal`], this assumes that `mov` used to be pseudolegal in *some* arbitrary position.
-    /// This means that checking pseudolegality is less expensive
-    pub fn is_generated_move_pseudolegal_impl(&self, mov: ChessMove) -> bool {
-        let us = self.active;
-        let src = mov.src_square();
-        let dest = mov.dest_square();
-        let piece = mov.piece_type(self);
-        if !self.player_bb(us).has(src) {
-            return false;
-        }
-        if mov.is_castle() {
-            // we can't assume that the position was from the same game, so we still have to check that rook and king positions match
-            self.check_castling_move_pseudolegal(mov, us)
-        } else if piece == Pawn {
-            if mov.is_ep() {
-                return self.ep_square() == Some(dest);
-            }
-            let capturable = self.player_bb(!us);
-            // we still need to check this because this could have been a pawn move from the other player
-            Self::single_pawn_moves(us, src, capturable, self.empty_bb()).has(dest)
-        } else {
-            if self.simple_illegal(piece, dest) {
-                return false;
-            }
-            let ray = ChessBitboard::ray_exclusive(src, dest, ChessboardSize {});
-            let on_ray = ray & self.occupied_bb();
-            on_ray.is_zero() && !self.player_bb(us).has(dest)
         }
     }
 
@@ -484,7 +464,7 @@ impl Chessboard {
             if mov.is_castle() {
                 let to_file = if mov.flags() == CastleKingside { G_FILE_NUM } else { C_FILE_NUM };
                 let king_ray = ChessBitboard::ray_inclusive(
-                    mov.src_square(),
+                    src,
                     ChessSquare::from_rank_file(src.rank(), to_file),
                     ChessboardSize::default(),
                 );
@@ -533,6 +513,7 @@ mod tests {
     use super::*;
     use crate::general::board::BoardHelpers;
     use crate::general::board::Strictness::Strict;
+    use crate::general::moves::Move;
     use std::str::FromStr;
 
     #[test]
@@ -554,11 +535,30 @@ mod tests {
     }
 
     #[test]
-    fn is_move_pseudolegal_test() {
+    fn simple_is_move_pseudolegal_test() {
         let pos = Chessboard::from_fen("3k4/1P6/8/8/7K/8/r7/2R5 w - - 0 1", Strict).unwrap();
         let mov =
             ChessMove::new(ChessSquare::from_str("b7").unwrap(), ChessSquare::from_str("b8").unwrap(), NormalMove);
         assert!(!pos.is_move_pseudolegal(mov));
+    }
+
+    #[test]
+    fn is_move_pseudolegal_test() {
+        for p in Chessboard::bench_positions() {
+            let moves = p.pseudolegal_moves();
+            for n in 0..u16::MAX {
+                let m = ChessMove::from_u64_unchecked(n as u64);
+                let m = m.trust_unchecked();
+                assert_eq!(moves.contains(&m), p.is_move_pseudolegal(m), "{p} {n:0x} {m:?}");
+            }
+            let Some(p) = p.make_nullmove() else { continue };
+            let moves = p.pseudolegal_moves();
+            for n in 0..u16::MAX {
+                let m = ChessMove::from_u64_unchecked(n as u64);
+                let m = m.trust_unchecked();
+                assert_eq!(moves.contains(&m), p.is_move_pseudolegal(m), "{p} {n:0x} {m:?}");
+            }
+        }
     }
 
     #[test]

@@ -182,7 +182,11 @@ impl ChessMove {
     }
 
     pub(super) fn flags(self) -> ChessMoveFlags {
-        ChessMoveFlags::iter().nth((self.0 >> 12) as usize).unwrap_or_default()
+        self.try_get_flags().unwrap_or_default()
+    }
+
+    pub(super) fn try_get_flags(self) -> Option<ChessMoveFlags> {
+        ChessMoveFlags::iter().nth((self.0 >> 12) as usize)
     }
 
     pub fn from_to_square(self) -> usize {
