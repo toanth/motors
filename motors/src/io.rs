@@ -725,6 +725,9 @@ impl<B: Board> EngineUGI<B> {
                 if threads > 1 {
                     bail!("For 'perft' runs, the 'Threads' options can only be used to set threads to 1")
                 }
+                if limit.depth > B::max_perft_depth() {
+                    bail!("Depth {0} is larger than the maximum perft depth of {1}", limit.depth, B::max_perft_depth());
+                }
                 let pseudo_bulk = if opts.no_bulk { NoBulk } else { Bulk };
                 for i in 1..=limit.depth.get() {
                     if opts.unique {
@@ -743,6 +746,9 @@ impl<B: Board> EngineUGI<B> {
                 let threads = opts.threads.unwrap_or(0);
                 if threads > 1 {
                     bail!("For 'splitperft' runs, the 'Threads' options can only be used to set threads to 1")
+                }
+                if limit.depth > B::max_perft_depth() {
+                    bail!("Depth {0} is too large; maximum splitperft depth: {1}", limit.depth, B::max_perft_depth());
                 }
                 let pseudo_bulk = if opts.no_bulk { NoBulk } else { Bulk };
                 let res = split_perft(limit.depth, board, threads != 1, pseudo_bulk);
