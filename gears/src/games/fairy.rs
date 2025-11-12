@@ -849,16 +849,20 @@ impl Board for FairyBoard {
     }
 
     fn cannot_call_movegen(&self) -> bool {
-        let mut res = false;
         for (cond, _) in &self.rules().game_end_eager {
-            res |= self.precludes_movegen(cond);
+            if self.precludes_movegen(cond) {
+                return true;
+            }
         }
-        res
+        false
     }
 
     fn pseudolegal_moves(&self) -> FairyMoveList {
         let mut moves = FairyMoveList::new();
         self.gen_pseudolegal_impl(&mut moves);
+        if moves.is_empty() && self.no_moves_result().is_none() {
+            moves.push(Self::Move::default());
+        }
         moves
     }
 
@@ -867,6 +871,15 @@ impl Board for FairyBoard {
         self.gen_pseudolegal_impl(&mut moves);
         MoveList::<FairyBoard>::filter_moves(&mut moves, |m: &mut FairyMove| m.is_tactical(self));
         moves
+    }
+
+    fn num_pseudolegal_moves(&self) -> usize {
+        let mut ctr = 0;
+        self.gen_pseudolegal(|_| ctr += 1);
+        if ctr == 0 && self.no_moves_result().is_none() {
+            ctr += 1;
+        }
+        ctr
     }
 
     fn gen_pseudolegal(&self, mut callback: impl FnMut(FairyMove)) {
@@ -908,9 +921,6 @@ impl Board for FairyBoard {
     fn is_move_pseudolegal(&self, mov: Self::Move) -> bool {
         let moves = self.pseudolegal_moves();
         moves.contains(&mov)
-            || (mov.is_null()
-                && !moves.iter().any(|&m| self.is_pseudolegal_move_legal(m))
-                && self.no_moves_result().is_none())
     }
 
     fn is_pseudolegal_move_legal(&self, mov: Self::Move) -> bool {

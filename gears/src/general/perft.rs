@@ -77,10 +77,17 @@ fn do_perft<B: Board>(depth: usize, pos: B, pseudo_bulk: Bulkness) -> u64 {
     if pseudo_bulk == Bulk && depth == 1 {
         return pos.num_legal_moves() as u64;
     }
+    let mut has_children = false;
     pos.gen_pseudolegal(|m| {
         let Some(new_pos) = pos.clone().make_move(m) else { return };
         nodes += do_perft(depth - 1, new_pos, pseudo_bulk);
+        has_children = true;
     });
+    // Unlike the other move generation functions, `gen_pseudolegal` doesn't deal with forced passing moves,
+    // so we have to do that here ourselves
+    if !has_children && pos.no_moves_result().is_none() {
+        nodes += do_perft(depth - 1, pos.make_nullmove().unwrap(), pseudo_bulk);
+    }
     // no need to handle the case of no legal moves, since `children()` and `num_legal_moves()`
     // already take care of forced passing moves.
     nodes
@@ -117,8 +124,6 @@ pub fn split_perft<B: Board>(depth: DepthPly, pos: B, parallelize: bool, pseudo_
             .collect_into_vec(&mut children);
         nodes = children.iter().map(|(_, num)| num).sum();
     } else {
-        // Use legal_moves_slow instead of pseudolegal_moves here to handle a forced passing move
-        // because the current player has no other legal moves
         for mov in pos.legal_moves_slow() {
             let new_pos = pos.clone().make_move(mov).expect("playing a legal move cannot fail");
             let child_nodes = if depth.get() == 1 { 1 } else { do_perft(depth.get() - 1, new_pos, pseudo_bulk) };

@@ -902,7 +902,7 @@ pub(super) fn go_options_impl(
     }
     if mode.is_none_or(|m| [Perft, SplitPerft].contains(&m)) {
         res.push(command!(
-            no_bulk,
+            no_bulk | non_bulk | nb,
             Custom,
             "Turn off (pseudo) bulk counting in perft/splitperft; this makes it slower",
             |state, _words, _| {

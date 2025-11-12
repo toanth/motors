@@ -455,7 +455,8 @@ pub trait Board:
     }
 
     /// Generate pseudolegal moves and calls the provided callable for each move.
-    /// This doesn't handle a forced passing move in case of no legal moves.
+    /// This doesn't handle a forced passing move in case of no legal moves, unlike
+    /// [`Self::pseudolegal_moves`]. It should therefore be considered a very low-level function.
     fn gen_pseudolegal(&self, callback: impl FnMut(Self::Move));
 
     /// Generate moves that are considered "tactical" into the supplied move list.
@@ -466,21 +467,19 @@ pub trait Board:
     /// Returns a list of legal moves, that is, moves that can be played using `make_move`
     /// and will not return `None`.
     /// Some variants require a passing move if there are no legal moves and the game isn't over.
-    /// This function honors that requirement by inserting a `Move::default()`,
-    /// unlike `gen_pseudolegal` (which can't know if there are no legal moves).
+    /// Like [`Self::pseudolegal_moves`], this function honors that requirement by inserting a `Move::default()`,
+    /// unlike [`Self::gen_pseudolegal`] (which can't know if there are no legal moves).
     fn legal_moves_slow(&self) -> Self::MoveList {
         let mut res = self.pseudolegal_moves();
         if Self::Move::legality(self.settings()) == PseudoLegal {
             res.filter_moves(|m| self.is_pseudolegal_move_legal(*m));
-        }
-        if res.num_moves() == 0 && self.no_moves_result().is_none() {
-            res.add_move(Self::Move::default());
         }
         res
     }
 
     /// Returns the number of pseudolegal moves. Can sometimes be implemented more efficiently
     /// than generating all pseudolegal moves and counting their number.
+    /// Returns 1 in case of a forced passing move.
     fn num_pseudolegal_moves(&self) -> usize {
         let mut ctr = 0;
         self.gen_pseudolegal(|_| ctr += 1);
@@ -489,10 +488,10 @@ pub trait Board:
 
     /// Returns the number of legal moves. Automatically falls back to [`Self::num_pseudolegal_moves`] for games
     /// with legal movegen.
+    /// Returns `1` in case of a forced passing move.
     fn num_legal_moves(&self) -> usize {
         if Self::Move::legality(self.settings()) == Legal {
-            let res = self.num_pseudolegal_moves();
-            if res == 0 && self.no_moves_result().is_none() { 1 } else { res }
+            self.num_pseudolegal_moves()
         } else {
             let mut ctr = 0;
             self.gen_pseudolegal(|m| {
@@ -500,6 +499,9 @@ pub trait Board:
                     ctr += 1;
                 }
             });
+            if ctr == 0 && self.no_moves_result().is_none() {
+                ctr += 1; // forced passing move
+            }
             ctr
         }
     }
@@ -559,7 +561,7 @@ pub trait Board:
     }
 
     /// Expects a pseudolegal move and returns if this move is also legal, which means that playing it with
-    /// `make_move` returns `Some(new_board)`
+    /// [`Self::make_move`] returns `Some(new_board)`
     fn is_pseudolegal_move_legal(&self, mov: Self::Move) -> bool {
         Self::Move::legality(self.settings()) == Legal || self.clone().make_move(mov).is_some()
     }

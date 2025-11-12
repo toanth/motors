@@ -1176,6 +1176,33 @@ pub mod chessboard {
         res
     };
 
+    /// Rook attacks on an empty board
+    pub const ROOKS: [ChessBitboard; 64] = {
+        let mut res = [ChessBitboard::new(0); 64];
+        let mut i = 0;
+        while i < 64 {
+            let rank = i / 8;
+            let bb = 0xff << (8 * rank);
+            let file = i % 8;
+            let bb = bb | ChessBitboard::A_FILE.0 << file;
+            res[i] = ChessBitboard::new(bb ^ (1 << i));
+            i += 1;
+        }
+        res
+    };
+
+    /// Bishop attacks on an empty board
+    pub const BISHOPS: [ChessBitboard; 64] = {
+        let mut res = [ChessBitboard::new(0); 64];
+        let mut i = 0;
+        while i < 64 {
+            let bb = DIAGONALS_U64[8][i] | ANTI_DIAGONALS_U64[8][i];
+            res[i] = ChessBitboard::new(bb ^ (1 << i));
+            i += 1;
+        }
+        res
+    };
+
     // All squares with a sup distance of 2
     pub const ATAXX_LEAPERS: [ChessBitboard; 64] = {
         let mut res = [ChessBitboard::new(0); 64];

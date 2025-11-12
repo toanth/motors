@@ -32,8 +32,8 @@ use crate::games::fairy::rules::NoMovesCondition::{Always, InCheck, NotInCheck};
 use crate::games::fairy::rules::NumRoyals::{BetweenInclusive, Exactly};
 use crate::games::fairy::rules::PieceCond::{AnyPiece, Royal};
 use crate::games::fairy::{
-    AdditionalCtrT, ColorInfo, FairyBitboard, FairyBoard, FairyCastleInfo, FairyColor, FairySize, MAX_NUM_PIECE_TYPES,
-    RawFairyBitboard, UnverifiedFairyBoard,
+    AdditionalCtrT, ColorInfo, FairyBitboard, FairyBoard, FairyCastleInfo, FairyColor, FairyMoveList, FairySize,
+    MAX_NUM_PIECE_TYPES, RawFairyBitboard, UnverifiedFairyBoard,
 };
 use crate::games::mnk::{MNKBoard, MnkSettings};
 use crate::games::{BoardHistory, Color, DimT, NUM_COLORS, PosHash, Settings, chess, n_fold_repetition};
@@ -397,8 +397,9 @@ impl NoMovesCondition {
                 let Some(new_pos) = pos.clone().flip_side_to_move(FairyMove::default()) else {
                     return false;
                 };
-                // we can't simply use `legal_moves()` here because that already handles no legal moves
-                let mut pseudolegal = new_pos.pseudolegal_moves();
+                // we can't simply use `(pseudo_)legal_moves()` here because that already handles no legal moves
+                let mut pseudolegal = FairyMoveList::new();
+                new_pos.gen_pseudolegal_impl(&mut pseudolegal);
                 if FairyMove::legality(pos.settings()) == PseudoLegal {
                     MoveList::<FairyBoard>::filter_moves(&mut pseudolegal, |m: &mut FairyMove| {
                         new_pos.is_pseudolegal_move_legal(*m)

@@ -8,7 +8,7 @@ use crate::games::chess::pieces::{ChessPieceType, ColoredChessPieceType};
 use crate::games::chess::squares::{C_FILE_NUM, ChessSquare, ChessboardSize, G_FILE_NUM};
 use crate::games::chess::{ChessBitboardTrait, ChessColor, Chessboard, PAWN_CAPTURES};
 use crate::games::{Board, Color, ColoredPieceType};
-use crate::general::bitboards::chessboard::{ChessBitboard, KINGS, KNIGHTS};
+use crate::general::bitboards::chessboard::{BISHOPS, ChessBitboard, KINGS, KNIGHTS, ROOKS};
 use crate::general::bitboards::{Bitboard, KnownSizeBitboard, RawBitboard};
 use crate::general::board::BitboardBoard;
 use crate::general::hq::ChessSliderGenerator;
@@ -134,7 +134,7 @@ impl Chessboard {
         }
     }
 
-    /// Used for checking castling legality and verifying FENs:
+    /// Used for verifying FENs and in assertions:
     /// Pretend there is a king of color `us` at `square` and test if it is in check.
     pub fn is_in_check_on_square(&self, us: ChessColor, square: ChessSquare, generator: ChessSliderGenerator) -> bool {
         self.all_attacking(square, generator).intersects(self.player_bb(us.other()))
@@ -142,11 +142,11 @@ impl Chessboard {
 
     pub(super) fn gen_pseudolegal_moves<const ONLY_TACTICAL: bool>(
         &self,
-        mut callback: impl FnMut(ChessMove),
+        callback: &mut impl FnMut(ChessMove),
         mut filter: ChessBitboard,
     ) {
         let slider_generator = self.slider_generator();
-        self.gen_king_moves(&mut callback, filter, ONLY_TACTICAL);
+        self.gen_king_moves(callback, filter, ONLY_TACTICAL);
         let mut check_ray = !ChessBitboard::default();
         match self.checkers.num_ones() {
             0 => {}
@@ -158,11 +158,11 @@ impl Chessboard {
             // in a double check, only generate king moves. We support loading FENs with more than 2 checkers.
             _ => return,
         }
-        self.gen_slider_moves::<{ Bishop as usize }>(&mut callback, filter, &slider_generator);
-        self.gen_slider_moves::<{ Rook as usize }>(&mut callback, filter, &slider_generator);
-        self.gen_slider_moves::<{ Queen as usize }>(&mut callback, filter, &slider_generator);
-        self.gen_knight_moves(&mut callback, filter);
-        self.gen_pawn_moves::<ONLY_TACTICAL>(&mut callback, check_ray);
+        self.gen_slider_moves::<{ Bishop as usize }>(callback, filter, &slider_generator);
+        self.gen_slider_moves::<{ Rook as usize }>(callback, filter, &slider_generator);
+        self.gen_slider_moves::<{ Queen as usize }>(callback, filter, &slider_generator);
+        self.gen_knight_moves(callback, filter);
+        self.gen_pawn_moves::<ONLY_TACTICAL>(callback, check_ray);
     }
 
     fn gen_pawn_moves<const ONLY_TACTICAL: bool>(&self, callback: &mut impl FnMut(ChessMove), filter: ChessBitboard) {
@@ -439,7 +439,7 @@ impl Chessboard {
         let us = self.active_player();
         let their_bb = self.player_bb(!us);
         let our_bb = self.player_bb(us);
-        let slider_gen = ChessSliderGenerator::new(their_bb);
+        let occupied = our_bb | their_bb;
         let rook_sliders = self.piece_bb(Rook) | self.piece_bb(Queen);
         let bishop_sliders = self.piece_bb(Bishop) | self.piece_bb(Queen);
         let king = self.king_sq(us);
@@ -448,31 +448,30 @@ impl Chessboard {
             & their_bb;
         self.pinned = ChessBitboard::default();
         let mut update = |slider: ChessSquare| {
-            let on_ray = ChessBitboard::ray_exclusive(slider, king, ChessboardSize::default()) & our_bb;
-            if on_ray.is_zero() {
+            let ray = ChessBitboard::ray_exclusive(slider, king, ChessboardSize::default());
+            if !ray.intersects(occupied) {
                 self.checkers |= slider.bb();
-            } else if on_ray.is_single_piece() {
-                self.pinned |= on_ray;
+            } else if !ray.intersects(their_bb) && (ray & our_bb).is_single_piece() {
+                self.pinned |= ray & our_bb;
             }
         };
-        for slider in rook_sliders & their_bb & slider_gen.rook_attacks(king) {
+        for slider in rook_sliders & their_bb & ROOKS[king] {
             update(slider);
         }
-        for slider in bishop_sliders & their_bb & slider_gen.bishop_attacks(king) {
+        for slider in bishop_sliders & their_bb & BISHOPS[king] {
             update(slider);
         }
-        let slider_gen = ChessSliderGenerator::new(our_bb);
         let king = self.king_sq(!us);
         let mut update_our_pinned = |slider: ChessSquare| {
-            let on_ray = ChessBitboard::ray_exclusive(slider, king, ChessboardSize::default()) & their_bb;
-            if on_ray.is_single_piece() {
-                self.pinned |= on_ray;
+            let ray = ChessBitboard::ray_exclusive(slider, king, ChessboardSize::default());
+            if !ray.intersects(our_bb) && (ray & their_bb).is_single_piece() {
+                self.pinned |= ray & their_bb;
             }
         };
-        for slider in rook_sliders & our_bb & slider_gen.rook_attacks(king) {
+        for slider in rook_sliders & our_bb & ROOKS[king] {
             update_our_pinned(slider);
         }
-        for slider in bishop_sliders & our_bb & slider_gen.bishop_attacks(king) {
+        for slider in bishop_sliders & our_bb & BISHOPS[king] {
             update_our_pinned(slider);
         }
     }

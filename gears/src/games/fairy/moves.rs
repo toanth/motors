@@ -532,6 +532,11 @@ impl FairyBoard {
         if cfg!(debug_assertions) {
             _ = self.debug_verify_invariants(Relaxed).unwrap();
         }
+        // Forced passing moves are null moves, so we have to check for them here.
+        // This is fine because this function assumes the move is pseudolegal.
+        if mov.is_null() {
+            return self.make_nullmove();
+        }
         // pseudolegal movegen: Some expensive conditions are checked here instead of when generating the move.
         // `end_move` does further expensive checks, like testing if the new sntm is in check
         if !self.can_make_move(mov) {

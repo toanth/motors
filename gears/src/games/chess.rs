@@ -569,12 +569,12 @@ impl Board for Chessboard {
         DepthPly::new(6)
     }
 
-    fn gen_pseudolegal(&self, callback: impl FnMut(ChessMove)) {
-        self.gen_pseudolegal_moves::<false>(callback, !self.player_bb(self.active))
+    fn gen_pseudolegal(&self, mut callback: impl FnMut(ChessMove)) {
+        self.gen_pseudolegal_moves::<false>(&mut callback, !self.player_bb(self.active))
     }
 
-    fn gen_tactical_pseudolegal(&self, callback: impl FnMut(ChessMove)) {
-        self.gen_pseudolegal_moves::<true>(callback, self.player_bb(self.active.other()))
+    fn gen_tactical_pseudolegal(&self, mut callback: impl FnMut(ChessMove)) {
+        self.gen_pseudolegal_moves::<true>(&mut callback, self.player_bb(self.active.other()))
     }
 
     fn has_no_legal_moves(&self) -> bool {
