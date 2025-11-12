@@ -568,7 +568,7 @@ impl Chessboard {
         let slider_gen = self.slider_generator();
         debug_assert!(!self.is_in_check_on_square(self.active, self.king_sq(self.active), slider_gen), "{self}");
         self.active = self.active.other();
-        self.threats = self.calc_threats_of(self.inactive_player(), &slider_gen);
+        self.threats = self.calc_threats_of(self.inactive_player());
         self.set_checkers_and_pinned();
         debug_assert_eq!(self.hashes, self.compute_zobrist());
         self

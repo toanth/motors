@@ -151,7 +151,7 @@ impl UnverifiedBoard<Chessboard> for UnverifiedChessboard {
             bail!("{inactive_player} is in check, but it's not their turn to move");
         }
         this.set_checkers_and_pinned();
-        this.threats = this.calc_threats_of(this.inactive_player(), &this.slider_generator());
+        this.threats = this.calc_threats_of(this.inactive_player());
         // in relaxed mode, we allow loading FENs where more than one piece gives check to the king in a way that
         // could not have been reached from startpos, e.g. "B6b/8/8/8/2K5/5k2/8/b6B b - - 0 1"
         if strictness == Strict && this.checkers.num_ones() > 2 {

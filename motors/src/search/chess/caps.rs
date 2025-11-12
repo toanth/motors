@@ -749,64 +749,61 @@ impl Caps {
         // the TT entry at the root is useless when doing an actual multipv search
         let ignore_tt_entry = root && self.multi_pvs.len() > 1;
         let old_entry = self.tt().load::<Chessboard>(pos.hash_pos(), ply);
-        if let Some(tt_entry) = old_entry {
-            if ignore_tt_entry {
-                raw_eval = tt_entry.raw_eval(); // can still use the saved raw eval
-                eval = raw_eval;
-            } else {
-                let tt_bound = tt_entry.bound();
-                debug_assert!(tt_entry.hash_part().equals(pos.hash_pos()));
+        if let Some(tt_entry) = old_entry
+            && !ignore_tt_entry
+        {
+            let tt_bound = tt_entry.bound();
+            debug_assert!(tt_entry.hash_part().equals(pos.hash_pos()));
 
-                if let Some(tt_move) = tt_entry.mov(pos) {
-                    best_move = tt_move;
-                }
-                let tt_score = tt_entry.score();
-                // TT cutoffs. If we've already seen this position, and the TT entry has more valuable information (higher depth),
-                // and we're not a PV node, and the saved score is either exact or at least known to be outside (alpha, beta),
-                // simply return it.
-                if !is_pv_node && tt_entry.depth as isize >= depth {
-                    if (tt_score >= beta && tt_bound == NodeType::lower_bound())
-                        || (tt_score <= alpha && tt_bound == NodeType::upper_bound())
-                        || tt_bound == Exact
-                    {
-                        self.statistics.tt_cutoff(MainSearch, tt_bound);
-                        // Idea from stormphrax
-                        if tt_score >= beta
-                            && !best_move.is_tactical(pos)
-                            && self.search_stack[ply].pos.is_generated_move_pseudolegal(best_move)
-                        {
-                            self.search_stack[ply].killer = best_move;
-                            self.update_histories(best_move, depth, ply, tt_score - beta);
-                        }
-                        return Some(tt_score);
-                    } else if depth <= cc::low_depth_tt_extension_depth() {
-                        // also from stormphrax
-                        depth += cc::tt_extension();
-                    }
-                }
-                // Even though we didn't get a cutoff from the TT, we can still use the score and bound to update our guess
-                // at what the type of this node is going to be.
-                if !is_pv_node {
-                    expected_node_type = if tt_bound != Exact {
-                        tt_bound
-                    } else if tt_score <= alpha {
-                        FailLow
-                    } else {
-                        debug_assert!(tt_score >= beta); // we're using a null window
-                        FailHigh
-                    }
-                }
-                raw_eval = tt_entry.raw_eval();
-                eval = raw_eval;
-                // The TT score is backed by a search, so it should be more trustworthy than a simple call to static eval.
-                // Note that the TT score may be a mate score, so `eval` can also be a mate score. This doesn't currently
-                // create any problems, but should be kept in mind.
-                if tt_bound == Exact
-                    || (tt_bound == NodeType::lower_bound() && tt_score >= raw_eval)
-                    || (tt_bound == NodeType::upper_bound() && tt_score <= raw_eval)
+            if let Some(tt_move) = tt_entry.mov(pos) {
+                best_move = tt_move;
+            }
+            let tt_score = tt_entry.score();
+            // TT cutoffs. If we've already seen this position, and the TT entry has more valuable information (higher depth),
+            // and we're not a PV node, and the saved score is either exact or at least known to be outside (alpha, beta),
+            // simply return it.
+            if !is_pv_node && tt_entry.depth as isize >= depth {
+                if (tt_score >= beta && tt_bound == NodeType::lower_bound())
+                    || (tt_score <= alpha && tt_bound == NodeType::upper_bound())
+                    || tt_bound == Exact
                 {
-                    eval = tt_score;
+                    self.statistics.tt_cutoff(MainSearch, tt_bound);
+                    // Idea from stormphrax
+                    if tt_score >= beta
+                        && !best_move.is_tactical(pos)
+                        && self.search_stack[ply].pos.is_generated_move_pseudolegal(best_move)
+                    {
+                        self.search_stack[ply].killer = best_move;
+                        self.update_histories(best_move, depth, ply, tt_score - beta);
+                    }
+                    return Some(tt_score);
+                } else if depth <= cc::low_depth_tt_extension_depth() {
+                    // also from stormphrax
+                    depth += cc::tt_extension();
                 }
+            }
+            // Even though we didn't get a cutoff from the TT, we can still use the score and bound to update our guess
+            // at what the type of this node is going to be.
+            if !is_pv_node {
+                expected_node_type = if tt_bound != Exact {
+                    tt_bound
+                } else if tt_score <= alpha {
+                    FailLow
+                } else {
+                    debug_assert!(tt_score >= beta); // we're using a null window
+                    FailHigh
+                }
+            }
+            raw_eval = tt_entry.raw_eval();
+            eval = raw_eval;
+            // The TT score is backed by a search, so it should be more trustworthy than a simple call to static eval.
+            // Note that the TT score may be a mate score, so `eval` can also be a mate score. This doesn't currently
+            // create any problems, but should be kept in mind.
+            if tt_bound == Exact
+                || (tt_bound == NodeType::lower_bound() && tt_score >= raw_eval)
+                || (tt_bound == NodeType::upper_bound() && tt_score <= raw_eval)
+            {
+                eval = tt_score;
             }
         } else {
             self.statistics.tt_miss(MainSearch);

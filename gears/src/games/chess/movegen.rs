@@ -11,7 +11,7 @@ use crate::games::{Board, Color, ColoredPieceType};
 use crate::general::bitboards::chessboard::{BISHOPS, ChessBitboard, KINGS, KNIGHTS, RAYS_INCLUSIVE, ROOKS};
 use crate::general::bitboards::{Bitboard, KnownSizeBitboard, RawBitboard};
 use crate::general::board::BitboardBoard;
-use crate::general::hq::ChessSliderGenerator;
+use crate::general::hq::{ChessSliderGenerator, all_bishop_attacks, all_rook_attacks};
 use crate::general::squares::RectangularCoordinates;
 
 impl Chessboard {
@@ -395,7 +395,7 @@ impl Chessboard {
 
     /// Calculate a bitboard of all squares that are attacked by the given player.
     /// This only counts hypothetical captures, so no pawn pushes or castling moves.
-    pub(super) fn calc_threats_of(&self, player: ChessColor, slider_gen: &ChessSliderGenerator) -> ChessBitboard {
+    pub(super) fn calc_threats_of(&self, player: ChessColor) -> ChessBitboard {
         let mut res = Self::normal_king_attacks_from(self.king_sq(player));
         for knight in self.col_piece_bb(player, Knight) {
             res |= Self::knight_attacks_from(knight);
@@ -403,8 +403,9 @@ impl Chessboard {
         let bishop_sliders = self.piece_bb(Bishop) | self.piece_bb(Queen);
         let rook_sliders = self.piece_bb(Rook) | self.piece_bb(Queen);
         let us = self.player_bb(player);
-        res |= slider_gen.all_bishop_attacks(bishop_sliders & us);
-        res |= slider_gen.all_rook_attacks(rook_sliders & us);
+        let empty = self.empty_bb();
+        res |= all_rook_attacks(rook_sliders & us, empty);
+        res |= all_bishop_attacks(bishop_sliders & us, empty);
         res |= self.col_piece_bb(player, Pawn).pawn_attacks(player);
         res
     }

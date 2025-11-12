@@ -22,11 +22,12 @@ use crate::general::bitboards::RayDirections::{AntiDiagonal, Diagonal, Horizonta
 #[cfg(feature = "chess")]
 use crate::general::bitboards::chessboard::ChessBitboard;
 use crate::general::bitboards::{
-    ANTI_DIAGONALS_U64, ANTI_DIAGONALS_U128, Bitboard, DIAGONALS_U64, DIAGONALS_U128, ExtendedRawBitboard, MAX_WIDTH,
-    RawBitboard, RawStandardBitboard, RayDirections, STEPS_U64, STEPS_U128,
+    ANTI_DIAGONALS_U64, ANTI_DIAGONALS_U128, Bitboard, DIAGONALS_U64, DIAGONALS_U128, ExtendedRawBitboard,
+    KnownSizeBitboard, MAX_WIDTH, RawBitboard, RawStandardBitboard, RayDirections, STEPS_U64, STEPS_U128,
 };
 use crate::general::squares::RectangularCoordinates;
 use crate::general::squares::RectangularSize;
+use crate::shift_left;
 use num::traits::WrappingSub;
 use std::fmt::Debug;
 use std::marker::PhantomData;
@@ -135,25 +136,35 @@ impl ChessSliderGenerator {
         let non_horizontal = Self::finish(non_horizontal);
         self.horizontal_attacks(square) | non_horizontal
     }
+}
 
-    // It might be worth investigating using Kogge-Stone, which should perform equally well no matter how many sliders there are.
-    // However, in normal chess positions there are rarely more than 3 rook/bishop sliders per side, so Kogge-Stone is probably
-    // still slower than this approach.
-    pub fn all_bishop_attacks(&self, bishop_sliders: ChessBitboard) -> ChessBitboard {
-        let mut res = ChessBitboard::default();
-        for square in bishop_sliders {
-            res |= self.bishop_attacks(square);
-        }
-        res
-    }
+/// See <https://www.chessprogramming.org/Kogge-Stone_Algorithm>
+pub fn kogge_stone<const DIR: isize>(sliders: ChessBitboard, mut allowed: ChessBitboard) -> ChessBitboard {
+    let mut res = sliders;
+    res |= allowed & shift_left!(res, DIR);
+    allowed &= shift_left!(allowed, DIR);
+    res |= allowed & shift_left!(res, 2 * DIR);
+    allowed &= shift_left!(allowed, 2 * DIR);
+    res |= allowed & shift_left!(res, 4 * DIR);
+    res
+}
 
-    pub fn all_rook_attacks(&self, rook_sliders: ChessBitboard) -> ChessBitboard {
-        let mut res = ChessBitboard::default();
-        for square in rook_sliders {
-            res |= self.rook_attacks(square);
-        }
-        res
-    }
+pub fn all_rook_attacks(sliders: ChessBitboard, empty: ChessBitboard) -> ChessBitboard {
+    let mut res = kogge_stone::<8>(sliders, empty) << 8;
+    res |= kogge_stone::<-8>(sliders, empty) >> 8;
+    res |= (kogge_stone::<1>(sliders, empty & !ChessBitboard::file_0()) << 1) & !ChessBitboard::file_0();
+    res |= (kogge_stone::<-1>(sliders, empty & !ChessBitboard::file(7)) >> 1) & !ChessBitboard::file(7);
+    res
+}
+
+pub fn all_bishop_attacks(sliders: ChessBitboard, empty: ChessBitboard) -> ChessBitboard {
+    let not_a_file = !ChessBitboard::file_0();
+    let not_h_file = !ChessBitboard::file(7);
+    let mut res = (kogge_stone::<9>(sliders, empty & not_a_file) << 9) & not_a_file;
+    res |= (kogge_stone::<-9>(sliders, empty & not_h_file) >> 9) & not_h_file;
+    res |= (kogge_stone::<7>(sliders, empty & not_h_file) << 7) & not_h_file;
+    res |= (kogge_stone::<-7>(sliders, empty & not_a_file) >> 7) & not_a_file;
+    res
 }
 
 // Factoring out the similarities with `ChessSliderGenerator` into a trait doesn't really reduce the amount of boilerplate
@@ -557,5 +568,23 @@ mod tests {
         assert_eq!(attacks.raw().remove_ones_above(42), 1 << 37, "{attacks}");
         let attacks = generator.forward_attacks(GridCoordinates { row: 4, column: 2 }, true);
         assert_eq!(attacks.raw(), (1 << 16) | (1 << 23), "{attacks}");
+    }
+
+    #[test]
+    fn test_all_rook_attacks() {
+        let rooks = ChessBitboard::new(0x8000100000028000);
+        let blockers = ChessBitboard::new(0x8002101801228080);
+        let attacks = all_rook_attacks(rooks, !blockers);
+        let expected = ChessBitboard::new(0xff92ef9282bdff82);
+        assert_eq!(attacks, expected);
+    }
+
+    #[test]
+    fn test_all_bishop_attacks() {
+        let bishops = ChessBitboard::new(0x8000100000021008);
+        let blockers = ChessBitboard::new(0x8000100004821208);
+        let attacks = all_bishop_attacks(bishops, !blockers);
+        let expected = ChessBitboard::new(0x446820b84dae1728);
+        assert_eq!(attacks, expected);
     }
 }
