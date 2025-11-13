@@ -622,7 +622,9 @@ impl Board for Chessboard {
             self.ep_square = None;
         }
         self.hashes.total ^= ZOBRIST_KEYS.side_to_move_key;
-        Some(self.flip_side_to_move())
+        self.flip_side_to_move();
+        // no need to set checkers and pinned; we're not in check and pinned pieces haven't changed
+        Some(self)
     }
 
     fn is_generated_move_pseudolegal(&self, mov: ChessMove) -> bool {
@@ -1454,7 +1456,7 @@ mod tests {
         assert_eq!(pos.ply, 4);
         assert!(pos.debug_verify_invariants(Strict).is_ok());
         assert!(pos.is_in_check());
-        assert!(pos.is_in_check_on_square(White, pos.king_sq(White), pos.slider_generator()));
+        assert!(pos.is_in_check_on_square(White, pos.king_sq(White)));
         let moves = pos.pseudolegal_moves();
         assert!(moves.is_empty()); // we don't even generate moves anymore here
         let moves = pos.legal_moves_slow();

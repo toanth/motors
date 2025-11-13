@@ -559,19 +559,19 @@ impl Chessboard {
         }
         special_hash ^= ZOBRIST_KEYS.castle_keys[self.castling.allowed_castling_directions()];
         self.hashes.total = special_hash ^ self.hashes.pawns ^ self.hashes.nonpawns[0] ^ self.hashes.nonpawns[1];
-        self.flip_side_to_move()
+        self.flip_side_to_move();
+        self.set_checkers_and_pinned();
+        self
     }
 
     /// Called at the end of [`Self::make_nullmove`] and [`Self::make_move`].
-    pub(super) fn flip_side_to_move(mut self) -> Self {
+    pub(super) fn flip_side_to_move(&mut self) {
         self.ply += 1;
-        let slider_gen = self.slider_generator();
-        debug_assert!(!self.is_in_check_on_square(self.active, self.king_sq(self.active), slider_gen), "{self}");
+        debug_assert!(!self.is_in_check_on_square(self.active, self.king_sq(self.active)), "{self}");
         self.active = self.active.other();
         self.threats = self.calc_threats_of(self.inactive_player());
-        self.set_checkers_and_pinned();
+        // don't set checkers and pinned here because it's not necessary to do so when making a null move
         debug_assert_eq!(self.hashes, self.compute_zobrist());
-        self
     }
 
     // correctly sets the ep square, which means not setting it if an ep capture would be illegal pseudolegal
@@ -653,11 +653,7 @@ impl Chessboard {
         let king_delta = Self::zobrist_delta(color, King, to, king_to);
         self.hashes.nonpawns[color] ^= delta ^ king_delta;
         self.hashes.knb ^= king_delta;
-        debug_assert!(!self.is_in_check_on_square(
-            self.active,
-            ChessSquare::from_rank_file(from.rank(), to_file),
-            self.slider_generator(),
-        ));
+        debug_assert!(!self.is_in_check_on_square(self.active, ChessSquare::from_rank_file(from.rank(), to_file)));
     }
 }
 

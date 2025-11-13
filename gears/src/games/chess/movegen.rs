@@ -116,8 +116,9 @@ impl Chessboard {
 
     /// Used for verifying FENs and in assertions:
     /// Pretend there is a king of color `us` at `square` and test if it is in check.
-    pub fn is_in_check_on_square(&self, us: ChessColor, square: ChessSquare, generator: ChessSliderGenerator) -> bool {
-        self.all_attacking(square, generator).intersects(self.player_bb(us.other()))
+    pub fn is_in_check_on_square(&self, us: ChessColor, square: ChessSquare) -> bool {
+        let slider_gen = self.slider_generator();
+        self.all_attacking(square, slider_gen).intersects(self.player_bb(us.other()))
     }
 
     pub(super) fn gen_pseudolegal_moves<const ONLY_TACTICAL: bool>(
