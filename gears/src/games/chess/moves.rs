@@ -23,7 +23,7 @@ use crate::games::{
     AbstractPieceType, Board, CharType, Color, ColoredPiece, ColoredPieceType, DimT, NoHistory, PosHash, char_to_file,
     file_to_char,
 };
-use crate::general::bitboards::chessboard::ChessBitboard;
+use crate::general::bitboards::chessboard::{ChessBitboard, INFINITE_RAYS};
 use crate::general::bitboards::{Bitboard, KnownSizeBitboard, RawBitboard};
 use crate::general::board::{BitboardBoard, BoardHelpers};
 use crate::general::common::Res;
@@ -588,19 +588,6 @@ impl Chessboard {
         let king_sq = self.king_sq(them);
         let ep_square = to.pawn_advance_unchecked(them);
         let not_pinned = possible_ep_pawns & !self.pinned;
-        if not_pinned.is_zero() {
-            for p in possible_ep_pawns {
-                let mut pinning = self.ray_attacks(p, king_sq, self.occupied_bb() & !to.bb());
-                debug_assert!(pinning.is_single_piece());
-                let pinning = ChessSquare::from_bb_idx(pinning.pop_lsb());
-                let pin_ray = ChessBitboard::ray_inclusive(pinning, king_sq, ChessboardSize::default());
-                if pin_ray.has(ep_square) {
-                    *special_hash ^= ZOBRIST_KEYS.ep_file_keys[to.file() as usize];
-                    return Some(ep_square);
-                }
-            }
-            return None;
-        }
         if king_sq.rank() == to.rank() {
             let sq_bb = ChessBitboard::new(possible_ep_pawns.lsb());
             let occ_bb = (self.occupied_bb() ^ sq_bb) & !to.bb();
@@ -610,6 +597,17 @@ impl Chessboard {
                 // so the pawn is effectively pinned for ep.
                 return None;
             }
+        } else if not_pinned.is_zero() {
+            for p in possible_ep_pawns {
+                // If the capturing pawn is pinned but the ep square is also on the pin ray, it's fine to capture
+                // en passant.
+                let pin_ray = ChessBitboard::new(INFINITE_RAYS[p][king_sq]);
+                if pin_ray.has(ep_square) {
+                    *special_hash ^= ZOBRIST_KEYS.ep_file_keys[to.file() as usize];
+                    return Some(ep_square);
+                }
+            }
+            return None;
         }
         *special_hash ^= ZOBRIST_KEYS.ep_file_keys[to.file() as usize];
         Some(ep_square)

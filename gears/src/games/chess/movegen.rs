@@ -8,7 +8,9 @@ use crate::games::chess::pieces::{ChessPieceType, ColoredChessPieceType};
 use crate::games::chess::squares::{C_FILE_NUM, ChessSquare, ChessboardSize, G_FILE_NUM};
 use crate::games::chess::{ChessBitboardTrait, ChessColor, Chessboard, PAWN_CAPTURES};
 use crate::games::{Board, Color, ColoredPieceType};
-use crate::general::bitboards::chessboard::{BISHOPS, ChessBitboard, KINGS, KNIGHTS, RAYS_INCLUSIVE, ROOKS};
+use crate::general::bitboards::chessboard::{
+    BISHOPS, ChessBitboard, INFINITE_RAYS, KINGS, KNIGHTS, RAYS_INCLUSIVE, ROOKS,
+};
 use crate::general::bitboards::{Bitboard, KnownSizeBitboard, RawBitboard};
 use crate::general::board::BitboardBoard;
 use crate::general::hq::{ChessSliderGenerator, all_bishop_attacks, all_rook_attacks};
@@ -359,7 +361,6 @@ impl Chessboard {
         PAWN_CAPTURES[color as usize][square.bb_idx()]
     }
 
-    // TODO: Use precomputed rays
     /// Returns a Bitboard of any slider in `self` that attacks `target` through `ray_square`, assuming `blockers`.
     /// This bitboard will always have either no or exactly one set bits.
     pub fn ray_attacks(&self, target: ChessSquare, ray_square: ChessSquare, blockers: ChessBitboard) -> ChessBitboard {
@@ -488,23 +489,20 @@ impl Chessboard {
         // no need to special case ep: If the capturing pawn is pinned, either the ep square isn't set or it's the same logic
         // as with non-ep moves
         if self.checkers().has_any() {
-            debug_assert_eq!(self.checkers.num_ones(), 1);
+            debug_assert!(self.checkers.is_single_piece());
             if self.pinned.has(src) {
                 return false;
-            } else if let Some(ep_sq) = self.ep_square
-                && self.checkers == ep_sq.pawn_advance_unchecked(!self.active).bb()
-            {
-                return true;
             }
-            let checker = ChessSquare::from_bb_idx(self.checkers().pop_lsb());
-            let ray = ChessBitboard::ray_inclusive(checker, king_sq, ChessboardSize::default());
-            return ray.has(dest);
+            if mov.is_ep() {
+                return self.checkers == self.ep_square.unwrap().pawn_advance_unchecked(!self.active).bb();
+            }
+            if cfg!(debug_assertions) {
+                let checker = self.checkers.to_square().unwrap();
+                let ray = ChessBitboard::ray_inclusive(checker, king_sq, ChessboardSize::default());
+                debug_assert!(ray.has(dest));
+            }
         } else if self.pinned.has(src) {
-            let mut pinning = self.ray_attacks(src, king_sq, self.occupied_bb());
-            debug_assert!(pinning.is_single_piece());
-            let pinning = ChessSquare::from_bb_idx(pinning.pop_lsb());
-            let pin_ray = ChessBitboard::ray_inclusive(pinning, king_sq, ChessboardSize::default());
-            return pin_ray.has(dest);
+            return ChessBitboard::new(INFINITE_RAYS[src][king_sq]).has(dest);
         }
         true
     }

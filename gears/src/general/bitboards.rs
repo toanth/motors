@@ -1264,6 +1264,33 @@ pub mod chessboard {
         res
     };
 
+    /// Complete Rays: If there is a queen move between the two squares, extend that ray over the entire square
+    pub static INFINITE_RAYS: [[RawStandardBitboard; 64]; 64] = {
+        let mut res = [[0; 64]; 64];
+        let mut a = 0;
+        while a < 64 {
+            let mut b = 0;
+            while b < 64 {
+                res[a][b] = if a == b {
+                    0
+                } else if a % 8 == b % 8 {
+                    ChessBitboard::A_FILE.0 << b % 8
+                } else if a / 8 == b / 8 {
+                    ChessBitboard::FIRST_RANK.0 << (b / 8 * 8)
+                } else if DIAGONALS_U64[8][a] & (1 << b) != 0 {
+                    DIAGONALS_U64[8][a]
+                } else if ANTI_DIAGONALS_U64[8][a] & (1 << b) != 0 {
+                    ANTI_DIAGONALS_U64[8][a]
+                } else {
+                    0
+                };
+                b += 1;
+            }
+            a += 1;
+        }
+        res
+    };
+
     pub const fn white_squares() -> ChessBitboard {
         COLORED_SQUARES[0]
     }
