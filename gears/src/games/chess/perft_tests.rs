@@ -516,8 +516,10 @@ mod tests {
         "rnbqkb1r/ppppp1pp/7n/4Pp2/8/8/PPPP1PPP/RNBQKBNR w KQkq f6 0 3 ;D5 11139762",
         // positions from https://analog-hors.github.io/webperft/
         "r3k2r/Pppp1ppp/1b3nbN/nP6/BBP1P3/q4N2/Pp1P2PP/R2Q1RK1 w kq - 0 1 ;D1 6 ;D2 264 ;D3 9467 ;D4 422333 ;D5 15833292 ;D6 706045033",
-        "rnbq1k1r/pp1Pbppp/2p5/8/2B5/8/PPP1NnPP/RNBQK2R w KQ - 1 8 ;D1 44 ;D2 1486 ;D3 62379 ;D4 2103487 ;D5 89941194 ;D6 3048196529", // can take a while
+        "rnbq1k1r/pp1Pbppp/2p5/8/2B5/8/PPP1NnPP/RNBQK2R w KQ - 1 8 ;D1 44 ;D2 1486 ;D3 62379 ;D4 2103487 ;D5 89941194 ;D6 3048196529",
         "r4rk1/1pp1qppp/p1np1n2/2b1p1B1/2B1P1b1/P1NP1N2/1PP1QPPP/R4RK1 w - - 0 10 ;D1 46 ;D2 2079 ;D3 89890 ;D4 3894594 ;D5 164075551",
+        // ep with pins and discovered checks
+        "8/8/5p2/1rp1b3/1R1p1pk1/8/2P1P2K/3Q4 w - - 12 34 ;D1 24 ;D2 371 ;D3 9015 ;D4 158476 ;D5 4035728 ;D6 75896728",
         // another pinned pawns test (this time without en passant)
         "4Q3/5p2/6k1/8/4p3/8/2B3K1/8 b - - 0 1 ;D1 7 ;D2 203 ;D3 1250 ;D4 37962 ;D5 227787 ;D6 7036323 ;D7 41501304",
         // yet another pinned pawn test

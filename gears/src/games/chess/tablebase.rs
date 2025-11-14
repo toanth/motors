@@ -83,18 +83,22 @@ mod no_pawns {
         res
     };
 
-    pub const NUM_KING_SQUARES: usize = 564;
+    pub const NUM_KING_SQUARES: usize = 462;
 
     pub static KING_SQUARES: [[ChessSquare; NUM_COLORS]; NUM_KING_SQUARES] = {
         let mut res = [[ChessSquare::from_bb_idx(0), ChessSquare::from_bb_idx(0)]; NUM_KING_SQUARES];
         let mut i = 0;
-        let mut w_king_idx: usize = 0;
-        while w_king_idx < NUM_KING_SYMMETRY_SQUARES {
-            let w_king = KING_SQUARES_SYMMETRY[w_king_idx];
+        let mut w_king_table_idx: usize = 0;
+        while w_king_table_idx < NUM_KING_SYMMETRY_SQUARES {
+            let w_king = KING_SQUARES_SYMMETRY[w_king_table_idx];
+            let w_king_idx = w_king.bb_idx();
+            let forbidden = KINGS[w_king_idx].0 | (1 << w_king_idx);
             let mut b_king_idx: usize = 0;
             while b_king_idx < 64 {
                 let b_king = ChessSquare::from_bb_idx(b_king_idx);
-                if ((KINGS[b_king_idx].0 | (1 << b_king_idx)) & (1 << w_king.bb_idx())) != 0 {
+                if (forbidden & (1 << b_king_idx)) != 0
+                    || (w_king_idx / 8 == w_king_idx % 8 && b_king_idx / 8 > b_king_idx % 8)
+                {
                     b_king_idx += 1;
                     continue;
                 }
@@ -102,7 +106,7 @@ mod no_pawns {
                 i += 1;
                 b_king_idx += 1;
             }
-            w_king_idx += 1;
+            w_king_table_idx += 1;
         }
         assert!(i == NUM_KING_SQUARES);
         res
@@ -354,8 +358,6 @@ impl<const N_W: usize, const N_B: usize, const SYMMETRY: usize> PosIdx<N_W, N_B,
     }
 
     fn idx(&self) -> usize {
-        // the active player has to be the outermost loop so that we don't try to write an entry before we've seen
-        // all the positions that can reach this entry
         debug_assert!(self.king_idx < Self::num_king_squares());
         let mut res = 0;
         // hopefully, the compiler can unroll the following loops if PAWN is false.
@@ -364,13 +366,13 @@ impl<const N_W: usize, const N_B: usize, const SYMMETRY: usize> PosIdx<N_W, N_B,
 
         // pawns are encoded separately because a) they have to be the outermost loop and b) white pawns must
         // be encoded in reverse order so that pawn pushes lead to positions that have already been computed
-        let count = self.pieces[White][Pawn as usize] as usize;
-        res *= COMBINATIONS[Self::num_pawn_squares()][count];
-        res += Self::encode(&self.w_nk[0..count], true);
-        let count = self.pieces[Black][Pawn as usize] as usize;
-        res *= COMBINATIONS[Self::num_pawn_squares()][count];
-        res += Self::encode(&self.b_nk[0..count], false);
+        res *= COMBINATIONS[Self::num_pawn_squares()][w_pawns];
+        res += Self::encode(&self.w_nk[0..w_pawns], true);
+        res *= COMBINATIONS[Self::num_pawn_squares()][b_pawns];
+        res += Self::encode(&self.b_nk[0..b_pawns], false);
 
+        // the active player has to be the outermost part of the inner loop so that we don't try to write an entry
+        // before we've seen all the positions that can reach this entry
         res *= NUM_COLORS;
         res += self.active as usize;
         res *= Self::num_king_squares();
@@ -393,8 +395,8 @@ impl<const N_W: usize, const N_B: usize, const SYMMETRY: usize> PosIdx<N_W, N_B,
         res
     }
 
-    fn idx_normalized(self, w_king: ChessSquare) -> usize {
-        self.normalize([w_king, self.kings()[Black]]).idx()
+    fn idx_normalized(self, kings: [ChessSquare; NUM_COLORS]) -> usize {
+        self.normalize(kings).idx()
     }
 
     fn from_idx(mut idx: usize, pieces: PieceList) -> Self {
@@ -424,7 +426,6 @@ impl<const N_W: usize, const N_B: usize, const SYMMETRY: usize> PosIdx<N_W, N_B,
                         k
                     }
                 };
-                // free_squares -= count;
                 idx /= k;
                 let pieces: &mut [ChessSquare] = if c == Black { &mut res.b_nk } else { &mut res.w_nk };
                 i -= count;
@@ -494,8 +495,7 @@ impl<const N_W: usize, const N_B: usize, const SYMMETRY: usize> PosIdx<N_W, N_B,
             for b_x in &mut self.b_nk {
                 *b_x ^= xor;
             }
-            if !Self::has_pawn() && w_king.rank() > w_king.file() {
-                // if [w_king.rank(), self.b_king.rank()] > [w_king.file(), self.b_king.file()] {
+            if !Self::has_pawn() && (w_king.rank(), b_king.rank()) > (w_king.file(), b_king.file()) {
                 w_king = w_king.flip_diagonally();
                 b_king = b_king.flip_diagonally();
                 for w_x in &mut self.w_nk {
@@ -510,9 +510,7 @@ impl<const N_W: usize, const N_B: usize, const SYMMETRY: usize> PosIdx<N_W, N_B,
             let mut i = 0;
             let squares: &mut [ChessSquare] = if c == White { &mut self.w_nk } else { &mut self.b_nk };
             for count in self.pieces[c] {
-                if count > 1 {
-                    squares[i..i + count as usize].sort_by_key(|sq| sq.bb_idx());
-                }
+                squares[i..i + count as usize].sort_by_key(|sq| sq.bb_idx());
                 i += count as usize;
             }
         }
@@ -702,7 +700,7 @@ fn step<const N_W: usize, const N_B: usize, const SYMMETRY: usize>(
     pcs: PieceList,
     active: ChessColor,
     iteration: isize,
-) -> bool {
+) -> Option<i8> {
     assert!(p_i < PosIdx::<N_W, N_B, SYMMETRY>::size(pcs));
     assert_eq!(active, p.active, "{p_i} {iteration} {nk_pieces:?} {p:?}",);
     // if there are two pieces on the same square, the position has been handled in a base case
@@ -716,95 +714,142 @@ fn step<const N_W: usize, const N_B: usize, const SYMMETRY: usize>(
     }
     let blockers = sides[White] | sides[Black];
     if blockers.num_ones() != N_W + N_B + 2 {
-        return false;
+        return None;
     }
     // because we're writing positions with monotonically increasing DTZ, any result we've written
     // will never change again
     if table[p_i].load(Relaxed) != DRAW {
-        return false;
+        return None;
     }
     let pieces: [&[ChessSquare]; 2] = [&p.w_nk, &p.b_nk];
     let promo = (0..pcs[!active][0] as usize).any(|i| pieces[!active][i].is_backrank());
     if promo {
-        return false;
+        return None;
     }
 
-    let mut r = INVALID;
+    // the best possible outcome, no point in searching additional moves if we reach this
+    let best = MATED.max(MATED + iteration as i8 * 2 + active as i8 - 1);
     // no need to test for legality: If the move results in an illegal position, the resulting entry is INVALID and
     // will not influence the minimum. Therefore, we don't even need to construct a `Chessboard`,
     // we can simply use the attacks of the individual pieces
 
-    for (i, &x_piece) in pieces[active].iter().enumerate() {
-        let attacks = attacks_for(nk_pieces[active][i], x_piece, blockers, p.active) & !sides[active];
-        for x_dest in attacks {
-            let mut res = value_after(p, i, x_dest, table, nk_pieces);
-            // handle ep, no need to test for legality.
-            // fortunately, positions with an ep capture can't be base case positions
-            if nk_pieces[active][i] == Pawn && x_dest.rank().abs_diff(x_piece.rank()) == 2 {
-                let mut pawn_bb = ChessBitboard::default();
-                for i in 0..pcs[!active][0] as usize {
-                    pawn_bb |= pieces[!active][i].bb();
-                }
-                let possible_ep_pawns: ChessBitboard = (x_dest.bb().west() | x_dest.bb().east()) & pawn_bb;
-                for pawn in possible_ep_pawns {
-                    // the position after our opponent captures en passant
-                    let mut new_p = PosIdx { active: !active, ..p };
-                    let mut ps: [&mut [ChessSquare]; 2] = [&mut new_p.w_nk, &mut new_p.b_nk];
-                    let dest = x_piece.pawn_advance_unchecked(active);
-                    ps[active][i] = dest;
-                    let i = ps[!active].iter().position(|p| *p == pawn).unwrap();
-                    let ep_res = value_after(new_p, i, dest, table, nk_pieces);
-                    // `res` is from the active player's pov instead of the inactive player's
-                    let ep_res = match ep_res.cmp(&DRAW) {
-                        Ordering::Less => -MATED,
-                        Ordering::Equal => DRAW,
-                        Ordering::Greater => MATED,
-                    };
-                    res = res.max(ep_res);
-                }
+    let test_nonking_move = |piece_i: usize, x_piece: ChessSquare, x_dest: ChessSquare| {
+        let mut res = value_after(p, piece_i, x_dest, table, nk_pieces);
+        // handle ep, no need to test for legality.
+        // fortunately, positions with an ep capture can't be base case positions
+        if nk_pieces[active][piece_i] == Pawn && x_dest.rank().abs_diff(x_piece.rank()) == 2 {
+            let mut pawn_bb = ChessBitboard::default();
+            for i in 0..pcs[!active][0] as usize {
+                pawn_bb |= pieces[!active][i].bb();
             }
-            // this move already results in the best possible outcome, no point in searching additional moves
-            let best = MATED + iteration as i8 * 2 - i8::from(active == Black) - 1;
-            debug_assert!(res >= best, "{res} {best} {iteration} {x_piece}{x_dest} {p_i} {p:?}");
-            if res <= best {
-                table[p_i].store(-res - 1, Relaxed);
-                return true;
+            let possible_ep_pawns: ChessBitboard = (x_dest.bb().west() | x_dest.bb().east()) & pawn_bb;
+            for pawn in possible_ep_pawns {
+                // the position after our opponent captures en passant
+                let mut new_p = PosIdx { active: !active, ..p };
+                let mut ps: [&mut [ChessSquare]; 2] = [&mut new_p.w_nk, &mut new_p.b_nk];
+                let dest = x_piece.pawn_advance_unchecked(active);
+                ps[active][piece_i] = dest;
+                let i = ps[!active].iter().position(|p| *p == pawn).unwrap();
+                let ep_res = value_after(new_p, i, dest, table, nk_pieces);
+                // `res` is from the active player's pov instead of the inactive player's
+                let ep_res = match ep_res.cmp(&DRAW) {
+                    Ordering::Less => -MATED,
+                    Ordering::Equal => DRAW,
+                    Ordering::Greater => MATED,
+                };
+                res = res.max(ep_res);
             }
-            r = r.min(res);
         }
-    }
-    for king_dest in KINGS[kings[active]] & !(sides[active] | KINGS[kings[!active]]) {
-        let mut p = PosIdx { active: !active, ..p };
-        let i = if active == White {
-            p.idx_normalized(king_dest)
-        } else {
-            p.king_idx = PosIdx::<N_W, N_B, SYMMETRY>::kings_index([kings[White], king_dest]);
-            // TODO: Currently unnecessary, but will become necessary when using bk as tie breaker
-            p.idx_normalized(kings[White])
+        debug_assert!(res >= best, "{res} {best} {iteration} {x_piece}{x_dest} {active} {p_i} {p:?} {kings:?}");
+        debug_assert!(
+            res >= DRAW || res < best + 2,
+            "{res} {best} {iteration} {x_piece}{x_dest} {active} {p_i} {p:?} {kings:?}"
+        );
+        res
+    };
+
+    let test_king_move = |king_dest: ChessSquare| {
+        // `let p = PosIdx { active: !active, ..p };` causes an internal compiler error
+        let mut p = p;
+        p.active = !p.active;
+        let i = match active {
+            White => p.idx_normalized([king_dest, kings[Black]]),
+            Black => p.idx_normalized([kings[White], king_dest]),
         };
         debug_assert_eq!(PosIdx::<N_W, N_B, SYMMETRY>::from_idx(i, pcs).active, !active);
-        r = r.min(table[i].load(Relaxed));
+        table[i].load(Relaxed)
+    };
+    let filter = if iteration == 0 { !sides[active] } else { !blockers };
+    let mut res = INVALID;
+
+    // If a pawn move or capture wins, it's an immediate win that gets dealt with in iteration 0.
+    // So in all later iterations, it makes sense to test them last, and only if the best result is worse than a draw
+    for (piece_i, &x_piece) in pieces[active].iter().enumerate() {
+        if nk_pieces[active][piece_i] == Pawn && iteration > 0 {
+            continue;
+        }
+        let attacks = attacks_for(nk_pieces[active][piece_i], x_piece, blockers, p.active) & filter;
+        for x_dest in attacks {
+            let r = test_nonking_move(piece_i, x_piece, x_dest);
+            if r <= best {
+                return Some(-r - 1);
+            }
+            res = res.min(r);
+        }
     }
+    for king_dest in KINGS[kings[active]] & !KINGS[kings[!active]] & filter {
+        res = res.min(test_king_move(king_dest));
+        if res <= best {
+            return Some(-res - 1);
+        }
+    }
+    if res < DRAW {
+        return Some(-res - 1); // won't find a shorter winning move
+    } else if res == DRAW {
+        return None; // nothing's changed
+    } else if iteration == 0 {
+        // we've already looked at all moves, they're all losing
+        return if res == INVALID { None } else { Some(-res + 1) };
+    }
+    // if we're here, all quiet moves are losing, but maybe a capture or pawn move achieves a draw
+    for (piece_i, &x_piece) in pieces[active].iter().enumerate() {
+        let filter = if nk_pieces[active][piece_i] == Pawn { !sides[active] } else { sides[!active] };
+        let attacks = attacks_for(nk_pieces[active][piece_i], x_piece, blockers, p.active) & filter;
+        for x_dest in attacks {
+            let r = test_nonking_move(piece_i, x_piece, x_dest);
+            if r == DRAW {
+                return None;
+            }
+            res = res.min(r);
+        }
+    }
+    for king_dest in KINGS[kings[active]] & !KINGS[kings[!active]] & sides[!active] {
+        res = res.min(test_king_move(king_dest));
+        if res == DRAW {
+            return None;
+        }
+    }
+    debug_assert!(res > DRAW);
     // if all moves lead to an invalid position, the game is a draw by stalemate
     // (we can't be in check because then we'd already be MATED)
-    if r == INVALID || r == DRAW {
-        return false;
+    if res == INVALID {
+        return None;
     }
-    let res = if r < 0 { -r - 1 } else { -r + 1 };
     // TODO: Separate draw and uninit values so that we don't try to compute attacks and look up children
     // for positions that are already known to be draws
     table[p_i].store(res, Relaxed);
 
     // mate(d) in (w/b): | iteration
-    //    [1]    [1, 2]     0
-    //    [2, 3] [3, 4]     1
-    //    [4, 5] [5, 6]     2
+    //    [1]    [1, 2]     0       [100]    [99, 100]
+    //    [2, 3] [3, 4]     1       [98, 99] [97, 98]
+    //    [4, 5] [5, 6]     2       [96, 97] [95, 96]
     //    [6, 7] [7, 8]     3
     debug_assert!(
-        [0, 1].contains(&(-MATED as isize - res.abs() as isize - iteration * 2 - isize::from(active == Black))),
-        "{iteration} {p_i} {res} {p:?}"
+        [0, 1].contains(&(-MATED as isize - res as isize - iteration * 2 - active as isize + 1)),
+        "{iteration} {p_i} {res} {active} {0} {p:?}",
+        -MATED as isize - res as isize - iteration * 2 - 1
     );
-    res != DRAW
+    Some(-res + 1)
 }
 
 // Fill out the remaining positions: For each possible position, look at all legal moves and choose the maximum possible result,
@@ -820,8 +865,14 @@ fn fixed_point_iteration<const N_W: usize, const N_B: usize, const SYMMETRY: usi
         let mut iteration = 0;
         loop {
             let fold_op = |color: ChessColor| {
-                move |changed, item: (usize, PosIdx<N_W, N_B, SYMMETRY>)| {
-                    step(item, nk_pieces, table, pieces, color, iteration) || changed
+                move |changed, item: (usize, PosIdx<N_W, N_B, SYMMETRY>)| match step(
+                    item, nk_pieces, table, pieces, color, iteration,
+                ) {
+                    None => changed,
+                    Some(val) => {
+                        table[item.0].store(val, Relaxed);
+                        true
+                    }
                 }
             };
             // make sure the next call to `step` sees the updated entries (probably unnecessary in practice, but technically necessary)
@@ -1249,11 +1300,6 @@ mod tests {
     #[allow(unused)]
     use std::sync::LazyLock;
 
-    /// positions with one non-king non-pawn piece per player
-    #[allow(unused)]
-    static QUEEN_VS_ROOK: LazyLock<&'static [Entry]> =
-        LazyLock::new(|| TB.get(&[[0, 0, 0, 0, 1], [0, 0, 0, 1, 0]]).unwrap());
-
     fn piece_v_king_is_won(
         piece: ChessPieceType,
         our_piece: ChessSquare,
@@ -1332,7 +1378,7 @@ mod tests {
     #[ignore]
     fn immediate_game_over_test() {
         let pieces = [[0, 1, 0, 0, 0], [0, 1, 0, 0, 0]];
-        let table = calc_table::<1, 1, NO_PAWNS>([&[Knight], &[Knight]], pieces);
+        let table = force_dtz_table(pieces);
 
         for w_king in ChessSquare::iter() {
             if (KINGS[w_king] | w_king.bb()).has(sq("b3")) {
@@ -1344,36 +1390,23 @@ mod tests {
             if w_king == sq("a1") {
                 assert_eq!(res, MATED);
                 let p2 = PosIdx { active: Black, ..p };
-                assert_eq!(table[p2.idx_normalized(w_king)].load(Relaxed), INVALID);
+                assert_eq!(table[p2.idx_normalized([w_king, p.kings()[Black]])].load(Relaxed), INVALID);
             } else if ChessBitboard::new(0x7070702).has(w_king) {
                 assert_eq!(res, INVALID);
             } else {
                 assert_eq!(res, DRAW);
             }
-            if (KINGS[w_king] | w_king.bb()).has(sq("a1")) {
-                continue;
-            }
-            let p2 = PosIdx::<1, 1, NO_PAWNS> {
-                king_idx: PosIdx::<1, 1, NO_PAWNS>::kings_index([sq("a1"), w_king]),
-                w_nk: [sq("c2")],
-                b_nk: [sq("b1")],
-                active: Black,
-                pieces,
-            };
-
-            let j = p2.idx_normalized(sq("b3"));
-            assert_eq!(table[j].load(Relaxed), res, "{j} {i} {w_king}");
         }
         let pieces = [[0, 0, 0, 1, 0], [0, 0, 1, 0, 0]];
-        let table = calc_table::<1, 1, NO_PAWNS>([&[Rook], &[Bishop]], pieces);
+        let table = force_dtz_table(pieces);
         let p2 = PosIdx::<1, 1, NO_PAWNS> {
-            king_idx: PosIdx::<1, 1, NO_PAWNS>::kings_index([sq("a1"), sq("f8")]),
-            w_nk: [sq("h7")],
-            b_nk: [sq("h6")],
+            king_idx: PosIdx::<1, 1, NO_PAWNS>::kings_index([sq("a1"), sq("h6")]),
+            w_nk: [sq("g8")],
+            b_nk: [sq("f8")],
             active: Black,
             pieces,
         };
-        let i = p2.idx_normalized(sq("h8"));
+        let i = p2.idx_normalized([sq("h8"), p2.kings()[Black]]);
         let res = table[i].load(Relaxed);
         assert_eq!(res, DRAW);
     }
@@ -1382,7 +1415,7 @@ mod tests {
     #[ignore]
     fn game_over_in_one_test() {
         let pieces = [[0, 1, 0, 0, 0], [0, 1, 0, 0, 0]];
-        let table = calc_table::<1, 1, NO_PAWNS>([&[Knight], &[Knight]], pieces);
+        let table = force_dtz_table(pieces);
         let p = PosIdx::<1, 1, NO_PAWNS>::normalized(sq("c2"), sq("a1"), [sq("c5")], [sq("a2")], White, pieces);
         let i = p.idx();
         assert_eq!(table[i].load(Relaxed), -MATED - 1, "{i}");
@@ -1391,7 +1424,7 @@ mod tests {
         assert_eq!(table[i].load(Relaxed), DRAW, "{i}");
 
         let pieces = [[0, 0, 0, 0, 1], [0, 0, 0, 1, 0]];
-        let table = &**QUEEN_VS_ROOK;
+        let table = force_dtz_table(pieces);
         let p = PosIdx::<1, 1, NO_PAWNS>::normalized(sq("c1"), sq("b3"), [sq("g1")], [sq("c2")], White, pieces);
         let i = p.idx();
         assert_ne!(table[i].load(Relaxed), MATED, "{i}");
@@ -1433,7 +1466,7 @@ mod tests {
     #[ignore]
     fn queen_vs_rook_test() {
         let pieces = [[0, 0, 0, 0, 1], [0, 0, 0, 1, 0]];
-        let table = &**QUEEN_VS_ROOK;
+        let table = force_dtz_table(pieces);
         let p = PosIdx::<1, 1, NO_PAWNS>::normalized(sq("f3"), sq("h1"), [sq("a2")], [sq("a2")], Black, pieces);
         let i = p.idx();
         assert_eq!(table[i].load(Relaxed), MATED, "{i}"); // DTM, not an actual mate
@@ -1540,8 +1573,8 @@ mod tests {
     #[test]
     #[ignore]
     fn consistency_test() {
-        let table = &**QUEEN_VS_ROOK;
         let pieces = [[0, 0, 0, 0, 1], [0, 0, 0, 1, 0]];
+        let table = force_dtz_table(pieces);
         test_consistency::<1, 1, NO_PAWNS>(table, [&[Queen], &[Rook]], pieces);
     }
 
