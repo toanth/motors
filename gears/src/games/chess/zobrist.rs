@@ -185,7 +185,7 @@ mod tests {
         let mov = ChessMove::new(
             ChessSquare::from_rank_file(1, E_FILE_NUM),
             ChessSquare::from_rank_file(3, E_FILE_NUM),
-            ChessMoveFlags::DoublePawnPush,
+            ChessMoveFlags::NormalMove,
         );
         let new_pos = position.make_move(mov).unwrap();
         assert_eq!(new_pos.hashes, new_pos.compute_zobrist());
@@ -207,11 +207,11 @@ mod tests {
                     continue;
                 };
                 assert!(new_pos.debug_verify_invariants(Strict).is_ok(), "{pos} {}", m.compact_formatter(&pos));
-                if !(m.is_double_pawn_push()
-                    || m.is_capture(&pos)
+                if !(m.is_capture(&pos)
                     || m.is_promotion()
                     || pos.ep_square().is_some()
-                    || pos.castling != new_pos.castling)
+                    || pos.castling != new_pos.castling
+                    || (m.piece_type(&pos) == Pawn && m.dest_square().rank().abs_diff(m.src_square().rank()) > 1))
                 {
                     assert_eq!(
                         pos.hash_pos()

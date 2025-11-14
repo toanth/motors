@@ -98,9 +98,6 @@ impl Chessboard {
         };
 
         if piece == Pawn {
-            if mov.is_double_pawn_push() != (src.rank().abs_diff(dest.rank()) != 1) {
-                return false;
-            }
             if mov.is_ep() {
                 return Some(dest) == self.ep_square && src.bb().pawn_attacks(us).has(dest);
             }
@@ -108,7 +105,7 @@ impl Chessboard {
             let capturable = self.player_bb(us.other());
             !incorrect_promo && Self::single_pawn_moves(us, src, capturable, self.empty_bb()).has(dest)
         } else {
-            if mov.is_promotion() || mov.is_ep() || mov.is_double_pawn_push() {
+            if mov.is_promotion() || mov.is_ep() {
                 return false;
             }
             let generator = self.slider_generator();
@@ -211,7 +208,7 @@ impl Chessboard {
         if !ONLY_TACTICAL {
             for to in double_pawn_moves.0 {
                 let from = ChessSquare::from_bb_idx((to.to_u8() as isize - double_pawn_moves.1) as usize);
-                callback(ChessMove::new(from, to, DoublePawnPush));
+                callback(ChessMove::new(from, to, NormalMove));
             }
         }
     }

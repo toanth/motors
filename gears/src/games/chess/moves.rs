@@ -38,7 +38,6 @@ use crate::general::squares::RectangularCoordinates;
 pub enum ChessMoveFlags {
     #[default]
     NormalMove,
-    DoublePawnPush,
     CastleKingside,
     CastleQueenside,
     EnPassant,
@@ -162,10 +161,6 @@ impl ChessMove {
 
     pub fn is_promotion(self) -> bool {
         self.flags().is_promo()
-    }
-
-    pub fn is_double_pawn_push(self) -> bool {
-        self.flags() == DoublePawnPush
     }
 
     pub fn promo_piece(self) -> ChessPieceType {
@@ -398,8 +393,6 @@ impl Move<Chessboard> for ChessMove {
             }
         } else if piece.uncolored() == Pawn && board.is_empty(to) && from.file() != to.file() {
             flags = EnPassant;
-        } else if piece.uncolored() == Pawn && from.rank().abs_diff(to.rank()) > 1 {
-            flags = DoublePawnPush;
         }
         let res = from.bb_idx() + (to.bb_idx() << 6) + ((flags as usize) << 12);
         let res = ChessMove(res as u16);
@@ -514,8 +507,6 @@ impl Chessboard {
                     self.remove_piece_impl(taken_pawn, Pawn, them);
                     self.hashes.pawns ^= ZOBRIST_KEYS.piece_key(Pawn, them, taken_pawn);
                     self.ply_100_ctr = 0;
-                } else if mov.is_double_pawn_push() {
-                    self.ep_square = self.calc_ep_sq(to, &mut special_hash, them);
                 } else if mov.is_promotion() {
                     let piece = mov.flags().promo_piece();
                     let bb = to.bb();
@@ -528,6 +519,8 @@ impl Chessboard {
                     if [Knight, Bishop].contains(&piece) {
                         self.hashes.knb ^= new;
                     }
+                } else if from.rank().abs_diff(to.rank()) > 1 {
+                    self.ep_square = self.calc_ep_sq(to, &mut special_hash, them);
                 }
             }
             King => {

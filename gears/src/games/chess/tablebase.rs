@@ -900,6 +900,10 @@ fn compact_idx(
     let kings = kings.map(|bb| bb.to_square().unwrap());
     // todo: We can even use a knight of the active player to enumerate all 3 piece combinations
     // (doesn't work for sliders though because adding pieces can change which squares are attacked)
+    // TODO: In positions with equal material, we can demand that it's always White's turn to move
+    // TODO: We can assume that when placing the nstm king last, there are significantly fewer squares where
+    // it can be placed without being in check. So just pick a number for this (e.g. 5 instead of 10 for white pawnless kingn),
+    // and if a piece configurations admits more squares, store the excess positions sparsely in a separate (sorted/hashed) list.
     let mut res = if pieces[Pawn].is_zero() {
         no_pawns::kings_idx(kings)
     } else {
