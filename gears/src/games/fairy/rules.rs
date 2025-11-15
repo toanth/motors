@@ -192,6 +192,7 @@ pub enum SquareFilter {
     // the bitboard gets flipped vertically for the second player
     SideRelativeBitboard(RawFairyBitboard),
     Rank(DimT),
+    RanksRelative(Vec<DimT>, PlayerCond), // Ranks as seen from the given player's pov (i.e. flipped for the second player)
     // File(DimT),
     Neighbor(Box<SquareFilter>), // a piece of the given color must be on an adjacent square
     InDirectionOf(Box<SquareFilter>, Dir),
@@ -216,6 +217,21 @@ impl SquareFilter {
                 FairyBitboard::new(*bb, pos.size()).flip_if(!pos.active.is_first())
             }
             SquareFilter::Rank(rank) => FairyBitboard::rank_for(*rank, pos.size()),
+            // TODO: Make sure this only exists in builders and isn't queried each node
+            SquareFilter::RanksRelative(ranks, player) => match player {
+                PlayerCond::All => rank_relatives(&ranks, pos.size(), false) | rank_relatives(&ranks, pos.size(), true),
+                PlayerCond::First => rank_relatives(&ranks, pos.size(), false),
+                PlayerCond::Second => rank_relatives(&ranks, pos.size(), true),
+                PlayerCond::Active => rank_relatives(&ranks, pos.size(), !us.is_first()),
+                PlayerCond::Inactive => rank_relatives(&ranks, pos.size(), us.is_first()),
+                PlayerCond::FirstAndActive => {
+                    if us.is_first() {
+                        rank_relatives(&ranks, pos.size(), false)
+                    } else {
+                        FairyBitboard::new(0, pos.size())
+                    }
+                }
+            },
             // AttackBitboardFilter::File(file) => FairyBitboard::file_for(file, pos.size()),
             SquareFilter::Neighbor(nested) => nested.bb(us, pos).moore_neighbors(),
             SquareFilter::InDirectionOf(nested, dir) => dir.shift(nested.bb(us, pos)),
@@ -230,6 +246,20 @@ impl SquareFilter {
             SquareFilter::Not(condition) => !condition.bb(us, pos) & pos.mask_bb(),
         }
     }
+}
+
+fn rank_relatives(ranks: &[DimT], size: FairySize, flip: bool) -> FairyBitboard {
+    let mut res = FairyBitboard::new(0, size);
+    if flip {
+        for r in ranks {
+            res |= FairyBitboard::rank_for(size.height.0 - 1 - r, size);
+        }
+    } else {
+        for &r in ranks {
+            res |= FairyBitboard::rank_for(r, size);
+        }
+    }
+    res
 }
 
 struct GameEndResIfBuilder(GameEndRes, GameEndRes);

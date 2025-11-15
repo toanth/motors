@@ -40,6 +40,7 @@ use anyhow::{anyhow, bail, ensure};
 use arbitrary::Arbitrary;
 use arrayvec::ArrayVec;
 use colored::Colorize;
+use itertools::Itertools;
 use std::str::FromStr;
 use std::sync::Arc;
 
@@ -57,6 +58,27 @@ pub enum SliderDirections {
     Rider { precomputed: Arc<[RawFairyBitboard]> },
 }
 
+// TODO: Support cylindrical boards
+// not `const`, which allows using ranges and for loops
+pub fn leaper_attack_range_2d(
+    iter: impl Iterator<Item = (isize, isize)>,
+    square: FairySquare,
+    size: FairySize,
+) -> RawFairyBitboard {
+    let mut res = RawFairyBitboard::default();
+    let width = size.width().val() as isize;
+    let internal_width = size.internal_width() as isize;
+    for (dx, dy) in iter {
+        let shift = dx + dy * internal_width;
+        let bb = FairyBitboard::single_piece_for(square, size);
+        if square.file() as isize >= -dx && square.file() as isize + dx < width {
+            res |= shift_left!(bb.raw(), shift);
+        }
+    }
+    res
+}
+
+// TODO: Support cylindrical boards
 // not `const`, which allows using ranges and for loops
 pub fn leaper_attack_range<Iter1: Iterator<Item = isize>, Iter2: Iterator<Item = isize> + Clone>(
     horizontal_range: Iter1,
@@ -64,19 +86,7 @@ pub fn leaper_attack_range<Iter1: Iterator<Item = isize>, Iter2: Iterator<Item =
     square: FairySquare,
     size: FairySize,
 ) -> RawFairyBitboard {
-    let mut res = RawFairyBitboard::default();
-    let width = size.width().val() as isize;
-    let internal_width = size.internal_width() as isize;
-    for dx in horizontal_range {
-        for dy in vertical_range.clone() {
-            let shift = dx + dy * internal_width;
-            let bb = FairyBitboard::single_piece_for(square, size);
-            if square.file() as isize >= -dx && square.file() as isize + dx < width {
-                res |= shift_left!(bb.raw(), shift);
-            }
-        }
-    }
-    res
+    leaper_attack_range_2d(horizontal_range.cartesian_product(vertical_range), square, size)
 }
 
 #[derive(Debug, Clone, Arbitrary)]
@@ -84,11 +94,11 @@ pub fn leaper_attack_range<Iter1: Iterator<Item = isize>, Iter2: Iterator<Item =
 /// we deduplicate the attack bitboards as an optimization.
 pub struct LeapingBitboards(Arc<[RawFairyBitboard]>);
 
-fn leaper(n: usize, m: usize, rider: bool, size: FairySize) -> Arc<[RawFairyBitboard]> {
+fn leaper(n: usize, m: usize, rider: bool, size: FairySize, cylinder: bool) -> Arc<[RawFairyBitboard]> {
     let mut res = vec![RawFairyBitboard::default(); size.num_squares()];
     let (n, m) = (n.min(m), n.max(m));
     for (idx, elem) in res.iter_mut().enumerate() {
-        let bb = precompute_leaper_attacks!(idx, n, m, rider, size.width.val(), u128);
+        let bb = precompute_leaper_attacks!(idx, n, m, rider, size.width.val(), cylinder, u128);
         *elem = bb;
     }
     Arc::from(res)
@@ -96,7 +106,11 @@ fn leaper(n: usize, m: usize, rider: bool, size: FairySize) -> Arc<[RawFairyBitb
 
 impl LeapingBitboards {
     pub(super) fn fixed(n: usize, m: usize, size: FairySize) -> Self {
-        Self(leaper(n, m, false, size))
+        Self(leaper(n, m, false, size, false))
+    }
+
+    pub(super) fn fixed_cylinder(n: usize, m: usize, size: FairySize, cylinder: bool) -> Self {
+        Self(leaper(n, m, false, size, cylinder))
     }
 
     pub(super) fn range_hv<Iter1: Iterator<Item = isize> + Clone, Iter2: Iterator<Item = isize> + Clone>(
@@ -108,6 +122,16 @@ impl LeapingBitboards {
         for (idx, elem) in res.iter_mut().enumerate() {
             let sq = size.idx_to_coordinates(idx as DimT);
             let bb = leaper_attack_range(horizontal_range.clone(), vertical_range.clone(), sq, size);
+            *elem = bb;
+        }
+        LeapingBitboards(Arc::from(res))
+    }
+
+    pub(super) fn range(range: impl Iterator<Item = (isize, isize)> + Clone, size: FairySize) -> Self {
+        let mut res = vec![RawFairyBitboard::default(); size.num_squares()];
+        for (idx, elem) in res.iter_mut().enumerate() {
+            let sq = size.idx_to_coordinates(idx as DimT);
+            let bb = leaper_attack_range_2d(range.clone(), sq, size);
             *elem = bb;
         }
         LeapingBitboards(Arc::from(res))
@@ -160,19 +184,20 @@ pub enum AttackTypes {
     // Castling moves are special enough that it makes sense to handle them separately
     Castling(Side),
     Drop,
-    // HardCoded {
-    //     source: FairySquare,
-    //     target: FairySquare,
-    // },
 }
 
 impl AttackTypes {
+    // TODO: Remove, replace wiht leaping_cylinder and rename
     pub fn leaping(n: usize, m: usize, size: FairySize) -> Self {
-        Leaping(LeapingBitboards::fixed(n, m, size))
+        Leaping(LeapingBitboards::fixed_cylinder(n, m, size, false))
     }
 
-    pub fn rider(n: usize, m: usize, size: FairySize) -> Self {
-        let bbs = leaper(n, m, true, size);
+    pub fn leaping_cylinder(n: usize, m: usize, size: FairySize, cylinder: bool) -> Self {
+        Leaping(LeapingBitboards::fixed_cylinder(n, m, size, cylinder))
+    }
+
+    pub fn rider(n: usize, m: usize, size: FairySize, cylinder: bool) -> Self {
+        let bbs = leaper(n, m, true, size, cylinder);
         Rider(SliderDirections::Rider { precomputed: bbs })
     }
 }
@@ -371,7 +396,10 @@ impl AttackKind {
             Always => true,
             GenAttacksCondition::Player(color) => piece.color().is_some_and(|c| c == color),
             GenAttacksCondition::CanCastle(side) => pos.0.castling_info.can_castle(pos.active_player(), side),
-            GenAttacksCondition::OnRank(rank, color) => {
+            GenAttacksCondition::OnRelativeRank(mut rank, color) => {
+                if !color.is_first() {
+                    rank = pos.size().height.get() - 1 - rank;
+                }
                 piece.color().is_some_and(|c| c == color) && piece.coordinates.rank() == rank
             }
         }
@@ -483,12 +511,12 @@ impl Dir {
 }
 
 #[must_use]
-#[derive(Debug, Clone, Arbitrary)]
+#[derive(Debug, Copy, Clone, Arbitrary)]
 pub enum GenAttacksCondition {
     Always,
     Player(FairyColor),
     CanCastle(Side),
-    OnRank(DimT, FairyColor),
+    OnRelativeRank(DimT, FairyColor),
 }
 
 #[derive(Debug, Default, Copy, Clone, Eq, PartialEq, Hash, Arbitrary)]

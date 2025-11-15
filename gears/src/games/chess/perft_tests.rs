@@ -214,7 +214,7 @@ mod tests {
         }
     }
 
-    // ** The following test positions are mostly form well-known perft suites, with a couple of custom additions
+    // ** The following test positions are mostly from well-known perft suites, with a couple of custom additions
 
     struct ExpectedPerftRes {
         fen: &'static str,

@@ -20,6 +20,7 @@ mod attacks;
 mod effects;
 pub mod moves;
 mod perft_tests;
+mod piece_builder;
 pub mod pieces;
 mod rules;
 #[cfg(test)]

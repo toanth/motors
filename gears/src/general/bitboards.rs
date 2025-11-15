@@ -1012,10 +1012,18 @@ macro_rules! do_shift {
     $width: expr,
     $file: expr,
     $bb: expr,
+    $cylinder: expr,
     $typ: ty) => {{
-        let shift = $horizontal_shift + $vertical_shift * $width;
-        if $file >= -$horizontal_shift
-            && $file + $horizontal_shift < $width
+        let h_shift = if $cylinder && $file < -$horizontal_shift {
+            ($horizontal_shift % $width + $width) % $width
+        } else if $cylinder && $file + $horizontal_shift <= $width {
+            $horizontal_shift % $width
+        } else {
+            $horizontal_shift
+        };
+        let shift = h_shift + $vertical_shift * $width;
+        if $file >= -h_shift
+            && $file + h_shift < $width
             && shift < <$typ>::BITS as isize
             && -shift < <$typ>::BITS as isize
         {
@@ -1030,7 +1038,7 @@ macro_rules! do_shift {
 // width is the internal width, so boards with a width less than 8, but height <= 8 can simply use 8 as the width
 #[macro_export]
 macro_rules! precompute_leaper_attacks {
-    ($square_idx: expr, $diff_1: expr, $diff_2: expr, $repeat: expr, $width: expr, $typ: ty) => {{
+    ($square_idx: expr, $diff_1: expr, $diff_2: expr, $repeat: expr, $width: expr, $cylinder: expr, $typ: ty) => {{
         let diff_1 = $diff_1 as isize;
         let diff_2 = $diff_2 as isize;
         let width = $width as isize;
@@ -1053,6 +1061,7 @@ macro_rules! precompute_leaper_attacks {
                     width,
                     file,
                     this_piece,
+                    $cylinder,
                     $typ
                 );
                 attacks |= $crate::do_shift!(
@@ -1061,6 +1070,7 @@ macro_rules! precompute_leaper_attacks {
                     width,
                     file,
                     this_piece,
+                    $cylinder,
                     $typ
                 );
                 if !$repeat || repetition > $width {
@@ -1090,7 +1100,7 @@ pub mod chessboard {
         let mut res: [ChessBitboard; 64] = [ChessBitboard::new(0); 64];
         let mut i = 0;
         while i < 64 {
-            res[i] = ChessBitboard::new(precompute_leaper_attacks!(i, 1, 2, false, 8, u64));
+            res[i] = ChessBitboard::new(precompute_leaper_attacks!(i, 1, 2, false, 8, false, u64));
             i += 1;
         }
         res
@@ -1100,8 +1110,8 @@ pub mod chessboard {
         let mut res = [ChessBitboard::new(0); 64];
         let mut i = 0;
         while i < 64 {
-            let bb =
-                precompute_leaper_attacks!(i, 1, 1, false, 8, u64) | precompute_leaper_attacks!(i, 0, 1, false, 8, u64);
+            let bb = precompute_leaper_attacks!(i, 1, 1, false, 8, false, u64)
+                | precompute_leaper_attacks!(i, 0, 1, false, 8, false, u64);
             res[i] = ChessBitboard::new(bb);
             i += 1;
         }
@@ -1113,9 +1123,9 @@ pub mod chessboard {
         let mut res = [ChessBitboard::new(0); 64];
         let mut i = 0;
         while i < 64 {
-            let bb = precompute_leaper_attacks!(i, 2, 2, false, 8, u64)
-                | precompute_leaper_attacks!(i, 1, 2, false, 8, u64)
-                | precompute_leaper_attacks!(i, 0, 2, false, 8, u64);
+            let bb = precompute_leaper_attacks!(i, 2, 2, false, 8, false, u64)
+                | precompute_leaper_attacks!(i, 1, 2, false, 8, false, u64)
+                | precompute_leaper_attacks!(i, 0, 2, false, 8, false, u64);
             res[i] = ChessBitboard::new(bb);
             i += 1;
         }
@@ -1205,7 +1215,7 @@ mod tests {
         let size = GridSize::new(Height::new(11), Width::new(9));
         for i in 0..99 {
             let origin = SmallGridSquare::<11, 9, 9>::from_bb_idx(i);
-            let attacks = precompute_leaper_attacks!(i, 1, 2, false, 9, u128)
+            let attacks = precompute_leaper_attacks!(i, 1, 2, false, 9, false, u128)
                 & DynamicallySizedBitboard::<ExtendedRawBitboard, GridCoordinates>::valid_squares_for_size(size).raw();
             for sq in attacks.one_indices() {
                 let sq = SmallGridSquare::<11, 9, 9>::from_bb_idx(sq);
@@ -1215,8 +1225,8 @@ mod tests {
                 s.sort();
                 assert_eq!(s, [1, 2]);
             }
-            let neighbors = (precompute_leaper_attacks!(i, 0, 1, false, 9, u128)
-                ^ precompute_leaper_attacks!(i, 1, 1, false, 9, u128))
+            let neighbors = (precompute_leaper_attacks!(i, 0, 1, false, 9, false, u128)
+                ^ precompute_leaper_attacks!(i, 1, 1, false, 9, false, u128))
                 | (1 << i);
             assert_eq!(
                 neighbors,

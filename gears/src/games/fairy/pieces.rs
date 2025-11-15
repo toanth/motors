@@ -27,13 +27,13 @@ use crate::games::fairy::attacks::AttackTypes::*;
 use crate::games::fairy::attacks::GenAttackKind::*;
 use crate::games::fairy::attacks::GenAttacksCondition::*;
 use crate::games::fairy::attacks::{
-    AttackKind, AttackMode, AttackTypes, CaptureCondition, Dir, LeapingBitboards, MoveKind, RequiredForAttack,
-    SliderDirections,
+    AttackKind, AttackMode, AttackTypes, CaptureCondition, Dir, GenAttackKind, GenAttacksCondition, LeapingBitboards,
+    MoveKind, RequiredForAttack, SliderDirections,
 };
 use crate::games::fairy::moves::FairyMove;
 use crate::games::fairy::rules::SquareFilter::{EmptySquares, InDirectionOf, NoSquares, Not, SideRelativeBitboard};
 use crate::games::fairy::rules::{PieceCond, PlayerCond, PromoFenModifier, Rules, SquareFilter};
-use crate::games::fairy::{FairyBitboard, FairyBoard, FairyColor, FairySize, FairySquare};
+use crate::games::fairy::{FairyBitboard, FairyBoard, FairyColor, FairySize, FairySquare, Side};
 use crate::games::{AbstractPieceType, CharType, Color, ColoredPieceType, DimT, NUM_CHAR_TYPES, NUM_COLORS, PieceType};
 use crate::general::bitboards::Bitboard;
 use crate::general::board::Board;
@@ -374,6 +374,67 @@ impl DrawCtrReset {
     }
 }
 
+enum AttackBuilder {
+    Leaping { n: usize, m: usize },
+    Rider { n: usize, m: usize },
+    Castling(Side),
+    Drop,
+}
+
+struct AttackKindBuilder {
+    cylinder: bool,
+    typ: AttackBuilder,
+    required: RequiredForAttack,
+    condition: GenAttacksCondition,
+    attack_mode: AttackMode,
+    bitboard_filter: Vec<SquareFilter>,
+    kind: GenAttackKind,
+    capture_condition: CaptureCondition,
+}
+
+impl AttackKindBuilder {
+    pub fn build(&self, size: FairySize) -> AttackKind {
+        let typ = match self.typ {
+            AttackBuilder::Leaping { n, m } => AttackTypes::leaping_cylinder(n, m, size, self.cylinder),
+            AttackBuilder::Rider { n, m } => AttackTypes::rider(n, m, size, self.cylinder),
+            AttackBuilder::Castling(side) => AttackTypes::Castling(side),
+            AttackBuilder::Drop => AttackTypes::Drop,
+        };
+        AttackKind {
+            required: self.required,
+            condition: self.condition,
+            attack_mode: self.attack_mode,
+            typ,
+            bitboard_filter: self.bitboard_filter.clone(),
+            kind: self.kind,
+            capture_condition: self.capture_condition,
+        }
+    }
+}
+
+struct PieceBuilder {
+    pub(super) name: String,
+    // Some "pieces" don't belong to a player, such as gaps/blocked squares, environmental effects, or
+    // (not currently used) actual neutral pieces. If a piece can be both colored and neutral, this currently has to be simulated
+    // using two different pieces.
+    pub(super) uncolored: bool,
+    pub(super) uncolored_symbol: [char; NUM_CHAR_TYPES],
+    pub(super) player_symbol: [[char; NUM_CHAR_TYPES]; NUM_COLORS],
+    /// Most of the attack data is represented with a bitboard.
+    /// To distinguish between different special moves, the [`AttackKind`] struct has a [`GenAttackKind`] field.
+    pub(super) attacks: Vec<AttackKindBuilder>,
+    /// Promotions change the piece type and can differentiate moves with otherwise identical information.
+    /// However, they are not the only way to change piece types; this can also be done through move effects based on the move kind.
+    pub(super) promotions: Promo,
+    pub(super) can_ep_capture: bool,
+    pub(super) resets_draw_counter: DrawCtrReset,
+    pub(super) royal: bool,
+    // The move output (compact and SAN) can omit the piece type. This is true for generalized pawns, but also mnk pieces.
+    pub(super) output_omit_piece: bool,
+    // true for kings but not for rooks
+    pub(super) can_castle: bool,
+}
+
 pub(super) const PAWN_IDX: usize = 0;
 #[allow(unused)]
 pub(super) const CHESS_KNIGHT_IDX: usize = 1;
@@ -385,6 +446,25 @@ pub(super) const CHESS_ROOK_IDX: usize = 3;
 pub(super) const CHESS_QUEEN_IDX: usize = 4;
 #[allow(unused)]
 pub(super) const CHESS_KING_IDX: usize = 5;
+
+impl PieceBuilder {
+    pub fn build(&self, size: FairySize) -> Piece {
+        let attacks = self.attacks.iter().map(|a| a.build(size)).collect_vec();
+        Piece {
+            name: self.name.clone(),
+            uncolored: self.uncolored,
+            uncolored_symbol: self.uncolored_symbol,
+            player_symbol: self.player_symbol,
+            attacks,
+            promotions: self.promotions.clone(),
+            can_ep_capture: self.can_ep_capture,
+            resets_draw_counter: self.resets_draw_counter.clone(),
+            royal: self.royal,
+            output_omit_piece: self.output_omit_piece,
+            can_castle: self.can_castle,
+        }
+    }
+}
 
 /// This struct defines the rules for a single piece.
 // Cloning a piece uses copy-on-write semantics for attack bitboards
@@ -489,7 +569,7 @@ impl Piece {
         let white_double = AttackKind {
             required: RequiredForAttack::PieceOnBoard,
             typ: Rider(SliderDirections::Vertical),
-            condition: OnRank(1, FairyColor::first()),
+            condition: OnRelativeRank(1, FairyColor::first()),
             bitboard_filter: vec![EmptySquares, SquareFilter::Rank(3)],
             kind: DoublePawnPush,
             attack_mode: AttackMode::NoCaptures,
@@ -498,7 +578,7 @@ impl Piece {
         let black_double = AttackKind {
             required: RequiredForAttack::PieceOnBoard,
             typ: Rider(SliderDirections::Vertical),
-            condition: OnRank(size.height().get().saturating_sub(2), FairyColor::second()),
+            condition: OnRelativeRank(1, FairyColor::second()),
             bitboard_filter: vec![EmptySquares, SquareFilter::Rank(size.height().get().saturating_sub(4))],
             kind: DoublePawnPush,
             attack_mode: AttackMode::NoCaptures,
@@ -652,7 +732,7 @@ impl Piece {
             if max(n, m) == 1 {
                 continue; // already a normal chess piece (rook or bishop)
             }
-            let attacks = vec![AttackTypes::rider(n, m, size)];
+            let attacks = vec![AttackTypes::rider(n, m, size, false)];
             let name = leaper.name.clone() + "rider";
             let rider = Self::new(&name, attacks, name.chars().next().unwrap(), None);
             riders.push(rider);
@@ -696,7 +776,7 @@ impl Piece {
                 res.attacks.push(AttackKind {
                     required: RequiredForAttack::PieceOnBoard,
                     typ: Rider(SliderDirections::Vertical),
-                    condition: OnRank(0, FairyColor::first()),
+                    condition: OnRelativeRank(0, FairyColor::first()),
                     bitboard_filter: vec![EmptySquares, SquareFilter::Rank(2)],
                     kind: Normal,
                     attack_mode: AttackMode::NoCaptures,
@@ -705,7 +785,7 @@ impl Piece {
                 res.attacks.push(AttackKind {
                     required: RequiredForAttack::PieceOnBoard,
                     typ: Rider(SliderDirections::Vertical),
-                    condition: OnRank(size.height().get().saturating_sub(1), FairyColor::second()),
+                    condition: OnRelativeRank(0, FairyColor::second()),
                     bitboard_filter: vec![EmptySquares, SquareFilter::Rank(size.height().get().saturating_sub(3))],
                     kind: Normal,
                     attack_mode: AttackMode::NoCaptures,

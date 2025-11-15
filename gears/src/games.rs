@@ -249,7 +249,7 @@ pub trait ColoredPieceType<B: Board>: AbstractPieceType<B> {
         settings: &B::Settings,
         char_type: CharType,
         display_pretty: bool,
-    ) -> ColPieceTypeFormatter<B, Self> {
+    ) -> ColPieceTypeFormatter<'_, B, Self> {
         ColPieceTypeFormatter { piece: self, char_type, display_pretty, settings }
     }
 }
