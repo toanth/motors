@@ -876,7 +876,7 @@ impl UnverifiedBoard<MNKBoard> for UnverifiedMnkBoard {
                 )
             }
         }
-        if level != CheckFen && (this.o_bb & this.x_bb).has_any() {
+        if level > CheckFen && (this.o_bb & this.x_bb).has_any() {
             bail!(
                 "At least one square has two pieces on it (square {})",
                 this.size().to_coordinates_unchecked((this.o_bb & this.x_bb).pop_lsb())

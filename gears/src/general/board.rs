@@ -88,9 +88,10 @@ impl NamedEntity for NameToPos {
 /// How many checks to execute.
 /// Enum variants are listed in order; later checks generally include earlier checks.
 /// In some cases [`SelfChecks::CheckFen`] silently fixes an incorrect ep square in [`Relaxed`] mode.
-#[derive(Debug, Eq, PartialEq, Copy, Clone)]
+#[derive(Debug, Eq, PartialEq, Copy, Clone, Ord, PartialOrd)]
 #[must_use]
 pub enum SelfChecks {
+    Tablebase,
     CheckFen,
     Verify,
     Assertion,

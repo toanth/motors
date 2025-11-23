@@ -498,7 +498,7 @@ impl UnverifiedBoard<AtaxxBoard> for UnverifiedAtaxxBoard {
         );
         ensure!(this.ply <= 10_000, "Ridiculously large ply number ({})", this.ply);
 
-        if level == CheckFen {
+        if level <= CheckFen {
             return Ok(this);
         }
         if level == Assertion {

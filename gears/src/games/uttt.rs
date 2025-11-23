@@ -1017,7 +1017,7 @@ impl From<UtttBoard> for UnverifiedUtttBoard {
 impl UnverifiedBoard<UtttBoard> for UnverifiedUtttBoard {
     fn verify_with_level(self, checks: SelfChecks, _strictness: Strictness) -> Res<UtttBoard> {
         let mut this = self.0;
-        if checks != CheckFen {
+        if checks > CheckFen {
             for color in UtttColor::iter() {
                 let bb = this.colors_internal[color as usize];
                 if (bb >> (81 + 9)).has_any() {

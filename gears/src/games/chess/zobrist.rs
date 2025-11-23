@@ -92,7 +92,7 @@ impl Chessboard {
                 for square in pieces_bb {
                     let key = ZOBRIST_KEYS.piece_key(piece, color, square);
                     nonpawns[color] ^= key;
-                    if [King, Knight, Bishop].contains(&piece) {
+                    if [Knight, Bishop, King].contains(&piece) {
                         knb ^= key;
                     }
                 }

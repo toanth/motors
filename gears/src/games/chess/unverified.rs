@@ -46,6 +46,74 @@ impl From<Chessboard> for UnverifiedChessboard {
     }
 }
 
+fn fen_selfchecks(this: &Chessboard, checks: SelfChecks, strictness: Strictness) -> Res<()> {
+    for color in ChessColor::iter() {
+        ensure!(this.col_piece_bb(color, King).is_single_piece(), "The {color} player does not have exactly one king");
+        if this.col_piece_bb(color, Pawn).intersects(ChessBitboard::backranks()) {
+            bail!("The {color} player has a pawn on the first or eight rank")
+        }
+
+        for side in CastleRight::iter() {
+            let eligible_rook = this.col_piece_bb(color, Rook).has(this.rook_start_square(color, side));
+            if this.castling.can_castle(color, side) && !eligible_rook {
+                bail!(
+                    "The {color} player can castle {side}, but there is no rook to castle with{}",
+                    if checks == CheckFen { " (invalid castling flag in FEN?)" } else { "" }
+                );
+            }
+        }
+    }
+
+    if this.ply_100_ctr > 100 {
+        bail!("The 50 move rule has been exceeded (there have already been {0} plies played)", this.ply_100_ctr);
+    } else if this.ply >= 20_000 {
+        bail!("Ridiculously large ply counter: {0}", this.ply);
+    } else if strictness == Strict && this.ply_draw_clock() > this.halfmove_ctr_since_start() {
+        bail!(
+            "The halfmove repetition clock ({0}) is larger than the number of played half moves ({1}), \
+                        which is not allowed in strict mode",
+            this.ply_100_ctr,
+            this.ply
+        )
+    }
+
+    let mut num_promoted_pawns: [isize; 2] = [0, 0];
+    let startpos_piece_count = [8, 2, 2, 2, 1, 1];
+    for color in ChessColor::iter() {
+        for piece in ChessPieceType::pieces() {
+            let bb = this.col_piece_bb(color, piece);
+            if strictness == Strict {
+                num_promoted_pawns[color] += 0.max(bb.num_ones() as isize - startpos_piece_count[piece]);
+                // Print a better error message than the generic "invalid piece distribution".
+                ensure!(
+                    bb.num_ones() <= 10,
+                    "There are {0} {color} {piece}s in this position. There can never be more than 10 pieces \
+                            of the same type in a legal chess position (in relaxed mode, this is accepted anyway)",
+                    bb.num_ones()
+                );
+            }
+            if checks > CheckFen {
+                for other_piece in ColoredChessPieceType::pieces() {
+                    if other_piece as usize >= ColoredChessPieceType::new(color, piece) as usize {
+                        break;
+                    }
+                    let mut overlap = bb & this.col_piece_bb(other_piece.color().unwrap(), other_piece.uncolor());
+                    ensure!(
+                        overlap.is_zero(),
+                        "There are two pieces on the same square ({0}): A {other_piece} and a {piece}",
+                        overlap.next().unwrap()
+                    );
+                }
+            }
+        }
+        let num_pawns = this.col_piece_bb(color, Pawn).num_ones() as isize;
+        if strictness == Strict && num_promoted_pawns[color] + num_pawns > 8 {
+            bail!("Incorrect piece distribution for {color} (in relaxed mode, this is allowed)")
+        }
+    }
+    Ok(())
+}
+
 impl UnverifiedBoard<Chessboard> for UnverifiedChessboard {
     fn verify_with_level(self, checks: SelfChecks, strictness: Strictness) -> Res<Chessboard> {
         let mut this = self.0;
@@ -75,74 +143,8 @@ impl UnverifiedBoard<Chessboard> for UnverifiedChessboard {
                 }
             }
         }
-        for color in ChessColor::iter() {
-            ensure!(
-                this.col_piece_bb(color, King).is_single_piece(),
-                "The {color} player does not have exactly one king"
-            );
-            if this.col_piece_bb(color, Pawn).intersects(ChessBitboard::backranks()) {
-                bail!("The {color} player has a pawn on the first or eight rank")
-            }
-        }
-
-        for color in ChessColor::iter() {
-            for side in CastleRight::iter() {
-                let eligible_rook = this.col_piece_bb(color, Rook).has(this.rook_start_square(color, side));
-                if this.castling.can_castle(color, side) && !eligible_rook {
-                    bail!(
-                        "The {color} player can castle {side}, but there is no rook to castle with{}",
-                        if checks == CheckFen { " (invalid castling flag in FEN?)" } else { "" }
-                    );
-                }
-            }
-        }
-
-        if this.ply_100_ctr > 100 {
-            bail!("The 50 move rule has been exceeded (there have already been {0} plies played)", this.ply_100_ctr);
-        } else if this.ply >= 20_000 {
-            bail!("Ridiculously large ply counter: {0}", this.ply);
-        } else if strictness == Strict && this.ply_draw_clock() > this.halfmove_ctr_since_start() {
-            bail!(
-                "The halfmove repetition clock ({0}) is larger than the number of played half moves ({1}), \
-                    which is not allowed in strict mode",
-                this.ply_100_ctr,
-                this.ply
-            )
-        }
-
-        let mut num_promoted_pawns: [isize; 2] = [0, 0];
-        let startpos_piece_count = [8, 2, 2, 2, 1, 1];
-        for color in ChessColor::iter() {
-            for piece in ChessPieceType::pieces() {
-                let bb = this.col_piece_bb(color, piece);
-                if strictness == Strict {
-                    num_promoted_pawns[color] += 0.max(bb.num_ones() as isize - startpos_piece_count[piece]);
-                    // Print a better error message than the generic "invalid piece distribution".
-                    ensure!(
-                        bb.num_ones() <= 10,
-                        "There are {0} {color} {piece}s in this position. There can never be more than 10 pieces \
-                        of the same type in a legal chess position (in relaxed mode, this is accepted anyway)",
-                        bb.num_ones()
-                    );
-                }
-                if checks != CheckFen {
-                    for other_piece in ColoredChessPieceType::pieces() {
-                        if other_piece as usize >= ColoredChessPieceType::new(color, piece) as usize {
-                            break;
-                        }
-                        let mut overlap = bb & this.col_piece_bb(other_piece.color().unwrap(), other_piece.uncolor());
-                        ensure!(
-                            overlap.is_zero(),
-                            "There are two pieces on the same square ({0}): A {other_piece} and a {piece}",
-                            overlap.next().unwrap()
-                        );
-                    }
-                }
-            }
-            let num_pawns = this.col_piece_bb(color, Pawn).num_ones() as isize;
-            if strictness == Strict && num_promoted_pawns[color] + num_pawns > 8 {
-                bail!("Incorrect piece distribution for {color} (in relaxed mode, this is allowed)")
-            }
+        if checks >= CheckFen {
+            fen_selfchecks(&this, checks, strictness)?;
         }
 
         let inactive_player = this.active.other();
