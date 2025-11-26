@@ -17,7 +17,7 @@ use num::{PrimInt, Unsigned};
 use strum_macros::EnumIter;
 
 use crate::games::{DimT, KnownSize, Size};
-use crate::general::bitboards::chessboard::{RAYS_EXCLUSIVE, RAYS_INCLUSIVE};
+use crate::general::bitboards::chessboard::{ChessBitboard, RAYS_EXCLUSIVE, RAYS_INCLUSIVE};
 use crate::general::hq::{U64AndRev, U128AndRev, WithRev};
 use crate::general::squares::{RectangularCoordinates, RectangularSize, SmallGridSize, SmallGridSquare};
 
@@ -845,6 +845,32 @@ impl<const H: usize, const W: usize> Bitboard<RawStandardBitboard, SmallGridSqua
 impl<const H: usize, const W: usize> KnownSizeBitboard<RawStandardBitboard, SmallGridSquare<H, W, 8>>
     for SmallGridBitboard<H, W>
 {
+}
+
+// see <https://www.chessprogramming.org/Flipping_Mirroring_and_Rotating>
+impl SmallGridBitboard<8, 8> {
+    pub fn flip_left_right(mut self) -> Self {
+        let k1 = Self::new(0x5555555555555555);
+        let k2 = Self::new(0x3333333333333333);
+        let k4 = Self::new(0x0f0f0f0f0f0f0f0f);
+        self = ((self >> 1) & k1) | ((self & k1) << 1);
+        self = ((self >> 2) & k2) | ((self & k2) << 2);
+        self = ((self >> 4) & k4) | ((self & k4) << 4);
+        self
+    }
+
+    pub fn flip_diagonally(mut self) -> Self {
+        let k1 = ChessBitboard::new(0x5500550055005500);
+        let k2 = ChessBitboard::new(0x3333000033330000);
+        let k4 = ChessBitboard::new(0x0f0f0f0f00000000);
+        let mut t = k4 & (self ^ (self << 28));
+        self ^= t ^ (t >> 28);
+        t = k2 & (self ^ (self << 14));
+        self ^= t ^ (t >> 14);
+        t = k1 & (self ^ (self << 7));
+        self ^= t ^ (t >> 7);
+        self
+    }
 }
 
 // Deriving Eq and Partial Eq means that irrelevant bits are also getting compared.

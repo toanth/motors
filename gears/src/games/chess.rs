@@ -90,7 +90,7 @@ const fn startpos_mailbox() -> [ChessPieceType; NUM_SQUARES] {
 }
 
 static STARTPOS: Chessboard = {
-    let piece_bbs = [
+    let pieces = [
         ChessBitboard::new(0x00ff_0000_0000_ff00),
         ChessBitboard::new(0x4200_0000_0000_0042),
         ChessBitboard::new(0x2400_0000_0000_0024),
@@ -98,11 +98,11 @@ static STARTPOS: Chessboard = {
         ChessBitboard::new(0x0800_0000_0000_0008),
         ChessBitboard::new(0x1000_0000_0000_0010),
     ];
-    let color_bbs = [ChessBitboard::new(0xffff), ChessBitboard::new(0xffff << (8 * 6))];
+    let colors = [ChessBitboard::new(0xffff), ChessBitboard::new(0xffff << (8 * 6))];
+    let bbs = BitboardRepr { pieces, colors };
     let threats = ChessBitboard::new(0x7effff0000000000);
     Chessboard {
-        piece_bbs,
-        color_bbs,
+        bbs,
         mailbox: startpos_mailbox(),
         threats,
         checkers: ChessBitboard::new(0),
@@ -234,11 +234,48 @@ struct Hashes {
     total: PosHash,
 }
 
-#[derive(Eq, PartialEq, Debug, Copy, Clone, Arbitrary)]
+#[derive(Debug, Default, Copy, Clone, Eq, PartialEq, Arbitrary)]
+#[must_use]
+pub struct BitboardRepr {
+    pub pieces: [ChessBitboard; NUM_CHESS_PIECES],
+    pub colors: [ChessBitboard; NUM_COLORS],
+}
+
+impl BitboardRepr {
+    pub fn col_piece_bb(&self, color: ChessColor, piece: ChessPieceType) -> ChessBitboard {
+        self.colors[color] & self.pieces[piece]
+    }
+
+    pub fn place_piece(&mut self, sq: ChessSquare, color: ChessColor, piece: ChessPieceType) {
+        let bb = sq.bb();
+        self.pieces[piece] ^= bb;
+        self.colors[color] ^= bb;
+    }
+
+    // doesn't update the mailbox because that doesn't work for chess960 castling
+    pub fn move_piece(&mut self, from: ChessSquare, to: ChessSquare, color: ChessColor, piece: ChessPieceType) {
+        debug_assert_ne!(piece, Empty);
+        debug_assert!(self.pieces[piece].is_bit_set_at(from.bb_idx()), "{self:?}",);
+        debug_assert!(
+            (self.colors[color].is_bit_set_at(from.bb_idx()))
+                // in chess960 castling, it's possible that the king has been sent to the rook square,
+                // which means the color bit of this square is currently not set
+                || (piece == Rook && self.pieces[King].is_bit_set_at(from.bb_idx()))
+                || (piece == King && from.is_backrank()),
+            "{self:?}"
+        );
+        // use ^ instead of | for to merge the from and to bitboards because in chess960 castling,
+        // it is possible that from == to or that there's another piece on the target square
+        let bb = from.bb() ^ to.bb();
+        self.colors[color] ^= bb;
+        self.pieces[piece.to_uncolored_idx()] ^= bb;
+    }
+}
+
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Arbitrary)]
 #[must_use]
 pub struct Chessboard {
-    piece_bbs: [ChessBitboard; NUM_CHESS_PIECES],
-    color_bbs: [ChessBitboard; NUM_COLORS],
+    bbs: BitboardRepr,
     mailbox: [ChessPieceType; NUM_SQUARES],
     threats: ChessBitboard,
     checkers: ChessBitboard,
@@ -296,8 +333,7 @@ impl Board for Chessboard {
 
     fn empty_for_settings(settings: ChessSettings) -> UnverifiedChessboard {
         UnverifiedChessboard(Self {
-            piece_bbs: Default::default(),
-            color_bbs: Default::default(),
+            bbs: Default::default(),
             mailbox: [Empty; NUM_SQUARES],
             threats: ChessBitboard::default(),
             checkers: ChessBitboard::default(),
@@ -780,11 +816,11 @@ impl BitboardBoard for Chessboard {
 
     fn piece_bb(&self, piece: PieceTypeOf<Self>) -> Self::Bitboard {
         debug_assert_ne!(piece, Empty);
-        self.piece_bbs[piece as usize]
+        self.bbs.pieces[piece]
     }
 
     fn player_bb(&self, color: Self::Color) -> Self::Bitboard {
-        self.color_bbs[color]
+        self.bbs.colors[color]
     }
 
     fn empty_bb(&self) -> Self::Bitboard {
@@ -804,34 +840,9 @@ impl Chessboard {
             ChessPiece::new(ColoredChessPieceType::new(color, piece), square)
         );
         let bb = square.bb();
-        self.piece_bbs[piece] ^= bb;
-        self.color_bbs[color] ^= bb;
+        self.bbs.pieces[piece] ^= bb;
+        self.bbs.colors[color] ^= bb;
         self.mailbox[square] = Empty;
-    }
-
-    // doesn't update the mailbox because that doesn't work for chess960 castling
-    fn move_piece_no_mailbox(&mut self, from: ChessSquare, to: ChessSquare, piece: ChessPieceType) {
-        debug_assert_ne!(piece, Empty);
-        debug_assert!(
-            self.piece_bb(piece).is_bit_set_at(from.bb_idx()),
-            "{0} {1}",
-            self.piece_type_on(from),
-            self.colored_piece_on(from).uncolored()
-        );
-        debug_assert!(
-            (self.active_player_bb().is_bit_set_at(from.bb_idx()))
-                // in chess960 castling, it's possible that the king has been sent to the rook square,
-                // which means the color bit of this square is currently not set
-                || (piece == Rook && self.piece_bb(King).is_bit_set_at(from.bb_idx()))
-                || (piece == King && (self.castling.can_castle(self.active, Kingside) || self.castling.can_castle(self.active, Queenside))),
-            "{self}"
-        );
-        // use ^ instead of | for to merge the from and to bitboards because in chess960 castling,
-        // it is possible that from == to or that there's another piece on the target square
-        let bb = from.bb() ^ to.bb();
-        let color = self.active;
-        self.color_bbs[color] ^= bb;
-        self.piece_bbs[piece.to_uncolored_idx()] ^= bb;
     }
 
     pub fn pawn_key(&self) -> PosHash {
@@ -988,11 +999,11 @@ impl Chessboard {
     pub fn dfrc_startpos(white_num: usize, black_num: usize) -> Res<Self> {
         let mut res = Self::empty();
         res = Self::chess960_startpos_white(black_num, Black, res)?;
-        for bb in &mut res.0.piece_bbs {
+        for bb in &mut res.0.bbs.pieces {
             *bb = bb.flip_up_down();
         }
-        res.0.color_bbs[Black] = res.0.player_bb(White).flip_up_down();
-        res.0.color_bbs[White] = ChessBitboard::default();
+        res.0.bbs.colors[Black] = res.0.player_bb(White).flip_up_down();
+        res.0.bbs.colors[White] = ChessBitboard::default();
         for i in 0..8 {
             res.0.mailbox[64 - 8 + i] = res.0.mailbox[i];
             res.0.mailbox[i] = Empty;

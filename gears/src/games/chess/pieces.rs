@@ -9,7 +9,7 @@ use crate::games::chess::pieces::ChessPieceType::*;
 
 use crate::games::chess::ChessColor::*;
 use crate::games::chess::{ChessColor, ChessSettings, Chessboard};
-use crate::games::{AbstractPieceType, CharType, Color, ColoredPieceType, GenericPiece, PieceType};
+use crate::games::{AbstractPieceType, CharType, ColoredPieceType, GenericPiece, PieceType};
 
 pub const NUM_CHESS_PIECES: usize = 6;
 pub const BLACK_OFFSET: usize = 8;
@@ -338,10 +338,7 @@ impl ColoredPieceType<Chessboard> for ColoredChessPieceType {
     type Uncolored = ChessPieceType;
 
     fn color(self) -> Option<ChessColor> {
-        match self {
-            ColoredChessPieceType::Empty => None,
-            x => ChessColor::iter().nth((x as u8 / BLACK_OFFSET as u8) as usize),
-        }
+        ChessColor::from_repr(self as usize / BLACK_OFFSET)
     }
 
     fn to_colored_idx(self) -> usize {

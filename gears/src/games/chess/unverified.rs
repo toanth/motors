@@ -126,10 +126,10 @@ impl UnverifiedBoard<Chessboard> for UnverifiedChessboard {
             for piece in ChessPieceType::pieces() {
                 pieces |= this.piece_bb(piece);
             }
-            if pieces != this.color_bbs[0] | this.color_bbs[1] {
+            if pieces != this.bbs.colors[0] | this.bbs.colors[1] {
                 bail!(
                     "The colored bitboards and the piece bitboards don't match on the following squares: {}",
-                    pieces ^ (this.color_bbs[0] | this.color_bbs[1])
+                    pieces ^ (this.bbs.colors[0] | this.bbs.colors[1])
                 );
             }
             for (i, &piece) in this.mailbox.iter().enumerate() {
@@ -176,12 +176,11 @@ impl UnverifiedBoard<Chessboard> for UnverifiedChessboard {
         self.0.size()
     }
 
+    // TODO: Change interface to pass color and piece separately?
     fn place_piece(&mut self, square: ChessSquare, piece: ColoredChessPieceType) {
         let this = &mut self.0;
         debug_assert!(this.is_empty(square));
-        let bb = square.bb();
-        this.piece_bbs[piece.uncolor()] ^= bb;
-        this.color_bbs[piece.color().unwrap()] ^= bb;
+        this.bbs.place_piece(square, piece.color().unwrap(), piece.uncolor());
         this.mailbox[square] = piece.uncolor();
     }
 
@@ -385,7 +384,7 @@ impl UnverifiedChessboard {
         // vertical and rotational symmetry keep the white pieces on the lower half of the board,
         // but this introduces a smallish chance to flip that
         if rng.random_bool(0.2) {
-            pos.0.color_bbs.swap(0, 1)
+            pos.0.bbs.colors.swap(0, 1)
         }
         if rng.random_bool(0.5) {
             pos.0.active = !pos.0.active;

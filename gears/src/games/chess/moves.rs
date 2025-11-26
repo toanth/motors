@@ -490,7 +490,7 @@ impl Chessboard {
             }
             self.ply_100_ctr = 0;
         }
-        self.move_piece_no_mailbox(from, to, piece);
+        self.bbs.move_piece(from, to, us, piece);
         self.mailbox[from] = Empty; // needs to be done before moving the rook in chess960 castling
         self.mailbox[to] = piece; // needs to be done before handling promotions
         self.hashes.nonpawns[us] ^= hash_delta;
@@ -510,8 +510,8 @@ impl Chessboard {
                 } else if mov.is_promotion() {
                     let piece = mov.flags().promo_piece();
                     let bb = to.bb();
-                    self.piece_bbs[Pawn] ^= bb;
-                    self.piece_bbs[piece] ^= bb;
+                    self.bbs.pieces[Pawn] ^= bb;
+                    self.bbs.pieces[piece] ^= bb;
                     self.mailbox[to] = piece;
                     self.hashes.pawns ^= ZOBRIST_KEYS.piece_key(Pawn, us, to);
                     let new = ZOBRIST_KEYS.piece_key(piece, us, to);
@@ -633,12 +633,12 @@ impl Chessboard {
         let rook_from = to;
         let rook_to = ChessSquare::from_rank_file(from.rank(), rook_to_file);
         // debug_assert!(self.colored_piece_on(rook_from).symbol == ColoredChessPieceType::new(color, Rook));
-        self.move_piece_no_mailbox(rook_from, rook_to, Rook);
+        self.bbs.move_piece(rook_from, rook_to, color, Rook);
         self.mailbox[rook_from] = Empty; // might get overwritten with `King` below
         self.mailbox[rook_to] = Rook;
         // castling moves are encoded as king captures rook, so we've moved the king onto the rook.
         // now we must move it to its actual destination square
-        self.move_piece_no_mailbox(to, king_to, King);
+        self.bbs.move_piece(to, king_to, color, King);
         self.mailbox[king_to] = King;
         let delta = Self::zobrist_delta(color, Rook, rook_from, rook_to);
         let king_delta = Self::zobrist_delta(color, King, to, king_to);
