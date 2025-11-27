@@ -16,7 +16,7 @@
  *  along with Gears. If not, see <https://www.gnu.org/licenses/>.
  */
 use crate::GameState;
-use crate::general::board::Board;
+use crate::general::board::BoardTrait;
 use crate::general::common::{NamedEntity, Res, StaticallyNamedEntity};
 use crate::output::Message::Info;
 use crate::output::text_output::{TextStream, TextWriter};
@@ -61,7 +61,7 @@ impl AbstractOutput for EngineStateOutput {
     }
 }
 
-impl<B: Board> Output<B> for EngineStateOutput {
+impl<B: BoardTrait> Output<B> for EngineStateOutput {
     fn as_string(&self, m: &dyn GameState<B>, _opts: OutputOpts) -> String {
         m.print_engine_state().unwrap_or_else(|e| e.to_string())
     }
@@ -84,7 +84,7 @@ impl StaticallyNamedEntity for EngineStateOutputBuilder {
     }
 }
 
-impl<B: Board> OutputBuilder<B> for EngineStateOutputBuilder {
+impl<B: BoardTrait> OutputBuilder<B> for EngineStateOutputBuilder {
     fn for_engine(&mut self, _state: &dyn GameState<B>) -> Res<OutputBox<B>> {
         Ok(Box::<EngineStateOutput>::default())
     }

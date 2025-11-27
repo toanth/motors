@@ -17,20 +17,20 @@
  */
 use crate::PlayerResult::{Draw, Lose};
 use crate::games::{
-    AbstractPieceType, BoardHistory, CharType, Color, ColoredPiece, ColoredPieceType, Coordinates, DimT, PosHash,
-    Settings, Size, file_to_char,
+    AbstractPieceType, BoardHistory, CharType, ColorTrait, ColoredPieceTrait, ColoredPieceTypeTrait, CoordinatesTrait,
+    DimT, PosHash, SettingsTrait, SizeTrait, file_to_char,
 };
-use crate::general::bitboards::{Bitboard, RawBitboard};
+use crate::general::bitboards::{BitboardTrait, RawBitboardTrait};
 use crate::general::board::SelfChecks::{Assertion, Verify};
 use crate::general::board::Strictness::{Relaxed, Strict};
 use crate::general::common::Description::NoDescription;
 use crate::general::common::{
     EntityList, NamedEntity, Res, StaticallyNamedEntity, Tokens, TokensToString, select_name_static, tokens,
 };
-use crate::general::move_list::{MoveIter, MoveList};
+use crate::general::move_list::{MoveIter, MoveListTrait};
 use crate::general::moves::ExtendedFormat::Standard;
 use crate::general::moves::Legality::{Legal, PseudoLegal};
-use crate::general::moves::Move;
+use crate::general::moves::MoveTrait;
 use crate::general::squares::{RectangularCoordinates, RectangularSize, SquareColor};
 use crate::output::OutputOpts;
 use crate::output::text_output::BoardFormatter;
@@ -66,7 +66,7 @@ impl NameToPos {
         Self { name, fen, description: Some(desc), strictness: Strict }
     }
 
-    pub fn create<B: Board>(&self) -> B {
+    pub fn create<B: BoardTrait>(&self) -> B {
         B::from_fen(self.fen, self.strictness).unwrap()
     }
 }
@@ -135,10 +135,10 @@ impl NamedEntity for Symmetry {
     }
 }
 
-/// An [`UnverifiedBoard`] is a [`Board`] where invariants can be violated.
-pub trait UnverifiedBoard<B: Board>: Debug + Clone + From<B>
+/// An [`UnverifiedBoardTrait`] is a [`BoardTrait`] where invariants can be violated.
+pub trait UnverifiedBoardTrait<B: BoardTrait>: Debug + Clone + From<B>
 where
-    B: Board<Unverified = Self>,
+    B: BoardTrait<Unverified = Self>,
 {
     /// Conceptually, this simply copies the board.
     fn new(board: B) -> Self {
@@ -183,7 +183,7 @@ where
         self.size().check_coordinates(coords)
     }
 
-    /// Place a piece of the given type and color on the given square. Like all functions that return an [`UnverifiedBoard`],
+    /// Place a piece of the given type and color on the given square. Like all functions that return an [`UnverifiedBoardTrait`],
     /// this doesn't check that the resulting position is legal.
     /// However, this function can still fail if the piece can't be placed.
     /// If there is a piece already on the square, it is implementation-defined what will happen; possible options include
@@ -215,7 +215,7 @@ where
 
     /// Remove the piece at the given coordinates. If there is no piece there, nothing happens.
     /// If the coordinates are invalid, an `Err` is returned.
-    /// Some [`UnverifiedBoard`]s can represent multiple pieces at the same coordinates; it is implementation-defined
+    /// Some [`UnverifiedBoardTrait`]s can represent multiple pieces at the same coordinates; it is implementation-defined
     /// what this method does in that case.
     fn try_remove_piece(&mut self, coords: B::Coordinates) -> Res<()> {
         if !self.try_get_piece_on(coords)?.is_empty() {
@@ -235,14 +235,14 @@ where
     }
 
     /// Returns the piece on the given coordinates, or `None` if the coordinates aren't valid.
-    /// Some [`UnverifiedBoard`]s can represent multiple pieces at the same coordinates; it is implementation-defined
+    /// Some [`UnverifiedBoardTrait`]s can represent multiple pieces at the same coordinates; it is implementation-defined
     /// what this method does in that case (but it should never return empty coordinates in that case).
     fn try_get_piece_on(&self, coords: B::Coordinates) -> Res<B::Piece> {
         Ok(self.piece_on(self.check_coordinates(coords)?))
     }
 
     /// Returns the piece on the given coordinates, or `None` if the coordinates aren't valid.
-    /// Some [`UnverifiedBoard`]s can represent multiple pieces at the same coordinates; it is implementation-defined
+    /// Some [`UnverifiedBoardTrait`]s can represent multiple pieces at the same coordinates; it is implementation-defined
     /// what this method does in that case (but it should never return empty coordinates in that case).
     fn piece_on(&self, coords: B::Coordinates) -> B::Piece;
 
@@ -279,20 +279,20 @@ where
 
 // Rustc warns that the `Board` bounds are not enforced but removing them makes the program fail to compile
 #[expect(type_alias_bounds)]
-pub type ColPieceTypeOf<B: Board> = <B::Piece as ColoredPiece<B>>::ColoredPieceType;
+pub type ColPieceTypeOf<B: BoardTrait> = <B::Piece as ColoredPieceTrait<B>>::ColoredPieceType;
 
 #[expect(type_alias_bounds)]
-pub type PieceTypeOf<B: Board> = <ColPieceTypeOf<B> as ColoredPieceType<B>>::Uncolored;
+pub type PieceTypeOf<B: BoardTrait> = <ColPieceTypeOf<B> as ColoredPieceTypeTrait<B>>::Uncolored;
 
 #[expect(type_alias_bounds)]
-pub type BoardSize<B: Board> = <B::Coordinates as Coordinates>::Size;
+pub type BoardSize<B: BoardTrait> = <B::Coordinates as CoordinatesTrait>::Size;
 
 /// Currently, a game is completely determined by the `Board` type:
 /// The type implementing `Board` contains all the necessary information about the rules of the game.
 /// However, a `Board` is assumed to be markovian and needs to be `'static`.
 /// Despite not requiring [`Copy`], a board should be cheap to clone.
 /// In fact, currently all boards except [`FairyBoard`] implement [`Copy`]
-pub trait Board:
+pub trait BoardTrait:
     Debug
     + Display
     + Send
@@ -308,14 +308,14 @@ pub trait Board:
 {
     /// Should be either `Self::Unverified` or `Self`
     type EmptyRes: Into<Self::Unverified>;
-    type Settings: Settings;
+    type Settings: SettingsTrait;
     type SettingsRef: Default + Eq;
-    type Coordinates: Coordinates;
-    type Color: Color<Board = Self>;
-    type Piece: ColoredPiece<Self>;
-    type Move: Move<Self>;
-    type MoveList: MoveList<Self> + Default;
-    type Unverified: UnverifiedBoard<Self>;
+    type Coordinates: CoordinatesTrait;
+    type Color: ColorTrait<Board = Self>;
+    type Piece: ColoredPieceTrait<Self>;
+    type Move: MoveTrait<Self>;
+    type MoveList: MoveListTrait<Self> + Default;
+    type Unverified: UnverifiedBoardTrait<Self>;
 
     /// The position returned by this function does not have to be legal, e.g. in chess it would
     /// not include any kings. However, this is still useful to set up the board and is used
@@ -351,7 +351,7 @@ pub trait Board:
     }
 
     /// Returns a Vec mapping well-known position names to their FEN, for example for `kiwipete` in chess.
-    /// Can be implemented by a concrete [`Board`], which will make [`Self::from_name`] recognize the name and lets the
+    /// Can be implemented by a concrete [`BoardTrait`], which will make [`Self::from_name`] recognize the name and lets the
     /// UI know about supported positions.
     /// "startpos" is handled automatically in `from_name` but can be overwritten here.
     #[must_use]
@@ -683,7 +683,7 @@ pub trait Board:
 
 /// This trait contains associated functions that can be called on `Board` instances but shouldn't be overridden by `Board` implementations.
 /// The purpose of splitting them out into their own trait is to make implementing `Board` less confusing.
-pub trait BoardHelpers: Board {
+pub trait BoardHelpers: BoardTrait {
     /// Returns the name of the game, such as 'chess'.
     #[must_use]
     fn game_name() -> String {
@@ -777,14 +777,14 @@ pub trait BoardHelpers: Board {
 
     /// Verifies that all invariants of this board are satisfied. It should never be possible for this function to
     /// fail for a bug-free program; failure most likely means the `Board` implementation is bugged.
-    /// For checking invariants that might be violated, use a [`Board::Unverified`] and call [`Board::Unverified::verify_with_level`].
+    /// For checking invariants that might be violated, use a [`BoardTrait::Unverified`] and call [`BoardTrait::Unverified::verify_with_level`].
     fn debug_verify_invariants(&self, strictness: Strictness) -> Res<Self> {
         let verified = Self::Unverified::new(self.clone()).verify_with_level(Assertion, strictness)?;
         ensure!(verified == *self, "Recalculated data doesn't match: Should be \n'{verified:?}' but is \n'{self:?}'");
         Ok(verified)
     }
 
-    /// Parses a move using [`Move::from_text`], then applies it on this board and returns the result.
+    /// Parses a move using [`MoveTrait::from_text`], then applies it on this board and returns the result.
     fn make_move_from_str(self, text: &str) -> Res<Self> {
         let mov = Self::Move::from_text(text, &self)?;
         self.clone().make_move(mov).ok_or_else(|| {
@@ -797,14 +797,14 @@ pub trait BoardHelpers: Board {
 
     /// Place a piece of the given type and color on the given square. Doesn't check that the resulting position is
     /// legal (hence the `Unverified` return type), but can still fail if the piece can't be placed because e.g. there
-    /// is already a piece on that square. See [`UnverifiedBoard::try_place_piece`] and [`Self::replace_piece`].
+    /// is already a piece on that square. See [`UnverifiedBoardTrait::try_place_piece`] and [`Self::replace_piece`].
     fn place_piece(self, piece: Self::Piece) -> Res<Self::Unverified> {
         let mut res = Self::Unverified::new(self);
         res.try_place_piece(piece)?;
         Ok(res)
     }
 
-    /// Remove a piece from the given square. See [`UnverifiedBoard::try_remove_piece`].
+    /// Remove a piece from the given square. See [`UnverifiedBoardTrait::try_remove_piece`].
     fn remove_piece(self, square: Self::Coordinates) -> Res<Self::Unverified> {
         let mut res = Self::Unverified::new(self);
         res.try_remove_piece(square)?;
@@ -818,14 +818,14 @@ pub trait BoardHelpers: Board {
         Ok(res)
     }
 
-    /// Set the active player. See [`UnverifiedBoard::set_active_player`].
+    /// Set the active player. See [`UnverifiedBoardTrait::set_active_player`].
     fn set_active_player(self, new_active: Self::Color) -> Self::Unverified {
         let mut res = Self::Unverified::new(self);
         res.set_active_player(new_active);
         res
     }
 
-    /// Set the ply counter since the start of the game. See [`UnverifiedBoard::set_ply_since_start`]
+    /// Set the ply counter since the start of the game. See [`UnverifiedBoardTrait::set_ply_since_start`]
     fn set_ply_since_start(self, ply: usize) -> Res<Self::Unverified> {
         let mut res = Self::Unverified::new(self);
         res.set_ply_since_start(ply)?;
@@ -833,9 +833,9 @@ pub trait BoardHelpers: Board {
     }
 }
 
-impl<B: Board> BoardHelpers for B {}
+impl<B: BoardTrait> BoardHelpers for B {}
 
-pub trait RectangularBoard: Board<Coordinates: RectangularCoordinates> {
+pub trait RectangularBoard: BoardTrait<Coordinates: RectangularCoordinates> {
     fn height(&self) -> DimT;
 
     fn width(&self) -> DimT;
@@ -851,7 +851,7 @@ pub trait RectangularBoard: Board<Coordinates: RectangularCoordinates> {
     fn idx_to_coordinates(&self, idx: DimT) -> Self::Coordinates;
 }
 
-impl<B: Board> RectangularBoard for B
+impl<B: BoardTrait> RectangularBoard for B
 where
     B::Coordinates: RectangularCoordinates,
 {
@@ -921,6 +921,10 @@ impl AxesFormat {
     ) -> impl Display {
         let mut flip = flip && self.orientation == BoardOrientation::PlayerPov;
         flip ^= matches!(axis, AxisSymbol::LetterReversed | AxisSymbol::NumberReversed);
+        // we need to handle invalid coordinates here so that we can print error messages
+        if i >= max {
+            return AxisEntry::Char('�', fmt_width.unwrap_or_default(), center);
+        }
         let num = if flip { max - 1 - i } else { i };
         match axis {
             AxisSymbol::Letter | AxisSymbol::LetterReversed => {
@@ -971,7 +975,7 @@ impl Display for AxisEntry {
     }
 }
 
-/// A trait for [`Board`]s that use [`Bitboard`]s.
+/// A trait for [`BoardTrait`]s that use [`BitboardTrait`]s.
 /// Bitboards are small bitvector representations of sets of squares.
 /// This trait mainly exists to make implementing new games easier, because
 /// implementing it trait provides some default implementations,
@@ -979,9 +983,9 @@ impl Display for AxisEntry {
 /// and *they might even be wrong* because this assumes that each square is either occupied by a piece or empty.
 // There is no actual reason why bitboards would require rectangular coordinates,
 // but currently all boards are rectangular and lifting this restriction would need a bit of restructuring.
-pub trait BitboardBoard: Board<Coordinates: RectangularCoordinates> {
-    type RawBitboard: RawBitboard;
-    type Bitboard: Bitboard<Self::RawBitboard, Self::Coordinates>;
+pub trait BitboardBoard: BoardTrait<Coordinates: RectangularCoordinates> {
+    type RawBitboard: RawBitboardTrait;
+    type Bitboard: BitboardTrait<Self::RawBitboard, Self::Coordinates>;
 
     /// Bitboard of all pieces of the given [`PieceType`], independent of which player they belong to.
     /// Note that it might not be valid to use the empty piece, if such a piece exists.
@@ -1042,7 +1046,7 @@ pub fn ply_counter_from_fullmove_nr(fullmove_nr: NonZeroUsize, is_active_first: 
 /// Not to be confused with `from_fen`, which can load arbitrary positions.
 /// However, `"fen <x>"` forwards to [`B::from_fen`].
 /// A free function instead of a default impl for [`B::from_name`] because Rust doesn't allow calling default impls in overriding impls.
-pub fn board_from_name<B: Board>(name: &str) -> Res<B> {
+pub fn board_from_name<B: BoardTrait>(name: &str) -> Res<B> {
     let mut tokens = tokens(name);
     let first_token = tokens.next().unwrap_or_default();
     if first_token.eq_ignore_ascii_case("fen") {
@@ -1357,13 +1361,13 @@ pub(crate) fn read_move_number_in_ply<B: RectangularBoard>(
     board.set_ply_since_start(ctr)
 }
 
-struct ChildrenIter<'a, B: Board> {
+struct ChildrenIter<'a, B: BoardTrait> {
     pos: &'a B,
     iter: MoveIter<B>,
     num_so_far: usize,
 }
 
-impl<B: Board> ChildrenIter<'_, B> {
+impl<B: BoardTrait> ChildrenIter<'_, B> {
     fn next_impl(&mut self) -> Option<B> {
         loop {
             let mov = self.iter.next()?;
@@ -1375,7 +1379,7 @@ impl<B: Board> ChildrenIter<'_, B> {
     }
 }
 
-impl<B: Board> Iterator for ChildrenIter<'_, B> {
+impl<B: BoardTrait> Iterator for ChildrenIter<'_, B> {
     type Item = B;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -1396,10 +1400,10 @@ impl<B: Board> Iterator for ChildrenIter<'_, B> {
     }
 }
 
-impl<B: Board> ExactSizeIterator for ChildrenIter<'_, B> {
+impl<B: BoardTrait> ExactSizeIterator for ChildrenIter<'_, B> {
     fn len(&self) -> usize {
         self.iter.len()
     }
 }
 
-impl<B: Board> FusedIterator for ChildrenIter<'_, B> {}
+impl<B: BoardTrait> FusedIterator for ChildrenIter<'_, B> {}

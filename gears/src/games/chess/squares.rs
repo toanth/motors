@@ -16,8 +16,8 @@ pub const H_FILE_NUM: DimT = 7;
 
 pub type ChessboardSize = SmallGridSize<8, 8>;
 
-pub fn sq(text: &str) -> ChessSquare {
-    ChessSquare::from_str(text).unwrap()
+pub fn sq(text: &str) -> Square {
+    Square::from_str(text).unwrap()
 }
 
-pub type ChessSquare = SmallGridSquare<8, 8, 8>;
+pub type Square = SmallGridSquare<8, 8, 8>;

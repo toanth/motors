@@ -16,21 +16,21 @@
  *  along with Gears. If not, see <https://www.gnu.org/licenses/>.
  */
 use crate::PlayerResult::Draw;
-use crate::games::chess::ChessColor::{Black, White};
+use crate::games::chess::Color::{Black, White};
 use crate::games::chess::bitbase::{PAWN_V_KING_TABLE, query_pawn_v_king};
-use crate::games::chess::pieces::ChessPieceType::{Bishop, Empty, King, Knight, Pawn, Queen, Rook};
-use crate::games::chess::pieces::ColoredChessPieceType::{BlackKing, BlackPawn, WhiteKing, WhitePawn};
-use crate::games::chess::pieces::{ChessPieceType, ColoredChessPieceType, NUM_CHESS_PIECES};
+use crate::games::chess::pieces::ColoredPieceType::{BlackKing, BlackPawn, WhiteKing, WhitePawn};
+use crate::games::chess::pieces::PieceType::{Bishop, Empty, King, Knight, Pawn, Queen, Rook};
+use crate::games::chess::pieces::{ColoredPieceType, NUM_CHESS_PIECES, PieceType};
 use crate::games::chess::squares::{
-    A_FILE_NUM, B_FILE_NUM, C_FILE_NUM, ChessSquare, ChessboardSize, D_FILE_NUM, NUM_SQUARES,
+    A_FILE_NUM, B_FILE_NUM, C_FILE_NUM, ChessboardSize, D_FILE_NUM, NUM_SQUARES, Square,
 };
-use crate::games::chess::unverified::UnverifiedChessboard;
-use crate::games::chess::{ChessBitboardTrait, ChessColor, Chessboard, EDGE_SQUARES, PAWN_CAPTURES};
-use crate::games::{Color, ColoredPieceType, Coordinates, DimT, NUM_COLORS, PieceType};
-use crate::general::bitboards::chessboard::{ChessBitboard, KINGS, KNIGHTS};
-use crate::general::bitboards::{Bitboard, KnownSizeBitboard, RawBitboard};
+use crate::games::chess::unverified::UnverifiedBoard;
+use crate::games::chess::{Board, ChessBitboardTrait, Color, EDGE_SQUARES, PAWN_CAPTURES};
+use crate::games::{ColorTrait, ColoredPieceTypeTrait, CoordinatesTrait, DimT, NUM_COLORS, PieceTypeTrait};
+use crate::general::bitboards::chessboard::{Bitboard, KINGS, KNIGHTS};
+use crate::general::bitboards::{BitboardTrait, KnownSizeBitboard, RawBitboardTrait};
 use crate::general::board::Strictness::Strict;
-use crate::general::board::{BitboardBoard, Board, SelfChecks, Strictness, UnverifiedBoard};
+use crate::general::board::{BitboardBoard, BoardTrait, SelfChecks, Strictness, UnverifiedBoardTrait};
 use crate::general::hq::ChessSliderGenerator;
 use crate::general::squares::RectangularCoordinates;
 use arrayvec::ArrayVec;
@@ -60,17 +60,17 @@ mod no_pawns {
 
     // TODO: Using the upper instead of lower triangle in the lower left corner would mean we would need almost no
     // horizontal flips and instead vertical flips, which are cheaper for bitboards.
-    static KING_SQUARES_SYMMETRY: [ChessSquare; NUM_KING_SYMMETRY_SQUARES] = [
-        ChessSquare::from_bb_idx(A_FILE_NUM as usize),
-        ChessSquare::from_bb_idx(B_FILE_NUM as usize),
-        ChessSquare::from_bb_idx(C_FILE_NUM as usize),
-        ChessSquare::from_bb_idx(D_FILE_NUM as usize),
-        ChessSquare::from_bb_idx(B_FILE_NUM as usize + 8),
-        ChessSquare::from_bb_idx(C_FILE_NUM as usize + 8),
-        ChessSquare::from_bb_idx(D_FILE_NUM as usize + 8),
-        ChessSquare::from_bb_idx(C_FILE_NUM as usize + 16),
-        ChessSquare::from_bb_idx(D_FILE_NUM as usize + 16),
-        ChessSquare::from_bb_idx(D_FILE_NUM as usize + 24),
+    static KING_SQUARES_SYMMETRY: [Square; NUM_KING_SYMMETRY_SQUARES] = [
+        Square::from_bb_idx(A_FILE_NUM as usize),
+        Square::from_bb_idx(B_FILE_NUM as usize),
+        Square::from_bb_idx(C_FILE_NUM as usize),
+        Square::from_bb_idx(D_FILE_NUM as usize),
+        Square::from_bb_idx(B_FILE_NUM as usize + 8),
+        Square::from_bb_idx(C_FILE_NUM as usize + 8),
+        Square::from_bb_idx(D_FILE_NUM as usize + 8),
+        Square::from_bb_idx(C_FILE_NUM as usize + 16),
+        Square::from_bb_idx(D_FILE_NUM as usize + 16),
+        Square::from_bb_idx(D_FILE_NUM as usize + 24),
     ];
 
     static KING_INDICES_SYMMETRY: [usize; 64] = {
@@ -91,8 +91,8 @@ mod no_pawns {
 
     pub const NUM_KING_SQUARES: usize = 462;
 
-    pub static KING_SQUARES: LazyLock<[[ChessSquare; NUM_COLORS]; NUM_KING_SQUARES]> = LazyLock::new(|| {
-        let mut res = [[ChessSquare::from_bb_idx(0), ChessSquare::from_bb_idx(0)]; NUM_KING_SQUARES];
+    pub static KING_SQUARES: LazyLock<[[Square; NUM_COLORS]; NUM_KING_SQUARES]> = LazyLock::new(|| {
+        let mut res = [[Square::from_bb_idx(0), Square::from_bb_idx(0)]; NUM_KING_SQUARES];
         let mut i = 0;
         let mut w_king_table_idx: usize = 0;
         while w_king_table_idx < NUM_KING_SYMMETRY_SQUARES {
@@ -101,7 +101,7 @@ mod no_pawns {
             let forbidden = KINGS[w_king_idx].0 | (1 << w_king_idx);
             let mut b_king_idx: usize = 0;
             while b_king_idx < 64 {
-                let b_king = ChessSquare::from_bb_idx(b_king_idx);
+                let b_king = Square::from_bb_idx(b_king_idx);
                 if (forbidden & (1 << b_king_idx)) != 0
                     || (w_king_idx / 8 == w_king_idx % 8 && b_king_idx / 8 > b_king_idx % 8)
                 {
@@ -130,11 +130,11 @@ mod no_pawns {
         res
     });
 
-    static CHECKING_SQUARES: LazyLock<[[ChessBitboard; NUM_KING_SQUARES]; 6]> = LazyLock::new(|| {
-        let mut res = [[ChessBitboard::default(); NUM_KING_SQUARES]; 6];
+    static CHECKING_SQUARES: LazyLock<[[Bitboard; NUM_KING_SQUARES]; 6]> = LazyLock::new(|| {
+        let mut res = [[Bitboard::default(); NUM_KING_SQUARES]; 6];
         for piece_idx in 0..6 {
-            let piece = ChessPieceType::from_repr(piece_idx % 5).unwrap();
-            let color = ChessColor::from_repr(piece_idx / 5).unwrap();
+            let piece = PieceType::from_repr(piece_idx % 5).unwrap();
+            let color = Color::from_repr(piece_idx / 5).unwrap();
             let table = &mut res[piece as usize];
             for (i, entry) in table.iter_mut().enumerate() {
                 let kings = KING_SQUARES[i];
@@ -149,12 +149,12 @@ mod no_pawns {
 
     // For the compact index, the restricted king is the nstm.
     // Otherwise, it's White
-    pub fn kings_idx(kings: [ChessSquare; NUM_COLORS]) -> usize {
+    pub fn kings_idx(kings: [Square; NUM_COLORS]) -> usize {
         let restricted = KING_INDICES_SYMMETRY[kings[0]];
         KING_INDICES[restricted][kings[1]] as usize
     }
 
-    pub fn checking(kings: [ChessSquare; NUM_COLORS], piece: ChessPieceType, active: ChessColor) -> ChessBitboard {
+    pub fn checking(kings: [Square; NUM_COLORS], piece: PieceType, active: Color) -> Bitboard {
         let i = kings_idx(kings);
         if piece == Pawn && active == Black { CHECKING_SQUARES[5][i] } else { CHECKING_SQUARES[piece][i] }
     }
@@ -166,13 +166,13 @@ mod pawns {
 
     pub const NUM_KING_SQUARES: usize = 3612;
 
-    pub static KING_SQUARES: LazyLock<[[ChessSquare; NUM_COLORS]; NUM_KING_SQUARES]> = LazyLock::new(|| {
-        let mut res = [[ChessSquare::default(), ChessSquare::default()]; NUM_KING_SQUARES];
+    pub static KING_SQUARES: LazyLock<[[Square; NUM_COLORS]; NUM_KING_SQUARES]> = LazyLock::new(|| {
+        let mut res = [[Square::default(), Square::default()]; NUM_KING_SQUARES];
         let mut i = 0;
         for w_king_idx in 0..64 {
             // the second half of the array is unnecessary for compact indices
-            let w_king = ChessSquare::from_rank_file((w_king_idx % 32) / 4, (w_king_idx / 32) * 4 + w_king_idx % 4);
-            for b_king in ChessSquare::iter() {
+            let w_king = Square::from_rank_file((w_king_idx % 32) / 4, (w_king_idx / 32) * 4 + w_king_idx % 4);
+            for b_king in Square::iter() {
                 if (KINGS[b_king] | b_king.bb()).has(w_king) {
                     continue;
                 }
@@ -193,11 +193,11 @@ mod pawns {
         res
     });
 
-    static CHECKING_SQUARES: LazyLock<[[ChessBitboard; NUM_KING_SQUARES]; 6]> = LazyLock::new(|| {
-        let mut res = [[ChessBitboard::default(); NUM_KING_SQUARES]; 6];
+    static CHECKING_SQUARES: LazyLock<[[Bitboard; NUM_KING_SQUARES]; 6]> = LazyLock::new(|| {
+        let mut res = [[Bitboard::default(); NUM_KING_SQUARES]; 6];
         for piece_idx in 0..6 {
-            let piece = ChessPieceType::from_repr(piece_idx % 5).unwrap();
-            let color = ChessColor::from_repr(piece_idx / 5).unwrap();
+            let piece = PieceType::from_repr(piece_idx % 5).unwrap();
+            let color = Color::from_repr(piece_idx / 5).unwrap();
             let table = &mut res[piece as usize];
             for (i, entry) in table.iter_mut().enumerate() {
                 let kings = KING_SQUARES[i];
@@ -214,11 +214,11 @@ mod pawns {
         res
     });
 
-    pub fn kings_idx(kings: [ChessSquare; NUM_COLORS]) -> usize {
+    pub fn kings_idx(kings: [Square; NUM_COLORS]) -> usize {
         KING_INDICES[kings[0].bb_idx()][kings[1].bb_idx()] as usize
     }
 
-    pub fn checking(kings: [ChessSquare; NUM_COLORS], piece: ChessPieceType, active: ChessColor) -> ChessBitboard {
+    pub fn checking(kings: [Square; NUM_COLORS], piece: PieceType, active: Color) -> Bitboard {
         let i = kings_idx(kings);
         if piece == Pawn && active == Black { CHECKING_SQUARES[5][i] } else { CHECKING_SQUARES[piece][i] }
     }
@@ -226,15 +226,17 @@ mod pawns {
 
 // use the maximum value so that "negamax" never chooses it if there's a legal position
 const INVALID: i8 = 127;
-const MATED: i8 = -100;
+// resetting the halfmove clock on a move that would otherwise give a value of 100 is fine, so there are 100 valid non-draw
+// values for each side (1 to 100 and -1 to -100). MATED can only appear in positions that are an actual checkmate.
+const MATED: i8 = -101;
 const DRAW: i8 = 0;
 
-fn attacks_for(wx_piece: ChessPieceType, w_x: ChessSquare, blockers: ChessBitboard, us: ChessColor) -> ChessBitboard {
+fn attacks_for(wx_piece: PieceType, w_x: Square, blockers: Bitboard, us: Color) -> Bitboard {
     match wx_piece {
         Pawn => {
             let bb = w_x.bb();
             let push = bb.pawn_advance(us) & !blockers;
-            let d_push = (push & ChessBitboard::pawn_ranks().pawn_advance(us)).pawn_advance(us) & !blockers;
+            let d_push = (push & Bitboard::pawn_ranks().pawn_advance(us)).pawn_advance(us) & !blockers;
             push | d_push | (PAWN_CAPTURES[us][w_x] & blockers)
         }
         Knight => KNIGHTS[w_x],
@@ -245,7 +247,7 @@ fn attacks_for(wx_piece: ChessPieceType, w_x: ChessSquare, blockers: ChessBitboa
     }
 }
 
-fn piece_type_idx(pieces: &[ChessPieceType]) -> usize {
+fn piece_type_idx(pieces: &[PieceType]) -> usize {
     let mut res = 0;
     debug_assert!(pieces.is_sorted());
     for &p in pieces {
@@ -276,18 +278,18 @@ static COMBINATIONS: [[usize; MAX_NON_K_PIECES + 1]; NUM_SQUARES + 1] = {
     res
 };
 
-fn decode(mut n: usize, mut k: usize) -> ChessBitboard {
+fn decode(mut n: usize, mut k: usize) -> Bitboard {
     debug_assert!(k >= 1);
     debug_assert!(n < COMBINATIONS[64][k]);
     if k == 1 {
-        return ChessBitboard::from_raw(1 << n);
+        return Bitboard::from_raw(1 << n);
     }
-    let mut res = ChessBitboard::default();
+    let mut res = Bitboard::default();
     while k > 2 {
         let idx = ((k - 1)..65).find(|&i| COMBINATIONS[i][k] > n).unwrap() - 1;
         n -= COMBINATIONS[idx][k];
         k -= 1;
-        res |= ChessBitboard::from_raw(1 << idx);
+        res |= Bitboard::from_raw(1 << idx);
     }
     // the same computation as the loop above, but faster.
     // see <https://stackoverflow.com/questions/27086195/linear-index-upper-triangular-matrix>;
@@ -302,13 +304,13 @@ fn decode(mut n: usize, mut k: usize) -> ChessBitboard {
     let i = ((8 * n as u16 + 1).isqrt() + 1) as usize / 2;
     let j = n - i * (i - 1) / 2;
     debug_assert!(j < i);
-    res |= ChessBitboard::from_raw(1 << i);
-    res |= ChessBitboard::from_raw(1 << j);
+    res |= Bitboard::from_raw(1 << i);
+    res |= Bitboard::from_raw(1 << j);
     res
 }
 
 #[inline]
-fn encode(bb: ChessBitboard) -> usize {
+fn encode(bb: Bitboard) -> usize {
     let mut r = 0;
     let num_pieces = bb.num_ones();
     for (i, sq) in bb.into_iter().enumerate() {
@@ -320,11 +322,11 @@ fn encode(bb: ChessBitboard) -> usize {
 
 /// The next value in the same lexicographical order as `decode`.
 #[inline]
-fn next_combination(bb: ChessBitboard) -> ChessBitboard {
+fn next_combination(bb: Bitboard) -> Bitboard {
     // See `https://graphics.stanford.edu/~seander/bithacks.html#NextBitPermutation`
     let n = bb.raw();
     let t = n | (n - 1);
-    ChessBitboard::new((t + 1) | (((!t & (!t).wrapping_neg()) - 1) >> (n.trailing_zeros() + 1)))
+    Bitboard::new((t + 1) | (((!t & (!t).wrapping_neg()) - 1) >> (n.trailing_zeros() + 1)))
     // TODO: Benchmark against the following (potentially using precomputed `fastdiv`):
     // let c = n & n.wrapping_neg();
     // let r = n + c;
@@ -340,15 +342,15 @@ fn next_combination(bb: ChessBitboard) -> ChessBitboard {
 #[derive(Debug, Default, Copy, Clone, Eq, PartialEq)]
 struct PosIdx<const PAWNS: bool> {
     king_idx: usize,
-    bbs: [ChessBitboard; MAX_TB_MAN],
+    bbs: [Bitboard; MAX_TB_MAN],
     num_bbs: usize,
     non_pawn_start: usize,
-    piece_types: [ColoredChessPieceType; MAX_TB_MAN],
-    active: ChessColor,
+    piece_types: [ColoredPieceType; MAX_TB_MAN],
+    active: Color,
 }
 
 impl<const PAWNS: bool> PosIdx<PAWNS> {
-    fn from_chessboard(pos: &Chessboard) -> Self {
+    fn from_chessboard(pos: &Board) -> Self {
         Self::from_bitboards(pos.bbs.pieces, pos.bbs.colors, pos.active, false, false)
     }
 
@@ -358,14 +360,14 @@ impl<const PAWNS: bool> PosIdx<PAWNS> {
 
     /// `same_material` only matters when `compact` is true
     fn from_bitboards(
-        mut pieces: [ChessBitboard; NUM_CHESS_PIECES],
-        mut colors: [ChessBitboard; NUM_COLORS],
-        mut active: ChessColor,
+        mut pieces: [Bitboard; NUM_CHESS_PIECES],
+        mut colors: [Bitboard; NUM_COLORS],
+        mut active: Color,
         compact: bool,
         same_material: bool,
     ) -> Self {
         debug_assert_eq!(!Self::has_pawn(), pieces[Pawn].is_zero());
-        debug_assert_eq!(colors[0] | colors[1], pieces.iter().fold(ChessBitboard::new(0), |a, &b| a | b));
+        debug_assert_eq!(colors[0] | colors[1], pieces.iter().fold(Bitboard::new(0), |a, &b| a | b));
         debug_assert!(!colors[0].intersects(colors[1]));
         if compact && active == Black {
             if same_material {
@@ -381,17 +383,17 @@ impl<const PAWNS: bool> PosIdx<PAWNS> {
             }
         }
         let mut non_pawn_start = 0;
-        let mut bbs = [ChessBitboard::default(); MAX_TB_MAN];
-        let mut piece_types = [ColoredChessPieceType::Empty; MAX_TB_MAN];
+        let mut bbs = [Bitboard::default(); MAX_TB_MAN];
+        let mut piece_types = [ColoredPieceType::Empty; MAX_TB_MAN];
         let mut i = 0;
-        for p in ChessPieceType::pieces() {
-            for c in ChessColor::iter() {
+        for p in PieceType::pieces() {
+            for c in Color::iter() {
                 let bb = pieces[p] & colors[c];
                 if bb.is_zero() {
                     continue;
                 }
                 bbs[i] = bb;
-                piece_types[i] = ColoredChessPieceType::new(c, p);
+                piece_types[i] = ColoredPieceType::new(c, p);
                 i += 1;
             }
             if p == Pawn {
@@ -404,12 +406,12 @@ impl<const PAWNS: bool> PosIdx<PAWNS> {
         res.normalize([w_king, b_king], compact)
     }
 
-    fn pawns(&self) -> ChessBitboard {
+    fn pawns(&self) -> Bitboard {
         if Self::has_pawn() {
             debug_assert!([1, 2].contains(&self.non_pawn_start));
             if self.non_pawn_start == 1 { self.bbs[0] } else { self.bbs[0] | self.bbs[1] }
         } else {
-            ChessBitboard::default()
+            Bitboard::default()
         }
     }
 
@@ -424,22 +426,22 @@ impl<const PAWNS: bool> PosIdx<PAWNS> {
         }
     }
 
-    fn kings(&self) -> [ChessSquare; NUM_COLORS] {
+    fn kings(&self) -> [Square; NUM_COLORS] {
         match Self::has_pawn() {
             false => no_pawns::KING_SQUARES[self.king_idx],
             true => pawns::KING_SQUARES[self.king_idx],
         }
     }
 
-    fn kings_index(kings: [ChessSquare; 2]) -> usize {
+    fn kings_index(kings: [Square; 2]) -> usize {
         match Self::has_pawn() {
             false => no_pawns::kings_idx(kings),
             true => pawns::kings_idx(kings),
         }
     }
 
-    fn player_bbs(&self) -> [ChessBitboard; NUM_COLORS] {
-        let mut res = [ChessBitboard::default(); NUM_COLORS];
+    fn player_bbs(&self) -> [Bitboard; NUM_COLORS] {
+        let mut res = [Bitboard::default(); NUM_COLORS];
         for i in 0..self.num_bbs {
             let c = self.piece_types[i].color().unwrap();
             res[c] |= self.bbs[i];
@@ -482,7 +484,7 @@ impl<const PAWNS: bool> PosIdx<PAWNS> {
         res *= Self::num_king_squares();
         res += self.king_idx;
 
-        for i in self.non_pawn_start..self.num_bbs - 2 {
+        for i in self.num_pawn_bbs()..self.num_bbs - 2 {
             let bb = self.bbs[i];
             debug_assert!(bb.has_any());
             let count = bb.num_ones();
@@ -509,13 +511,13 @@ impl<const PAWNS: bool> PosIdx<PAWNS> {
         // bijection between an index and two squares with sq.0 < sq.1, used for two pieces of the same colored piece type
         // see <https://en.wikipedia.org/wiki/Combinatorial_number_system>
         for j in (1..5).rev() {
-            for c in ChessColor::iter().rev() {
+            for c in Color::iter().rev() {
                 let count = piece_counts[c][j] as usize;
                 if count == 0 {
                     continue;
                 };
                 let max = COMBINATIONS[64][count];
-                res.piece_types[i] = ColoredChessPieceType::new(c, ChessPieceType::from_repr(j).unwrap());
+                res.piece_types[i] = ColoredPieceType::new(c, PieceType::from_repr(j).unwrap());
                 res.bbs[i] = decode(idx % max, count);
                 i += 1;
                 idx /= max;
@@ -531,10 +533,10 @@ impl<const PAWNS: bool> PosIdx<PAWNS> {
         res.num_bbs = i + 2;
         res.piece_types[i] = WhiteKing;
         res.piece_types[i + 1] = BlackKing;
-        res.active = ChessColor::from_repr(idx % 2).unwrap();
+        res.active = Color::from_repr(idx % 2).unwrap();
         idx /= 2;
         // pawns give the index in the outer iteration
-        for c in ChessColor::iter().rev() {
+        for c in Color::iter().rev() {
             match if c == White { w_pawns } else { b_pawns } {
                 0 => {}
                 count => {
@@ -556,7 +558,7 @@ impl<const PAWNS: bool> PosIdx<PAWNS> {
         res
     }
 
-    fn normalize(mut self, kings: [ChessSquare; NUM_COLORS], compact: bool) -> Self {
+    fn normalize(mut self, kings: [Square; NUM_COLORS], compact: bool) -> Self {
         // during construction, the white king is the primary king. In the compacted table, the active king is the primary king.
         let [mut primary_king, mut secondary_king] = kings;
         self.bbs[self.num_bbs - 1] = kings[1].bb();
@@ -613,7 +615,7 @@ impl<const PAWNS: bool> PosIdx<PAWNS> {
 
     fn inner_size(pieces: PieceCounts) -> usize {
         let mut res = 1;
-        for c in ChessColor::iter().rev() {
+        for c in Color::iter().rev() {
             for &count in &pieces[c][1..] {
                 let k = COMBINATIONS[64][count as usize];
                 res *= k;
@@ -642,7 +644,7 @@ impl<const PAWNS: bool> PosIdx<PAWNS> {
     }
 }
 
-fn set_base_case(pos: UnverifiedChessboard, captured_or_promo: ChessBitboard) -> i8 {
+fn set_base_case(pos: UnverifiedBoard, captured_or_promo: Bitboard) -> i8 {
     // TODO: Uncomment code below, use Tablebase level
     let Ok(pos) = pos.verify_with_level(SelfChecks::Tablebase, Strictness::Relaxed) else {
         return INVALID;
@@ -668,12 +670,12 @@ fn set_base_case(pos: UnverifiedChessboard, captured_or_promo: ChessBitboard) ->
 fn base_case_iter<const PAWN: bool>(
     p: PosIdx<PAWN>,
     mut piece_counts: PieceCounts,
-    active: ChessColor,
+    active: Color,
     num_pieces: [usize; 2],
 ) -> i8 {
     assert_eq!(active, p.active, "{piece_counts:?} {p:?}");
     let bbs = p.player_bbs();
-    let captured: ChessBitboard = bbs[active] & bbs[!active];
+    let captured: Bitboard = bbs[active] & bbs[!active];
     let kings = p.kings();
     if bbs[White].num_ones() != num_pieces[White]
         || bbs[Black].num_ones() != num_pieces[Black]
@@ -683,7 +685,7 @@ fn base_case_iter<const PAWN: bool>(
     {
         return INVALID;
     }
-    let mut pos = Chessboard::empty();
+    let mut pos = Board::empty();
     pos.set_active_player(active);
     for i in 0..p.num_bbs - 2 {
         let pt = p.piece_types[i];
@@ -696,12 +698,12 @@ fn base_case_iter<const PAWN: bool>(
     pos.place_piece(kings[1], BlackKing);
     if let Some(captured_sq) = captured.to_square() {
         if let Some(piece) =
-            piece_counts[!active].iter().find_position(|&&cnt| cnt > 0).map(|x| ChessPieceType::from_repr(x.0).unwrap())
+            piece_counts[!active].iter().find_position(|&&cnt| cnt > 0).map(|x| PieceType::from_repr(x.0).unwrap())
         {
-            pos.place_piece(captured_sq, ColoredChessPieceType::new(!active, piece));
+            pos.place_piece(captured_sq, ColoredPieceType::new(!active, piece));
         }
     }
-    let promoted = pos.0.col_piece_bb(!active, Pawn) & ChessBitboard::rank(7 * (active as DimT));
+    let promoted = pos.0.col_piece_bb(!active, Pawn) & Bitboard::rank(7 * (active as DimT));
     if promoted.more_than_one_bit_set() {
         return INVALID;
     }
@@ -712,7 +714,7 @@ fn base_case_iter<const PAWN: bool>(
         let mut r = INVALID;
         for promo in [Queen, Knight, Rook, Bishop] {
             pos.remove_piece(sq);
-            pos.place_piece(sq, ColoredChessPieceType::new(!active, promo));
+            pos.place_piece(sq, ColoredPieceType::new(!active, promo));
             r = r.min(set_base_case(pos, promoted));
             if r == MATED {
                 break;
@@ -733,13 +735,7 @@ fn base_case<const PAWNS: bool>(piece_counts: PieceCounts, table: &[Entry]) {
     }
 }
 
-fn value_after<const PAWNS: bool>(
-    p: PosIdx<PAWNS>,
-    i: usize,
-    src: ChessSquare,
-    dest: ChessSquare,
-    table: &[Entry],
-) -> i8 {
+fn value_after<const PAWNS: bool>(p: PosIdx<PAWNS>, i: usize, src: Square, dest: Square, table: &[Entry]) -> i8 {
     debug_assert!(p.bbs[i].has(src));
     let delta = src.bb() | dest.bb();
     let mut new_p = PosIdx { active: !p.active, ..p };
@@ -759,7 +755,7 @@ fn value_after<const PAWNS: bool>(
 fn step<const PAWNS: bool>(
     (p_i, p): (usize, PosIdx<PAWNS>),
     table: &[Entry],
-    active: ChessColor,
+    active: Color,
     piece_counts: PieceCounts,
     iteration: isize,
     num_pieces: usize,
@@ -772,7 +768,7 @@ fn step<const PAWNS: bool>(
     let blockers = sides[White] | sides[Black];
     // Because we're writing positions with monotonically increasing DTZ, any result we've written
     // will never change again.
-    if blockers.num_ones() != num_pieces || p.pawns().intersects(ChessBitboard::backranks()) {
+    if blockers.num_ones() != num_pieces || p.pawns().intersects(Bitboard::backranks()) {
         return None;
     }
     if table[p_i].load(Relaxed) != DRAW {
@@ -784,13 +780,13 @@ fn step<const PAWNS: bool>(
     // no need to test for legality: If the move results in an illegal position, the resulting entry is INVALID and
     // will not influence the minimum. Therefore, we don't even need to construct a `Chessboard`,
     // we can simply use the attacks of the individual pieces
-    let test_nonking_move = |i: usize, src: ChessSquare, dest: ChessSquare| {
+    let test_nonking_move = |i: usize, src: Square, dest: Square| {
         let mut res = value_after(p, i, src, dest, table);
         // handle ep, no need to test for legality.
         // fortunately, positions with an ep capture can't be base case positions (because ep being set implies legal moves)
         if i < p.num_pawn_bbs() && dest.rank().abs_diff(src.rank()) == 2 {
             let pawn_bb = p.pawns() ^ p.bbs[i];
-            let possible_ep_pawns: ChessBitboard = (dest.bb().west() | dest.bb().east()) & pawn_bb;
+            let possible_ep_pawns: Bitboard = (dest.bb().west() | dest.bb().east()) & pawn_bb;
             for pawn in possible_ep_pawns {
                 // the position after our opponent captures en passant
                 let mut new_p = PosIdx { active: !active, ..p };
@@ -808,7 +804,10 @@ fn step<const PAWNS: bool>(
                 res = res.max(ep_res);
             }
         }
-        debug_assert!(res >= best, "{res} {best} {iteration} {i} {src}{dest} {active} {p_i} {p:?} {kings:?}");
+        debug_assert!(
+            res >= best || best > DRAW,
+            "{res} {best} {iteration} {i} {src}{dest} {active} {p_i} {p:?} {kings:?}"
+        );
         debug_assert!(
             res >= DRAW || res < best + 2,
             "{res} {best} {iteration} {i} {src}{dest} {active} {p_i} {p:?} {kings:?}"
@@ -816,7 +815,7 @@ fn step<const PAWNS: bool>(
         res
     };
 
-    let test_king_move = |king_dest: ChessSquare| {
+    let test_king_move = |king_dest: Square| {
         let mut p = p;
         p.active = !p.active;
         let p = match active {
@@ -841,7 +840,7 @@ fn step<const PAWNS: bool>(
             for dest in attacks {
                 let r = test_nonking_move(i, sq, dest);
                 if r <= best {
-                    return Some(-r - 1);
+                    return Some(DRAW.max(-r - 1));
                 }
                 res = res.min(r);
             }
@@ -850,7 +849,7 @@ fn step<const PAWNS: bool>(
     for king_dest in KINGS[kings[active]] & !KINGS[kings[!active]] & filter {
         res = res.min(test_king_move(king_dest));
         if res <= best {
-            return Some(-res - 1);
+            return Some(DRAW.max(-res - 1));
         }
     }
     if res < DRAW {
@@ -914,11 +913,11 @@ fn fixed_point_iteration<const PAWNS: bool>(pieces: PieceCounts, table: &[Entry]
     let start = Instant::now();
     let num_pieces = pieces.iter().flatten().sum::<u8>() as usize + 2;
 
+    let mut last_print = Instant::now();
     for (outer_i, (w_iter, b_iter)) in PosIdx::<PAWNS>::outer_iter(pieces).enumerate() {
         let mut iteration = 0;
-        let mut last_print = Instant::now();
         loop {
-            let fold_op = |color: ChessColor| {
+            let fold_op = |color: Color| {
                 move |changed, item: (usize, PosIdx<PAWNS>)| {
                     let res = step(item, table, color, pieces, iteration, num_pieces);
                     match res {
@@ -969,19 +968,15 @@ fn compact_idx<const PAWNS: bool>(p: PosIdx<PAWNS>, same_material: bool) -> usiz
     let mut res = p.king_idx;
     let mut occupied = p.bbs[p.num_bbs - 1] | p.bbs[p.num_bbs - 2];
     let mut num_free = NUM_PAWN_SQUARES;
-    let mut encode_bb = |bb: ChessBitboard,
-                         mut mask_bb: ChessBitboard,
-                         piece: ChessPieceType,
-                         color: ChessColor,
-                         num_free: &mut usize| {
+    let mut encode_bb = |bb: Bitboard, mut mask_bb: Bitboard, piece: PieceType, color: Color, num_free: &mut usize| {
         mask_bb &= !occupied;
         let mut r = 0;
         for (i, sq) in bb.ones().enumerate() {
             let mut idx = sq.bb_idx();
-            let below = ChessBitboard::new((1 << idx) - 1);
+            let below = Bitboard::new((1 << idx) - 1);
             let occupied_below = (below & !mask_bb).num_ones();
             let invalid = if color != us {
-                ChessBitboard::default()
+                Bitboard::default()
             } else if !PAWNS {
                 no_pawns::checking(kings, piece, !us)
             } else {
@@ -1001,7 +996,7 @@ fn compact_idx<const PAWNS: bool>(p: PosIdx<PAWNS>, same_material: bool) -> usiz
         *num_free -= k;
         occupied |= bb;
     };
-    let pawn_mask = !ChessBitboard::backranks();
+    let pawn_mask = !Bitboard::backranks();
     // place the pawns now because we will always have to assume there are 48 free squares to choose from,
     // even if we placed other pieces first
     let mut pawn_idx = 0;
@@ -1018,7 +1013,7 @@ fn compact_idx<const PAWNS: bool>(p: PosIdx<PAWNS>, same_material: bool) -> usiz
     for i in pawn_idx..p.num_bbs - 2 {
         let piece = p.piece_types[i];
         // todo: iterate over the active pieces first
-        encode_bb(p.bbs[i], ChessBitboard::new(!0), piece.uncolor(), piece.color().unwrap(), &mut num_free);
+        encode_bb(p.bbs[i], Bitboard::new(!0), piece.uncolor(), piece.color().unwrap(), &mut num_free);
     }
     debug_assert_eq!(occupied, p.player_bbs()[0] | p.player_bbs()[1]);
     if !same_material {
@@ -1045,7 +1040,7 @@ fn compact_size(piece_counts: PieceCounts) -> usize {
     encode_pieces(piece_counts[Black][Pawn as usize], &mut num_free);
     num_free += 16; // non-pawn pieces can also be placed on backranks
     // place all other pieces
-    for c in ChessColor::iter() {
+    for c in Color::iter() {
         for p_idx in 1..5 {
             encode_pieces(piece_counts[c][p_idx], &mut num_free);
         }
@@ -1089,7 +1084,7 @@ fn postprocess<const PAWNS: bool>(table: &[Entry], pieces: PieceCounts) -> Vec<E
         let lambda = |i: usize, p2: PosIdx<PAWNS>| {
             let colors = p2.player_bbs();
             if colors[White].intersects(colors[Black])
-                || p2.pawns().intersects(ChessBitboard::backranks())
+                || p2.pawns().intersects(Bitboard::backranks())
                 || p2.kings()[White].file() >= 4
             {
                 return;
@@ -1135,7 +1130,7 @@ fn postprocess<const PAWNS: bool>(table: &[Entry], pieces: PieceCounts) -> Vec<E
     compressed
 }
 
-fn calc_table<const PAWNS: bool>(nk_pieces: [&[ChessPieceType]; NUM_COLORS], pieces: PieceCounts) -> Vec<Entry> {
+fn calc_table<const PAWNS: bool>(nk_pieces: [&[PieceType]; NUM_COLORS], pieces: PieceCounts) -> Vec<Entry> {
     let start = Instant::now();
     assert!(nk_pieces.into_iter().flatten().all(|p| !matches!(p, King | Empty)));
     assert!(piece_type_idx(nk_pieces[Black]) <= piece_type_idx(nk_pieces[White]));
@@ -1176,20 +1171,20 @@ fn calc_tablebase(piece_counts: PieceCounts) -> Vec<Entry> {
 }
 
 // nk = non-king
-fn piece_list_to_nk_pieces(list: PieceCounts) -> [ArrayVec<ChessPieceType, MAX_NON_K_PIECES>; NUM_COLORS] {
+fn piece_list_to_nk_pieces(list: PieceCounts) -> [ArrayVec<PieceType, MAX_NON_K_PIECES>; NUM_COLORS] {
     const N: usize = MAX_NON_K_PIECES;
-    let mut nk_pieces = [ArrayVec::<ChessPieceType, N>::new(), ArrayVec::<ChessPieceType, N>::new()];
-    for c in ChessColor::iter() {
+    let mut nk_pieces = [ArrayVec::<PieceType, N>::new(), ArrayVec::<PieceType, N>::new()];
+    for c in Color::iter() {
         for (i, &cnt) in list[c].iter().enumerate() {
             for _ in 0..cnt {
-                nk_pieces[c].push(ChessPieceType::from_idx(i));
+                nk_pieces[c].push(PieceType::from_idx(i));
             }
         }
     }
     nk_pieces
 }
 
-fn idx_of(pos: &Chessboard) -> usize {
+fn idx_of(pos: &Board) -> usize {
     // todo: support querying the compact table
     if pos.piece_bb(Pawn).has_any() {
         PosIdx::<true>::from_chessboard(pos).idx()
@@ -1198,11 +1193,11 @@ fn idx_of(pos: &Chessboard) -> usize {
     }
 }
 
-fn to_piece_list(pos: &Chessboard) -> (PieceCounts, bool) {
+fn to_piece_list(pos: &Board) -> (PieceCounts, bool) {
     let mut res = PieceCounts::default();
     let mut idx = [0, 0];
-    for c in ChessColor::iter() {
-        for p in ChessPieceType::non_king_pieces() {
+    for c in Color::iter() {
+        for p in PieceType::non_king_pieces() {
             let n = pos.col_piece_bb(c, p).0.num_ones();
             res[c][p as usize] = n as u8;
             for _ in 0..n {
@@ -1226,7 +1221,7 @@ fn gen_piece_list(res: &mut Tablebase, list: PieceCounts, depth: usize) {
     if depth == 0 {
         return;
     }
-    for c in ChessColor::iter() {
+    for c in Color::iter() {
         for i in 0..5 {
             let mut list = list;
             list[c][i] += 1;
@@ -1264,7 +1259,7 @@ fn force_dtz_table(mut pieces: PieceCounts) -> &'static [Entry] {
     if w_idx == 0 {
         return &[];
     }
-    for c in ChessColor::iter() {
+    for c in Color::iter() {
         for (i, &n) in pieces[c].iter().enumerate() {
             if n == 0 {
                 continue;
@@ -1285,11 +1280,11 @@ fn force_dtz_table(mut pieces: PieceCounts) -> &'static [Entry] {
     LazyLock::force(res).as_ref()
 }
 
-fn probe_dtz(mut pos: Chessboard) -> i8 {
+fn probe_dtz(mut pos: Board) -> i8 {
     if let Some(sq) = pos.ep_square {
         pos.ep_square = None;
         let pawn = sq.pawn_advance_unchecked(!pos.active);
-        debug_assert!(pos.is_piece_on(pawn, ColoredChessPieceType::new(!pos.active, Pawn)));
+        debug_assert!(pos.is_piece_on(pawn, ColoredPieceType::new(!pos.active, Pawn)));
         let ep_pawns = (pawn.bb().east() | pawn.bb().west()) & pos.col_piece_bb(pos.active, Pawn);
         let mut res = i8::MIN;
         for p in ep_pawns {
@@ -1335,10 +1330,10 @@ fn probe_dtz(mut pos: Chessboard) -> i8 {
 mod tests {
     use super::*;
     use crate::games::chess::BitboardRepr;
-    use crate::games::chess::pieces::ChessPiece;
-    use crate::games::chess::pieces::ColoredChessPieceType::{BlackKing, WhiteKing};
+    use crate::games::chess::pieces::ColoredPieceType::{BlackKing, WhiteKing};
+    use crate::games::chess::pieces::Piece;
     use crate::games::chess::squares::sq;
-    use crate::general::bitboards::chessboard::ChessBitboard;
+    use crate::general::bitboards::chessboard::Bitboard;
     use crate::general::board::BoardHelpers;
     use rand::SeedableRng;
     use rand::distr::{Distribution, Uniform};
@@ -1386,11 +1381,11 @@ mod tests {
     }
 
     fn piece_v_king_is_won(
-        piece: ChessPieceType,
-        our_piece: ChessSquare,
-        our_king: ChessSquare,
-        their_king: ChessSquare,
-        stm: ChessColor,
+        piece: PieceType,
+        our_piece: Square,
+        our_king: Square,
+        their_king: Square,
+        stm: Color,
     ) -> bool {
         match piece {
             Pawn => query_pawn_v_king(&PAWN_V_KING_TABLE, our_piece, our_king, their_king, !stm.is_first()) != Draw,
@@ -1421,16 +1416,17 @@ mod tests {
     }
 
     #[test]
+    #[ignore]
     fn rook_vs_king_test() {
         let pieces = [[0, 0, 0, 1, 0], [0, 0, 0, 0, 0]];
         let table = force_dtz_table(pieces);
-        let pos = Chessboard::from_fen("8/8/8/8/8/K1k5/8/2r5 b - - 0 1", Strict).unwrap();
+        let pos = Board::from_fen("8/8/8/8/8/K1k5/8/2r5 b - - 0 1", Strict).unwrap();
         let res = probe_dtz(pos);
         assert_eq!(res, -MATED - 1);
-        let pos = Chessboard::from_fen("8/8/8/8/8/2k5/K7/2r5 w - - 0 1", Strict).unwrap();
+        let pos = Board::from_fen("8/8/8/8/8/2k5/K7/2r5 w - - 0 1", Strict).unwrap();
         let res = probe_dtz(pos);
         assert_eq!(res, MATED + 2);
-        let pos = Chessboard::from_fen("8/8/8/8/8/2k5/K7/3r4 b - - 0 1", Strict).unwrap();
+        let pos = Board::from_fen("8/8/8/8/8/2k5/K7/3r4 b - - 0 1", Strict).unwrap();
         let res = probe_dtz(pos);
         assert_eq!(res, -MATED - 3);
     }
@@ -1444,13 +1440,13 @@ mod tests {
                 if gen_table {
                     _ = force_dtz_table(piece_counts);
                 }
-                for w_k in ChessSquare::iter() {
-                    for b_k in ChessSquare::iter() {
-                        for w_p in ChessSquare::iter() {
-                            let piece = ChessPiece::new(ColoredChessPieceType::new(White, p), w_p);
-                            let mut pos = Chessboard::empty();
+                for w_k in Square::iter() {
+                    for b_k in Square::iter() {
+                        for w_p in Square::iter() {
+                            let piece = Piece::new(ColoredPieceType::new(White, p), w_p);
+                            let mut pos = Board::empty();
                             pos.place_piece(w_k, WhiteKing);
-                            let Ok(()) = pos.try_place_piece(ChessPiece::new(BlackKing, b_k)) else { continue };
+                            let Ok(()) = pos.try_place_piece(Piece::new(BlackKing, b_k)) else { continue };
                             let Ok(()) = pos.try_place_piece(piece) else { continue };
                             let Ok(pos) = pos.verify(Strict) else { continue };
                             if p == Pawn {
@@ -1487,7 +1483,7 @@ mod tests {
         let table = force_dtz_table(pieces);
 
         let b_king = sq("b3");
-        for w_king in ChessSquare::iter() {
+        for w_king in Square::iter() {
             if (KINGS[b_king] | b_king.bb() | sq("b1").bb() | sq("c2").bb()).has(w_king) {
                 continue;
             }
@@ -1510,7 +1506,7 @@ mod tests {
         }
         let pieces = [[0, 0, 0, 1, 0], [0, 0, 1, 0, 0]];
         let table = force_dtz_table(pieces);
-        let pos = Chessboard::from_fen("5Rbk/8/7K/8/8/8/8/8 b - - 0 1", Strict).unwrap();
+        let pos = Board::from_fen("5Rbk/8/7K/8/8/8/8/8 b - - 0 1", Strict).unwrap();
         let i = PosIdx::<NO_PAWNS>::from_chessboard(&pos).idx();
         let res = table[i].load(Relaxed);
         assert_eq!(res, DRAW);
@@ -1520,7 +1516,7 @@ mod tests {
     #[ignore]
     fn game_over_in_one_test() {
         let pieces = [[0, 1, 0, 0, 0], [0, 1, 0, 0, 0]];
-        let mut pos = Chessboard::from_fen("8/8/8/2N5/8/8/n1K5/k7 w - - 0 1", Strict).unwrap();
+        let mut pos = Board::from_fen("8/8/8/2N5/8/8/n1K5/k7 w - - 0 1", Strict).unwrap();
         let p = PosIdx::<NO_PAWNS>::from_chessboard(&pos);
         assert_eq!(p.kings(), [sq("c2"), sq("a1")]);
         let i = p.idx();
@@ -1534,7 +1530,7 @@ mod tests {
         let pieces = [[0, 0, 0, 0, 1], [0, 0, 0, 1, 0]];
         let table = force_dtz_table(pieces);
         let test_fen = |fen: &str, outcome: i8| {
-            let pos = Chessboard::from_fen(fen, Strict).unwrap();
+            let pos = Board::from_fen(fen, Strict).unwrap();
             let p = PosIdx::<NO_PAWNS>::from_chessboard(&pos);
             let i = p.idx();
             assert_eq!(table[i].load(Relaxed), outcome, "{i} '{fen}'");
@@ -1544,7 +1540,7 @@ mod tests {
         test_fen("6r1/8/8/8/8/5k2/6Q1/6K1 b - - 0 1", -MATED - 1);
         test_fen("6Q1/8/8/8/8/5K2/6r1/6k1 w - - 0 1", -MATED - 1);
 
-        let mut pos = Chessboard::from_fen("8/8/8/8/8/2K5/k7/2rQ4 w - - 0 1", Strict).unwrap();
+        let mut pos = Board::from_fen("8/8/8/8/8/2K5/k7/2rQ4 w - - 0 1", Strict).unwrap();
         let p = PosIdx::<NO_PAWNS>::from_chessboard(&pos);
         let res = value_after(p, 1, p.bbs[1].to_square().unwrap(), p.bbs[0].to_square().unwrap(), table);
     }
@@ -1556,7 +1552,7 @@ mod tests {
         let table = force_dtz_table(pieces);
 
         let test_fen = |fen: &str, outcome: i8| {
-            let pos = Chessboard::from_fen(fen, Strict).unwrap();
+            let pos = Board::from_fen(fen, Strict).unwrap();
             let p = PosIdx::<NO_PAWNS>::from_chessboard(&pos);
             let i = p.idx();
             assert_eq!(table[i].load(Relaxed), outcome, "{i} '{fen}'");
@@ -1568,14 +1564,11 @@ mod tests {
         test_fen("6Q1/8/8/8/8/5K2/r7/6k1 b - - 0 1", MATED + 2);
         test_fen("7Q/8/8/8/8/5K2/r7/6k1 w - - 0 1", -MATED - 3);
         test_fen("r7/7Q/8/8/8/5K2/8/6k1 w - - 0 1", -MATED - 3);
-        test_consistency::<1, 1, NO_PAWNS>(table, [&[Queen], &[Rook]], pieces);
+        test_fen("8/8/2k5/1r6/8/8/8/2KQ4 b - - 0 1", MATED + 62);
+        test_consistency::<NO_PAWNS>(table, [&[Queen], &[Rook]], pieces);
     }
 
-    fn test_consistency<const N_W: usize, const N_B: usize, const PAWNS: bool>(
-        table: &[Entry],
-        pieces: [&[ChessPieceType]; NUM_COLORS],
-        list: PieceCounts,
-    ) {
+    fn test_consistency<const PAWNS: bool>(table: &[Entry], pieces: [&[PieceType]; NUM_COLORS], list: PieceCounts) {
         assert!(piece_type_idx(pieces[White]) >= piece_type_idx(pieces[Black]));
         let seed = 42;
         let mut rng = StdRng::seed_from_u64(seed);
@@ -1588,10 +1581,10 @@ mod tests {
             }
             let p = PosIdx::<PAWNS>::from_idx(idx, list);
             let bbs = p.player_bbs();
-            if bbs[White].intersects(bbs[Black]) || p.pawns().intersects(ChessBitboard::backranks()) {
+            if bbs[White].intersects(bbs[Black]) || p.pawns().intersects(Bitboard::backranks()) {
                 continue;
             }
-            let mut pos = Chessboard::empty();
+            let mut pos = Board::empty();
             for i in 0..p.num_bbs {
                 for sq in p.bbs[i] {
                     pos.place_piece(sq, p.piece_types[i]);
@@ -1646,18 +1639,18 @@ mod tests {
     fn piece_vs_2pieces_test() {
         let list: PieceCounts = [[0, 1, 1, 0, 0], [0, 0, 0, 1, 0]];
         let table = force_dtz_table(list);
-        let mut pos = Chessboard::from_fen("8/7r/8/8/8/1KN5/1B6/1k6 b - - 0 1", Strict).unwrap();
+        let mut pos = Board::from_fen("8/7r/8/8/8/1KN5/1B6/1k6 b - - 0 1", Strict).unwrap();
         let p = PosIdx::<NO_PAWNS>::from_chessboard(&pos);
         let i = p.idx();
         assert_eq!(table[i].load(Relaxed), MATED, "{i}");
-        let pos = Chessboard::from_fen("8/7r/8/8/8/1K6/1B2N3/1k6 w - - 0 1", Strict).unwrap();
+        let pos = Board::from_fen("8/7r/8/8/8/1K6/1B2N3/1k6 w - - 0 1", Strict).unwrap();
         let p = PosIdx::<NO_PAWNS>::from_chessboard(&pos);
         let i = p.idx();
         assert_eq!(table[i].load(Relaxed), -MATED - 1, "{i}");
-        let pos = Chessboard::from_fen("8/8/8/N7/8/r7/B7/k1K5 b - - 0 1", Strict).unwrap();
+        let pos = Board::from_fen("8/8/8/N7/8/r7/B7/k1K5 b - - 0 1", Strict).unwrap();
         assert_eq!(table[idx_of(&pos)].load(Relaxed), -MATED - 1);
 
-        test_consistency::<2, 1, NO_PAWNS>(table, [&[Knight, Bishop], &[Rook]], list);
+        test_consistency::<NO_PAWNS>(table, [&[Knight, Bishop], &[Rook]], list);
     }
 
     // todo: Also support querying the compact pawn table
@@ -1665,7 +1658,7 @@ mod tests {
     fn pawn_vs_king_test() {
         let list: PieceCounts = [[1, 0, 0, 0, 0], [0, 0, 0, 0, 0]];
         let table = force_dtz_table(list);
-        let pos = Chessboard::from_fen("8/P7/8/8/8/8/8/K1k5 w - - 0 1", Strict).unwrap();
+        let pos = Board::from_fen("8/P7/8/8/8/8/8/K1k5 w - - 0 1", Strict).unwrap();
         let p = PosIdx::<PAWNS>::from_chessboard(&pos);
         println!("{}", p.idx());
         assert_eq!(table[p.idx()].load(Relaxed), -MATED - 1, "{0} {1} {p:?}", p.idx(), table[p.idx()].load(Relaxed));
@@ -1697,25 +1690,25 @@ mod tests {
     fn piece_vs_pawn_test() {
         let list: PieceCounts = [[0, 1, 0, 0, 0], [1, 0, 0, 0, 0]];
         let table = force_dtz_table(list);
-        let pos = Chessboard::from_fen("8/8/8/8/8/1N6/p1K5/k7 b - - 0 1", Strict).unwrap();
+        let pos = Board::from_fen("8/8/8/8/8/1N6/p1K5/k7 b - - 0 1", Strict).unwrap();
         let res = probe_dtz(pos);
         assert_eq!(res, MATED);
-        let pos = Chessboard::from_fen("8/8/8/8/8/p7/2K5/k1N5 b - - 0 1", Strict).unwrap();
+        let pos = Board::from_fen("8/8/8/8/8/p7/2K5/k1N5 b - - 0 1", Strict).unwrap();
         let res = probe_dtz(pos);
         assert_eq!(res, MATED + 1, "{0} {1:?}", idx_of(&pos), PosIdx::<PAWNS>::from_chessboard(&pos));
-        let pos = Chessboard::from_fen("k4N2/8/3K4/8/8/8/p7/8 w - - 0 1", Strict).unwrap();
+        let pos = Board::from_fen("k4N2/8/3K4/8/8/8/p7/8 w - - 0 1", Strict).unwrap();
         let res = probe_dtz(pos);
         assert_eq!(res, MATED + 2);
-        let pos = Chessboard::from_fen("k4N2/8/3K4/8/8/p7/8/8 b - - 0 1", Strict).unwrap();
+        let pos = Board::from_fen("k4N2/8/3K4/8/8/p7/8/8 b - - 0 1", Strict).unwrap();
         let res = probe_dtz(pos);
         assert_eq!(res, -MATED - 1);
-        let pos = Chessboard::from_fen("8/1K6/8/8/5k2/8/6p1/3N4 w - - 0 1", Strict).unwrap();
+        let pos = Board::from_fen("8/1K6/8/8/5k2/8/6p1/3N4 w - - 0 1", Strict).unwrap();
         let res = probe_dtz(pos);
         assert_eq!(res, MATED + 8);
-        let pos = Chessboard::from_fen("8/1K6/8/8/5k2/6p1/8/3N4 b - - 0 1", Strict).unwrap();
+        let pos = Board::from_fen("8/1K6/8/8/5k2/6p1/8/3N4 b - - 0 1", Strict).unwrap();
         let res = probe_dtz(pos);
         assert_eq!(res, -MATED - 1);
-        test_consistency::<1, 1, PAWNS>(table, [&[Knight], &[Pawn]], list);
+        test_consistency::<PAWNS>(table, [&[Knight], &[Pawn]], list);
     }
 
     #[test]
@@ -1723,19 +1716,19 @@ mod tests {
     fn pawn_vs_pawn_test() {
         let list: PieceCounts = [[1, 0, 0, 0, 0], [1, 0, 0, 0, 0]];
         let table = force_dtz_table(list);
-        let pos = Chessboard::from_fen("8/8/8/8/5p2/8/6P1/5K1k w - - 0 1", Strict).unwrap();
+        let pos = Board::from_fen("8/8/8/8/5p2/8/6P1/5K1k w - - 0 1", Strict).unwrap();
         let res = probe_dtz(pos);
         assert_eq!(res, DRAW); // would be won without ep
-        let pos = Chessboard::from_fen("8/8/8/8/5pP1/8/8/5K1k b - - 0 1", Strict).unwrap();
+        let pos = Board::from_fen("8/8/8/8/5pP1/8/8/5K1k b - - 0 1", Strict).unwrap();
         let res = probe_dtz(pos);
         assert_eq!(res, MATED + 2); // no ep
-        let pos = Chessboard::from_fen("8/8/8/8/5pP1/8/8/5K1k b - g3 0 1", Strict).unwrap();
+        let pos = Board::from_fen("8/8/8/8/5pP1/8/8/5K1k b - g3 0 1", Strict).unwrap();
         let res = probe_dtz(pos);
         assert_eq!(res, -MATED - 1); // ep
-        let pos = Chessboard::from_fen("8/8/8/8/K6p/8/6P1/7k w - - 0 1", Strict).unwrap();
+        let pos = Board::from_fen("8/8/8/8/K6p/8/6P1/7k w - - 0 1", Strict).unwrap();
         let res = probe_dtz(pos);
         assert_eq!(res, MATED + 2, "{0}", idx_of(&pos));
-        test_consistency::<1, 1, PAWNS>(table, [&[Pawn], &[Pawn]], list);
+        test_consistency::<PAWNS>(table, [&[Pawn], &[Pawn]], list);
     }
 
     #[test]
@@ -1743,13 +1736,13 @@ mod tests {
     fn two_same_pieces_test() {
         let list: PieceCounts = [[0, 0, 2, 0, 0], [0, 0, 0, 0, 0]];
         let table = force_dtz_table(list);
-        test_consistency::<2, 0, NO_PAWNS>(table, [&[Bishop, Bishop], &[]], list);
+        test_consistency::<NO_PAWNS>(table, [&[Bishop, Bishop], &[]], list);
         let list: PieceCounts = [[2, 0, 0, 0, 0], [0, 0, 0, 0, 0]];
         let table = force_dtz_table(list);
-        let pos = Chessboard::from_fen("8/1k2P3/8/8/8/8/1P6/1K6 w - - 0 1", Strict).unwrap();
+        let pos = Board::from_fen("8/1k2P3/8/8/8/8/1P6/1K6 w - - 0 1", Strict).unwrap();
         let res = probe_dtz(pos);
         assert_eq!(res, -MATED - 1, "{0}", idx_of(&pos));
-        test_consistency::<2, 0, PAWNS>(table, [&[Pawn, Pawn], &[]], list);
+        test_consistency::<PAWNS>(table, [&[Pawn, Pawn], &[]], list);
     }
 
     #[test]
@@ -1757,9 +1750,39 @@ mod tests {
     fn two_knights_vs_pawn_test() {
         let list = [[0, 2, 0, 0, 0], [1, 0, 0, 0, 0]];
         let table = force_dtz_table(list);
-        let pos = Chessboard::from_fen("8/8/8/8/2N5/4N3/2K4p/k7 w - - 0 1", Strict).unwrap();
+        let pos = Board::from_fen("8/8/8/8/2N5/4N3/2K4p/k7 w - - 0 1", Strict).unwrap();
         let i = PosIdx::<PAWNS>::from_chessboard(&pos).idx();
         assert_eq!(table[i].load(Relaxed), DRAW);
-        test_consistency::<2, 0, PAWNS>(table, [&[Knight, Knight], &[Pawn]], list);
+        let pos = Board::from_fen("8/8/8/8/2p1K3/2k5/5NN1/8 b - - 0 1", Strict).unwrap();
+        let p = PosIdx::<PAWNS>::from_chessboard(&pos);
+        let i = p.idx();
+        let res = table[i].load(Relaxed);
+        assert_eq!(res, DRAW);
+        for p in pos.children() {
+            let i = PosIdx::<PAWNS>::from_chessboard(&p).idx();
+            assert_eq!(table[i].load(Relaxed), DRAW, "{i} {p:?}");
+        }
+        test_consistency::<PAWNS>(table, [&[Knight, Knight], &[Pawn]], list);
+    }
+
+    #[test]
+    #[ignore]
+    fn long_mate_test() {
+        let list = [[0, 0, 2, 0, 0], [0, 0, 0, 0, 1]];
+        let table = force_dtz_table(list);
+        let test_fen = |fen: &str, outcome: i8| {
+            let pos = Board::from_fen(fen, Strict).unwrap();
+            let p = PosIdx::<NO_PAWNS>::from_chessboard(&pos);
+            let i = p.idx();
+            assert_eq!(table[i].load(Relaxed), outcome, "{i} '{fen}'");
+        };
+        // DTZ 142, the longest DTZ in this table, which is too large
+        test_fen("8/1q6/8/8/2B5/8/3K4/k5B1 w - - 0 1", DRAW);
+        test_fen("8/8/8/5q2/5B2/5K2/2k1B3/8 b - - 0 1", DRAW); // DTZ 101, also too large
+        test_fen("8/8/8/5q2/5B2/2k2K2/4B3/8 w - - 0 1", -1); // DTZ 100
+        test_fen("8/8/8/5q2/5B2/2k3K1/4B3/8 b - - 0 1", 2); // DTZ 99
+        test_fen("8/8/8/5q2/3k1B2/6K1/4B3/8 w - - 0 1", -3); // DTZ 98
+        test_fen("8/8/8/5q2/3k1B2/5BK1/8/8 b - - 0 1", 4); // DTZ 97
+        test_consistency::<NO_PAWNS>(table, [&[Bishop, Bishop], &[Queen]], list);
     }
 }

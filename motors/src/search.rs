@@ -13,11 +13,11 @@ use gears::colored::Colorize;
 use gears::dyn_clone::DynClone;
 use gears::games::{BoardHistDyn, ZobristHistory};
 use gears::general::board::Strictness::Relaxed;
-use gears::general::board::{Board, BoardHelpers};
+use gears::general::board::{BoardHelpers, BoardTrait};
 use gears::general::common::anyhow::bail;
 use gears::general::common::{EntityList, Name, NamedEntity, Res, StaticallyNamedEntity};
-use gears::general::move_list::MoveList;
-use gears::general::moves::Move;
+use gears::general::move_list::MoveListTrait;
+use gears::general::moves::MoveTrait;
 use gears::itertools::Itertools;
 use gears::output::Message;
 use gears::output::Message::Warning;
@@ -100,7 +100,7 @@ impl NamedEntity for EngineInfo {
 }
 
 impl EngineInfo {
-    pub fn new<B: Board, E: Engine<B>>(
+    pub fn new<B: BoardTrait, E: Engine<B>>(
         engine: &E,
         eval: &dyn Eval<B>,
         version: &str,
@@ -184,17 +184,17 @@ impl Display for BenchResult {
 }
 
 #[derive(Debug, Clone, Eq, PartialEq)]
-pub struct Pv<B: Board, const LIMIT: usize> {
+pub struct Pv<B: BoardTrait, const LIMIT: usize> {
     list: ArrayVec<B::Move, LIMIT>,
 }
 
-impl<B: Board, const LIMIT: usize> Default for Pv<B, LIMIT> {
+impl<B: BoardTrait, const LIMIT: usize> Default for Pv<B, LIMIT> {
     fn default() -> Self {
         Self { list: ArrayVec::new() }
     }
 }
 
-impl<B: Board, const LIMIT: usize> Pv<B, LIMIT> {
+impl<B: BoardTrait, const LIMIT: usize> Pv<B, LIMIT> {
     pub fn extend(&mut self, mov: B::Move, child_pv: &Pv<B, LIMIT>) {
         self.reset_to_move(mov);
         self.list.try_extend_from_slice(child_pv.list.as_slice()).unwrap();
@@ -235,23 +235,23 @@ impl<B: Board, const LIMIT: usize> Pv<B, LIMIT> {
     }
 }
 
-pub trait AbstractEvalBuilder<B: Board>: NamedEntity + DynClone {
+pub trait AbstractEvalBuilder<B: BoardTrait>: NamedEntity + DynClone {
     fn build(&self) -> Box<dyn Eval<B>>;
 }
 
 #[derive(Debug, Default)]
-pub struct EvalBuilder<B: Board, E: Eval<B> + Default> {
+pub struct EvalBuilder<B: BoardTrait, E: Eval<B> + Default> {
     _phantom_board: PhantomData<B>,
     _phantom_eval: PhantomData<E>,
 }
 
-impl<B: Board, E: Eval<B> + Default> Clone for EvalBuilder<B, E> {
+impl<B: BoardTrait, E: Eval<B> + Default> Clone for EvalBuilder<B, E> {
     fn clone(&self) -> Self {
         Self::default()
     }
 }
 
-impl<B: Board, E: Eval<B> + Default> StaticallyNamedEntity for EvalBuilder<B, E> {
+impl<B: BoardTrait, E: Eval<B> + Default> StaticallyNamedEntity for EvalBuilder<B, E> {
     fn static_short_name() -> impl Display
     where
         Self: Sized,
@@ -274,7 +274,7 @@ impl<B: Board, E: Eval<B> + Default> StaticallyNamedEntity for EvalBuilder<B, E>
     }
 }
 
-impl<B: Board, E: Eval<B> + Default> AbstractEvalBuilder<B> for EvalBuilder<B, E> {
+impl<B: BoardTrait, E: Eval<B> + Default> AbstractEvalBuilder<B> for EvalBuilder<B, E> {
     fn build(&self) -> Box<dyn Eval<B>> {
         Box::new(E::default())
     }
@@ -285,7 +285,7 @@ pub type EvalList<B> = EntityList<Box<dyn AbstractEvalBuilder<B>>>;
 /// A trait because this type erases over the Engine being built.
 /// There are two related concepts: `Engine` and `Searcher`.
 /// A searcher is an algorithm like caps or gaps, an engine is a searcher plus an eval.
-pub trait AbstractSearcherBuilder<B: Board>: NamedEntity + DynClone {
+pub trait AbstractSearcherBuilder<B: BoardTrait>: NamedEntity + DynClone {
     fn build_in_new_thread(&self, eval: Box<dyn Eval<B>>) -> (Sender<EngineReceives<B>>, EngineInfo) {
         let engine = self.build_for_eval(eval);
         let info = engine.engine_info();
@@ -305,36 +305,36 @@ pub trait AbstractSearcherBuilder<B: Board>: NamedEntity + DynClone {
 pub type SearcherList<B> = EntityList<Box<dyn AbstractSearcherBuilder<B>>>;
 
 #[derive(Debug)]
-pub struct SearcherBuilder<B: Board, E: Engine<B>> {
+pub struct SearcherBuilder<B: BoardTrait, E: Engine<B>> {
     _phantom_b: PhantomData<B>,
     _phantom_e: PhantomData<E>,
 }
 
-impl<B: Board, E: Engine<B>> Default for SearcherBuilder<B, E> {
+impl<B: BoardTrait, E: Engine<B>> Default for SearcherBuilder<B, E> {
     fn default() -> Self {
         Self { _phantom_b: PhantomData, _phantom_e: PhantomData }
     }
 }
 
-impl<B: Board, E: Engine<B>> Clone for SearcherBuilder<B, E> {
+impl<B: BoardTrait, E: Engine<B>> Clone for SearcherBuilder<B, E> {
     fn clone(&self) -> Self {
         Self { _phantom_b: PhantomData, _phantom_e: PhantomData }
     }
 }
 
-impl<B: Board, E: Engine<B>> SearcherBuilder<B, E> {
+impl<B: BoardTrait, E: Engine<B>> SearcherBuilder<B, E> {
     pub fn new() -> Self {
         Self::default()
     }
 }
 
-impl<B: Board, E: Engine<B>> AbstractSearcherBuilder<B> for SearcherBuilder<B, E> {
+impl<B: BoardTrait, E: Engine<B>> AbstractSearcherBuilder<B> for SearcherBuilder<B, E> {
     fn build_for_eval(&self, eval: Box<dyn Eval<B>>) -> Box<dyn Engine<B>> {
         Box::new(E::with_eval(eval))
     }
 }
 
-impl<B: Board, E: Engine<B>> StaticallyNamedEntity for SearcherBuilder<B, E> {
+impl<B: BoardTrait, E: Engine<B>> StaticallyNamedEntity for SearcherBuilder<B, E> {
     fn static_short_name() -> impl Display {
         E::static_short_name()
     }
@@ -348,7 +348,7 @@ impl<B: Board, E: Engine<B>> StaticallyNamedEntity for SearcherBuilder<B, E> {
     }
 }
 
-pub trait Engine<B: Board>: StaticallyNamedEntity + Send + 'static {
+pub trait Engine<B: BoardTrait>: StaticallyNamedEntity + Send + 'static {
     type SearchStackEntry: SearchStackEntry<B>
     where
         Self: Sized;
@@ -482,7 +482,7 @@ pub trait Engine<B: Board>: StaticallyNamedEntity + Send + 'static {
 }
 
 /// A proof number search isn't a normal engine, and neither is a random mover
-pub trait NormalEngine<B: Board>: Engine<B> {
+pub trait NormalEngine<B: BoardTrait>: Engine<B> {
     fn search_state(&self) -> &SearchStateFor<B, Self>
     where
         Self: Sized;
@@ -545,7 +545,7 @@ pub trait NormalEngine<B: Board>: Engine<B> {
 const DEFAULT_CHECK_TIME_INTERVAL: u64 = 1024;
 
 #[allow(type_alias_bounds)]
-pub type SearchStateFor<B: Board, E: NormalEngine<B>> = SearchState<B, E::SearchStackEntry, E::CustomInfo>;
+pub type SearchStateFor<B: BoardTrait, E: NormalEngine<B>> = SearchState<B, E::SearchStackEntry, E::CustomInfo>;
 
 #[derive(Debug, Default, Eq, PartialEq, Ord, PartialOrd, Copy, Clone, Add, Sub, Neg)]
 #[must_use]
@@ -555,7 +555,7 @@ impl MoveScore {
     const MAX: MoveScore = MoveScore(i16::MAX);
 }
 
-pub trait MoveScorer<B: Board, E: Engine<B>>: Debug {
+pub trait MoveScorer<B: BoardTrait, E: Engine<B>>: Debug {
     /// This gets called when inserting a move into the move list
     fn score_move_eager_part(&self, mov: B::Move, state: &SearchStateFor<B, E>) -> MoveScore;
     /// This gets called upon choosing the next move, and if it returns `false`, the move is deferred until all moves
@@ -574,7 +574,7 @@ pub trait MoveScorer<B: Board, E: Engine<B>>: Debug {
 
 /// A struct bundling parameters that modify the core search.
 #[derive(Debug, Default)]
-pub struct SearchParams<B: Board> {
+pub struct SearchParams<B: BoardTrait> {
     pub pos: B,
     pub limit: SearchLimit,
     pub atomic: Arc<AtomicSearchState<B>>,
@@ -587,7 +587,7 @@ pub struct SearchParams<B: Board> {
     pub contempt: Score,
 }
 
-impl<B: Board> SearchParams<B> {
+impl<B: BoardTrait> SearchParams<B> {
     pub fn for_pos(pos: B, limit: SearchLimit) -> Self {
         Self::new_unshared(pos, limit, ZobristHistory::default(), TT::default())
     }
@@ -728,7 +728,7 @@ impl<B: Board> SearchParams<B> {
     }
 }
 
-pub trait SearchStackEntry<B: Board>: Default + Clone + Debug {
+pub trait SearchStackEntry<B: BoardTrait>: Default + Clone + Debug {
     fn forget(&mut self) {
         self.clone_from(&Self::default());
     }
@@ -739,7 +739,7 @@ pub trait SearchStackEntry<B: Board>: Default + Clone + Debug {
 #[derive(Copy, Clone, Default, Debug)]
 pub struct EmptySearchStackEntry {}
 
-impl<B: Board> SearchStackEntry<B> for EmptySearchStackEntry {
+impl<B: BoardTrait> SearchStackEntry<B> for EmptySearchStackEntry {
     fn pv(&self) -> Option<&[B::Move]> {
         None
     }
@@ -749,7 +749,7 @@ impl<B: Board> SearchStackEntry<B> for EmptySearchStackEntry {
     }
 }
 
-pub trait CustomInfo<B: Board>: Default + Clone + Debug {
+pub trait CustomInfo<B: BoardTrait>: Default + Clone + Debug {
     fn new_search(&mut self) {
         self.hard_forget_except_tt();
     }
@@ -763,12 +763,12 @@ pub trait CustomInfo<B: Board>: Default + Clone + Debug {
 #[derive(Default, Clone, Debug)]
 pub struct NoCustomInfo {}
 
-impl<B: Board> CustomInfo<B> for NoCustomInfo {
+impl<B: BoardTrait> CustomInfo<B> for NoCustomInfo {
     fn hard_forget_except_tt(&mut self) {}
 }
 
 #[derive(Debug, Clone)]
-pub struct PVData<B: Board> {
+pub struct PVData<B: BoardTrait> {
     alpha: Score,
     beta: Score,
     radius: Score,
@@ -777,7 +777,7 @@ pub struct PVData<B: Board> {
     pub bound: Option<NodeType>,
 }
 
-impl<B: Board> Default for PVData<B> {
+impl<B: BoardTrait> Default for PVData<B> {
     fn default() -> Self {
         Self {
             alpha: MIN_ALPHA,
@@ -790,7 +790,7 @@ impl<B: Board> Default for PVData<B> {
     }
 }
 
-impl<B: Board> PVData<B> {
+impl<B: BoardTrait> PVData<B> {
     pub fn reset(&mut self) {
         self.alpha = MIN_ALPHA;
         self.beta = MAX_BETA;
@@ -801,7 +801,7 @@ impl<B: Board> PVData<B> {
     }
 }
 
-pub trait AbstractSearchState<B: Board> {
+pub trait AbstractSearchState<B: BoardTrait> {
     fn forget(&mut self, hard: bool);
     fn new_search(&mut self, params: SearchParams<B>);
     fn end_search(&mut self, res: &SearchResult<B>);
@@ -841,7 +841,7 @@ pub trait AbstractSearchState<B: Board> {
 }
 
 #[derive(Debug)]
-pub struct SearchState<B: Board, E: SearchStackEntry<B>, C: CustomInfo<B>> {
+pub struct SearchState<B: BoardTrait, E: SearchStackEntry<B>, C: CustomInfo<B>> {
     search_stack: Vec<E>,
     params: SearchParams<B>,
     custom: C,
@@ -858,20 +858,20 @@ pub struct SearchState<B: Board, E: SearchStackEntry<B>, C: CustomInfo<B>> {
     age: Age,
 }
 
-impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo<B>> Deref for SearchState<B, E, C> {
+impl<B: BoardTrait, E: SearchStackEntry<B>, C: CustomInfo<B>> Deref for SearchState<B, E, C> {
     type Target = C;
     fn deref(&self) -> &Self::Target {
         &self.custom
     }
 }
 
-impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo<B>> DerefMut for SearchState<B, E, C> {
+impl<B: BoardTrait, E: SearchStackEntry<B>, C: CustomInfo<B>> DerefMut for SearchState<B, E, C> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.custom
     }
 }
 
-impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo<B>> AbstractSearchState<B> for SearchState<B, E, C> {
+impl<B: BoardTrait, E: SearchStackEntry<B>, C: CustomInfo<B>> AbstractSearchState<B> for SearchState<B, E, C> {
     fn forget(&mut self, hard: bool) {
         self.last_msg_time = Instant::now();
         self.execution_start_time = self.last_msg_time;
@@ -1035,7 +1035,7 @@ impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo<B>> AbstractSearchState<B> 
     }
 }
 
-impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo<B>> SearchState<B, E, C> {
+impl<B: BoardTrait, E: SearchStackEntry<B>, C: CustomInfo<B>> SearchState<B, E, C> {
     /// True if the engine has received a 'stop' command or if a search limit has been reached.
     fn stop_flag(&self) -> bool {
         self.search_params().atomic.stop_flag()
@@ -1211,13 +1211,13 @@ impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo<B>> SearchState<B, E, C> {
 }
 
 // TODO: Necessary?
-pub fn run_bench<B: Board>(engine: &mut dyn Engine<B>, with_nodes: bool, positions: &[B]) -> BenchResult {
+pub fn run_bench<B: BoardTrait>(engine: &mut dyn Engine<B>, with_nodes: bool, positions: &[B]) -> BenchResult {
     let nodes = if with_nodes { Some(SearchLimit::nodes(engine.default_bench_nodes())) } else { None };
     let depth = SearchLimit::depth(engine.default_bench_depth());
     run_bench_with(engine, depth, nodes, positions, None)
 }
 
-pub fn run_bench_with<B: Board>(
+pub fn run_bench_with<B: BoardTrait>(
     engine: &mut dyn Engine<B>,
     limit: SearchLimit,
     second_limit: Option<SearchLimit>,
@@ -1246,7 +1246,7 @@ pub fn run_bench_with<B: Board>(
     total
 }
 
-fn single_bench<B: Board>(
+fn single_bench<B: BoardTrait>(
     pos: &B,
     engine: &mut dyn Engine<B>,
     limit: SearchLimit,
@@ -1271,10 +1271,10 @@ fn single_bench<B: Board>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use gears::general::moves::Move;
+    use gears::general::moves::MoveTrait;
 
     // A testcase that any engine should pass
-    pub fn generic_engine_test<B: Board, E: Engine<B>>(mut engine: E) {
+    pub fn generic_engine_test<B: BoardTrait, E: Engine<B>>(mut engine: E) {
         let tt = TT::default();
         for p in B::bench_positions() {
             let res = engine.bench(p.clone(), SearchLimit::nodes_(1), tt.clone(), 0);
@@ -1310,7 +1310,7 @@ mod tests {
         determinism_test(&mut engine);
     }
 
-    fn determinism_test<B: Board>(engine: &mut dyn Engine<B>) {
+    fn determinism_test<B: BoardTrait>(engine: &mut dyn Engine<B>) {
         engine.forget();
         let limit = SearchLimit::nodes_(1234);
         for p in B::bench_positions().into_iter().take(10) {

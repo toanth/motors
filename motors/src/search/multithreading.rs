@@ -8,11 +8,11 @@ use crate::search::{AbstractEvalBuilder, AbstractSearcherBuilder, Engine, Engine
 use gears::colored::Colorize;
 use gears::dyn_clone::clone_box;
 use gears::games::ZobristHistory;
-use gears::general::board::Board;
+use gears::general::board::BoardTrait;
 use gears::general::common::anyhow::{anyhow, bail, ensure};
 use gears::general::common::{Name, NamedEntity, Res, parse_int_from_str};
 use gears::general::moves::ExtendedFormat::Standard;
-use gears::general::moves::Move;
+use gears::general::moves::MoveTrait;
 use gears::output::Message::*;
 use gears::score::{NO_SCORE_YET, Score};
 use gears::search::{DepthPly, SearchLimit};
@@ -30,7 +30,7 @@ pub type Sender<T> = crossbeam_channel::Sender<T>;
 pub type Receiver<T> = crossbeam_channel::Receiver<T>;
 pub type TryRecvError = crossbeam_channel::TryRecvError;
 
-pub enum EngineReceives<B: Board> {
+pub enum EngineReceives<B: BoardTrait> {
     // joins the thread
     Quit,
     Forget,
@@ -62,7 +62,7 @@ impl SearchType {
 
 /// The EngineWrapper stores one instance of this, which gets cloned and sent to the main thread on a search
 #[derive(Debug, Clone)]
-pub struct MainThreadData<B: Board> {
+pub struct MainThreadData<B: BoardTrait> {
     atomic_search_data: Vec<Arc<AtomicSearchState<B>>>,
     pub output: Arc<Mutex<UgiOutput<B>>>,
     pub engine_info: Arc<Mutex<EngineInfo>>,
@@ -71,7 +71,7 @@ pub struct MainThreadData<B: Board> {
     pub search_type: SearchType,
 }
 
-impl<B: Board> MainThreadData<B> {
+impl<B: BoardTrait> MainThreadData<B> {
     pub fn new_search(&mut self, ponder: bool, limit: &SearchLimit) -> Res<()> {
         if self.atomic_search_data[0].currently_searching() {
             bail!("Cannot start a new search with limit '{limit}' because the engine is already searching");
@@ -88,7 +88,7 @@ impl<B: Board> MainThreadData<B> {
     }
 }
 
-fn set_num_threads<B: Board>(count: usize, max_threads: usize, output: &Arc<Mutex<UgiOutput<B>>>) -> Res<usize> {
+fn set_num_threads<B: BoardTrait>(count: usize, max_threads: usize, output: &Arc<Mutex<UgiOutput<B>>>) -> Res<usize> {
     ensure!(count > 0, "The number of threads should be between 1 and {max_threads}, not zero");
     if count > max_threads {
         output.lock().unwrap().write_message(Warning, &format_args!(
@@ -99,7 +99,7 @@ fn set_num_threads<B: Board>(count: usize, max_threads: usize, output: &Arc<Mute
 }
 
 #[derive(Debug, Default)]
-pub enum SearchThreadType<B: Board> {
+pub enum SearchThreadType<B: BoardTrait> {
     Main(MainThreadData<B>),
     #[default]
     /// The simple case of using the engine by itself, without the multithreading adapter, simply to find the best move,
@@ -107,7 +107,7 @@ pub enum SearchThreadType<B: Board> {
     Auxiliary,
 }
 
-impl<B: Board> SearchThreadType<B> {
+impl<B: BoardTrait> SearchThreadType<B> {
     pub fn output(&self) -> Option<MutexGuard<'_, UgiOutput<B>>> {
         match self {
             Main(MainThreadData { output, .. }) => Some(output.lock().unwrap()),
@@ -133,7 +133,7 @@ impl<B: Board> SearchThreadType<B> {
 
 #[derive(Debug)]
 #[repr(align(64))] // Prevent false sharing
-pub struct AtomicSearchState<B: Board> {
+pub struct AtomicSearchState<B: BoardTrait> {
     // All combinations of should_stop and currently_searching are (briefly) possible.
     // The default is both being false.
     // When it starts searching `searching` gets set to true.
@@ -159,7 +159,7 @@ pub struct AtomicSearchState<B: Board> {
     phantom_data: PhantomData<B>,
 }
 
-impl<B: Board> Default for AtomicSearchState<B> {
+impl<B: BoardTrait> Default for AtomicSearchState<B> {
     fn default() -> Self {
         Self {
             should_stop: AtomicBool::new(false),
@@ -176,7 +176,7 @@ impl<B: Board> Default for AtomicSearchState<B> {
     }
 }
 
-impl<B: Board> AtomicSearchState<B> {
+impl<B: BoardTrait> AtomicSearchState<B> {
     // called on 'ucinewgame' and on starting a new search
     pub fn reset(&self, starting_search: bool) {
         // all stores can be Relaxed because we're overwriting all members
@@ -268,12 +268,12 @@ impl<B: Board> AtomicSearchState<B> {
     }
 }
 
-pub struct EngineThread<B: Board> {
+pub struct EngineThread<B: BoardTrait> {
     engine: Box<dyn Engine<B>>,
     receiver: Receiver<EngineReceives<B>>,
 }
 
-impl<B: Board> EngineThread<B> {
+impl<B: BoardTrait> EngineThread<B> {
     pub fn new(engine: Box<dyn Engine<B>>, receiver: Receiver<EngineReceives<B>>) -> Self {
         Self { engine, receiver }
     }
@@ -384,7 +384,7 @@ impl<B: Board> EngineThread<B> {
 
 #[derive(Debug)]
 #[must_use]
-pub struct EngineWrapper<B: Board> {
+pub struct EngineWrapper<B: BoardTrait> {
     main: Sender<EngineReceives<B>>,
     auxiliary: Vec<Sender<EngineReceives<B>>>,
     searcher_builder: Box<dyn AbstractSearcherBuilder<B>>,
@@ -396,7 +396,7 @@ pub struct EngineWrapper<B: Board> {
     overwrite_num_threads: Option<usize>,
 }
 
-impl<B: Board> Drop for EngineWrapper<B> {
+impl<B: BoardTrait> Drop for EngineWrapper<B> {
     fn drop(&mut self) {
         self.main_atomic_search_data().set_stop(true);
         _ = self.main.send(Quit);
@@ -411,7 +411,7 @@ impl<B: Board> Drop for EngineWrapper<B> {
     }
 }
 
-impl<B: Board> EngineWrapper<B> {
+impl<B: BoardTrait> EngineWrapper<B> {
     pub fn new(
         tt: TT,
         output: Arc<Mutex<UgiOutput<B>>>,

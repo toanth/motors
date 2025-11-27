@@ -1,6 +1,6 @@
 #[cfg(feature = "chess")]
-use crate::games::chess::ChessColor;
-use crate::games::{Coordinates, DimT, Height, KnownSize, Size, Width, char_to_file, file_to_char};
+use crate::games::chess::Color;
+use crate::games::{CoordinatesTrait, DimT, Height, KnownSize, SizeTrait, Width, char_to_file, file_to_char};
 use crate::general::bitboards::{KnownSizeBitboard, SmallGridBitboard};
 use crate::general::common::{Res, parse_int_from_str};
 use crate::general::squares::SquareColor::{Black, White};
@@ -14,7 +14,7 @@ use std::iter::FusedIterator;
 use std::ops::{BitXor, BitXorAssign, Index, IndexMut};
 use std::str::FromStr;
 
-pub trait RectangularCoordinates: Coordinates<Size: RectangularSize<Self>> {
+pub trait RectangularCoordinates: CoordinatesTrait<Size: RectangularSize<Self>> {
     fn from_rank_file(row: DimT, column: DimT) -> Self;
     fn row(self) -> DimT;
     fn column(self) -> DimT;
@@ -51,7 +51,7 @@ pub struct GridCoordinates {
     pub column: DimT,
 }
 
-impl Coordinates for GridCoordinates {
+impl CoordinatesTrait for GridCoordinates {
     type Size = GridSize;
 
     fn flip_up_down(self, size: Self::Size) -> Self {
@@ -148,7 +148,7 @@ impl CompactSquare {
     }
 }
 
-pub trait RectangularSize<C: RectangularCoordinates>: Size<C> {
+pub trait RectangularSize<C: RectangularCoordinates>: SizeTrait<C> {
     fn height(self) -> Height;
     fn width(self) -> Width;
     fn internal_width(self) -> usize {
@@ -204,7 +204,7 @@ impl GridSize {
     }
 }
 
-impl Size<GridCoordinates> for GridSize {
+impl SizeTrait<GridCoordinates> for GridSize {
     fn num_squares(self) -> usize {
         self.height.val() * self.width.val()
     }
@@ -249,7 +249,7 @@ impl<const H: usize, const W: usize> Display for SmallGridSize<H, W> {
     }
 }
 
-impl<const H: usize, const W: usize, const INTERNAL_WIDTH: usize> Size<SmallGridSquare<H, W, INTERNAL_WIDTH>>
+impl<const H: usize, const W: usize, const INTERNAL_WIDTH: usize> SizeTrait<SmallGridSquare<H, W, INTERNAL_WIDTH>>
     for SmallGridSize<H, W>
 {
     #[inline(always)]
@@ -426,10 +426,10 @@ impl<const H: usize, const W: usize, const INTERNAL_WIDTH: usize> SmallGridSquar
     }
 
     #[cfg(feature = "chess")]
-    pub fn pawn_advance_unchecked(self, color: ChessColor) -> Self {
+    pub fn pawn_advance_unchecked(self, color: Color) -> Self {
         match color {
-            ChessColor::White => self.north_unchecked(),
-            ChessColor::Black => self.south_unchecked(),
+            Color::White => self.north_unchecked(),
+            Color::Black => self.south_unchecked(),
         }
     }
 
@@ -488,7 +488,7 @@ impl<const H: usize, const W: usize, const INTERNAL_WIDTH: usize> BitXorAssign
     }
 }
 
-impl<const H: usize, const W: usize, const INTERNAL_WIDTH: usize> Coordinates
+impl<const H: usize, const W: usize, const INTERNAL_WIDTH: usize> CoordinatesTrait
     for SmallGridSquare<H, W, INTERNAL_WIDTH>
 {
     type Size = SmallGridSize<H, W>;

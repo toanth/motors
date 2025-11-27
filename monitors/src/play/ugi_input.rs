@@ -13,12 +13,12 @@ use crate::play::ugi_input::EngineStatus::*;
 use crate::play::ugi_input::HandleBestMove::{Ignore, Play};
 use gears::MatchStatus::Over;
 use gears::colored::Colorize;
-use gears::general::board::Board;
+use gears::general::board::BoardTrait;
 use gears::general::common::anyhow::{anyhow, bail};
 use gears::general::common::{
     Res, Tokens, TokensToString, parse_duration_ms, parse_int_from_str, tokens, tokens_to_string,
 };
-use gears::general::moves::Move;
+use gears::general::moves::MoveTrait;
 use gears::output::Message::*;
 use gears::score::{SCORE_LOST, SCORE_WON, Score, ScoreT};
 use gears::search::{Budget, DepthPly, NodeType, NodesLimit, SearchInfo, SearchLimit};
@@ -102,7 +102,7 @@ impl EngineStatus {
 // Uses a `Vec` to store the PV, unlike the `SearchInfo`
 #[derive(Debug, Clone)]
 #[must_use]
-pub struct OwnedSearchInfo<B: Board> {
+pub struct OwnedSearchInfo<B: BoardTrait> {
     pub best_move_of_all_pvs: B::Move,
     pub iterations: DepthPly,
     pub budget: Budget,
@@ -119,7 +119,7 @@ pub struct OwnedSearchInfo<B: Board> {
     pub additional: Option<String>,
 }
 
-impl<B: Board> Default for OwnedSearchInfo<B> {
+impl<B: BoardTrait> Default for OwnedSearchInfo<B> {
     fn default() -> Self {
         Self {
             best_move_of_all_pvs: B::Move::default(),
@@ -140,13 +140,13 @@ impl<B: Board> Default for OwnedSearchInfo<B> {
     }
 }
 
-impl<B: Board> Display for OwnedSearchInfo<B> {
+impl<B: BoardTrait> Display for OwnedSearchInfo<B> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         self.to_search_info().fmt(f)
     }
 }
 
-impl<B: Board> OwnedSearchInfo<B> {
+impl<B: BoardTrait> OwnedSearchInfo<B> {
     pub fn to_search_info(&self) -> SearchInfo<'_, B> {
         SearchInfo {
             best_move_of_all_pvs: self.best_move_of_all_pvs,
@@ -171,7 +171,7 @@ impl<B: Board> OwnedSearchInfo<B> {
 
 #[derive(Debug)]
 #[must_use]
-pub struct CurrentMatch<B: Board> {
+pub struct CurrentMatch<B: BoardTrait> {
     pub search_info: Option<OwnedSearchInfo<B>>,
     pub limit: SearchLimit,
     pub original_limit: SearchLimit,
@@ -180,23 +180,23 @@ pub struct CurrentMatch<B: Board> {
     pub color: B::Color,
 }
 
-impl<B: Board> CurrentMatch<B> {
+impl<B: BoardTrait> CurrentMatch<B> {
     pub fn new(limit: SearchLimit, color: B::Color) -> Self {
         Self { search_info: None, limit, original_limit: limit, color }
     }
 }
 
-pub fn access_client<B: Board>(client: Weak<Mutex<Client<B>>>) -> Res<Arc<Mutex<Client<B>>>> {
+pub fn access_client<B: BoardTrait>(client: Weak<Mutex<Client<B>>>) -> Res<Arc<Mutex<Client<B>>>> {
     client.upgrade().ok_or_else(|| anyhow!("The player tried to access a match which was already cancelled"))
 }
 
-pub struct InputThread<B: Board> {
+pub struct InputThread<B: BoardTrait> {
     id: usize,
     client: Weak<Mutex<Client<B>>>,
     child_stdout: BufReader<ChildStdout>,
 }
 
-impl<B: Board> InputThread<B> {
+impl<B: BoardTrait> InputThread<B> {
     pub fn run_ugi_player_input_thread(
         id: usize,
         client: Weak<Mutex<Client<B>>>,

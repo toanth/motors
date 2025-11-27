@@ -17,13 +17,13 @@
  */
 use crate::PlayerResult;
 use crate::PlayerResult::{Draw, Lose, Win};
-use crate::games::chess::ChessColor::{Black, White};
-use crate::games::chess::pieces::ChessPieceType::Pawn;
-use crate::games::chess::squares::{ChessSquare, ChessboardSize, NUM_SQUARES};
-use crate::games::chess::{Chessboard, PAWN_CAPTURES};
-use crate::games::{Coordinates, NUM_COLORS};
-use crate::general::bitboards::chessboard::{ChessBitboard, KINGS};
-use crate::general::bitboards::{Bitboard, RawBitboard};
+use crate::games::chess::Color::{Black, White};
+use crate::games::chess::pieces::PieceType::Pawn;
+use crate::games::chess::squares::{ChessboardSize, NUM_SQUARES, Square};
+use crate::games::chess::{Board, PAWN_CAPTURES};
+use crate::games::{CoordinatesTrait, NUM_COLORS};
+use crate::general::bitboards::chessboard::{Bitboard, KINGS};
+use crate::general::bitboards::{BitboardTrait, RawBitboardTrait};
 use crate::general::board::BitboardBoard;
 use crate::general::squares::RectangularCoordinates;
 use std::sync::LazyLock;
@@ -35,46 +35,44 @@ const NUM_RELEVANT_BITBOARDS: usize = NUM_COMPLETE_BITBOARDS - NUM_SQUARES * 8 /
 
 const OFFSET: usize = (NUM_COMPLETE_BITBOARDS - NUM_RELEVANT_BITBOARDS) / 2;
 
-fn idx_full(w_pawn: ChessSquare, w_king: ChessSquare) -> usize {
+fn idx_full(w_pawn: Square, w_king: Square) -> usize {
     debug_assert!(w_pawn.file() < 4);
     (w_pawn.rank() as usize * 4 + w_pawn.file() as usize) * 64 + w_king.bb_idx()
 }
 
-fn idx_compact(w_pawn: ChessSquare, w_king: ChessSquare) -> usize {
+fn idx_compact(w_pawn: Square, w_king: Square) -> usize {
     idx_full(w_pawn, w_king) - OFFSET
 }
 
-pub type Bitbase = [Vec<ChessBitboard>; NUM_COLORS];
+pub type Bitbase = [Vec<Bitboard>; NUM_COLORS];
 
 // based on <https://github.com/kervinck/pfkpk>, but improved to take 3/4 of the space and be computed in 1/20 of the time
 fn calc_pawn_vs_king_impl() -> Bitbase {
-    let mut res = [
-        vec![ChessBitboard::default(); NUM_COMPLETE_BITBOARDS],
-        vec![ChessBitboard::default(); NUM_COMPLETE_BITBOARDS],
-    ];
+    let mut res =
+        [vec![Bitboard::default(); NUM_COMPLETE_BITBOARDS], vec![Bitboard::default(); NUM_COMPLETE_BITBOARDS]];
     // The base case is a pawn on the eighth rank; this is won unless black can immediately capture it.
     // It's never a stalemate because we could promote to a rook.
     for w_pawn in 64 - 8..64 - 4 {
-        let w_pawn = ChessSquare::from_bb_idx(w_pawn);
-        for w_king in ChessSquare::iter() {
-            let promo_safe = if KINGS[w_pawn].has(w_king) { !ChessBitboard::default() } else { !KINGS[w_pawn] };
+        let w_pawn = Square::from_bb_idx(w_pawn);
+        for w_king in Square::iter() {
+            let promo_safe = if KINGS[w_pawn].has(w_king) { !Bitboard::default() } else { !KINGS[w_pawn] };
             res[Black][idx_full(w_pawn, w_king)] = promo_safe & !KINGS[w_king] & !w_king.bb() & !w_pawn.bb();
         }
     }
 
-    for w_pawn in ChessSquare::iter().rev() {
+    for w_pawn in Square::iter().rev() {
         if w_pawn.is_backrank() || w_pawn.file() >= 4 {
             continue;
         }
         // Bitboard of squares where black's king can't end up after a move.
         // This doesn't include the white pawn if capturing the pawn is legal
-        let mut invalid: [ChessBitboard; NUM_SQUARES] = [ChessBitboard::new(0); NUM_SQUARES];
-        for w_king in ChessSquare::iter() {
+        let mut invalid: [Bitboard; NUM_SQUARES] = [Bitboard::new(0); NUM_SQUARES];
+        for w_king in Square::iter() {
             invalid[w_king] = PAWN_CAPTURES[White][w_pawn] | KINGS[w_king] | w_king.bb();
         }
         loop {
-            for w_king in ChessSquare::iter() {
-                let mut won = ChessBitboard::default();
+            for w_king in Square::iter() {
+                let mut won = Bitboard::default();
                 for to in KINGS[w_king] & !w_pawn.bb() {
                     won |= res[Black][idx_full(w_pawn, to)] & !KINGS[to];
                 }
@@ -88,10 +86,10 @@ fn calc_pawn_vs_king_impl() -> Bitbase {
                 }
                 let i = idx_full(w_pawn, w_king);
                 res[White][i] = won & !w_pawn.bb() & !invalid[w_king];
-                debug_assert_eq!(res[White][i] & invalid[w_king], ChessBitboard::default());
+                debug_assert_eq!(res[White][i] & invalid[w_king], Bitboard::default());
             }
             let mut changed = false;
-            for w_king in ChessSquare::iter() {
+            for w_king in Square::iter() {
                 let i = idx_full(w_pawn, w_king);
                 let no_draw_wtm = res[White][i] | invalid[w_king];
                 let draw_btm = (!no_draw_wtm).moore_exclusive();
@@ -110,10 +108,8 @@ fn calc_pawn_vs_king_impl() -> Bitbase {
 
 pub fn calc_pawn_vs_king() -> Bitbase {
     let full = calc_pawn_vs_king_impl();
-    let mut res = [
-        vec![ChessBitboard::default(); NUM_RELEVANT_BITBOARDS],
-        vec![ChessBitboard::default(); NUM_RELEVANT_BITBOARDS],
-    ];
+    let mut res =
+        [vec![Bitboard::default(); NUM_RELEVANT_BITBOARDS], vec![Bitboard::default(); NUM_RELEVANT_BITBOARDS]];
     res[White].clone_from_slice(&full[White][OFFSET..NUM_RELEVANT_BITBOARDS + OFFSET]);
     res[Black].clone_from_slice(&full[Black][OFFSET..NUM_RELEVANT_BITBOARDS + OFFSET]);
     res
@@ -121,7 +117,7 @@ pub fn calc_pawn_vs_king() -> Bitbase {
 
 pub static PAWN_V_KING_TABLE: LazyLock<Bitbase> = LazyLock::new(calc_pawn_vs_king);
 
-impl Chessboard {
+impl Board {
     pub fn query_bitbase(&self, table: &Bitbase) -> Option<PlayerResult> {
         if self.occupied_bb().num_ones() != 3 {
             return None;
@@ -139,9 +135,9 @@ impl Chessboard {
 
 pub(super) fn query_pawn_v_king(
     table: &Bitbase,
-    mut w_p: ChessSquare,
-    mut w_k: ChessSquare,
-    mut b_k: ChessSquare,
+    mut w_p: Square,
+    mut w_k: Square,
+    mut b_k: Square,
     is_black: bool,
 ) -> PlayerResult {
     if w_p.file() >= 4 {
@@ -163,27 +159,27 @@ pub(super) fn query_pawn_v_king(
 #[cfg(test)]
 mod tests {
     use crate::PlayerResult::{Draw, Lose, Win};
-    use crate::games::chess::ChessColor::{Black, White};
+    use crate::games::chess::Color::{Black, White};
     use crate::games::chess::bitbase::{
         PAWN_V_KING_TABLE, calc_pawn_vs_king, calc_pawn_vs_king_impl, idx_compact, idx_full, query_pawn_v_king,
     };
-    use crate::games::chess::squares::{ChessSquare, sq};
-    use crate::games::chess::{ChessBitboardTrait, ChessColor, Chessboard, PAWN_CAPTURES};
-    use crate::general::bitboards::Bitboard;
+    use crate::games::chess::squares::{Square, sq};
+    use crate::games::chess::{Board, ChessBitboardTrait, Color, PAWN_CAPTURES};
+    use crate::general::bitboards::BitboardTrait;
     use crate::general::bitboards::chessboard::KINGS;
     use crate::general::board::Strictness::Strict;
-    use crate::general::board::{Board, BoardHelpers};
+    use crate::general::board::{BoardHelpers, BoardTrait};
     use crate::general::squares::{RectangularCoordinates, sup_distance};
 
     #[test]
     fn consistency_test() {
         let bitbase = calc_pawn_vs_king_impl();
-        for w_pawn in ChessSquare::iter() {
+        for w_pawn in Square::iter() {
             if w_pawn.is_backrank() || w_pawn.file() >= 4 {
                 continue;
             }
-            for w_king in ChessSquare::iter() {
-                for b_king in ChessSquare::iter() {
+            for w_king in Square::iter() {
+                for b_king in Square::iter() {
                     if sup_distance(w_king, b_king) <= 1
                         || w_king == w_pawn
                         || b_king == w_pawn
@@ -192,9 +188,8 @@ mod tests {
                         continue;
                     }
                     let mut expected = false;
-                    let is_black_loss = |w_p: ChessSquare, w_k: ChessSquare, b_k: ChessSquare| {
-                        bitbase[Black][idx_full(w_p, w_k)].has(b_k)
-                    };
+                    let is_black_loss =
+                        |w_p: Square, w_k: Square, b_k: Square| bitbase[Black][idx_full(w_p, w_k)].has(b_k);
                     for to in KINGS[w_king] & !KINGS[b_king] & !w_pawn.bb() {
                         expected |= is_black_loss(w_pawn, to, b_king);
                     }
@@ -217,10 +212,10 @@ mod tests {
 
     #[derive(Debug)]
     struct Testcase {
-        side: ChessColor,
-        w_pawn: ChessSquare,
-        w_king: ChessSquare,
-        b_king: ChessSquare,
+        side: Color,
+        w_pawn: Square,
+        w_king: Square,
+        b_king: Square,
         won: bool,
     }
 
@@ -272,16 +267,16 @@ mod tests {
             124960 / 2, 97604 / 2, // white winning per side
         ];
         let bitbase = calc_pawn_vs_king();
-        for w_pawn in ChessSquare::iter() {
+        for w_pawn in Square::iter() {
             if w_pawn.is_backrank() || w_pawn.file() >= 4 {
                 continue;
             }
-            for w_king in ChessSquare::iter() {
+            for w_king in Square::iter() {
                 if w_king == w_pawn {
                     continue;
                 }
                 let i = idx_compact(w_pawn, w_king);
-                for b_king in ChessSquare::iter() {
+                for b_king in Square::iter() {
                     if w_pawn == b_king || sup_distance(w_king, b_king) <= 1 {
                         continue;
                     }
@@ -306,16 +301,16 @@ mod tests {
     #[test]
     fn chess_test() {
         let table = calc_pawn_vs_king();
-        let pos = Chessboard::from_fen("1K1k4/1P6/8/8/8/8/8/8 b - - 0 1", Strict).unwrap();
+        let pos = Board::from_fen("1K1k4/1P6/8/8/8/8/8/8 b - - 0 1", Strict).unwrap();
         assert_eq!(pos.query_bitbase(&table), Some(Lose));
         let pos = pos.make_nullmove().unwrap();
         assert_eq!(pos.query_bitbase(&table), Some(Win));
-        let pos = Chessboard::from_fen("3k4/1P6/8/8/8/1K6/8/8 b - - 0 1", Strict).unwrap();
+        let pos = Board::from_fen("3k4/1P6/8/8/8/1K6/8/8 b - - 0 1", Strict).unwrap();
         assert_eq!(pos.query_bitbase(&table), Some(Draw));
-        let pos = Chessboard::from_fen("3k4/1P6/8/8/8/1K6/8/7R b - - 0 1", Strict).unwrap();
+        let pos = Board::from_fen("3k4/1P6/8/8/8/1K6/8/7R b - - 0 1", Strict).unwrap();
         assert_eq!(pos.query_bitbase(&table), None);
 
-        let pos = Chessboard::from_fen("3k4/8/8/8/8/1K6/6p1/8 b - - 0 1", Strict).unwrap();
+        let pos = Board::from_fen("3k4/8/8/8/8/1K6/6p1/8 b - - 0 1", Strict).unwrap();
         assert_eq!(pos.query_bitbase(&table), Some(Win));
         let pos = pos.make_nullmove().unwrap();
         assert_eq!(pos.query_bitbase(&table), Some(Lose));

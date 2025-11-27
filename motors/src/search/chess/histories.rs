@@ -21,16 +21,16 @@ use crate::search::chess::caps_values::cc;
 use crate::search::chess::caps_values::cc::corrhist_max;
 use derive_more::{Deref, DerefMut, Index, IndexMut};
 use gears::colored::Colorize;
-use gears::games::chess::moves::ChessMove;
 use gears::games::chess::moves::ChessMoveFlags::NormalMove;
+use gears::games::chess::moves::Move;
 use gears::games::chess::pieces::NUM_CHESS_PIECES;
-use gears::games::chess::squares::{ChessSquare, NUM_SQUARES};
-use gears::games::chess::{ChessColor, Chessboard};
-use gears::games::{Color, NUM_COLORS};
-use gears::general::bitboards::chessboard::ChessBitboard;
-use gears::general::bitboards::{Bitboard, RawBitboard};
-use gears::general::board::Board;
-use gears::general::moves::Move;
+use gears::games::chess::squares::{NUM_SQUARES, Square};
+use gears::games::chess::{Board, Color};
+use gears::games::{ColorTrait, NUM_COLORS};
+use gears::general::bitboards::chessboard::Bitboard;
+use gears::general::bitboards::{BitboardTrait, RawBitboardTrait};
+use gears::general::board::BoardTrait;
+use gears::general::moves::MoveTrait;
 use gears::itertools::Itertools;
 use gears::output::OutputOpts;
 use gears::output::text_output::AdaptFormatter;
@@ -58,13 +58,13 @@ fn update_history_score(entry: &mut HistScoreT, bonus: HistScoreT) {
 pub(super) struct HistoryHeuristic(Box<[[HistScoreT; 64 * 64]; 4]>);
 
 impl HistoryHeuristic {
-    pub(super) fn update(&mut self, mov: ChessMove, threats: ChessBitboard, bonus: HistScoreT) {
+    pub(super) fn update(&mut self, mov: Move, threats: Bitboard, bonus: HistScoreT) {
         let mut threats_idx = threats.has(mov.src_square()) as usize;
         threats_idx = threats_idx * 2 + threats.has(mov.dest_square()) as usize;
         update_history_score(&mut self[threats_idx][mov.from_to_square()], bonus);
     }
 
-    pub(super) fn score(&self, mov: ChessMove, threats: ChessBitboard) -> isize {
+    pub(super) fn score(&self, mov: Move, threats: Bitboard) -> isize {
         let mut threats_idx = threats.has(mov.src_square()) as usize;
         threats_idx = threats_idx * 2 + threats.has(mov.dest_square()) as usize;
         self[threats_idx][mov.from_to_square()] as isize
@@ -82,14 +82,14 @@ impl Default for HistoryHeuristic {
 pub(super) struct CaptHist(Box<[[[[HistScoreT; 64]; 6]; 2]; NUM_COLORS]>);
 
 impl CaptHist {
-    pub(super) fn update(&mut self, mov: ChessMove, pos: &Chessboard, bonus: HistScoreT) {
+    pub(super) fn update(&mut self, mov: Move, pos: &Board, bonus: HistScoreT) {
         let us = pos.active_player();
         let defended = pos.threats().is_bit_set_at(mov.dest_square().bb_idx()) as usize;
         let entry = &mut self.0[us][defended][mov.piece_type(pos) as usize][mov.dest_square().bb_idx()];
         update_history_score(entry, bonus);
     }
 
-    pub(super) fn get(&self, mov: ChessMove, pos: &Chessboard) -> MoveScore {
+    pub(super) fn get(&self, mov: Move, pos: &Board) -> MoveScore {
         let us = pos.active_player();
         let defended = pos.threats().is_bit_set_at(mov.dest_square().bb_idx()) as usize;
         MoveScore(self.0[us][defended][mov.piece_type(pos) as usize][mov.dest_square().bb_idx()])
@@ -116,7 +116,7 @@ impl Default for CaptHist {
 pub(super) struct ContHist(Vec<HistScoreT>); // Can't store this on the stack because it's too large.
 
 impl ContHist {
-    fn idx(mov: ChessMove, pos: &Chessboard, prev_move: ChessMove, prev_pos: &Chessboard) -> usize {
+    fn idx(mov: Move, pos: &Board, prev_move: Move, prev_pos: &Board) -> usize {
         let color = pos.active_player();
         debug_assert!(mov.dest_square().bb_idx() < 64);
         debug_assert!((mov.piece_type(pos) as usize) < 6);
@@ -126,19 +126,12 @@ impl ContHist {
             + (prev_move.piece_type(prev_pos) as usize * 64 + prev_move.dest_square().bb_idx()) * 64 * 6
             + color as usize * 64 * 6 * 64 * 6
     }
-    pub(super) fn update(
-        &mut self,
-        mov: ChessMove,
-        pos: &Chessboard,
-        prev_mov: ChessMove,
-        prev_pos: &Chessboard,
-        bonus: HistScoreT,
-    ) {
+    pub(super) fn update(&mut self, mov: Move, pos: &Board, prev_mov: Move, prev_pos: &Board, bonus: HistScoreT) {
         let entry = &mut self[Self::idx(mov, pos, prev_mov, prev_pos)];
         update_history_score(entry, bonus);
     }
 
-    pub(super) fn score(&self, mov: ChessMove, pos: &Chessboard, prev_move: ChessMove, prev_pos: &Chessboard) -> isize {
+    pub(super) fn score(&self, mov: Move, pos: &Board, prev_move: Move, prev_pos: &Board) -> isize {
         if prev_move.is_null() {
             return 0;
         }
@@ -208,8 +201,8 @@ impl CorrHist {
 
     pub(super) fn update(
         &mut self,
-        pos: &Chessboard,
-        continued: Option<(ChessMove, &Chessboard)>,
+        pos: &Board,
+        continued: Option<(Move, &Board)>,
         depth: isize,
         eval: Score,
         score: Score,
@@ -222,7 +215,7 @@ impl CorrHist {
         Self::update_entry(&mut self.pawns[color][pawn_idx], weight, bonus);
         let minor_idx = pos.minor_key().0 as usize % CORRHIST_SIZE;
         Self::update_entry(&mut self.minor[color][minor_idx], weight, bonus);
-        for c in ChessColor::iter() {
+        for c in Color::iter() {
             let nonpawn_idx = pos.nonpawn_key(c).0 as usize % CORRHIST_SIZE;
             Self::update_entry(&mut self.nonpawns[color][nonpawn_idx][c], weight, bonus);
         }
@@ -232,12 +225,7 @@ impl CorrHist {
         }
     }
 
-    pub(super) fn correct(
-        &mut self,
-        pos: &Chessboard,
-        continued: Option<(ChessMove, &Chessboard)>,
-        raw: Score,
-    ) -> Score {
+    pub(super) fn correct(&mut self, pos: &Board, continued: Option<(Move, &Board)>, raw: Score) -> Score {
         if raw.is_won_or_lost() {
             return raw;
         }
@@ -246,7 +234,7 @@ impl CorrHist {
         let mut correction = self.pawns[color][pawn_idx] as isize;
         let minor_idx = pos.minor_key().0 as usize % CORRHIST_SIZE;
         correction += self.minor[color][minor_idx] as isize;
-        for c in ChessColor::iter() {
+        for c in Color::iter() {
             let nonpawn_idx = pos.nonpawn_key(c).0 as usize % CORRHIST_SIZE;
             correction += self.nonpawns[color][nonpawn_idx][c] as isize * cc::nonpawn_corrhist_weight() / 1024;
         }
@@ -260,25 +248,24 @@ impl CorrHist {
     }
 }
 
-pub(super) fn write_single_hist_table(table: &HistoryHeuristic, pos: &Chessboard, flip: bool) -> String {
-    let show_square = |from: ChessSquare| {
-        let sum: i32 = ChessSquare::iter()
+pub(super) fn write_single_hist_table(table: &HistoryHeuristic, pos: &Board, flip: bool) -> String {
+    let show_square = |from: Square| {
+        let sum: i32 = Square::iter()
             .map(|to| {
-                let mov =
-                    if flip { ChessMove::new(to, from, NormalMove) } else { ChessMove::new(from, to, NormalMove) };
+                let mov = if flip { Move::new(to, from, NormalMove) } else { Move::new(from, to, NormalMove) };
                 table.score(mov, pos.threats()) as i32
             })
             .sum();
         sum as f64 / 64.0
     };
-    let as_nums = ChessSquare::iter()
+    let as_nums = Square::iter()
         .map(|sq| {
             let score = show_square(sq);
             format!("{score:^7.1}").color(color_for_score(Score((score * 4.0) as ScoreT), &score_gradient()))
         })
         .collect_vec();
 
-    let formatter = Chessboard::default().pretty_formatter(None, None, OutputOpts::default());
+    let formatter = Board::default().pretty_formatter(None, None, OutputOpts::default());
     let mut formatter = AdaptFormatter {
         underlying: formatter,
         color_frame: Box::new(|_, col| col),
@@ -289,5 +276,5 @@ pub(super) fn write_single_hist_table(table: &HistoryHeuristic, pos: &Chessboard
     };
     let text =
         if flip { "Main History Destination Square:\n" } else { "Main History Source Square:\n" }.bold().to_string();
-    text + &Chessboard::default().display_pretty(&mut formatter)
+    text + &Board::default().display_pretty(&mut formatter)
 }

@@ -18,7 +18,7 @@
 
 #[cfg(test)]
 mod tests {
-    use crate::games::fairy::FairyBoard;
+    use crate::games::fairy::Board;
     use crate::general::board::BoardHelpers;
     use crate::general::board::Strictness::Relaxed;
     use crate::general::perft::Bulkness::Bulk;
@@ -27,9 +27,9 @@ mod tests {
     use crate::ugi::load_ugi_pos_simple;
     use std::time::Instant;
 
-    fn test_pos(pos: FairyBoard, fen: &str, expected: &[u64], start_time: Instant, max_nodes: u64) {
+    fn test_pos(pos: Board, fen: &str, expected: &[u64], start_time: Instant, max_nodes: u64) {
         println!("{pos}");
-        let p2 = FairyBoard::from_fen(&pos.as_fen(), Relaxed).unwrap();
+        let p2 = Board::from_fen(&pos.as_fen(), Relaxed).unwrap();
         assert_eq!(p2, pos, "{p2}");
         for (i, &expected) in expected.iter().enumerate() {
             if expected > max_nodes {
@@ -150,7 +150,7 @@ mod tests {
             ),
             ("shogi k8/9/N1+L6/9/9/3b5/p6+s1/9/8K[SPnp] w - 1", vec![148, 20_760, 1_661_131]),
         ];
-        let old = FairyBoard::default();
+        let old = Board::default();
         for (testcase, res) in fens {
             let start_time = Instant::now();
             let pos = load_ugi_pos_simple(testcase, Relaxed, &old).unwrap();
@@ -197,7 +197,7 @@ mod tests {
         ];
         for (fen, expected) in fens {
             let start_time = Instant::now();
-            let pos = FairyBoard::from_fen(fen, Relaxed).unwrap();
+            let pos = Board::from_fen(fen, Relaxed).unwrap();
             test_pos(pos, fen, expected.as_slice(), start_time, max);
         }
     }

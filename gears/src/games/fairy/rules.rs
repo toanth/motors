@@ -16,10 +16,9 @@
  *  along with Gears. If not, see <https://www.gnu.org/licenses/>.
  */
 use crate::PlayerResult;
-use crate::games::ataxx::AtaxxBoard;
 use crate::games::fairy::attacks::{AttackKind, Dir, EffectRules};
 use crate::games::fairy::effects::Observers;
-use crate::games::fairy::moves::FairyMove;
+use crate::games::fairy::moves::Move;
 use crate::games::fairy::pieces::{CHESS_KING_IDX, PAWN_IDX, Piece, PieceId};
 use crate::games::fairy::rules::GameEndEager::{
     AdditionalCounter, And, CanAchieve, DrawCounter, InsufficientMaterial, NoPiece, Not, Repetition,
@@ -32,17 +31,18 @@ use crate::games::fairy::rules::NoMovesCondition::{Always, InCheck, NotInCheck};
 use crate::games::fairy::rules::NumRoyals::{BetweenInclusive, Exactly};
 use crate::games::fairy::rules::PieceCond::{AnyPiece, Royal};
 use crate::games::fairy::{
-    AdditionalCtrT, ColorInfo, FairyBitboard, FairyBoard, FairyCastleInfo, FairyColor, FairyMoveList, FairySize,
-    MAX_NUM_PIECE_TYPES, RawFairyBitboard, UnverifiedFairyBoard,
+    AdditionalCtrT, Bitboard, Board, Color, ColorInfo, FairyCastleInfo, MAX_NUM_PIECE_TYPES, MoveList, RawBitboard,
+    Size, UnverifiedBoard,
 };
-use crate::games::mnk::{MNKBoard, MnkSettings};
-use crate::games::{BoardHistory, Color, DimT, NUM_COLORS, PosHash, Settings, chess, n_fold_repetition};
-use crate::general::bitboards::{Bitboard, RawBitboard};
-use crate::general::board::{AxesFormat, AxisSymbol, BitboardBoard, Board, BoardHelpers};
+use crate::games::{
+    BoardHistory, ColorTrait, DimT, NUM_COLORS, PosHash, SettingsTrait, ataxx, chess, mnk, n_fold_repetition,
+};
+use crate::general::bitboards::{BitboardTrait, RawBitboardTrait};
+use crate::general::board::{AxesFormat, AxisSymbol, BitboardBoard, BoardHelpers, BoardTrait};
 use crate::general::common::{Res, Tokens};
-use crate::general::move_list::MoveList;
+use crate::general::move_list::MoveListTrait;
 use crate::general::moves::Legality::{Legal, PseudoLegal};
-use crate::general::moves::{Legality, Move};
+use crate::general::moves::{Legality, MoveTrait};
 use crate::general::squares::GridSize;
 use arbitrary::Arbitrary;
 use std::cmp::Ordering;
@@ -89,7 +89,7 @@ pub enum PlayerCheckOk {
 }
 
 impl PlayerCheckOk {
-    pub fn satisfied(self, pos: &FairyBoard, us: FairyColor) -> bool {
+    pub fn satisfied(self, pos: &Board, us: Color) -> bool {
         match self {
             PlayerCheckOk::Never => !pos.is_player_in_check(us),
             PlayerCheckOk::Always => true,
@@ -131,7 +131,7 @@ impl CheckRules {
         }
     }
 
-    pub fn satisfied(&self, pos: &FairyBoard) -> bool {
+    pub fn satisfied(&self, pos: &Board) -> bool {
         self.inactive_check_ok.satisfied(pos, pos.inactive_player())
             && self.active_check_ok.satisfied(pos, pos.active_player())
     }
@@ -146,7 +146,7 @@ pub enum DrawCtrCond {
 }
 
 impl DrawCtrCond {
-    pub fn satisfied(self, ctr: usize, pos: &UnverifiedFairyBoard) -> bool {
+    pub fn satisfied(self, ctr: usize, pos: &UnverifiedBoard) -> bool {
         match self {
             DrawCtrCond::Fixed(n) => ctr >= n,
             DrawCtrCond::AdditionalCtr(i) => pos.additional_ctrs[i] > 0 && ctr >= pos.additional_ctrs[i] as usize,
@@ -166,7 +166,7 @@ pub enum PieceCond {
 }
 
 impl PieceCond {
-    pub fn bb(&self, pos: &FairyBoard) -> FairyBitboard {
+    pub fn bb(&self, pos: &Board) -> Bitboard {
         match self {
             AnyPiece => pos.either_player_bb(),
             Royal => pos.royal_bb(),
@@ -188,9 +188,9 @@ pub enum SquareFilter {
     Us,
     NotUs,
     EitherPlayer,
-    Bitboard(RawFairyBitboard),
+    Bitboard(RawBitboard),
     // the bitboard gets flipped vertically for the second player
-    SideRelativeBitboard(RawFairyBitboard),
+    SideRelativeBitboard(RawBitboard),
     Rank(DimT),
     // File(DimT),
     Neighbor(Box<SquareFilter>), // a piece of the given color must be on an adjacent square
@@ -203,7 +203,7 @@ pub enum SquareFilter {
 }
 
 impl SquareFilter {
-    pub fn bb(&self, us: FairyColor, pos: &FairyBoard) -> FairyBitboard {
+    pub fn bb(&self, us: Color, pos: &Board) -> Bitboard {
         match self {
             SquareFilter::NoSquares => pos.zero_bitboard(),
             SquareFilter::EmptySquares => pos.empty_bb(),
@@ -211,11 +211,9 @@ impl SquareFilter {
             SquareFilter::Us => pos.player_bb(us),
             SquareFilter::NotUs => !pos.player_bb(us),
             SquareFilter::EitherPlayer => pos.either_player_bb(),
-            SquareFilter::Bitboard(bb) => FairyBitboard::new(*bb, pos.size()),
-            SquareFilter::SideRelativeBitboard(bb) => {
-                FairyBitboard::new(*bb, pos.size()).flip_if(!pos.active.is_first())
-            }
-            SquareFilter::Rank(rank) => FairyBitboard::rank_for(*rank, pos.size()),
+            SquareFilter::Bitboard(bb) => Bitboard::new(*bb, pos.size()),
+            SquareFilter::SideRelativeBitboard(bb) => Bitboard::new(*bb, pos.size()).flip_if(!pos.active.is_first()),
+            SquareFilter::Rank(rank) => Bitboard::rank_for(*rank, pos.size()),
             // AttackBitboardFilter::File(file) => FairyBitboard::file_for(file, pos.size()),
             SquareFilter::Neighbor(nested) => nested.bb(us, pos).moore_exclusive(),
             SquareFilter::InDirectionOf(nested, dir) => dir.shift(nested.bb(us, pos)),
@@ -223,7 +221,7 @@ impl SquareFilter {
             SquareFilter::SameRow(cond) => cond.bb(us, pos).ranks_containing(),
             SquareFilter::PawnCapture => {
                 let ep_bb =
-                    pos.0.ep.map(|sq| FairyBitboard::single_piece_for(sq, pos.size())).unwrap_or(pos.zero_bitboard());
+                    pos.0.ep.map(|sq| Bitboard::single_piece_for(sq, pos.size())).unwrap_or(pos.zero_bitboard());
                 ep_bb | pos.player_bb(!us)
             }
             SquareFilter::Has(piece, player) => piece.bb(pos) & player.bb(pos),
@@ -235,6 +233,7 @@ impl SquareFilter {
 struct GameEndResIfBuilder(GameEndRes, GameEndRes);
 
 impl GameEndResIfBuilder {
+    // first tests the specified condition, then selects one of two options
     fn if_eager(self, condition: GameEndEager) -> GameEndRes {
         GameEndRes::If(condition, Box::new([self.0, self.1]))
     }
@@ -281,7 +280,7 @@ impl GameEndRes {
         GameEndResIfBuilder(self, other)
     }
 
-    pub fn to_res<H: BoardHistory>(&self, pos: &FairyBoard, history: &H) -> PlayerResult {
+    pub fn to_res<H: BoardHistory>(&self, pos: &Board, history: &H) -> PlayerResult {
         match self {
             ActivePlayerWin => PlayerResult::Win,
             InactivePlayerWin => PlayerResult::Lose,
@@ -347,7 +346,7 @@ pub enum PlayerCond {
 }
 
 impl PlayerCond {
-    pub fn bb(self, pos: &FairyBoard) -> FairyBitboard {
+    pub fn bb(self, pos: &Board) -> Bitboard {
         match self {
             PlayerCond::All => pos.either_player_bb(),
             PlayerCond::FirstAndActive => {
@@ -360,7 +359,7 @@ impl PlayerCond {
             _ => pos.player_bb(self.color(pos)),
         }
     }
-    pub fn color(self, pos: &FairyBoard) -> FairyColor {
+    pub fn color(self, pos: &Board) -> Color {
         match self {
             PlayerCond::All => {
                 unreachable!("PlayerCond::All can't be converted to a color")
@@ -368,8 +367,8 @@ impl PlayerCond {
             PlayerCond::FirstAndActive => {
                 unreachable!("PlayerCond::FirstAndActive can't be converted to a color")
             }
-            PlayerCond::First => FairyColor::first(),
-            PlayerCond::Second => FairyColor::second(),
+            PlayerCond::First => Color::first(),
+            PlayerCond::Second => Color::second(),
             PlayerCond::Active => pos.active_player(),
             PlayerCond::Inactive => pos.inactive_player(),
         }
@@ -388,24 +387,24 @@ pub enum NoMovesCondition {
 }
 
 impl NoMovesCondition {
-    pub fn satisfied(&self, pos: &FairyBoard) -> bool {
+    pub fn satisfied(&self, pos: &Board) -> bool {
         match self {
             Always => true,
             InCheck => pos.is_in_check(),
             NotInCheck => !pos.is_in_check(),
             NoMovesCondition::NoOpponentMoves => {
-                let Some(new_pos) = pos.clone().flip_side_to_move(FairyMove::default()) else {
+                let Some(new_pos) = pos.clone().flip_side_to_move(Move::default()) else {
                     return false;
                 };
                 // we can't simply use `(pseudo_)legal_moves()` here because that already handles no legal moves
-                let mut pseudolegal = FairyMoveList::new();
+                let mut pseudolegal = MoveList::new();
                 new_pos.gen_pseudolegal_impl(&mut pseudolegal);
-                if FairyMove::legality(pos.settings()) == PseudoLegal {
-                    MoveList::<FairyBoard>::filter_moves(&mut pseudolegal, |m: &mut FairyMove| {
+                if Move::legality(pos.settings()) == PseudoLegal {
+                    MoveListTrait::<Board>::filter_moves(&mut pseudolegal, |m: &mut Move| {
                         new_pos.is_pseudolegal_move_legal(*m)
                     });
                 }
-                MoveList::<FairyBoard>::num_moves(&pseudolegal) == 0
+                MoveListTrait::<Board>::num_moves(&pseudolegal) == 0
             }
         }
     }
@@ -446,7 +445,7 @@ pub enum GameEndEager {
 }
 
 impl GameEndEager {
-    pub fn satisfied<H: BoardHistory>(&self, pos: &FairyBoard, history: &H) -> bool {
+    pub fn satisfied<H: BoardHistory>(&self, pos: &Board, history: &H) -> bool {
         let us = pos.active_player();
 
         match self {
@@ -488,9 +487,7 @@ impl GameEndEager {
                 true
             }
             GameEndEager::InCheck(player) => match player {
-                PlayerCond::All => {
-                    pos.is_player_in_check(FairyColor::first()) && pos.is_player_in_check(FairyColor::second())
-                }
+                PlayerCond::All => pos.is_player_in_check(Color::first()) && pos.is_player_in_check(Color::second()),
                 PlayerCond::FirstAndActive => pos.active_player().is_first() && pos.is_in_check(),
                 c => pos.is_player_in_check(c.color(pos)),
             },
@@ -520,12 +517,12 @@ fn draw_ctr_chess(max: usize) -> (GameEndEager, GameEndRes) {
 pub enum FenRulesPart {
     #[default]
     None,
-    Mnk(MnkSettings),
-    CFour(MnkSettings),
+    Mnk(mnk::Settings),
+    CFour(mnk::Settings),
 }
 
 #[must_use]
-pub(super) struct EmptyBoard(Box<dyn Fn(&RulesRef) -> UnverifiedFairyBoard + Send + Sync>);
+pub(super) struct EmptyBoard(Box<dyn Fn(&RulesRef) -> UnverifiedBoard + Send + Sync>);
 
 impl Debug for EmptyBoard {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
@@ -535,21 +532,21 @@ impl Debug for EmptyBoard {
 
 impl Arbitrary<'_> for EmptyBoard {
     fn arbitrary(u: &mut arbitrary::Unstructured<'_>) -> arbitrary::Result<Self> {
-        let board = UnverifiedFairyBoard {
-            piece_bitboards: [RawFairyBitboard::arbitrary(u)?; MAX_NUM_PIECE_TYPES],
-            color_bitboards: [RawFairyBitboard::arbitrary(u)?; NUM_COLORS],
-            neutral_bb: RawFairyBitboard::arbitrary(u)?,
-            mask_bb: RawFairyBitboard::arbitrary(u)?,
+        let board = UnverifiedBoard {
+            piece_bitboards: [RawBitboard::arbitrary(u)?; MAX_NUM_PIECE_TYPES],
+            color_bitboards: [RawBitboard::arbitrary(u)?; NUM_COLORS],
+            neutral_bb: RawBitboard::arbitrary(u)?,
+            mask_bb: RawBitboard::arbitrary(u)?,
             in_hand: [[u8::arbitrary(u)?; MAX_NUM_PIECE_TYPES]; NUM_COLORS],
             ply_since_start: usize::arbitrary(u)?,
             num_piece_bitboards: usize::arbitrary(u)?,
             draw_counter: usize::arbitrary(u)?,
             in_check: [bool::arbitrary(u)?, bool::arbitrary(u)?],
             additional_ctrs: [0; NUM_COLORS],
-            active: FairyColor::arbitrary(u)?,
+            active: Color::arbitrary(u)?,
             castling_info: FairyCastleInfo::arbitrary(u)?,
             ep: Option::arbitrary(u)?,
-            last_move: FairyMove::arbitrary(u)?,
+            last_move: Move::arbitrary(u)?,
             rules: Default::default(),
             hash: PosHash::arbitrary(u)?,
         };
@@ -577,7 +574,7 @@ pub enum MoveCondition {
 }
 
 impl MoveCondition {
-    pub fn applies(self, mov: FairyMove) -> bool {
+    pub fn applies(self, mov: Move) -> bool {
         match self {
             MoveCondition::Capture => mov.is_capture(),
         }
@@ -594,7 +591,7 @@ pub enum FilterMovesCondition {
 }
 
 impl FilterMovesCondition {
-    pub fn apply<T: MoveList<FairyBoard>>(&self, list: &mut T, pos: &FairyBoard) {
+    pub fn apply<T: MoveListTrait<Board>>(&self, list: &mut T, pos: &Board) {
         match self {
             FilterMovesCondition::NoFilter => (),
             FilterMovesCondition::Any(condition) => {
@@ -691,7 +688,7 @@ impl FormatRules {
             FenRulesPart::None => Ok(None),
             FenRulesPart::Mnk(old) => {
                 let first = input.next().unwrap_or_default();
-                let settings = MnkSettings::from_input(first, input)?;
+                let settings = mnk::Settings::from_input(first, input)?;
                 if settings != old {
                     let rules = Rules::mnk(settings.size(), settings.k() as DimT);
                     Ok(Some(RulesRef(Arc::new(rules))))
@@ -701,7 +698,7 @@ impl FormatRules {
             }
             FenRulesPart::CFour(old) => {
                 let first = input.next().unwrap_or_default();
-                let settings = MnkSettings::from_input(first, input)?;
+                let settings = mnk::Settings::from_input(first, input)?;
                 if settings != old {
                     let rules = Rules::cfour(settings.size(), settings.k() as DimT);
                     Ok(Some(RulesRef(Arc::new(rules))))
@@ -712,6 +709,8 @@ impl FormatRules {
         }
     }
 }
+
+pub(super) const MAX_NUM_IN_HAND: u8 = u8::MAX;
 
 /// This struct defines the rules for the variant.
 /// Since the rules don't change during a game, but are expensive to copy and the board uses copy-make,
@@ -745,7 +744,7 @@ pub struct Rules {
     pub(super) observers: Observers,
 }
 
-impl Settings for Rules {
+impl SettingsTrait for Rules {
     fn text(&self) -> Option<String> {
         Some(format!("Variant: {}", self.name))
     }
@@ -781,13 +780,13 @@ impl Rules {
         self.format_rules.axes_format.is_usi_format()
     }
 
-    fn generic_empty_board(rules: &RulesRef) -> UnverifiedFairyBoard {
+    fn generic_empty_board(rules: &RulesRef) -> UnverifiedBoard {
         let size = rules.0.size;
-        UnverifiedFairyBoard {
+        UnverifiedBoard {
             piece_bitboards: Default::default(),
             color_bitboards: Default::default(),
             neutral_bb: Default::default(),
-            mask_bb: FairyBitboard::valid_squares_for_size(size).raw(),
+            mask_bb: Bitboard::valid_squares_for_size(size).raw(),
             in_hand: rules.0.starting_pieces_in_hand,
             ply_since_start: 0,
             num_piece_bitboards: rules.0.pieces.len(),
@@ -856,7 +855,7 @@ impl Rules {
             empty_board: EmptyBoard(Box::new(empty_func)),
             legality: PseudoLegal,
             moves_filter: FilterMovesCondition::NoFilter,
-            size: FairySize::chess(),
+            size: Size::chess(),
             has_ep: true,
             has_castling: true,
             store_last_move: false,
@@ -912,7 +911,7 @@ impl Rules {
         rules.name = "horde".to_string();
         rules.format_rules.startpos_fen =
             "rnbqkbnr/pppppppp/8/1PP2PP1/PPPPPPPP/PPPPPPPP/PPPPPPPP/PPPPPPPP w kq - 0 1".to_string();
-        rules.pieces[0] = Piece::create_piece_by_name("pawn (horde)", FairySize::chess()).unwrap();
+        rules.pieces[0] = Piece::create_piece_by_name("pawn (horde)", Size::chess()).unwrap();
         for p in 1..5 {
             rules.pieces[0].promotions.pieces.push(PieceId::new(p));
         }
@@ -930,11 +929,11 @@ impl Rules {
         rules
     }
 
-    pub fn racing_kings(size: FairySize) -> Self {
+    pub fn racing_kings(size: Size) -> Self {
         let mut rules = Self::chess();
         rules.name = "racingkings".to_string();
         rules.format_rules.startpos_fen = "8/8/8/8/8/8/krbnNBRK/qrbnNBRQ w - - 0 1".to_string();
-        let goal_rank = FairyBitboard::rank_for(size.height.0 - 1, size);
+        let goal_rank = Bitboard::rank_for(size.height.0 - 1, size);
         let goal = SquareFilter::Bitboard(goal_rank.raw());
         // this is checked first, so that it's a draw if both kings have reached the backrank
         let backrank_black = PieceIn(Royal, goal.clone(), PlayerCond::Second);
@@ -968,7 +967,7 @@ impl Rules {
         for (i, p) in rules.pieces.iter_mut().enumerate() {
             let mut drop = AttackKind::drop(vec![SquareFilter::EmptySquares]);
             if p.output_omit_piece {
-                drop.bitboard_filter.push(SquareFilter::Bitboard(!FairyBitboard::backranks_for(rules.size).raw()))
+                drop.bitboard_filter.push(SquareFilter::Bitboard(!Bitboard::backranks_for(rules.size).raw()))
             } else if !p.royal {
                 p.promotions.promoted_version = Some(PieceId::new(i + 5));
             }
@@ -1066,7 +1065,7 @@ impl Rules {
         rules.format_rules.hand = FenHandInfo::InBrackets;
         rules.format_rules.promo_fen_modifier = PromoFenModifier::Shogi;
         rules.format_rules.promo_move_char = PromoMoveChar::Plus;
-        rules.size = FairySize::shogi();
+        rules.size = Size::shogi();
         rules.colors[0] = ColorInfo { ascii_char: 'w', name: "sente".to_string() };
         rules.colors[1] = ColorInfo { ascii_char: 'b', name: "gote".to_string() };
         rules.pieces = Piece::shogi_pieces();
@@ -1101,12 +1100,12 @@ impl Rules {
     }
 
     pub fn ataxx() -> Self {
-        let size = FairySize::ataxx();
+        let size = Size::ataxx();
         let mut map = Piece::complete_piece_map(size);
         let piece = map.remove("ataxx").unwrap();
         let gap = map.remove("gap").unwrap();
         let pieces = vec![piece, gap];
-        let startpos_fen = AtaxxBoard::startpos().as_fen();
+        let startpos_fen = ataxx::Board::startpos().as_fen();
         let fen_rules = FormatRules {
             hand: FenHandInfo::None,
             has_ply_clock: true,
@@ -1123,7 +1122,7 @@ impl Rules {
             fallback: None,
             pieces,
             colors: Self::mnk_colors(),
-            starting_pieces_in_hand: [[u8::MAX; MAX_NUM_PIECE_TYPES]; NUM_COLORS],
+            starting_pieces_in_hand: [[MAX_NUM_IN_HAND; MAX_NUM_PIECE_TYPES]; NUM_COLORS],
             game_end_eager: vec![
                 (Repetition(3), Draw),
                 (DrawCounter(DrawCtrCond::Fixed(100)), Draw),
@@ -1147,11 +1146,13 @@ impl Rules {
         }
     }
 
-    pub fn droptaxx(size: FairySize) -> Self {
+    pub fn droptaxx(size: Size) -> Self {
         let mut res = Self::mnk(size, 1);
         res.name = "droptaxx".to_string();
         res.format_rules.startpos_fen =
-            MNKBoard::startpos_for_settings(MnkSettings::new(size.height, size.width, 1)).fen_no_rules().to_string();
+            mnk::Board::startpos_for_settings(mnk::Settings::new(size.height, size.width, 1))
+                .fen_no_rules()
+                .to_string();
         res.game_end_eager = vec![];
         res.format_rules.rules_part = FenRulesPart::None;
         res.game_end_no_moves = vec![(NoMovesCondition::NoOpponentMoves, GameEndRes::MorePieces)];
@@ -1160,14 +1161,14 @@ impl Rules {
     }
 
     pub fn tictactoe() -> Self {
-        Self::mnk(FairySize::tictactoe(), 3)
+        Self::mnk(Size::tictactoe(), 3)
     }
 
-    pub fn mnk(size: FairySize, k: DimT) -> Self {
+    pub fn mnk(size: Size, k: DimT) -> Self {
         let piece = Piece::complete_piece_map(size).remove("mnk").unwrap();
         let pieces = vec![piece];
-        let settings = MnkSettings::new(size.height, size.width, k);
-        let startpos_fen = MNKBoard::startpos_for_settings(settings).as_fen();
+        let settings = mnk::Settings::new(size.height, size.width, k);
+        let startpos_fen = mnk::Board::startpos_for_settings(settings).as_fen();
         let fen_rules = FormatRules {
             hand: FenHandInfo::None,
             has_ply_clock: false,
@@ -1184,7 +1185,7 @@ impl Rules {
             fallback: None,
             pieces,
             colors: Self::mnk_colors(),
-            starting_pieces_in_hand: [[u8::MAX; MAX_NUM_PIECE_TYPES]; NUM_COLORS],
+            starting_pieces_in_hand: [[MAX_NUM_IN_HAND; MAX_NUM_PIECE_TYPES]; NUM_COLORS],
             game_end_eager: vec![(InRowAtLeast(k as usize, PlayerCond::Inactive), GameEndRes::loss())],
             game_end_no_moves: vec![(Always, Draw)],
             legality: Legal,
@@ -1192,7 +1193,7 @@ impl Rules {
             size,
             has_ep: false,
             has_castling: false,
-            store_last_move: true,
+            store_last_move: false, // TODO: Store without having that affect equality so that fen roundtrip works
             ctr_threshold: [None; NUM_COLORS],
             effect_rules: EffectRules::default(),
             check_rules: CheckRules::none(),
@@ -1204,11 +1205,11 @@ impl Rules {
         }
     }
 
-    pub fn cfour(size: FairySize, k: DimT) -> Self {
+    pub fn cfour(size: Size, k: DimT) -> Self {
         let mut res = Self::mnk(size, k);
         res.name = "cfour".to_string();
         res.pieces = vec![Piece::create_piece_by_name("cfour", size).unwrap()];
-        res.format_rules.rules_part = FenRulesPart::CFour(MnkSettings::new(size.height, size.width, k));
+        res.format_rules.rules_part = FenRulesPart::CFour(mnk::Settings::new(size.height, size.width, k));
         res
     }
 }
@@ -1225,7 +1226,7 @@ impl RulesRef {
         Self(rules)
     }
 
-    pub fn empty_pos(&self) -> UnverifiedFairyBoard {
+    pub fn empty_pos(&self) -> UnverifiedBoard {
         (self.0.empty_board.0)(self)
     }
 

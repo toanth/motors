@@ -1,11 +1,14 @@
 use crate::GameState;
 use crate::MatchStatus::*;
-use crate::games::{AbstractPieceType, CharType, Color, ColoredPiece, ColoredPieceType, Coordinates, DimT, Settings};
-use crate::general::board::{AxesFormat, Board, BoardHelpers, BoardOrientation, ColPieceTypeOf, RectangularBoard};
+use crate::games::{
+    AbstractPieceType, CharType, ColorTrait, ColoredPieceTrait, ColoredPieceTypeTrait, CoordinatesTrait, DimT,
+    SettingsTrait,
+};
+use crate::general::board::{AxesFormat, BoardHelpers, BoardOrientation, BoardTrait, ColPieceTypeOf, RectangularBoard};
 use crate::general::common::{NamedEntity, Res};
-use crate::general::move_list::MoveList;
+use crate::general::move_list::MoveListTrait;
 use crate::general::moves::ExtendedFormat::Alternative;
-use crate::general::moves::Move;
+use crate::general::moves::MoveTrait;
 use crate::general::squares::SquareColor::Black;
 use crate::general::squares::{RectangularCoordinates, SquareColor};
 use crate::output::pgn::match_to_pgn_string;
@@ -172,11 +175,11 @@ pub struct BoardToText {
 }
 
 impl BoardToText {
-    fn match_to_pgn<B: Board>(m: &dyn GameState<B>) -> String {
+    fn match_to_pgn<B: BoardTrait>(m: &dyn GameState<B>) -> String {
         match_to_pgn_string(m)
     }
 
-    fn list_moves<B: Board>(m: &dyn GameState<B>) -> String {
+    fn list_moves<B: BoardTrait>(m: &dyn GameState<B>) -> String {
         use fmt::Write;
         let mut res = String::default();
         let pos = m.get_board();
@@ -186,7 +189,7 @@ impl BoardToText {
         res
     }
 
-    fn match_to_ugi<B: Board>(m: &dyn GameState<B>) -> String {
+    fn match_to_ugi<B: BoardTrait>(m: &dyn GameState<B>) -> String {
         use std::fmt::Write;
         let mut pos = m.initial_pos().clone();
         if m.move_history().is_empty() {
@@ -205,7 +208,7 @@ impl BoardToText {
         }
     }
 
-    pub fn as_string<B: Board>(&self, m: &dyn GameState<B>, opts: OutputOpts) -> String {
+    pub fn as_string<B: BoardTrait>(&self, m: &dyn GameState<B>, opts: OutputOpts) -> String {
         let mut time_below = String::default();
         let mut time_above = String::default();
         if m.match_status() == Ongoing {
@@ -314,7 +317,7 @@ impl AbstractOutput for TextOutput {
     }
 }
 
-impl<B: Board> Output<B> for TextOutput {
+impl<B: BoardTrait> Output<B> for TextOutput {
     fn as_string(&self, m: &dyn GameState<B>, opts: OutputOpts) -> String {
         self.to_text.as_string(m, opts)
     }
@@ -344,7 +347,7 @@ impl TextOutputBuilder {
         Self { typ: MsgOnly, stream: None, accepted, short_name: Some(short_name.to_string()) }
     }
 
-    pub fn build<B: Board>(&mut self, is_engine: bool) -> Res<OutputBox<B>> {
+    pub fn build<B: BoardTrait>(&mut self, is_engine: bool) -> Res<OutputBox<B>> {
         let stream = self.stream.take().unwrap_or_else(|| TextStream::Stderr(stderr()));
         Ok(Box::new(TextOutput::new(
             self.typ,
@@ -369,7 +372,7 @@ impl NamedEntity for TextOutputBuilder {
     }
 }
 
-impl<B: Board> OutputBuilder<B> for TextOutputBuilder {
+impl<B: BoardTrait> OutputBuilder<B> for TextOutputBuilder {
     fn for_engine(&mut self, _state: &dyn GameState<B>) -> Res<OutputBox<B>> {
         self.build(true)
     }
@@ -411,9 +414,9 @@ trait AbstractPrettyBoardPrinter {
 }
 
 #[allow(type_alias_bounds)]
-type SimplePieceFormatter<B: Board> = dyn Fn(B::Piece, CharType, &B::Settings) -> char;
+type SimplePieceFormatter<B: BoardTrait> = dyn Fn(B::Piece, CharType, &B::Settings) -> char;
 
-enum PrintType<'a, B: Board> {
+enum PrintType<'a, B: BoardTrait> {
     Formatter(&'a dyn BoardFormatter<B>),
     Simple(&'a SimplePieceFormatter<B>, CharType),
 }
@@ -535,7 +538,7 @@ fn display_color_of(is_first: bool) -> colored::Color {
     if is_first { p1_color() } else { p2_color() }
 }
 
-pub fn display_color<C: Color>(color: C) -> colored::Color {
+pub fn display_color<C: ColorTrait>(color: C) -> colored::Color {
     display_color_of(color.is_first())
 }
 
@@ -777,7 +780,7 @@ pub trait AbstractBoardFormatter {
     fn axes_format(&self) -> AxesFormat;
 }
 
-pub trait BoardFormatter<B: Board>: AbstractBoardFormatter {
+pub trait BoardFormatter<B: BoardTrait>: AbstractBoardFormatter {
     fn display_piece(&self, coords: B::Coordinates, width: usize) -> String;
 
     fn frame_color(&self, coords: B::Coordinates) -> Option<colored::Color>;
@@ -895,7 +898,7 @@ impl<B: RectangularBoard> BoardFormatter<B> for DefaultBoardFormatter<B> {
 pub type AdaptPieceDisplay<B: RectangularBoard> =
     dyn Fn(B::Coordinates, Option<colored::Color>) -> Option<colored::Color>;
 
-pub struct AdaptFormatter<B: Board> {
+pub struct AdaptFormatter<B: BoardTrait> {
     pub underlying: Box<dyn BoardFormatter<B>>,
     pub color_frame: Box<AdaptPieceDisplay<B>>,
     pub display_piece: Box<dyn Fn(B::Coordinates, usize, String) -> String>,
@@ -904,7 +907,7 @@ pub struct AdaptFormatter<B: Board> {
     pub square_width: Option<usize>,
 }
 
-impl<B: Board> AbstractBoardFormatter for AdaptFormatter<B> {
+impl<B: BoardTrait> AbstractBoardFormatter for AdaptFormatter<B> {
     fn display_piece_rank_file(&self, rank: usize, file: usize, width: usize) -> String {
         let sq = B::Coordinates::from_x_y(rank, file);
         self.display_piece(sq, width)
@@ -940,7 +943,7 @@ impl<B: Board> AbstractBoardFormatter for AdaptFormatter<B> {
     }
 }
 
-impl<B: Board> BoardFormatter<B> for AdaptFormatter<B> {
+impl<B: BoardTrait> BoardFormatter<B> for AdaptFormatter<B> {
     fn display_piece(&self, square: B::Coordinates, width: usize) -> String {
         let underlying_res = self.underlying.display_piece(square, width);
         (self.display_piece)(square, width, underlying_res)

@@ -1,5 +1,5 @@
 use crate::games::CharType::{Ascii, Unicode};
-use crate::general::board::{Board, BoardHelpers};
+use crate::general::board::{BoardHelpers, BoardTrait};
 use crate::general::common::{EntityList, Res, Tokens};
 use crate::output::OutputBuilder;
 use anyhow::bail;
@@ -51,8 +51,8 @@ pub const NUM_CHAR_TYPES: usize = 2;
 
 pub const NUM_COLORS: usize = 2;
 
-pub trait Color: Debug + Default + Copy + Clone + PartialEq + Eq + Send + Hash + Not<Output = Self> {
-    type Board: Board<Color = Self>;
+pub trait ColorTrait: Debug + Default + Copy + Clone + PartialEq + Eq + Send + Hash + Not<Output = Self> {
+    type Board: BoardTrait<Color = Self>;
 
     #[must_use]
     fn other(self) -> Self {
@@ -74,7 +74,7 @@ pub trait Color: Debug + Default + Copy + Clone + PartialEq + Eq + Send + Hash +
     }
 
     /// Takes a board parameter because the `FairyBoard` color can change based on the rules
-    fn from_char(color: char, settings: &<Self::Board as Board>::Settings) -> Option<Self> {
+    fn from_char(color: char, settings: &<Self::Board as BoardTrait>::Settings) -> Option<Self> {
         if Self::first().to_char(settings).eq_ignore_ascii_case(&color) {
             Some(Self::first())
         } else if Self::second().to_char(settings).eq_ignore_ascii_case(&color) {
@@ -84,7 +84,7 @@ pub trait Color: Debug + Default + Copy + Clone + PartialEq + Eq + Send + Hash +
         }
     }
 
-    fn from_name(name: &str, settings: &<Self::Board as Board>::Settings) -> Option<Self> {
+    fn from_name(name: &str, settings: &<Self::Board as BoardTrait>::Settings) -> Option<Self> {
         if Self::first().name(settings).eq_ignore_ascii_case(name) {
             Some(Self::first())
         } else if Self::second().name(settings).eq_ignore_ascii_case(name) {
@@ -104,14 +104,14 @@ pub trait Color: Debug + Default + Copy + Clone + PartialEq + Eq + Send + Hash +
         }
     }
 
-    fn to_char(self, _settings: &<Self::Board as Board>::Settings) -> char;
+    fn to_char(self, _settings: &<Self::Board as BoardTrait>::Settings) -> char;
 
-    fn name(self, _settings: &<Self::Board as Board>::Settings) -> &str;
+    fn name(self, _settings: &<Self::Board as BoardTrait>::Settings) -> &str;
 }
 
 /// Common parts of colored and uncolored piece types
 // TODO: Remove default?
-pub trait AbstractPieceType<B: Board>: Eq + Copy + Debug + Default {
+pub trait AbstractPieceType<B: BoardTrait>: Eq + Copy + Debug + Default {
     fn empty() -> Self;
 
     fn non_empty(_settings: &B::Settings) -> impl Iterator<Item = Self>;
@@ -186,8 +186,8 @@ pub trait AbstractPieceType<B: Board>: Eq + Copy + Debug + Default {
     }
 }
 
-pub trait PieceType<B: Board>: AbstractPieceType<B> {
-    type Colored: ColoredPieceType<B>;
+pub trait PieceTypeTrait<B: BoardTrait>: AbstractPieceType<B> {
+    type Colored: ColoredPieceTypeTrait<B>;
 
     fn from_idx(idx: usize) -> Self;
 
@@ -198,8 +198,8 @@ pub trait PieceType<B: Board>: AbstractPieceType<B> {
     }
 }
 
-pub trait ColoredPieceType<B: Board>: AbstractPieceType<B> {
-    type Uncolored: PieceType<B>;
+pub trait ColoredPieceTypeTrait<B: BoardTrait>: AbstractPieceType<B> {
+    type Uncolored: PieceTypeTrait<B>;
 
     fn new(color: B::Color, uncolored: Self::Uncolored) -> Self;
 
@@ -255,31 +255,31 @@ pub trait ColoredPieceType<B: Board>: AbstractPieceType<B> {
 }
 
 #[derive(Debug)]
-pub struct ColPieceTypeFormatter<'a, B: Board, T: ColoredPieceType<B>> {
+pub struct ColPieceTypeFormatter<'a, B: BoardTrait, T: ColoredPieceTypeTrait<B>> {
     piece: T,
     settings: &'a B::Settings,
     char_type: CharType,
     display_pretty: bool,
 }
 
-impl<B: Board, T: ColoredPieceType<B>> Display for ColPieceTypeFormatter<'_, B, T> {
+impl<B: BoardTrait, T: ColoredPieceTypeTrait<B>> Display for ColPieceTypeFormatter<'_, B, T> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         self.piece.write_as_str(self.settings, self.char_type, self.display_pretty, f)
     }
 }
 
 // TODO: Don't save coordinates in colored piece
-pub trait ColoredPiece<B: Board>: Eq + Copy + Debug + Default
+pub trait ColoredPieceTrait<B: BoardTrait>: Eq + Copy + Debug + Default
 where
-    B: Board<Piece = Self>,
+    B: BoardTrait<Piece = Self>,
 {
-    type ColoredPieceType: ColoredPieceType<B>;
+    type ColoredPieceType: ColoredPieceTypeTrait<B>;
 
     fn new(typ: Self::ColoredPieceType, square: B::Coordinates) -> Self;
 
     fn coordinates(self) -> B::Coordinates;
 
-    fn uncolored(self) -> <Self::ColoredPieceType as ColoredPieceType<B>>::Uncolored {
+    fn uncolored(self) -> <Self::ColoredPieceType as ColoredPieceTypeTrait<B>>::Uncolored {
         self.colored_piece_type().uncolor()
     }
 
@@ -304,14 +304,14 @@ where
 
 #[derive(Eq, PartialEq, Default, Debug, Clone)]
 #[must_use]
-pub struct GenericPiece<B: Board, ColType: ColoredPieceType<B>> {
+pub struct GenericPiece<B: BoardTrait, ColType: ColoredPieceTypeTrait<B>> {
     symbol: ColType,
     coordinates: B::Coordinates,
 }
 
-impl<B: Board, ColType: ColoredPieceType<B>> Copy for GenericPiece<B, ColType> {}
+impl<B: BoardTrait, ColType: ColoredPieceTypeTrait<B>> Copy for GenericPiece<B, ColType> {}
 
-impl<B: Board<Piece = Self>, ColType: ColoredPieceType<B>> ColoredPiece<B> for GenericPiece<B, ColType> {
+impl<B: BoardTrait<Piece = Self>, ColType: ColoredPieceTypeTrait<B>> ColoredPieceTrait<B> for GenericPiece<B, ColType> {
     type ColoredPieceType = ColType;
 
     fn new(typ: ColType, coordinates: B::Coordinates) -> Self {
@@ -327,13 +327,13 @@ impl<B: Board<Piece = Self>, ColType: ColoredPieceType<B>> ColoredPiece<B> for G
     }
 }
 
-impl<B: Board, ColType: ColoredPieceType<B> + Display> Display for GenericPiece<B, ColType> {
+impl<B: BoardTrait, ColType: ColoredPieceTypeTrait<B> + Display> Display for GenericPiece<B, ColType> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         Display::fmt(&self.symbol, f)
     }
 }
 
-impl<B: Board, ColType: ColoredPieceType<B>> GenericPiece<B, ColType> {
+impl<B: BoardTrait, ColType: ColoredPieceTypeTrait<B>> GenericPiece<B, ColType> {
     pub fn new(symbol: ColType, coordinates: B::Coordinates) -> Self {
         Self { symbol, coordinates }
     }
@@ -354,10 +354,10 @@ pub fn char_to_file(file: char) -> DimT {
 
 /// On a rectangular board, coordinates are called `squares`.
 #[must_use]
-pub trait Coordinates:
+pub trait CoordinatesTrait:
     Eq + Copy + Debug + Default + FromStr<Err = anyhow::Error> + Display + for<'a> Arbitrary<'a>
 {
-    type Size: Size<Self>;
+    type Size: SizeTrait<Self>;
 
     /// mirrors the coordinates vertically
     fn flip_up_down(self, size: Self::Size) -> Self;
@@ -408,7 +408,9 @@ impl Width {
 }
 
 #[must_use]
-pub trait Size<C: Coordinates>: Eq + PartialEq + Copy + Clone + Display + Debug + for<'a> Arbitrary<'a> {
+pub trait SizeTrait<C: CoordinatesTrait>:
+    Eq + PartialEq + Copy + Clone + Display + Debug + for<'a> Arbitrary<'a>
+{
     fn num_squares(self) -> usize;
 
     /// Converts coordinates into an internal key. This function is injective, but **no further guarantees** are
@@ -436,7 +438,7 @@ pub trait Size<C: Coordinates>: Eq + PartialEq + Copy + Clone + Display + Debug 
     }
 }
 
-pub trait KnownSize<C: Coordinates>: Size<C> + Default {
+pub trait KnownSize<C: CoordinatesTrait>: SizeTrait<C> + Default {
     #[inline]
     fn num_squares() -> usize {
         Self::default().num_squares()
@@ -480,7 +482,7 @@ impl Display for PosHash {
     }
 }
 
-pub trait Settings: Debug {
+pub trait SettingsTrait: Debug {
     fn text(&self) -> Option<String> {
         None
     }
@@ -617,39 +619,36 @@ pub fn n_fold_repetition<H: BoardHistory>(mut count: usize, history: &H, hash: P
 
 #[cfg(test)]
 mod tests {
-    use crate::games::ataxx::AtaxxBoard;
-    use crate::games::chess::Chessboard;
     use crate::games::generic_tests::GenericTests;
-    use crate::games::mnk::MNKBoard;
-    use crate::games::uttt::UtttBoard;
+    use crate::games::{ataxx, chess, fairy, mnk, uttt};
 
     #[cfg(feature = "chess")]
     #[test]
     fn generic_chess_test() {
-        GenericTests::<Chessboard>::all_tests();
+        GenericTests::<chess::Board>::all_tests();
     }
 
     #[cfg(feature = "mnk")]
     #[test]
     fn generic_mnk_test() {
-        GenericTests::<MNKBoard>::all_tests();
+        GenericTests::<mnk::Board>::all_tests();
     }
 
     #[cfg(feature = "ataxx")]
     #[test]
     fn generic_ataxx_test() {
-        GenericTests::<AtaxxBoard>::all_tests();
+        GenericTests::<ataxx::Board>::all_tests();
     }
 
     #[cfg(feature = "uttt")]
     #[test]
     fn generic_uttt_test() {
-        GenericTests::<UtttBoard>::all_tests();
+        GenericTests::<uttt::Board>::all_tests();
     }
 
     #[cfg(feature = "fairy")]
     #[test]
     fn generic_fairy_test() {
-        GenericTests::<UtttBoard>::all_tests();
+        GenericTests::<fairy::Board>::all_tests();
     }
 }

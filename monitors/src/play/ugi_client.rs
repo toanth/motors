@@ -18,12 +18,12 @@ use crate::ui::Input;
 use gears::MatchStatus::*;
 use gears::Quitting::*;
 use gears::colored::Colorize;
-use gears::games::{BoardHistDyn, Color, ZobristHistory};
+use gears::games::{BoardHistDyn, ColorTrait, ZobristHistory};
 use gears::general::board::Strictness::Relaxed;
-use gears::general::board::{Board, BoardHelpers};
+use gears::general::board::{BoardHelpers, BoardTrait};
 use gears::general::common::Res;
 use gears::general::common::anyhow::bail;
-use gears::general::moves::Move;
+use gears::general::moves::MoveTrait;
 use gears::output::Message::*;
 use gears::output::{Message, OutputBox, OutputBuilder, OutputOpts};
 use gears::search::TimeControl;
@@ -40,7 +40,7 @@ const NO_PLAYER: PlayerId = PlayerId::MAX;
 // A struct that gets manipulated by the UI and the players
 // TODO: Use 'Match' struct
 #[derive(Debug, Clone)]
-pub struct UgiMatchState<B: Board> {
+pub struct UgiMatchState<B: BoardTrait> {
     pub status: MatchStatus,
     /// Current board state (does not include history), should be cheap to copy
     pub board: B,
@@ -60,7 +60,7 @@ pub struct UgiMatchState<B: Board> {
     pub p2: PlayerId,
 }
 
-impl<B: Board> UgiMatchState<B> {
+impl<B: BoardTrait> UgiMatchState<B> {
     fn new(initial_pos: B, event: String, site: String) -> Self {
         Self {
             status: NotStarted,
@@ -90,7 +90,7 @@ impl<B: Board> UgiMatchState<B> {
 
 /// This struct exists (instead of simply using `Client`) because the all-mighty borrow checker demands it.
 #[derive(Debug)]
-pub struct ClientState<B: Board> {
+pub struct ClientState<B: BoardTrait> {
     pub the_match: UgiMatchState<B>,
     game_name: String,
     pub players: Vec<Player<B>>,
@@ -104,7 +104,7 @@ pub struct ClientState<B: Board> {
     pub debug: bool,
 }
 
-impl<B: Board> ClientState<B> {
+impl<B: BoardTrait> ClientState<B> {
     // Getters should be implemented as methods of the UgiMatchState, but all other functions, especially those that modify
     // the state, are better suited in the Client, because only the client can access outputs.
     pub fn id(&self, color: B::Color) -> PlayerId {
@@ -162,7 +162,7 @@ impl<B: Board> ClientState<B> {
     }
 }
 
-impl<B: Board> GameState<B> for ClientState<B> {
+impl<B: BoardTrait> GameState<B> for ClientState<B> {
     fn initial_pos(&self) -> &B {
         &self.the_match.initial_pos
     }
@@ -223,7 +223,7 @@ impl<B: Board> GameState<B> for ClientState<B> {
 /// The word `Client` is used instead of the more common term `Ugi GUI` to avoid confusion with regard to the actual GUI,
 /// and in keeping with the (unofficial, but vastly more detailed) UCI specification at <https://expositor.dev/uci/doc/uci-draft-1.pdf>
 #[derive(Debug)]
-pub struct Client<B: Board> {
+pub struct Client<B: BoardTrait> {
     /// The state sub-object is necessary to appease the borrow checker, because output functions take
     /// both themselves as mut reference and the state as non-mut reference
     pub state: ClientState<B>,
@@ -238,7 +238,7 @@ pub struct Client<B: Board> {
     will_quit: bool,
 }
 
-impl<B: Board> Client<B> {
+impl<B: BoardTrait> Client<B> {
     fn create(
         send_quit: Unparker,
         all_outputs: Vec<Box<dyn OutputBuilder<B>>>,
@@ -723,14 +723,14 @@ impl<B: Board> Client<B> {
 }
 
 #[derive(Debug)]
-pub struct RunClient<B: Board> {
+pub struct RunClient<B: BoardTrait> {
     pub client: Arc<Mutex<Client<B>>>,
     pub should_quit: Parker,
     /// This is what actually takes control of the program. It could be e.g. a GUI or a SPRT runner.
     pub input: Box<dyn Input<B>>,
 }
 
-impl<B: Board> RunClient<B> {
+impl<B: BoardTrait> RunClient<B> {
     pub fn create(
         input: Box<dyn Input<B>>,
         all_outputs: Vec<Box<dyn OutputBuilder<B>>>,
@@ -742,7 +742,7 @@ impl<B: Board> RunClient<B> {
     }
 }
 
-impl<B: Board> AbstractRun for RunClient<B> {
+impl<B: BoardTrait> AbstractRun for RunClient<B> {
     fn run(&mut self) -> Quitting {
         {
             let mut guard = self.client.lock().unwrap();

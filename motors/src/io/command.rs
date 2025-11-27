@@ -28,14 +28,14 @@ use gears::cli::Game;
 use gears::colored::Colorize;
 use gears::games::CharType::{Ascii, Unicode};
 #[cfg(feature = "fairy")]
-use gears::games::fairy::FairyBoard;
-use gears::games::{AbstractPieceType, Color, ColoredPiece, Size};
-use gears::general::board::{Board, BoardHelpers, ColPieceTypeOf, Strictness};
+use gears::games::fairy::Board;
+use gears::games::{AbstractPieceType, ColorTrait, ColoredPieceTrait, SizeTrait};
+use gears::general::board::{BoardHelpers, BoardTrait, ColPieceTypeOf, Strictness};
 use gears::general::common::anyhow::{anyhow, bail};
 use gears::general::common::{
     Name, NamedEntity, Res, Tokens, parse_duration_ms, parse_int, parse_int_from_str, tokens,
 };
-use gears::general::moves::{ExtendedFormat, Move};
+use gears::general::moves::{ExtendedFormat, MoveTrait};
 use gears::itertools::Itertools;
 use gears::output::Message::Warning;
 use gears::output::OutputOpts;
@@ -362,7 +362,7 @@ pub fn ugi_commands() -> CommandList {
                 let mut games = Game::iter().map(|g| Box::new(Name::new(&g))).collect_vec();
                 #[cfg(feature = "fairy")]
                 {
-                    games.extend(FairyBoard::list_variants().unwrap_or_default().iter().map(|v| Box::new(Name::from_name(&format!("Fairy-{v}")))));
+                    games.extend(Board::list_variants().unwrap_or_default().iter().map(|v| Box::new(Name::from_name(&format!("Fairy-{v}")))));
                 }
                 select_command::<Name>(&games)
             }
@@ -478,7 +478,7 @@ pub trait AbstractGoState: Debug {
     fn is_first_player_active(&self) -> bool;
 }
 
-impl<B: Board> AbstractGoState for GoState<B> {
+impl<B: BoardTrait> AbstractGoState for GoState<B> {
     fn set_searchmoves(&mut self, words: &mut Tokens) -> Res<()> {
         let mut search_moves = vec![];
         while let Some(mov) = words.peek().and_then(|m| B::Move::from_text(m, &self.pos).ok()) {
@@ -551,7 +551,7 @@ impl<B: Board> AbstractGoState for GoState<B> {
 }
 
 #[derive(Debug, Clone)]
-pub struct GoState<B: Board> {
+pub struct GoState<B: BoardTrait> {
     pub generic: GenericGoState,
     pub search_moves: Option<Vec<B::Move>>,
     pub pos: B,
@@ -576,7 +576,7 @@ pub struct GenericGoState {
     default_perft_depth: DepthPly,
 }
 
-impl<B: Board> GoState<B> {
+impl<B: BoardTrait> GoState<B> {
     pub fn default_depth_limit(ugi: &EngineUGI<B>, search_type: SearchType) -> DepthPly {
         match search_type {
             Bench => ugi.state.engine.get_engine_info().default_bench_depth(),
@@ -655,7 +655,7 @@ pub(super) fn depth_cmd() -> Command {
     })
 }
 
-pub(super) fn go_options<B: Board>(mode: Option<SearchType>, settings: B::SettingsRef) -> CommandList {
+pub(super) fn go_options<B: BoardTrait>(mode: Option<SearchType>, settings: B::SettingsRef) -> CommandList {
     let pos = B::startpos_for_settings(settings);
     let mut res = go_options_impl(mode, pos.color_chars(), pos.color_names());
 
@@ -914,7 +914,7 @@ pub(super) fn go_options_impl(
     res
 }
 
-pub(super) fn query_options<B: Board>() -> CommandList {
+pub(super) fn query_options<B: BoardTrait>() -> CommandList {
     // TODO: See go_options, doesn't update the chars
     query_options_impl(B::default().color_chars())
 }
@@ -1019,7 +1019,7 @@ fn bool_options() -> CommandList {
     ]
 }
 
-pub(super) fn position_options<B: Board>(pos: Option<&B>, accept_pos_word: bool) -> CommandList {
+pub(super) fn position_options<B: BoardTrait>(pos: Option<&B>, accept_pos_word: bool) -> CommandList {
     let all_names_fn = || {
         let mut res = vec![];
         for p in B::name_to_pos_map() {
@@ -1072,7 +1072,7 @@ pub(super) fn move_command(recurse: bool) -> Command {
     )
 }
 
-pub(super) fn moves_options<B: Board>(pos: &B, recurse: bool) -> CommandList {
+pub(super) fn moves_options<B: BoardTrait>(pos: &B, recurse: bool) -> CommandList {
     let mut res: CommandList = vec![];
     let legals = pos.legal_moves_slow().into_iter().collect_vec();
     for &mov in &legals {
@@ -1103,7 +1103,7 @@ pub(super) fn moves_options<B: Board>(pos: &B, recurse: bool) -> CommandList {
     res
 }
 
-pub(super) fn coords_options<B: Board>(pos: &B, ac_coords: bool, only_occupied: bool) -> CommandList {
+pub(super) fn coords_options<B: BoardTrait>(pos: &B, ac_coords: bool, only_occupied: bool) -> CommandList {
     let mut res = vec![];
     for c in pos.size().valid_coordinates() {
         if only_occupied && pos.is_empty(c) {
@@ -1125,7 +1125,7 @@ pub(super) fn coords_options<B: Board>(pos: &B, ac_coords: bool, only_occupied: 
     res
 }
 
-pub(super) fn piece_options<B: Board>(pos: &B) -> CommandList {
+pub(super) fn piece_options<B: BoardTrait>(pos: &B) -> CommandList {
     let mut res = vec![];
     let settings = pos.settings();
     for p in ColPieceTypeOf::<B>::non_empty(settings) {

@@ -1,32 +1,31 @@
 use crate::search::move_picker::MovePickerState::*;
 use crate::search::{Engine, MoveScore, MoveScorer, SearchStateFor};
 use gears::arrayvec::{ArrayVec, IntoIter};
-use gears::general::board::Board;
-use gears::general::move_list::MoveList;
-use gears::general::moves::Move;
+use gears::general::board::BoardTrait;
+use gears::general::moves::MoveTrait;
 use gears::itertools::Itertools;
 use std::cmp::Ordering;
 use std::marker::PhantomData;
 
 #[derive(Debug, Clone, Eq, PartialEq)]
 // Merge move and score into a single u32 to make the hot loop of finding the best move faster. Idea from 87flowers.
-pub struct ScoredMove<B: Board>(u32, PhantomData<B>);
+pub struct ScoredMove<B: BoardTrait>(u32, PhantomData<B>);
 
-impl<B: Board> Copy for ScoredMove<B> {}
+impl<B: BoardTrait> Copy for ScoredMove<B> {}
 
-impl<B: Board> PartialOrd for ScoredMove<B> {
+impl<B: BoardTrait> PartialOrd for ScoredMove<B> {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         Some(self.cmp(other))
     }
 }
 
-impl<B: Board> Ord for ScoredMove<B> {
+impl<B: BoardTrait> Ord for ScoredMove<B> {
     fn cmp(&self, other: &Self) -> Ordering {
         self.0.cmp(&other.0)
     }
 }
 
-impl<B: Board> ScoredMove<B> {
+impl<B: BoardTrait> ScoredMove<B> {
     pub fn new(mov: B::Move, score: MoveScore) -> Self {
         // ScoredMove(score, mov)
         // TODO: Doesn't work for 32 bit moves (which currently don't use this struct, so it's fine for now)
@@ -46,11 +45,11 @@ impl<B: Board> ScoredMove<B> {
 }
 
 #[expect(type_alias_bounds)]
-type ScoredMoveList<B: Board, const MAX_LEN: usize> = ArrayVec<ScoredMove<B>, MAX_LEN>;
+type ScoredMoveList<B: BoardTrait, const MAX_LEN: usize> = ArrayVec<ScoredMove<B>, MAX_LEN>;
 
-struct UnscoredMoveIter<B: Board, const MAX_LEN: usize>(IntoIter<ScoredMove<B>, MAX_LEN>);
+struct UnscoredMoveIter<B: BoardTrait, const MAX_LEN: usize>(IntoIter<ScoredMove<B>, MAX_LEN>);
 
-impl<B: Board, const MAX_LEN: usize> Iterator for UnscoredMoveIter<B, MAX_LEN> {
+impl<B: BoardTrait, const MAX_LEN: usize> Iterator for UnscoredMoveIter<B, MAX_LEN> {
     type Item = B::Move;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -59,14 +58,14 @@ impl<B: Board, const MAX_LEN: usize> Iterator for UnscoredMoveIter<B, MAX_LEN> {
 }
 
 #[derive(Debug)]
-struct MoveListScorer<'a, B: Board, E: Engine<B>, const MAX_LEN: usize, Scorer: MoveScorer<B, E>> {
+struct MoveListScorer<'a, B: BoardTrait, E: Engine<B>, const MAX_LEN: usize, Scorer: MoveScorer<B, E>> {
     list: &'a mut ScoredMoveList<B, MAX_LEN>,
     scorer: &'a Scorer,
     state: &'a SearchStateFor<B, E>,
     excluded: B::Move,
 }
 
-impl<B: Board, E: Engine<B>, const MAX_LEN: usize, Scorer: MoveScorer<B, E>> IntoIterator
+impl<B: BoardTrait, E: Engine<B>, const MAX_LEN: usize, Scorer: MoveScorer<B, E>> IntoIterator
     for MoveListScorer<'_, B, E, MAX_LEN, Scorer>
 {
     type Item = B::Move;
@@ -77,7 +76,9 @@ impl<B: Board, E: Engine<B>, const MAX_LEN: usize, Scorer: MoveScorer<B, E>> Int
     }
 }
 
-impl<B: Board, E: Engine<B>, const MAX_LEN: usize, Scorer: MoveScorer<B, E>> MoveListScorer<'_, B, E, MAX_LEN, Scorer> {
+impl<B: BoardTrait, E: Engine<B>, const MAX_LEN: usize, Scorer: MoveScorer<B, E>>
+    MoveListScorer<'_, B, E, MAX_LEN, Scorer>
+{
     pub fn add_move(&mut self, mov: B::Move) {
         if self.excluded != mov {
             let score = self.scorer.score_move_eager_part(mov, self.state);
@@ -92,7 +93,7 @@ enum MovePickerState {
     DeferredList,
 }
 
-pub struct MovePicker<'a, B: Board, const MAX_LEN: usize> {
+pub struct MovePicker<'a, B: BoardTrait, const MAX_LEN: usize> {
     state: MovePickerState,
     list: ScoredMoveList<B, MAX_LEN>,
     pos: &'a B,
@@ -101,7 +102,7 @@ pub struct MovePicker<'a, B: Board, const MAX_LEN: usize> {
     ignored_prefix: usize,
 }
 
-impl<'a, B: Board, const MAX_LEN: usize> MovePicker<'a, B, MAX_LEN> {
+impl<'a, B: BoardTrait, const MAX_LEN: usize> MovePicker<'a, B, MAX_LEN> {
     /// Assumes that better moves have a *higher* score.
     pub fn new(pos: &'a B, best: B::Move, tactical_only: bool) -> Self {
         let state = if pos.is_generated_move_pseudolegal(best) && (!tactical_only || best.is_tactical(pos)) {
@@ -179,17 +180,17 @@ impl<'a, B: Board, const MAX_LEN: usize> MovePicker<'a, B, MAX_LEN> {
 mod tests {
     use crate::search::MoveScore;
     use crate::search::move_picker::ScoredMove;
-    use gears::games::chess::Chessboard;
-    use gears::general::board::Board;
+    use gears::games::chess::Board;
+    use gears::general::board::BoardTrait;
     use proptest::proptest;
 
     proptest! {
         #[test]
         fn chess_scored_moves(score in i16::MIN..=i16::MAX) {
             let score = MoveScore(score);
-            for p in Chessboard::bench_positions() {
+            for p in Board::bench_positions() {
                 for m in p.pseudolegal_moves() {
-                    let sm = ScoredMove::<Chessboard>::new(m, score);
+                    let sm = ScoredMove::<Board>::new(m, score);
                     assert_eq!(m, sm.mov());
                     assert_eq!(score, sm.score());
                 }

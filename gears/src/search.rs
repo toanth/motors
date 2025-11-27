@@ -1,6 +1,6 @@
-use crate::general::board::Board;
+use crate::general::board::BoardTrait;
 use crate::general::common::{Res, parse_fp_from_str};
-use crate::general::moves::Move;
+use crate::general::moves::MoveTrait;
 use crate::score::Score;
 use crate::search::MpvType::{MainOfMultiple, OnlyLine, SecondaryLine};
 use NodeType::*;
@@ -21,7 +21,7 @@ pub const MAX_BUDGET: Budget = Budget(1 << 20);
 
 #[derive(Eq, PartialEq, Debug, Default, Copy, Clone)]
 #[must_use]
-pub struct SearchResult<B: Board> {
+pub struct SearchResult<B: BoardTrait> {
     pub chosen_move: B::Move,
     pub score: Score,
     // TODO: NodeType to represent UCI upper bound and lower bound scores
@@ -29,7 +29,7 @@ pub struct SearchResult<B: Board> {
     pub pos: B,
 }
 
-impl<B: Board> SearchResult<B> {
+impl<B: BoardTrait> SearchResult<B> {
     pub fn move_only(chosen_move: B::Move, pos: B) -> Self {
         debug_assert!(chosen_move.is_null() || pos.is_move_legal(chosen_move));
         Self { chosen_move, pos, ..Default::default() }
@@ -63,7 +63,7 @@ impl<B: Board> SearchResult<B> {
     }
 }
 
-impl<B: Board> Display for SearchResult<B> {
+impl<B: BoardTrait> Display for SearchResult<B> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "bestmove {}", self.chosen_move.compact_formatter(&self.pos))?;
         if let Some(ponder) = self.ponder_move() {
@@ -135,7 +135,7 @@ impl NodeType {
 
 #[derive(Debug)]
 #[must_use]
-pub struct SearchInfo<'a, B: Board> {
+pub struct SearchInfo<'a, B: BoardTrait> {
     pub best_move_of_all_pvs: B::Move,
     pub iterations: DepthPly,
     pub budget: Budget,
@@ -154,7 +154,7 @@ pub struct SearchInfo<'a, B: Board> {
     pub final_info: bool,
 }
 
-impl<B: Board> Default for SearchInfo<'_, B> {
+impl<B: BoardTrait> Default for SearchInfo<'_, B> {
     fn default() -> Self {
         Self {
             best_move_of_all_pvs: B::Move::default(),
@@ -177,7 +177,7 @@ impl<B: Board> Default for SearchInfo<'_, B> {
     }
 }
 
-impl<B: Board> SearchInfo<'_, B> {
+impl<B: BoardTrait> SearchInfo<'_, B> {
     pub fn nps(&self) -> usize {
         let micros = self.time.as_micros() as f64;
         if micros == 0.0 { 0 } else { ((self.nodes.get() as f64 * 1_000_000.0) / micros) as usize }
@@ -194,7 +194,7 @@ impl<B: Board> SearchInfo<'_, B> {
     }
 }
 
-impl<B: Board> Display for SearchInfo<'_, B> {
+impl<B: BoardTrait> Display for SearchInfo<'_, B> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         let bound = match self.bound.unwrap_or(Exact) {
             FailHigh => " lowerbound",

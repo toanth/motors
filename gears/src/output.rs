@@ -7,7 +7,7 @@ use strum::IntoEnumIterator;
 use strum_macros::Display;
 
 use crate::games::OutputList;
-use crate::general::board::{Board, RectangularBoard};
+use crate::general::board::{BoardTrait, RectangularBoard};
 use crate::general::common::{NamedEntity, Res, Tokens};
 use crate::output::Message::*;
 use crate::output::chess::ChessOutputBuilder;
@@ -93,7 +93,7 @@ impl OutputOpts {
 }
 
 /// An Output prints the board and shows messages.
-pub trait Output<B: Board>: AbstractOutput {
+pub trait Output<B: BoardTrait>: AbstractOutput {
     fn show(&mut self, m: &dyn GameState<B>, opts: OutputOpts) {
         println!("{}", self.as_string(m, opts));
     }
@@ -116,12 +116,12 @@ pub trait Output<B: Board>: AbstractOutput {
     }
 }
 
-pub trait OutputBuilderOption<B: Board> {
+pub trait OutputBuilderOption<B: BoardTrait> {
     fn set_option(&mut self, option: &str) -> Res<()>;
 }
 
 /// Factory to create the specified Output; the `monitors` crate has a `UIBuilder` trait that inherits from this.
-pub trait OutputBuilder<B: Board>: NamedEntity + DynClone + Send {
+pub trait OutputBuilder<B: BoardTrait>: NamedEntity + DynClone + Send {
     fn for_engine(&mut self, state: &dyn GameState<B>) -> Res<OutputBox<B>>;
 
     fn for_client(&mut self, state: &dyn GameState<B>) -> Res<OutputBox<B>> {
@@ -141,7 +141,7 @@ pub trait OutputBuilder<B: Board>: NamedEntity + DynClone + Send {
 pub type OutputBox<B> = Box<dyn Output<B>>;
 
 #[must_use]
-pub fn required_outputs<B: Board>() -> OutputList<B> {
+pub fn required_outputs<B: BoardTrait>() -> OutputList<B> {
     let mut res: OutputList<B> = vec![];
     for display_type in DisplayType::iter().dropping_back(1) {
         res.push(Box::new(TextOutputBuilder::new(display_type)));

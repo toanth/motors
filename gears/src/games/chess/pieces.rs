@@ -5,11 +5,11 @@ use std::ops::{Index, IndexMut};
 use strum::IntoEnumIterator;
 use strum_macros::{EnumIter, FromRepr};
 
-use crate::games::chess::pieces::ChessPieceType::*;
+use crate::games::chess::pieces::PieceType::*;
 
-use crate::games::chess::ChessColor::*;
-use crate::games::chess::{ChessColor, ChessSettings, Chessboard};
-use crate::games::{AbstractPieceType, CharType, ColoredPieceType, GenericPiece, PieceType};
+use crate::games::chess::Color::*;
+use crate::games::chess::{Board, Color, Settings};
+use crate::games::{AbstractPieceType, CharType, ColoredPieceTypeTrait, GenericPiece, PieceTypeTrait};
 
 pub const NUM_CHESS_PIECES: usize = 6;
 pub const BLACK_OFFSET: usize = 8;
@@ -41,7 +41,7 @@ pub const UNICODE_BLACK_KING: char = '♚';
 
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Debug, Default, EnumIter, FromRepr, Arbitrary)]
 #[must_use]
-pub enum ChessPieceType {
+pub enum PieceType {
     Pawn,
     Knight,
     Bishop,
@@ -52,16 +52,16 @@ pub enum ChessPieceType {
     Empty,
 }
 
-impl ChessPieceType {
-    pub fn pieces() -> impl Iterator<Item = ChessPieceType> {
+impl PieceType {
+    pub fn pieces() -> impl Iterator<Item = PieceType> {
         Self::iter().dropping_back(1)
     }
 
-    pub fn non_king_pieces() -> impl Iterator<Item = ChessPieceType> {
+    pub fn non_king_pieces() -> impl Iterator<Item = PieceType> {
         Self::iter().dropping_back(2)
     }
 
-    pub fn non_pawn_pieces() -> impl Iterator<Item = ChessPieceType> {
+    pub fn non_pawn_pieces() -> impl Iterator<Item = PieceType> {
         Self::pieces().dropping(1)
     }
 
@@ -92,22 +92,22 @@ impl ChessPieceType {
     }
 }
 
-impl Display for ChessPieceType {
+impl Display for PieceType {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.to_name())
     }
 }
 
-impl AbstractPieceType<Chessboard> for ChessPieceType {
+impl AbstractPieceType<Board> for PieceType {
     fn empty() -> Self {
         Empty
     }
 
-    fn non_empty(_settings: &ChessSettings) -> impl Iterator<Item = Self> {
+    fn non_empty(_settings: &Settings) -> impl Iterator<Item = Self> {
         Self::pieces()
     }
 
-    fn to_char(self, typ: CharType, _settings: &ChessSettings) -> char {
+    fn to_char(self, typ: CharType, _settings: &Settings) -> char {
         match typ {
             CharType::Ascii => match self {
                 Empty => '.',
@@ -132,16 +132,16 @@ impl AbstractPieceType<Chessboard> for ChessPieceType {
         }
     }
 
-    fn to_display_char(self, typ: CharType, settings: &ChessSettings) -> char {
-        ColoredChessPieceType::new(White, self).to_display_char(typ, settings)
+    fn to_display_char(self, typ: CharType, settings: &Settings) -> char {
+        ColoredPieceType::new(White, self).to_display_char(typ, settings)
     }
 
     /// Also parses German notation.
-    fn from_char(c: char, _settings: &ChessSettings) -> Option<Self> {
+    fn from_char(c: char, _settings: &Settings) -> Option<Self> {
         Self::parse_from_char(c)
     }
 
-    fn name(&self, _settings: &ChessSettings) -> impl AsRef<str> {
+    fn name(&self, _settings: &Settings) -> impl AsRef<str> {
         match self {
             Pawn => "pawn",
             Knight => "knight",
@@ -158,24 +158,24 @@ impl AbstractPieceType<Chessboard> for ChessPieceType {
     }
 }
 
-impl PieceType<Chessboard> for ChessPieceType {
-    type Colored = ColoredChessPieceType;
+impl PieceTypeTrait<Board> for PieceType {
+    type Colored = ColoredPieceType;
 
     fn from_idx(idx: usize) -> Self {
         Self::from_repr(idx).unwrap()
     }
 }
 
-impl<T> Index<ChessPieceType> for [T; 6] {
+impl<T> Index<PieceType> for [T; 6] {
     type Output = T;
 
-    fn index(&self, index: ChessPieceType) -> &Self::Output {
+    fn index(&self, index: PieceType) -> &Self::Output {
         &self[index as usize]
     }
 }
 
-impl<T> IndexMut<ChessPieceType> for [T; 6] {
-    fn index_mut(&mut self, index: ChessPieceType) -> &mut Self::Output {
+impl<T> IndexMut<PieceType> for [T; 6] {
+    fn index_mut(&mut self, index: PieceType) -> &mut Self::Output {
         &mut self[index as usize]
     }
 }
@@ -183,7 +183,7 @@ impl<T> IndexMut<ChessPieceType> for [T; 6] {
 #[derive(Debug, Default, Eq, PartialEq, Copy, Clone, EnumIter, FromRepr)]
 #[repr(usize)]
 #[must_use]
-pub enum ColoredChessPieceType {
+pub enum ColoredPieceType {
     WhitePawn,
     WhiteKnight,
     WhiteBishop,
@@ -200,15 +200,14 @@ pub enum ColoredChessPieceType {
     BlackKing,
 }
 
-impl ColoredChessPieceType {
-    pub fn pieces() -> impl Iterator<Item = ColoredChessPieceType> {
-        Self::iter().filter(|p| *p != ColoredChessPieceType::Empty)
+impl ColoredPieceType {
+    pub fn pieces() -> impl Iterator<Item = ColoredPieceType> {
+        Self::iter().filter(|p| *p != ColoredPieceType::Empty)
     }
 
-    pub fn non_pawns() -> impl Iterator<Item = ColoredChessPieceType> {
+    pub fn non_pawns() -> impl Iterator<Item = ColoredPieceType> {
         Self::iter().filter(|p| {
-            ![ColoredChessPieceType::Empty, ColoredChessPieceType::BlackPawn, ColoredChessPieceType::WhitePawn]
-                .contains(p)
+            ![ColoredPieceType::Empty, ColoredPieceType::BlackPawn, ColoredPieceType::WhitePawn].contains(p)
         })
     }
 
@@ -228,104 +227,104 @@ impl ColoredChessPieceType {
 
     pub fn parse_from_char(c: char) -> Option<Self> {
         match c {
-            ' ' => Some(ColoredChessPieceType::Empty),
-            'P' | UNICODE_WHITE_PAWN => Some(ColoredChessPieceType::WhitePawn),
-            'N' | 'S' | UNICODE_WHITE_KNIGHT => Some(ColoredChessPieceType::WhiteKnight),
-            'B' | 'L' | UNICODE_WHITE_BISHOP => Some(ColoredChessPieceType::WhiteBishop),
-            'R' | 'T' | UNICODE_WHITE_ROOK => Some(ColoredChessPieceType::WhiteRook),
-            'Q' | 'D' | UNICODE_WHITE_QUEEN => Some(ColoredChessPieceType::WhiteQueen),
-            'K' | UNICODE_WHITE_KING => Some(ColoredChessPieceType::WhiteKing),
-            'p' | UNICODE_BLACK_PAWN => Some(ColoredChessPieceType::BlackPawn),
-            'n' | 's' | UNICODE_BLACK_KNIGHT => Some(ColoredChessPieceType::BlackKnight),
-            'b' | 'l' | UNICODE_BLACK_BISHOP => Some(ColoredChessPieceType::BlackBishop),
-            'r' | 't' | UNICODE_BLACK_ROOK => Some(ColoredChessPieceType::BlackRook),
-            'q' | 'd' | UNICODE_BLACK_QUEEN => Some(ColoredChessPieceType::BlackQueen),
-            'k' | UNICODE_BLACK_KING => Some(ColoredChessPieceType::BlackKing),
+            ' ' => Some(ColoredPieceType::Empty),
+            'P' | UNICODE_WHITE_PAWN => Some(ColoredPieceType::WhitePawn),
+            'N' | 'S' | UNICODE_WHITE_KNIGHT => Some(ColoredPieceType::WhiteKnight),
+            'B' | 'L' | UNICODE_WHITE_BISHOP => Some(ColoredPieceType::WhiteBishop),
+            'R' | 'T' | UNICODE_WHITE_ROOK => Some(ColoredPieceType::WhiteRook),
+            'Q' | 'D' | UNICODE_WHITE_QUEEN => Some(ColoredPieceType::WhiteQueen),
+            'K' | UNICODE_WHITE_KING => Some(ColoredPieceType::WhiteKing),
+            'p' | UNICODE_BLACK_PAWN => Some(ColoredPieceType::BlackPawn),
+            'n' | 's' | UNICODE_BLACK_KNIGHT => Some(ColoredPieceType::BlackKnight),
+            'b' | 'l' | UNICODE_BLACK_BISHOP => Some(ColoredPieceType::BlackBishop),
+            'r' | 't' | UNICODE_BLACK_ROOK => Some(ColoredPieceType::BlackRook),
+            'q' | 'd' | UNICODE_BLACK_QUEEN => Some(ColoredPieceType::BlackQueen),
+            'k' | UNICODE_BLACK_KING => Some(ColoredPieceType::BlackKing),
             _ => None,
         }
     }
 }
 
-impl Display for ColoredChessPieceType {
+impl Display for ColoredPieceType {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.name(&ChessSettings::default()).as_ref())
+        write!(f, "{}", self.name(&Settings::default()).as_ref())
     }
 }
 
-impl AbstractPieceType<Chessboard> for ColoredChessPieceType {
+impl AbstractPieceType<Board> for ColoredPieceType {
     fn empty() -> Self {
         Self::Empty
     }
 
-    fn non_empty(_settings: &ChessSettings) -> impl Iterator<Item = Self> {
+    fn non_empty(_settings: &Settings) -> impl Iterator<Item = Self> {
         Self::pieces()
     }
 
-    fn to_char(self, typ: CharType, _settings: &ChessSettings) -> char {
+    fn to_char(self, typ: CharType, _settings: &Settings) -> char {
         match typ {
             CharType::Ascii => match self {
-                ColoredChessPieceType::Empty => '.',
-                ColoredChessPieceType::WhitePawn => 'P',
-                ColoredChessPieceType::WhiteKnight => 'N',
-                ColoredChessPieceType::WhiteBishop => 'B',
-                ColoredChessPieceType::WhiteRook => 'R',
-                ColoredChessPieceType::WhiteQueen => 'Q',
-                ColoredChessPieceType::WhiteKing => 'K',
-                ColoredChessPieceType::BlackPawn => 'p',
-                ColoredChessPieceType::BlackKnight => 'n',
-                ColoredChessPieceType::BlackBishop => 'b',
-                ColoredChessPieceType::BlackRook => 'r',
-                ColoredChessPieceType::BlackQueen => 'q',
-                ColoredChessPieceType::BlackKing => 'k',
+                ColoredPieceType::Empty => '.',
+                ColoredPieceType::WhitePawn => 'P',
+                ColoredPieceType::WhiteKnight => 'N',
+                ColoredPieceType::WhiteBishop => 'B',
+                ColoredPieceType::WhiteRook => 'R',
+                ColoredPieceType::WhiteQueen => 'Q',
+                ColoredPieceType::WhiteKing => 'K',
+                ColoredPieceType::BlackPawn => 'p',
+                ColoredPieceType::BlackKnight => 'n',
+                ColoredPieceType::BlackBishop => 'b',
+                ColoredPieceType::BlackRook => 'r',
+                ColoredPieceType::BlackQueen => 'q',
+                ColoredPieceType::BlackKing => 'k',
             },
             CharType::Unicode => match self {
-                ColoredChessPieceType::Empty => '.',
-                ColoredChessPieceType::WhitePawn => UNICODE_WHITE_PAWN,
-                ColoredChessPieceType::WhiteKnight => UNICODE_WHITE_KNIGHT,
-                ColoredChessPieceType::WhiteBishop => UNICODE_WHITE_BISHOP,
-                ColoredChessPieceType::WhiteRook => UNICODE_WHITE_ROOK,
-                ColoredChessPieceType::WhiteQueen => UNICODE_WHITE_QUEEN,
-                ColoredChessPieceType::WhiteKing => UNICODE_WHITE_KING,
-                ColoredChessPieceType::BlackPawn => UNICODE_BLACK_PAWN,
-                ColoredChessPieceType::BlackKnight => UNICODE_BLACK_KNIGHT,
-                ColoredChessPieceType::BlackBishop => UNICODE_BLACK_BISHOP,
-                ColoredChessPieceType::BlackRook => UNICODE_BLACK_ROOK,
-                ColoredChessPieceType::BlackQueen => UNICODE_BLACK_QUEEN,
-                ColoredChessPieceType::BlackKing => UNICODE_BLACK_KING,
+                ColoredPieceType::Empty => '.',
+                ColoredPieceType::WhitePawn => UNICODE_WHITE_PAWN,
+                ColoredPieceType::WhiteKnight => UNICODE_WHITE_KNIGHT,
+                ColoredPieceType::WhiteBishop => UNICODE_WHITE_BISHOP,
+                ColoredPieceType::WhiteRook => UNICODE_WHITE_ROOK,
+                ColoredPieceType::WhiteQueen => UNICODE_WHITE_QUEEN,
+                ColoredPieceType::WhiteKing => UNICODE_WHITE_KING,
+                ColoredPieceType::BlackPawn => UNICODE_BLACK_PAWN,
+                ColoredPieceType::BlackKnight => UNICODE_BLACK_KNIGHT,
+                ColoredPieceType::BlackBishop => UNICODE_BLACK_BISHOP,
+                ColoredPieceType::BlackRook => UNICODE_BLACK_ROOK,
+                ColoredPieceType::BlackQueen => UNICODE_BLACK_QUEEN,
+                ColoredPieceType::BlackKing => UNICODE_BLACK_KING,
             },
         }
     }
 
-    fn to_display_char(self, typ: CharType, settings: &ChessSettings) -> char {
-        if self == ColoredChessPieceType::Empty {
+    fn to_display_char(self, typ: CharType, settings: &Settings) -> char {
+        if self == ColoredPieceType::Empty {
             self.to_char(typ, settings)
         } else if typ == CharType::Unicode {
-            ColoredChessPieceType::new(White, self.uncolor()).to_char(typ, settings)
+            ColoredPieceType::new(White, self.uncolor()).to_char(typ, settings)
         } else {
             self.to_char(typ, settings)
         }
     }
 
     /// Also parses German notation (pawns are still represented as 'p' to avoid ambiguity with bishops).
-    fn from_char(c: char, _settings: &ChessSettings) -> Option<Self> {
+    fn from_char(c: char, _settings: &Settings) -> Option<Self> {
         Self::parse_from_char(c)
     }
 
-    fn name(&self, _settings: &ChessSettings) -> impl AsRef<str> {
+    fn name(&self, _settings: &Settings) -> impl AsRef<str> {
         match self {
-            ColoredChessPieceType::WhitePawn => "white pawn",
-            ColoredChessPieceType::WhiteKnight => "white knight",
-            ColoredChessPieceType::WhiteBishop => "white bishop",
-            ColoredChessPieceType::WhiteRook => "white rook",
-            ColoredChessPieceType::WhiteQueen => "white queen",
-            ColoredChessPieceType::WhiteKing => "white king",
-            ColoredChessPieceType::Empty => "empty",
-            ColoredChessPieceType::BlackPawn => "black pawn",
-            ColoredChessPieceType::BlackKnight => "black knight",
-            ColoredChessPieceType::BlackBishop => "black bishop",
-            ColoredChessPieceType::BlackRook => "black rook",
-            ColoredChessPieceType::BlackQueen => "black queen",
-            ColoredChessPieceType::BlackKing => "black king",
+            ColoredPieceType::WhitePawn => "white pawn",
+            ColoredPieceType::WhiteKnight => "white knight",
+            ColoredPieceType::WhiteBishop => "white bishop",
+            ColoredPieceType::WhiteRook => "white rook",
+            ColoredPieceType::WhiteQueen => "white queen",
+            ColoredPieceType::WhiteKing => "white king",
+            ColoredPieceType::Empty => "empty",
+            ColoredPieceType::BlackPawn => "black pawn",
+            ColoredPieceType::BlackKnight => "black knight",
+            ColoredPieceType::BlackBishop => "black bishop",
+            ColoredPieceType::BlackRook => "black rook",
+            ColoredPieceType::BlackQueen => "black queen",
+            ColoredPieceType::BlackKing => "black king",
         }
     }
 
@@ -334,20 +333,20 @@ impl AbstractPieceType<Chessboard> for ColoredChessPieceType {
     }
 }
 
-impl ColoredPieceType<Chessboard> for ColoredChessPieceType {
-    type Uncolored = ChessPieceType;
+impl ColoredPieceTypeTrait<Board> for ColoredPieceType {
+    type Uncolored = PieceType;
 
-    fn color(self) -> Option<ChessColor> {
-        ChessColor::from_repr(self as usize / BLACK_OFFSET)
+    fn color(self) -> Option<Color> {
+        if self == ColoredPieceType::Empty { None } else { Color::from_repr(self as usize / BLACK_OFFSET) }
     }
 
     fn to_colored_idx(self) -> usize {
         self as usize
     }
 
-    fn new(color: ChessColor, uncolored: Self::Uncolored) -> Self {
+    fn new(color: Color, uncolored: Self::Uncolored) -> Self {
         Self::from_repr((uncolored as usize) + (color as usize) * BLACK_OFFSET).unwrap()
     }
 }
 
-pub type ChessPiece = GenericPiece<Chessboard, ColoredChessPieceType>;
+pub type Piece = GenericPiece<Board, ColoredPieceType>;

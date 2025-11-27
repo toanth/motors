@@ -25,17 +25,15 @@ use crate::games::fairy::moves::MoveEffect::{
     SetEp,
 };
 use crate::games::fairy::pieces::{ColoredPieceId, PieceId};
-use crate::games::fairy::rules::{PromoMoveChar, Rules};
-use crate::games::fairy::{
-    FairyBitboard, FairyBoard, FairyColor, FairySize, FairySquare, RawFairyBitboard, Side, effects,
-};
-use crate::games::{AbstractPieceType, Color, ColoredPieceType, DimT, Size};
-use crate::general::bitboards::{Bitboard, RawBitboard};
+use crate::games::fairy::rules::{MAX_NUM_IN_HAND, PromoMoveChar, Rules};
+use crate::games::fairy::{Bitboard, Board, Color, RawBitboard, Side, Size, Square, effects};
+use crate::games::{AbstractPieceType, ColorTrait, ColoredPieceTypeTrait, DimT, SizeTrait};
+use crate::general::bitboards::{BitboardTrait, RawBitboardTrait};
 use crate::general::board::SelfChecks::Verify;
 use crate::general::board::Strictness::Relaxed;
-use crate::general::board::{BitboardBoard, Board, BoardHelpers, UnverifiedBoard};
+use crate::general::board::{BitboardBoard, BoardHelpers, BoardTrait, UnverifiedBoardTrait};
 use crate::general::common::{Res, tokens};
-use crate::general::moves::{ExtendedFormat, Legality, Move, UntrustedMove};
+use crate::general::moves::{ExtendedFormat, Legality, MoveTrait, UntrustedMove};
 use crate::general::squares::{CompactSquare, RectangularCoordinates};
 use anyhow::bail;
 use arbitrary::Arbitrary;
@@ -47,20 +45,20 @@ use strum::IntoEnumIterator;
 
 #[derive(Debug, Default, Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Arbitrary)]
 #[must_use]
-pub struct FairyMove {
+pub struct Move {
     pub(super) from: CompactSquare,
     pub(super) to: CompactSquare,
     pub(super) packed: u16,
 }
 
-impl FairyMove {
+impl Move {
     pub fn new(from: CompactSquare, to: CompactSquare, kind: MoveKind, is_capture: bool) -> Self {
         Self { from, to, packed: Self::pack(kind, is_capture) }
     }
 
-    pub fn drop_move(piece: PieceId, to: FairySquare, size: FairySize) -> Self {
+    pub fn drop_move(piece: PieceId, to: Square, size: Size) -> Self {
         Self::new(
-            CompactSquare::new(FairySquare::no_coordinates(), size),
+            CompactSquare::new(Square::no_coordinates(), size),
             CompactSquare::new(to, size),
             MoveKind::Drop(piece.to_uncolored_idx() as u8),
             false,
@@ -79,29 +77,29 @@ impl FairyMove {
         ((val as u16) << 8) | discriminant
     }
 
-    pub(super) fn unpack(val: u16) -> (MoveKind, bool) {
+    pub(super) fn unpack(val: u16) -> Option<(MoveKind, bool)> {
         let discriminant = val & ((1 << 7) - 1);
         let is_capture = val & (1 << 7) != 0;
         let val = (val >> 8) as u8;
-        match discriminant {
+        Some(match discriminant {
             0 => (MoveKind::Normal, is_capture),
             1 => (MoveKind::Drop(val), is_capture),
             2 => (MoveKind::Promotion(val), is_capture),
-            3 => (MoveKind::Castle(Side::from_repr(val as usize).unwrap()), is_capture),
+            3 => (MoveKind::Castle(Side::from_repr(val as usize)?), is_capture),
             4 => (MoveKind::DoublePawnPush, is_capture),
-            _ => unreachable!(),
-        }
+            _ => return None,
+        })
     }
 
-    pub fn dest(self, size: FairySize) -> FairySquare {
+    pub fn dest(self, size: Size) -> Square {
         self.to.square(size)
     }
 
-    pub fn source(self, size: FairySize) -> FairySquare {
+    pub fn source(self, size: Size) -> Square {
         self.from.square(size)
     }
 
-    pub fn piece(self, pos: &FairyBoard) -> ColoredPieceId {
+    pub fn piece(self, pos: &Board) -> ColoredPieceId {
         if let MoveKind::Drop(piece) = self.kind() {
             ColoredPieceId::new(pos.active_player(), PieceId::new(piece as usize))
         } else {
@@ -116,12 +114,16 @@ impl FairyMove {
         }
     }
 
+    fn kind_untrusted(self) -> Option<MoveKind> {
+        Self::unpack(self.packed).map(|x| x.0)
+    }
+
     pub fn kind(self) -> MoveKind {
-        Self::unpack(self.packed).0
+        Self::unpack(self.packed).unwrap().0
     }
 
     pub fn is_capture(self) -> bool {
-        Self::unpack(self.packed).1
+        Self::unpack(self.packed).unwrap().1
     }
 
     pub fn is_drop(self) -> bool {
@@ -133,27 +135,27 @@ impl FairyMove {
     }
 }
 
-impl Move<FairyBoard> for FairyMove {
+impl MoveTrait<Board> for Move {
     type Underlying = u32;
 
     fn legality(rules: &Rules) -> Legality {
         rules.legality
     }
 
-    fn src_square_in(self, pos: &FairyBoard) -> Option<FairySquare> {
+    fn src_square_in(self, pos: &Board) -> Option<Square> {
         let sq = self.from.square(pos.size());
         if pos.size().coordinates_valid(sq) { Some(sq) } else { None }
     }
 
-    fn dest_square_in(self, pos: &FairyBoard) -> FairySquare {
+    fn dest_square_in(self, pos: &Board) -> Square {
         self.to.square(pos.size())
     }
 
-    fn is_tactical(self, _board: &FairyBoard) -> bool {
+    fn is_tactical(self, _board: &Board) -> bool {
         self.is_capture()
     }
 
-    fn description(self, board: &FairyBoard) -> String {
+    fn description(self, board: &Board) -> String {
         let from = self.src_square_in(board).unwrap_or_default().to_string().bold();
         let to = self.dest(board.size()).to_string().bold();
         let piece = self.piece(board).name(board.settings()).as_ref().bold();
@@ -186,28 +188,28 @@ impl Move<FairyBoard> for FairyMove {
         }
     }
 
-    fn format_compact(self, f: &mut Formatter<'_>, board: &FairyBoard) -> fmt::Result {
+    fn format_compact(self, f: &mut Formatter<'_>, board: &Board) -> fmt::Result {
         format_move_compact(f, self, board).unwrap_or_else(|| write!(f, "<Invalid Fairy Move '{self:?}'>"))
     }
 
     fn format_extended(
         self,
         f: &mut Formatter<'_>,
-        board: &FairyBoard,
+        board: &Board,
         format: ExtendedFormat,
-        all_legals: Option<&[FairyMove]>,
+        all_legals: Option<&[Move]>,
     ) -> fmt::Result {
         format_san(f, self, board, format, all_legals)
     }
 
-    fn parse_compact_text<'a>(s: &'a str, board: &FairyBoard) -> Res<(&'a str, FairyMove)> {
+    fn parse_compact_text<'a>(s: &'a str, board: &Board) -> Res<(&'a str, Move)> {
         if s.is_empty() {
             bail!("empty move")
         } else if let Some(rest) = s.strip_prefix("0000") {
             return Ok((rest, Self::default()));
         }
         let moves = board.pseudolegal_moves();
-        let mut longest_match = (s, FairyMove::default());
+        let mut longest_match = (s, Move::default());
         for &m in &moves {
             let as_string = m.compact_formatter(board).to_string();
             if let Some(remaining) = s.strip_prefix(&as_string) {
@@ -225,7 +227,7 @@ impl Move<FairyBoard> for FairyMove {
             && !moves.iter().any(|m| board.is_pseudolegal_move_legal(*m))
             && board.no_moves_result().is_none()
         {
-            let m = FairyMove::default();
+            let m = Move::default();
             let as_string = m.compact_formatter(board).to_string();
             if let Some(remaining) = s.strip_prefix(&as_string) {
                 longest_match = (remaining, m);
@@ -239,11 +241,11 @@ impl Move<FairyBoard> for FairyMove {
         bail!("No legal move matches '{0}'. {1}", tokens(s).next().unwrap_or_default().red(), moves_msg.dimmed())
     }
 
-    fn parse_extended_text<'a>(s: &'a str, board: &FairyBoard) -> Res<(&'a str, FairyMove)> {
+    fn parse_extended_text<'a>(s: &'a str, board: &Board) -> Res<(&'a str, Move)> {
         MoveParser::parse(s, board)
     }
 
-    fn from_u64_unchecked(val: u64) -> UntrustedMove<FairyBoard> {
+    fn from_u64_unchecked(val: u64) -> UntrustedMove<Board> {
         UntrustedMove::from_move(Self {
             from: CompactSquare(val as DimT),
             to: CompactSquare((val >> 8) as DimT),
@@ -256,7 +258,7 @@ impl Move<FairyBoard> for FairyMove {
     }
 }
 
-fn format_move_compact(f: &mut Formatter<'_>, mov: FairyMove, pos: &FairyBoard) -> Option<fmt::Result> {
+fn format_move_compact(f: &mut Formatter<'_>, mov: Move, pos: &Board) -> Option<fmt::Result> {
     // don't check if coordinates are valid or similar because this function isn't supposed to panic
     // -- it might be called to print invalid moves from user input.
     let size = pos.size();
@@ -264,7 +266,7 @@ fn format_move_compact(f: &mut Formatter<'_>, mov: FairyMove, pos: &FairyBoard) 
     let to = mov.to.square(size);
     let from = pos.square_formatter(from);
     let to = pos.square_formatter(to);
-    Some(match mov.kind() {
+    Some(match mov.kind_untrusted()? {
         MoveKind::Normal | MoveKind::DoublePawnPush => {
             write!(f, "{from}{to}")
         }
@@ -303,24 +305,24 @@ pub enum MoveEffect {
     Draw,
     Lose,
     ResetDrawCtr,
-    PlaceSinglePiece(FairySquare, ColoredPieceId),
+    PlaceSinglePiece(Square, ColoredPieceId),
     // if the source square is not valid, this effect will be ignored
-    RemoveSinglePiece(FairySquare, ColoredPieceId),
+    RemoveSinglePiece(Square, ColoredPieceId),
     // ClearSquares(RawFairyBitboard),
-    SetColorTo(RawFairyBitboard, FairyColor),
-    SetEp(FairySquare),
+    SetColorTo(RawBitboard, Color),
+    SetEp(Square),
     ResetEp,
-    RemoveCastlingRight(FairyColor, Side),
-    RemovePieceFromHand(PieceId, FairyColor),
-    Capture(FairySquare),
+    RemoveCastlingRight(Color, Side),
+    RemovePieceFromHand(PieceId, Color),
+    Capture(Square),
     Promote(ColoredPieceId),
-    ConvertOne(FairySquare),
-    ConvertAll(FairyBitboard),
+    ConvertOne(Square),
+    ConvertAll(Bitboard),
     MovesPiece(ColoredPieceId),
 }
 
 impl MoveEffect {
-    fn apply(&self, pos: &mut FairyBoard) {
+    fn apply(&self, pos: &mut Board) {
         let board = &mut pos.0;
         match *self {
             MoveEffect::ResetDrawCtr => board.draw_counter = 0,
@@ -357,7 +359,10 @@ impl MoveEffect {
                 board.castling_info.unset(color, side);
             }
             RemovePieceFromHand(piece, color) => {
-                board.in_hand[color][piece.val()] -= 1;
+                let num = &mut board.in_hand[color][piece.val()];
+                if *num != MAX_NUM_IN_HAND {
+                    *num -= 1;
+                }
             }
             MoveEffect::Win => {}
             MoveEffect::Draw => {}
@@ -371,7 +376,7 @@ impl MoveEffect {
     }
 }
 
-fn effects_for(mov: FairyMove, pos: &mut FairyBoard, r: EffectRules) -> Option<()> {
+fn effects_for(mov: Move, pos: &mut Board, r: EffectRules) -> Option<()> {
     let from = mov.from.square(pos.size());
     let to = mov.dest(pos.size());
     let piece = mov.piece(pos);
@@ -402,7 +407,7 @@ fn effects_for(mov: FairyMove, pos: &mut FairyBoard, r: EffectRules) -> Option<(
         MoveKind::DoublePawnPush => {
             RemoveSinglePiece(from, piece).apply(pos);
             PlaceSinglePiece(to, piece).apply(pos);
-            let ep_capture_bb = FairyBitboard::single_piece_for(to, pos.size());
+            let ep_capture_bb = Bitboard::single_piece_for(to, pos.size());
             let ep_capture_bb = ep_capture_bb.west() | ep_capture_bb.east();
             if (pos.col_piece_bb(piece.color().unwrap().other(), piece.uncolor()) & ep_capture_bb).has_any() {
                 set_ep = Some(to.pawn_push(!piece.color().unwrap().is_first()));
@@ -432,7 +437,7 @@ fn effects_for(mov: FairyMove, pos: &mut FairyBoard, r: EffectRules) -> Option<(
         }
     }
     if r.conversion_radius > 0 {
-        let bb = FairyBitboard::single_piece_for(to, pos.size()).extended_moore_neighborhood(r.conversion_radius);
+        let bb = Bitboard::single_piece_for(to, pos.size()).extended_moore_neighborhood(r.conversion_radius);
         SetColorTo(bb.raw(), pos.active_player()).apply(pos);
     }
     let piece_rules = &pos.rules().pieces[piece.uncolor().val()];
@@ -445,7 +450,7 @@ fn effects_for(mov: FairyMove, pos: &mut FairyBoard, r: EffectRules) -> Option<(
         ResetEp.apply(pos);
     }
     if pos.rules().has_castling {
-        for color in FairyColor::iter() {
+        for color in Color::iter() {
             let castling_bb = pos.castling_bb() & pos.player_bb(color);
             if (mov.src_square_in(pos).is_some() && castling_bb.is_bit_set_at(pos.size().internal_key(from)))
                 || castling_bb.is_bit_set_at(pos.size().internal_key(to))
@@ -467,9 +472,9 @@ fn effects_for(mov: FairyMove, pos: &mut FairyBoard, r: EffectRules) -> Option<(
     Some(())
 }
 
-impl FairyBoard {
+impl Board {
     // can temporarily modify self
-    fn can_make_move(&mut self, mov: FairyMove) -> bool {
+    fn can_make_move(&mut self, mov: Move) -> bool {
         let MoveKind::Castle(side) = mov.kind() else {
             return true;
         };
@@ -491,10 +496,10 @@ impl FairyBoard {
         debug_assert_eq!(castling.rank, to.rank());
         debug_assert!(Some(to) == castling.king_dest_sq(Queenside) || Some(to) == castling.king_dest_sq(Kingside));
         let occupied = self.occupied_bb()
-            ^ FairyBitboard::single_piece_for(rook_sq, self.size())
-            ^ FairyBitboard::single_piece_for(from, self.size());
-        let ray = FairyBitboard::ray_inclusive(from, to, self.size())
-            | FairyBitboard::ray_inclusive(rook_sq, rook_dest_sq, self.size());
+            ^ Bitboard::single_piece_for(rook_sq, self.size())
+            ^ Bitboard::single_piece_for(from, self.size());
+        let ray = Bitboard::ray_inclusive(from, to, self.size())
+            | Bitboard::ray_inclusive(rook_sq, rook_dest_sq, self.size());
         if ray.intersects(occupied) {
             return false;
         }
@@ -506,7 +511,7 @@ impl FairyBoard {
         let mut rook = None;
         let step = if to.file() < from.file() { -1 } else { 1 };
         for file in range_step(from.file() as isize, to.file() as isize, step) {
-            let sq = FairySquare::from_rank_file(from.rank(), file as DimT);
+            let sq = Square::from_rank_file(from.rank(), file as DimT);
             if sq == rook_sq {
                 let r = self.piece_type_on(sq);
                 self.0.xor_given_piece_at(sq, r, us);
@@ -528,7 +533,7 @@ impl FairyBoard {
         res
     }
 
-    pub(super) fn make_move_impl(mut self, mov: FairyMove) -> Option<Self> {
+    pub(super) fn make_move_impl(mut self, mov: Move) -> Option<Self> {
         if cfg!(debug_assertions) {
             _ = self.debug_verify_invariants(Relaxed).unwrap();
         }
@@ -551,12 +556,12 @@ impl FairyBoard {
         self.end_move(mov)
     }
 
-    pub(super) fn end_move(mut self, mov: FairyMove) -> Option<Self> {
+    pub(super) fn end_move(mut self, mov: Move) -> Option<Self> {
         if self.settings().must_preserve_own_king[self.active] && self.royal_bb_for(self.active).is_zero() {
             return None;
         }
         self.adjust_castling_rights();
-        for c in FairyColor::iter() {
+        for c in Color::iter() {
             self.0.in_check[c] = self.compute_is_in_check(c);
             if self.in_check[c] {
                 self.emit(InCheck { color: c, last_move: mov })?;
@@ -566,9 +571,9 @@ impl FairyBoard {
     }
 
     fn adjust_castling_rights(&mut self) {
-        for color in FairyColor::iter() {
+        for color in Color::iter() {
             let info = self.castling_info.player(color);
-            if (self.castling_bb_for(color) & FairyBitboard::rank_for(info.rank, self.size())).is_zero() {
+            if (self.castling_bb_for(color) & Bitboard::rank_for(info.rank, self.size())).is_zero() {
                 self.0.castling_info.unset_both_sides(color);
             }
             for side in Side::iter() {
@@ -583,7 +588,7 @@ impl FairyBoard {
 
     /// Called at the end of [`Self::make_nullmove`] and [`Self::make_move`].
     /// `last_move` might be a null move
-    pub(super) fn flip_side_to_move(mut self, last_move: FairyMove) -> Option<Self> {
+    pub(super) fn flip_side_to_move(mut self, last_move: Move) -> Option<Self> {
         self.flip_stm_unchecked();
         if !self.rules().check_rules.satisfied(&self) {
             return None;
@@ -605,14 +610,14 @@ impl FairyBoard {
 
 #[cfg(test)]
 mod tests {
-    use crate::games::Color;
-    use crate::games::chess::{Chessboard, UCI_CHESS960};
+    use crate::games::chess::UCI_CHESS960;
     use crate::games::fairy::Side::Queenside;
-    use crate::games::fairy::moves::FairyMove;
-    use crate::games::fairy::{FairyBoard, FairyColor, FairySquare};
+    use crate::games::fairy::moves::Move;
+    use crate::games::fairy::{Board, Color, Square};
+    use crate::games::{ColorTrait, chess};
     use crate::general::board::Strictness::{Relaxed, Strict};
-    use crate::general::board::{Board, BoardHelpers, UnverifiedBoard};
-    use crate::general::moves::Move;
+    use crate::general::board::{BoardHelpers, BoardTrait, UnverifiedBoardTrait};
+    use crate::general::moves::MoveTrait;
     use crate::general::perft::Bulkness::Bulk;
     use crate::general::perft::perft;
     use crate::search::DepthPly;
@@ -622,19 +627,19 @@ mod tests {
     #[test]
     fn castle_test() {
         assert!(!UCI_CHESS960.load(Ordering::Relaxed));
-        let p = Chessboard::chess_960_startpos(42).unwrap().as_fen();
-        let p = FairyBoard::from_fen(&p, Strict).unwrap();
-        let p = p.remove_piece(FairySquare::algebraic('f', 1).unwrap()).unwrap().verify(Strict).unwrap();
+        let p = chess::Board::chess_960_startpos(42).unwrap().as_fen();
+        let p = Board::from_fen(&p, Strict).unwrap();
+        let p = p.remove_piece(Square::algebraic('f', 1).unwrap()).unwrap().verify(Strict).unwrap();
         assert!(p.debug_verify_invariants(Strict).is_ok());
-        let p2 = FairyBoard::from_fen("bb1r2kr/p1ppppp1/1n2qn2/8/8/8/PPPPPPP1/BB1RQNKR b KQkq - 0 1", Relaxed).unwrap();
-        let tests: &[(FairyBoard, &[&str], u64)] = &[
-            (FairyBoard::from_name("kiwipete").unwrap(), &["0-0", "0-0-0", "e1g1", "e1h1", "e1a1", "e1c1"], 97862),
+        let p2 = Board::from_fen("bb1r2kr/p1ppppp1/1n2qn2/8/8/8/PPPPPPP1/BB1RQNKR b KQkq - 0 1", Relaxed).unwrap();
+        let tests: &[(Board, &[&str], u64)] = &[
+            (Board::from_name("kiwipete").unwrap(), &["0-0", "0-0-0", "e1g1", "e1h1", "e1a1", "e1c1"], 97862),
             (p, &["0-0", "g1h1"], 8953),
             (p2, &["0-0", "0-0-0", "g8h8", "g8c8", "g8d8"], 57107),
         ];
         for (pos, moves, perft_nodes) in tests.iter() {
             for mov in *moves {
-                let mov = FairyMove::from_text(mov, pos).unwrap();
+                let mov = Move::from_text(mov, pos).unwrap();
                 assert!(mov.is_castle());
                 assert!(!mov.is_capture());
                 assert!(pos.clone().make_move(mov).unwrap().debug_verify_invariants(Strict).is_ok());
@@ -643,8 +648,8 @@ mod tests {
             assert_eq!(perft_res.nodes, *perft_nodes);
         }
         let fen = "8/4k3/8/8/8/8/8/RK1b4 w A - 0 1";
-        let mut pos = FairyBoard::from_fen(fen, Strict).unwrap();
-        assert!(pos.castling_info.can_castle(FairyColor::first(), Queenside));
+        let mut pos = Board::from_fen(fen, Strict).unwrap();
+        assert!(pos.castling_info.can_castle(Color::first(), Queenside));
         assert!(pos.clone().make_move_from_str("0-0-0").is_err());
         pos = pos.make_nullmove().unwrap();
         pos = pos.make_move_from_str("Be2").unwrap();

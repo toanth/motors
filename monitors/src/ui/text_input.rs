@@ -16,9 +16,9 @@ use crate::ui::text_input::DefaultPlayer::{Active, Inactive, NoPlayer};
 use crate::ui::{Input, InputBuilder};
 use gears::MatchStatus::{Ongoing, Over};
 use gears::colored::Colorize;
-use gears::games::Color;
+use gears::games::ColorTrait;
 use gears::general::board::Strictness::Relaxed;
-use gears::general::board::{Board, BoardHelpers};
+use gears::general::board::{BoardHelpers, BoardTrait};
 use gears::general::common::Description::{NoDescription, WithDescription};
 use gears::general::common::anyhow::{anyhow, bail};
 use gears::general::common::{
@@ -26,7 +26,7 @@ use gears::general::common::{
     to_name_and_optional_description, tokens,
 };
 use gears::general::moves::ExtendedFormat::Alternative;
-use gears::general::moves::Move;
+use gears::general::moves::MoveTrait;
 use gears::output::Message::{Info, Warning};
 use gears::output::OutputOpts;
 use gears::search::TimeControl;
@@ -77,11 +77,11 @@ enum DefaultPlayer {
 
 type Command<B> = TextSelection<for<'a> fn(MutexGuard<Client<B>>, &'a mut Tokens) -> Res<()>>;
 
-pub(super) struct TextInputThread<B: Board> {
+pub(super) struct TextInputThread<B: BoardTrait> {
     commands: Vec<Command<B>>,
 }
 
-impl<B: Board> TextInputThread<B> {
+impl<B: BoardTrait> TextInputThread<B> {
     pub fn input_loop(ugi_client: Weak<Mutex<Client<B>>>) {
         let input_thread = Self {
             // created here so that this isn't done each time the user inputs something (which probably wouldn't matter
@@ -552,7 +552,7 @@ impl StaticallyNamedEntity for TextInput {
     }
 }
 
-impl<B: Board> Input<B> for TextInput {
+impl<B: BoardTrait> Input<B> for TextInput {
     fn assume_control(&mut self, ugi_client: Arc<Mutex<Client<B>>>) {
         self.handle = Some(
             Builder::new()
@@ -586,7 +586,7 @@ impl NamedEntity for TextInputBuilder {
     }
 }
 
-impl<B: Board> InputBuilder<B> for TextInputBuilder {
+impl<B: BoardTrait> InputBuilder<B> for TextInputBuilder {
     fn build(&self) -> Box<dyn Input<B>> {
         Box::new(TextInput::default())
     }

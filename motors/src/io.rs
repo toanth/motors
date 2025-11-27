@@ -44,9 +44,9 @@ use gears::colored::Color::Red;
 use gears::colored::Colorize;
 use gears::games::CharType::Ascii;
 use gears::games::chess::UCI_CHESS960;
-use gears::games::{AbstractPieceType, BoardHistDyn, Color, ColoredPiece, ColoredPieceType, OutputList};
+use gears::games::{AbstractPieceType, BoardHistDyn, ColorTrait, ColoredPieceTrait, ColoredPieceTypeTrait, OutputList};
 use gears::general::board::Strictness::{Relaxed, Strict};
-use gears::general::board::{Board, BoardHelpers, ColPieceTypeOf, Strictness, Symmetry, UnverifiedBoard};
+use gears::general::board::{BoardHelpers, BoardTrait, ColPieceTypeOf, Strictness, Symmetry, UnverifiedBoardTrait};
 use gears::general::common::Description::{NoDescription, WithDescription};
 use gears::general::common::anyhow::{anyhow, bail, ensure};
 use gears::general::common::{
@@ -55,7 +55,7 @@ use gears::general::common::{
 };
 use gears::general::common::{Res, Tokens};
 use gears::general::moves::ExtendedFormat::{Alternative, Standard};
-use gears::general::moves::Move;
+use gears::general::moves::MoveTrait;
 use gears::general::perft::Bulkness::{Bulk, NoBulk};
 use gears::general::perft::{SplitPerftRes, num_unique_positions_up_to, perft_for, split_perft};
 use gears::itertools::Itertools;
@@ -127,7 +127,7 @@ impl Display for SearchType {
 }
 
 #[derive(Debug)]
-struct EngineGameState<B: Board> {
+struct EngineGameState<B: BoardTrait> {
     match_state: MatchState<B>,
     go_state: GoState<B>,
     game_name: String,
@@ -145,14 +145,14 @@ struct EngineGameState<B: Board> {
     opponent_name: Option<String>,
 }
 
-impl<B: Board> EngineGameState<B> {
+impl<B: BoardTrait> EngineGameState<B> {
     fn is_currently_searching(&self) -> bool {
         self.engine.main_atomic_search_data().currently_searching()
             || self.temp_engine.as_ref().is_some_and(|e| e.main_atomic_search_data().currently_searching())
     }
 }
 
-impl<B: Board> GameState<B> for EngineGameState<B> {
+impl<B: BoardTrait> GameState<B> for EngineGameState<B> {
     fn initial_pos(&self) -> &B {
         &self.match_state.pos_before_moves
     }
@@ -244,7 +244,7 @@ impl<B: Board> GameState<B> for EngineGameState<B> {
     }
 }
 
-impl<B: Board> Deref for EngineGameState<B> {
+impl<B: BoardTrait> Deref for EngineGameState<B> {
     type Target = MatchState<B>;
 
     fn deref(&self) -> &Self::Target {
@@ -252,7 +252,7 @@ impl<B: Board> Deref for EngineGameState<B> {
     }
 }
 
-impl<B: Board> DerefMut for EngineGameState<B> {
+impl<B: BoardTrait> DerefMut for EngineGameState<B> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.match_state
     }
@@ -270,7 +270,7 @@ struct AllCommands {
 
 /// Implements both UGI and UCI.
 #[derive(Debug)]
-pub struct EngineUGI<B: Board> {
+pub struct EngineUGI<B: BoardTrait> {
     state: EngineGameState<B>,
     commands: AllCommands,
     output: Arc<Mutex<UgiOutput<B>>>,
@@ -286,7 +286,7 @@ pub struct EngineUGI<B: Board> {
     failed_cmd: Option<String>,
 }
 
-impl<B: Board> AbstractRun for EngineUGI<B> {
+impl<B: BoardTrait> AbstractRun for EngineUGI<B> {
     fn run(&mut self) -> Quitting {
         // this can happen if the user ran a command via cli argument before starting the uci loop
         if let Quit(quitting) = &self.state.status {
@@ -354,7 +354,7 @@ fn handle_ugi_input(ugi: &mut dyn AbstractEngineUgi, mut words: Tokens, game_nam
     Ok(())
 }
 
-impl<B: Board> EngineUGI<B> {
+impl<B: BoardTrait> EngineUGI<B> {
     pub fn create(
         opts: EngineOpts,
         mut selected_output_builders: OutputList<B>,
@@ -1310,7 +1310,7 @@ trait AbstractEngineUgiState: Debug {
     fn handle_quit(&mut self, typ: Quitting) -> Res<()>;
 }
 
-impl<B: Board> AbstractEngineUgiState for EngineUGI<B> {
+impl<B: BoardTrait> AbstractEngineUgiState for EngineUGI<B> {
     fn options_text(&self, words: &mut Tokens) -> Res<String> {
         write_options_impl(
             self.get_options(),
@@ -1687,7 +1687,7 @@ trait AbstractEngineUgi: AbstractEngineUgiState {
     fn handle_move_fen_or_pgn(&mut self, first_word: &str, rest: &mut Tokens) -> Res<bool>;
 }
 
-impl<B: Board> AbstractEngineUgi for EngineUGI<B> {
+impl<B: BoardTrait> AbstractEngineUgi for EngineUGI<B> {
     fn abstract_ugi_pos_state(&self) -> &dyn AbstractUgiPosState {
         self.state.abstract_pos_state()
     }
@@ -1856,7 +1856,7 @@ fn invalid_command_msg(interactive: bool, first_word: &str, rest: &mut Tokens, e
 
 // take a BoardGameState instead of a board to correctly handle displaying the last move
 #[cold]
-fn format_tt_entry<B: Board>(state: MatchState<B>, entry: TTEntry<B>) -> String {
+fn format_tt_entry<B: BoardTrait>(state: MatchState<B>, entry: TTEntry<B>) -> String {
     let pos = state.board.clone();
     let pos2 = pos.clone();
     let formatter = pos.pretty_formatter(None, state.last_move(), OutputOpts::default());
@@ -1907,7 +1907,7 @@ fn format_tt_entry<B: Board>(state: MatchState<B>, entry: TTEntry<B>) -> String 
 }
 
 #[cold]
-fn show_eval_pos<B: Board>(pos: &B, last: Option<B::Move>, eval: Box<dyn Eval<B>>) -> String {
+fn show_eval_pos<B: BoardTrait>(pos: &B, last: Option<B::Move>, eval: Box<dyn Eval<B>>) -> String {
     let eval = RefCell::new(eval);
     let formatter = pos.pretty_formatter(None, last, OutputOpts::default());
     let eval_pos = eval.borrow_mut().eval(pos, 0, pos.active_player());
@@ -1983,7 +1983,7 @@ fn handle_play_impl(ugi: &mut dyn AbstractEngineUgi, words: &mut Tokens) -> Res<
 }
 
 #[cold]
-fn compare_splitperft<B: Board>(ugi: &mut EngineUGI<B>, perft_res: SplitPerftRes<B>) -> Res<()> {
+fn compare_splitperft<B: BoardTrait>(ugi: &mut EngineUGI<B>, perft_res: SplitPerftRes<B>) -> Res<()> {
     let compare_text =
         inquire::Editor::new("Press 'e' to open an editor and enter your splitperft results, then press enter")
             .prompt()?;
@@ -2014,7 +2014,7 @@ fn compare_splitperft<B: Board>(ugi: &mut EngineUGI<B>, perft_res: SplitPerftRes
     Ok(())
 }
 
-fn splitperft_line<B: Board>(line: &str, perft_res: &SplitPerftRes<B>, seen: &mut HashSet<B::Move>) -> Res<()> {
+fn splitperft_line<B: BoardTrait>(line: &str, perft_res: &SplitPerftRes<B>, seen: &mut HashSet<B::Move>) -> Res<()> {
     let mut words = tokens(line).map(|w| w.to_ascii_lowercase());
     let mov = words.next().unwrap();
     let mov = mov.trim_end_matches(':');
@@ -2076,13 +2076,13 @@ mod tests {
     use crate::{list_chess_evals, list_chess_outputs, list_chess_searchers};
     use gears::cli::Game::Chess;
     use gears::create_selected_output_builders;
-    use gears::games::chess::ChessColor::Black;
-    use gears::games::chess::Chessboard;
+    use gears::games::chess::Board;
+    use gears::games::chess::Color::Black;
     use gears::rand::prelude::SliceRandom;
     use gears::rand::rngs::StdRng;
     use gears::rand::{Rng, SeedableRng};
 
-    fn create_chess_game() -> Box<EngineUGI<Chessboard>> {
+    fn create_chess_game() -> Box<EngineUGI<Board>> {
         let outputs = list_chess_outputs();
         let searchers = list_chess_searchers();
         let evals = list_chess_evals();
@@ -2106,13 +2106,13 @@ mod tests {
         ugi.handle_input("idk").unwrap();
         ugi.handle_input("idk off").unwrap();
         let state = ugi.state.match_state.clone();
-        assert_eq!(state.pos_before_moves, Chessboard::default());
+        assert_eq!(state.pos_before_moves, Board::default());
         assert_eq!(state.pos().active_player(), Black);
         assert_eq!(state.mov_hist.len(), 1);
         assert_eq!(state.board_hist.len(), 1);
         assert_eq!(state.status, Run(NotStarted));
         ugi.handle_input("undo").unwrap();
-        assert_eq!(*ugi.state.pos(), Chessboard::default());
+        assert_eq!(*ugi.state.pos(), Board::default());
         assert_eq!(ugi.state.mov_hist.len(), 0);
         ugi.handle_input("position startpos e2e4").unwrap();
         ugi.handle_input("randomize").unwrap();

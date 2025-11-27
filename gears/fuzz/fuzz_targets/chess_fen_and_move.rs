@@ -17,20 +17,20 @@
  */
 #![no_main]
 
-use gears::games::chess::moves::ChessMove;
-use gears::games::chess::Chessboard;
+use gears::games::chess::Board;
+use gears::games::chess::moves::Move;
 use gears::general::board::Strictness::Relaxed;
-use gears::general::board::{Board, BoardHelpers};
-use gears::general::moves::Move;
+use gears::general::board::{BoardHelpers, BoardTrait};
+use gears::general::moves::MoveTrait;
 use libfuzzer_sys::fuzz_target;
 
 fuzz_target!(|data: &str| {
     let mut lines = data.lines();
-    let Ok(mut pos) = Chessboard::from_fen(lines.next().unwrap_or_default(), Relaxed) else {
+    let Ok(mut pos) = Board::from_fen(lines.next().unwrap_or_default(), Relaxed) else {
         return;
     };
     for line in lines {
-        if let Ok(mov) = ChessMove::from_text(line, &pos) {
+        if let Ok(mov) = Move::from_text(line, &pos) {
             pos = pos.make_move(mov).unwrap_or(pos);
         }
     }

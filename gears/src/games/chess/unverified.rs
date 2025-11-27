@@ -15,19 +15,21 @@
  *  You should have received a copy of the GNU General Public License
  *  along with Gears. If not, see <https://www.gnu.org/licenses/>.
  */
-use crate::games::chess::ChessColor::{Black, White};
+use crate::games::chess::Color::{Black, White};
 use crate::games::chess::castling::{CastleRight, CastlingFlags};
-use crate::games::chess::pieces::ChessPieceType::{Empty, King, Pawn, Rook};
-use crate::games::chess::pieces::ColoredChessPieceType::{BlackKing, WhiteKing};
-use crate::games::chess::pieces::{ChessPiece, ChessPieceType, ColoredChessPieceType};
-use crate::games::chess::squares::{ChessSquare, ChessboardSize};
-use crate::games::chess::{ChessColor, ChessSettings, Chessboard};
-use crate::games::{Color, ColoredPiece, ColoredPieceType, Coordinates, DimT, PosHash};
-use crate::general::bitboards::chessboard::ChessBitboard;
-use crate::general::bitboards::{Bitboard, KnownSizeBitboard, RawBitboard};
+use crate::games::chess::pieces::ColoredPieceType::{BlackKing, WhiteKing};
+use crate::games::chess::pieces::PieceType::{Empty, King, Pawn, Rook};
+use crate::games::chess::pieces::{ColoredPieceType, Piece, PieceType};
+use crate::games::chess::squares::{ChessboardSize, Square};
+use crate::games::chess::{Board, Color, Settings};
+use crate::games::{ColorTrait, ColoredPieceTrait, ColoredPieceTypeTrait, CoordinatesTrait, DimT, PosHash};
+use crate::general::bitboards::chessboard::Bitboard;
+use crate::general::bitboards::{BitboardTrait, KnownSizeBitboard, RawBitboardTrait};
 use crate::general::board::SelfChecks::{Assertion, CheckFen};
 use crate::general::board::Strictness::Strict;
-use crate::general::board::{BitboardBoard, Board, BoardHelpers, SelfChecks, Strictness, Symmetry, UnverifiedBoard};
+use crate::general::board::{
+    BitboardBoard, BoardHelpers, BoardTrait, SelfChecks, Strictness, Symmetry, UnverifiedBoardTrait,
+};
 use crate::general::common::{Res, ith_one_u64};
 use crate::general::hq::ChessSliderGenerator;
 use crate::general::squares::RectangularCoordinates;
@@ -38,18 +40,18 @@ use strum::IntoEnumIterator;
 
 #[derive(Debug, Copy, Clone)]
 #[must_use]
-pub struct UnverifiedChessboard(pub(super) Chessboard);
+pub struct UnverifiedBoard(pub(super) Board);
 
-impl From<Chessboard> for UnverifiedChessboard {
-    fn from(board: Chessboard) -> Self {
+impl From<Board> for UnverifiedBoard {
+    fn from(board: Board) -> Self {
         Self(board)
     }
 }
 
-fn fen_selfchecks(this: &Chessboard, checks: SelfChecks, strictness: Strictness) -> Res<()> {
-    for color in ChessColor::iter() {
+fn fen_selfchecks(this: &Board, checks: SelfChecks, strictness: Strictness) -> Res<()> {
+    for color in Color::iter() {
         ensure!(this.col_piece_bb(color, King).is_single_piece(), "The {color} player does not have exactly one king");
-        if this.col_piece_bb(color, Pawn).intersects(ChessBitboard::backranks()) {
+        if this.col_piece_bb(color, Pawn).intersects(Bitboard::backranks()) {
             bail!("The {color} player has a pawn on the first or eight rank")
         }
 
@@ -79,8 +81,8 @@ fn fen_selfchecks(this: &Chessboard, checks: SelfChecks, strictness: Strictness)
 
     let mut num_promoted_pawns: [isize; 2] = [0, 0];
     let startpos_piece_count = [8, 2, 2, 2, 1, 1];
-    for color in ChessColor::iter() {
-        for piece in ChessPieceType::pieces() {
+    for color in Color::iter() {
+        for piece in PieceType::pieces() {
             let bb = this.col_piece_bb(color, piece);
             if strictness == Strict {
                 num_promoted_pawns[color] += 0.max(bb.num_ones() as isize - startpos_piece_count[piece]);
@@ -93,8 +95,8 @@ fn fen_selfchecks(this: &Chessboard, checks: SelfChecks, strictness: Strictness)
                 );
             }
             if checks > CheckFen {
-                for other_piece in ColoredChessPieceType::pieces() {
-                    if other_piece as usize >= ColoredChessPieceType::new(color, piece) as usize {
+                for other_piece in ColoredPieceType::pieces() {
+                    if other_piece as usize >= ColoredPieceType::new(color, piece) as usize {
                         break;
                     }
                     let mut overlap = bb & this.col_piece_bb(other_piece.color().unwrap(), other_piece.uncolor());
@@ -114,16 +116,16 @@ fn fen_selfchecks(this: &Chessboard, checks: SelfChecks, strictness: Strictness)
     Ok(())
 }
 
-impl UnverifiedBoard<Chessboard> for UnverifiedChessboard {
-    fn verify_with_level(self, checks: SelfChecks, strictness: Strictness) -> Res<Chessboard> {
+impl UnverifiedBoardTrait<Board> for UnverifiedBoard {
+    fn verify_with_level(self, checks: SelfChecks, strictness: Strictness) -> Res<Board> {
         let mut this = self.0;
         if checks == Assertion {
             ensure!(
                 (this.player_bb(White) & this.player_bb(Black)).is_zero(),
                 "A square is set both on the white and black player bitboard, but no piece bitboard has this bit set"
             );
-            let mut pieces = ChessBitboard::default();
-            for piece in ChessPieceType::pieces() {
+            let mut pieces = Bitboard::default();
+            for piece in PieceType::pieces() {
                 pieces |= this.piece_bb(piece);
             }
             if pieces != this.bbs.colors[0] | this.bbs.colors[1] {
@@ -168,7 +170,7 @@ impl UnverifiedBoard<Chessboard> for UnverifiedChessboard {
         Ok(this)
     }
 
-    fn settings(&self) -> &ChessSettings {
+    fn settings(&self) -> &Settings {
         self.0.settings()
     }
 
@@ -177,14 +179,14 @@ impl UnverifiedBoard<Chessboard> for UnverifiedChessboard {
     }
 
     // TODO: Change interface to pass color and piece separately?
-    fn place_piece(&mut self, square: ChessSquare, piece: ColoredChessPieceType) {
+    fn place_piece(&mut self, square: Square, piece: ColoredPieceType) {
         let this = &mut self.0;
         debug_assert!(this.is_empty(square));
         this.bbs.place_piece(square, piece.color().unwrap(), piece.uncolor());
         this.mailbox[square] = piece.uncolor();
     }
 
-    fn remove_piece(&mut self, sq: ChessSquare) {
+    fn remove_piece(&mut self, sq: Square) {
         let piece = self.0.colored_piece_on(sq);
         let color = piece.color().unwrap();
         let piece = piece.symbol.uncolor();
@@ -201,19 +203,19 @@ impl UnverifiedBoard<Chessboard> for UnverifiedChessboard {
         }
     }
 
-    fn piece_on(&self, coords: ChessSquare) -> ChessPiece {
+    fn piece_on(&self, coords: Square) -> Piece {
         self.0.colored_piece_on(coords)
     }
 
-    fn is_empty(&self, square: ChessSquare) -> bool {
+    fn is_empty(&self, square: Square) -> bool {
         self.0.is_empty(square)
     }
 
-    fn active_player(&self) -> ChessColor {
+    fn active_player(&self) -> Color {
         self.0.active
     }
 
-    fn set_active_player(&mut self, player: ChessColor) {
+    fn set_active_player(&mut self, player: Color) {
         self.0.active = player;
     }
 
@@ -228,7 +230,7 @@ impl UnverifiedBoard<Chessboard> for UnverifiedChessboard {
     }
 }
 
-impl Chessboard {
+impl Board {
     fn check_ep(&mut self, strictness: Strictness, checks: SelfChecks) -> Res<()> {
         let Some(ep_square) = self.ep_square else { return Ok(()) };
         ensure!(
@@ -243,7 +245,7 @@ impl Chessboard {
                 "The en passant square ({ep_square}) must be empty, but it's occupied by a {}",
                 self.piece_type_on(ep_square).to_name()
             )
-        } else if self.colored_piece_on(remove_pawn_sq).symbol != ColoredChessPieceType::new(inactive, Pawn) {
+        } else if self.colored_piece_on(remove_pawn_sq).symbol != ColoredPieceType::new(inactive, Pawn) {
             bail!("FEN specifies en passant square '{ep_square}', but there is no {inactive} pawn on {remove_pawn_sq}");
         } else if !self.is_empty(pawn_origin_sq) {
             bail!(
@@ -305,38 +307,38 @@ impl Chessboard {
     }
 }
 
-impl UnverifiedChessboard {
+impl UnverifiedBoard {
     pub fn castling_rights_mut(&mut self) -> &mut CastlingFlags {
         &mut self.0.castling
     }
 
-    pub fn set_ep(mut self, ep: Option<ChessSquare>) -> Self {
+    pub fn set_ep(mut self, ep: Option<Square>) -> Self {
         self.0.ep_square = ep;
         self
     }
 
     pub fn random_unverified_pos(rng: &mut impl Rng, strictness: Strictness, symmetry: Option<Symmetry>) -> Self {
-        let mut pos = Chessboard::empty();
+        let mut pos = Board::empty();
         let mask = if let Some(symmetry) = symmetry {
             match symmetry {
-                Symmetry::Material => ChessBitboard::default().not(),
-                Symmetry::Horizontal => ChessBitboard::new(0xf0f0_f0f0_f0f0_f0f0),
-                Symmetry::Vertical => ChessBitboard::new(0xffff_ffff),
-                Symmetry::Rotation180 => ChessBitboard::new(0xffff_ffff),
+                Symmetry::Material => Bitboard::default().not(),
+                Symmetry::Horizontal => Bitboard::new(0xf0f0_f0f0_f0f0_f0f0),
+                Symmetry::Vertical => Bitboard::new(0xffff_ffff),
+                Symmetry::Rotation180 => Bitboard::new(0xffff_ffff),
             }
         } else {
-            ChessBitboard::default().not()
+            Bitboard::default().not()
         };
         let king_sq1 = rng.random_range(0..mask.num_ones());
-        let king_sq1 = ChessSquare::from_bb_idx(king_sq1);
+        let king_sq1 = Square::from_bb_idx(king_sq1);
         pos.place_piece(king_sq1, WhiteKing);
         let king_sq2 = if let Some(symmetry) = symmetry {
             mirror_sq(king_sq1, symmetry, rng, &pos.0)
         } else {
             loop {
                 let king_sq2 = rng.random_range(0..64);
-                let king_sq2 = ChessSquare::from_bb_idx(king_sq2);
-                if king_sq2 == king_sq1 || Chessboard::normal_king_attacks_from(king_sq2).has(king_sq1) {
+                let king_sq2 = Square::from_bb_idx(king_sq2);
+                if king_sq2 == king_sq1 || Board::normal_king_attacks_from(king_sq2).has(king_sq1) {
                     continue;
                 }
                 break king_sq2;
@@ -355,12 +357,12 @@ impl UnverifiedChessboard {
         for _ in 0..num_pieces {
             let piece = if symmetry.is_some() {
                 let piece = rng.random_range(0..5);
-                ColoredChessPieceType::new(White, ChessPieceType::from_repr(piece).unwrap())
+                ColoredPieceType::new(White, PieceType::from_repr(piece).unwrap())
             } else {
                 let piece = rng.random_range(0..10);
-                let col = ChessColor::iter().nth(piece / 5).unwrap();
-                let piece = ChessPieceType::from_repr(piece % 5).unwrap();
-                ColoredChessPieceType::new(col, piece)
+                let col = Color::iter().nth(piece / 5).unwrap();
+                let piece = PieceType::from_repr(piece % 5).unwrap();
+                ColoredPieceType::new(col, piece)
             };
 
             let empty = pos.0.empty_bb() & mask;
@@ -368,14 +370,14 @@ impl UnverifiedChessboard {
             loop {
                 let sq_idx = rng.random_range(0..num_empty);
                 let sq_idx = ith_one_u64(sq_idx, empty.raw());
-                let sq = ChessSquare::from_bb_idx(sq_idx);
+                let sq = Square::from_bb_idx(sq_idx);
                 if piece.uncolor() == Pawn && sq.is_backrank() {
                     continue;
                 }
                 pos.place_piece(sq, piece);
                 if let Some(symmetry) = symmetry {
                     let sq = mirror_sq(sq, symmetry, rng, &pos.0);
-                    let piece = ColoredChessPieceType::new(Black, piece.uncolor());
+                    let piece = ColoredPieceType::new(Black, piece.uncolor());
                     pos.place_piece(sq, piece);
                 }
                 break;
@@ -394,11 +396,11 @@ impl UnverifiedChessboard {
     }
 }
 
-fn mirror_sq(sq: ChessSquare, symmetry: Symmetry, rng: &mut impl Rng, pos: &Chessboard) -> ChessSquare {
+fn mirror_sq(sq: Square, symmetry: Symmetry, rng: &mut impl Rng, pos: &Board) -> Square {
     match symmetry {
         Symmetry::Material => {
             let empty = pos.empty_bb().raw();
-            ChessSquare::from_bb_idx(ith_one_u64(rng.random_range(0..empty.num_ones()), empty))
+            Square::from_bb_idx(ith_one_u64(rng.random_range(0..empty.num_ones()), empty))
         }
         Symmetry::Horizontal => sq.flip_left_right(ChessboardSize::default()),
         Symmetry::Vertical => sq.flip_up_down(ChessboardSize::default()),
@@ -420,7 +422,7 @@ mod tests {
             let mut rng = StdRng::seed_from_u64(seed);
             let symmetry = Symmetry::iter().nth(symmetry);
             let strictness = if strictness == 0 { Strict } else { Relaxed };
-            let res = UnverifiedChessboard::random_unverified_pos(&mut rng, strictness, symmetry);
+            let res = UnverifiedBoard::random_unverified_pos(&mut rng, strictness, symmetry);
             let ok = res.verify_with_level(SelfChecks::Verify, strictness);
             if ok.is_ok() {
                 assert!(res.verify_with_level(Assertion, Relaxed).is_ok());

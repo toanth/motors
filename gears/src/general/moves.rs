@@ -16,7 +16,7 @@
  *  along with Gears. If not, see <https://www.gnu.org/licenses/>.
  */
 
-use crate::general::board::Board;
+use crate::general::board::BoardTrait;
 use crate::general::common::Res;
 use anyhow::bail;
 use arbitrary::Arbitrary;
@@ -49,9 +49,10 @@ pub enum ExtendedFormat {
 /// information to reconstruct the move without the position.
 /// All `Move` functions that take a `Board` parameter assume that the move is pseudolegal for the given board
 /// unless otherwise noted. [`UntrustedMove`] should be used when it's not clear that a move is pseudolegal.
-pub trait Move<B: Board>: Eq + Copy + Clone + Debug + Default + Hash + Send + Sync + for<'a> Arbitrary<'a>
+pub trait MoveTrait<B: BoardTrait>:
+    Eq + Copy + Clone + Debug + Default + Hash + Send + Sync + for<'a> Arbitrary<'a>
 where
-    B: Board<Move = Self>,
+    B: BoardTrait<Move = Self>,
 {
     type Underlying: PrimInt + Into<u64>;
 
@@ -84,7 +85,7 @@ where
     fn description(self, board: &B) -> String;
 
     /// Compact text representation is used by UGI, e.g. for chess it's `<to><from><promo_piece_if_present>`.
-    /// Takes a [`Board`] parameter because some move types may not store enough information to be printed in a human-readable
+    /// Takes a [`BoardTrait`] parameter because some move types may not store enough information to be printed in a human-readable
     /// way without that.
     /// Similarly, the compact text representation may not store enough information to reconstruct a `Move`
     /// without using a `Board`.
@@ -189,26 +190,26 @@ where
 }
 
 #[derive(Debug, Copy, Clone)]
-pub struct CompactFormatter<'a, B: Board> {
+pub struct CompactFormatter<'a, B: BoardTrait> {
     pos: &'a B,
     mov: B::Move,
 }
 
-impl<B: Board> Display for CompactFormatter<'_, B> {
+impl<B: BoardTrait> Display for CompactFormatter<'_, B> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         self.mov.format_compact(f, self.pos)
     }
 }
 
 #[derive(Debug, Copy, Clone)]
-pub struct ExtendedFormatter<'a, B: Board> {
+pub struct ExtendedFormatter<'a, B: BoardTrait> {
     pos: &'a B,
     mov: B::Move,
     all_legals: Option<&'a [B::Move]>,
     format: ExtendedFormat,
 }
 
-impl<B: Board> Display for ExtendedFormatter<'_, B> {
+impl<B: BoardTrait> Display for ExtendedFormatter<'_, B> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         if self.mov == B::Move::default() {
             write!(f, "0000")
@@ -225,9 +226,9 @@ impl<B: Board> Display for ExtendedFormatter<'_, B> {
 #[derive(Debug, Default, Copy, Clone, Eq, PartialEq, Hash)]
 #[must_use]
 #[repr(transparent)]
-pub struct UntrustedMove<B: Board>(B::Move);
+pub struct UntrustedMove<B: BoardTrait>(B::Move);
 
-impl<B: Board> Display for UntrustedMove<B>
+impl<B: BoardTrait> Display for UntrustedMove<B>
 where
     B::Move: Display,
 {
@@ -236,7 +237,7 @@ where
     }
 }
 
-impl<B: Board> UntrustedMove<B> {
+impl<B: BoardTrait> UntrustedMove<B> {
     pub fn from_move(mov: B::Move) -> Self {
         Self(mov)
     }
@@ -253,7 +254,7 @@ impl<B: Board> UntrustedMove<B> {
         self.0
     }
 
-    pub fn to_underlying(self) -> <B::Move as Move<B>>::Underlying {
+    pub fn to_underlying(self) -> <B::Move as MoveTrait<B>>::Underlying {
         self.0.to_underlying()
     }
 }

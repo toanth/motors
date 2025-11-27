@@ -3,7 +3,7 @@
 /// as well as from [zataxx](<https://github.com/zzzzz151/Zataxx/blob/main/src/tests.rs>)
 #[cfg(test)]
 mod tests {
-    use crate::games::ataxx::AtaxxBoard;
+    use crate::games::ataxx::Board;
     use crate::general::board::BoardHelpers;
     use crate::general::board::Strictness::Strict;
     use crate::general::perft::Bulkness::Bulk;
@@ -73,7 +73,7 @@ mod tests {
 
     fn test_perft(positions: &[(&str, &[u64])]) {
         for (fen, counts) in positions {
-            let pos = AtaxxBoard::from_fen(fen, Strict).unwrap();
+            let pos = Board::from_fen(fen, Strict).unwrap();
             for (depth, &count) in counts.iter().enumerate() {
                 let res = perft(DepthPly::new(depth), pos, false, Bulk);
                 assert_eq!(res.nodes, count, "{fen}");

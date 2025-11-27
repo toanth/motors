@@ -15,18 +15,18 @@
  *  You should have received a copy of the GNU General Public License
  *  along with Gears. If not, see <https://www.gnu.org/licenses/>.
  */
-use crate::games::chess::Chessboard;
-use crate::games::chess::moves::ChessMove;
+use crate::games::chess::Board;
 use crate::games::chess::moves::ChessMoveFlags::NormalMove;
-use crate::games::chess::pieces::ColoredChessPieceType;
-use crate::games::chess::squares::{ChessSquare, ChessboardSize};
+use crate::games::chess::moves::Move;
+use crate::games::chess::pieces::ColoredPieceType;
+use crate::games::chess::squares::{ChessboardSize, Square};
 use crate::games::chess::zobrist::ZOBRIST_KEYS;
-use crate::games::{BoardHistDyn, ColoredPiece, ColoredPieceType, PosHash, ZobristHistory};
-use crate::general::bitboards::chessboard::ChessBitboard;
-use crate::general::bitboards::{Bitboard, RawBitboard};
-use crate::general::board::{BitboardBoard, Board};
+use crate::games::{BoardHistDyn, ColoredPieceTrait, ColoredPieceTypeTrait, PosHash, ZobristHistory};
+use crate::general::bitboards::chessboard::Bitboard;
+use crate::general::bitboards::{BitboardTrait, RawBitboardTrait};
+use crate::general::board::{BitboardBoard, BoardTrait};
 use crate::general::hq::ChessSliderGenerator;
-use crate::general::moves::Move;
+use crate::general::moves::MoveTrait;
 use std::mem::swap;
 use std::sync::LazyLock;
 
@@ -49,26 +49,26 @@ fn entry(hash: PosHash) -> u32 {
 #[derive(Debug)]
 pub struct UpcomingRepetitionTable {
     hashes: [u32; SIZE],
-    moves: [ChessMove; SIZE],
+    moves: [Move; SIZE],
 }
 
 // It might make sense to try a different hashing scheme than cuckoo hashing, like robin hood hashing.
 // That should be more cache efficient, at least.
 pub(super) fn calc_move_hash_table() -> UpcomingRepetitionTable {
     let mut hashes = [PosHash::default(); SIZE];
-    let mut moves = [ChessMove::default(); SIZE];
+    let mut moves = [Move::default(); SIZE];
     let mut count = 0;
-    let slider_gen = ChessSliderGenerator::new(ChessBitboard::default());
-    for piece in ColoredChessPieceType::non_pawns() {
+    let slider_gen = ChessSliderGenerator::new(Bitboard::default());
+    for piece in ColoredPieceType::non_pawns() {
         let color = piece.color().unwrap();
         let piece = piece.uncolor();
-        for src in ChessSquare::iter() {
-            let attacks = Chessboard::threatening_attacks(src, piece, color, &slider_gen);
+        for src in Square::iter() {
+            let attacks = Board::threatening_attacks(src, piece, color, &slider_gen);
             for dest in attacks {
                 if dest.bb_idx() < src.bb_idx() {
                     continue;
                 }
-                let mut mov = ChessMove::new(src, dest, NormalMove);
+                let mut mov = Move::new(src, dest, NormalMove);
                 let mut hash = ZOBRIST_KEYS.piece_key(piece, color, src)
                     ^ ZOBRIST_KEYS.piece_key(piece, color, dest)
                     ^ ZOBRIST_KEYS.side_to_move_key;
@@ -93,7 +93,7 @@ pub(super) fn calc_move_hash_table() -> UpcomingRepetitionTable {
     UpcomingRepetitionTable { hashes: res_hashes, moves }
 }
 
-fn has_upcoming_repetition(table: &UpcomingRepetitionTable, history: &ZobristHistory, pos: &Chessboard) -> bool {
+fn has_upcoming_repetition(table: &UpcomingRepetitionTable, history: &ZobristHistory, pos: &Board) -> bool {
     let n = history.len();
     let max_lookback = pos.ply_draw_clock().min(n);
     let mut their_delta = pos.hash_pos() ^ history.0[n - 1] ^ ZOBRIST_KEYS.side_to_move_key;
@@ -113,7 +113,7 @@ fn has_upcoming_repetition(table: &UpcomingRepetitionTable, history: &ZobristHis
         let mut src = table.moves[idx].src_square();
         let mut dest = table.moves[idx].dest_square();
 
-        let ray = ChessBitboard::ray_exclusive(src, dest, ChessboardSize {});
+        let ray = Bitboard::ray_exclusive(src, dest, ChessboardSize {});
         if (ray & pos.occupied_bb()).has_any() {
             continue;
         };
@@ -121,7 +121,7 @@ fn has_upcoming_repetition(table: &UpcomingRepetitionTable, history: &ZobristHis
             if !pos.active_player_bb().is_bit_set_at(src.bb_idx()) {
                 swap(&mut src, &mut dest);
             }
-            let mov = ChessMove::new(src, dest, table.moves[idx].flags());
+            let mov = Move::new(src, dest, table.moves[idx].flags());
             let piece = mov.piece(pos);
             debug_assert!(pos.col_piece_bb(piece.color().unwrap(), piece.uncolored()).is_bit_set_at(src.bb_idx()));
             debug_assert!(pos.is_empty(dest));
@@ -133,7 +133,7 @@ fn has_upcoming_repetition(table: &UpcomingRepetitionTable, history: &ZobristHis
     false
 }
 
-impl Chessboard {
+impl Board {
     pub fn has_upcoming_repetition(&self, table: &UpcomingRepetitionTable, history: &ZobristHistory) -> bool {
         if self.ply_100_ctr < 3 || history.is_empty() {
             return false;
@@ -149,13 +149,13 @@ mod tests {
     use super::*;
     use crate::games::n_fold_repetition;
     use crate::general::board::Strictness::Strict;
-    use crate::general::board::{Board, BoardHelpers};
+    use crate::general::board::{BoardHelpers, BoardTrait};
 
     #[test]
     fn test_calc_move_hash_table() {
         let table = calc_move_hash_table();
-        let pos = Chessboard::default();
-        let mov = ChessMove::from_text("Nf3", &pos).unwrap();
+        let pos = Board::default();
+        let mov = Move::from_text("Nf3", &pos).unwrap();
         let new_pos = pos.make_move(mov).unwrap();
         let hash_diff = pos.hash_pos() ^ new_pos.hash_pos();
         assert!(table.moves.contains(&mov));
@@ -164,7 +164,7 @@ mod tests {
 
     #[test]
     fn test_upcoming_repetition() {
-        let mut pos = Chessboard::from_name("kiwipete").unwrap();
+        let mut pos = Board::from_name("kiwipete").unwrap();
         let moves = ["Qg3", "Bb7", "Qf3"];
         let mut hist = ZobristHistory::default();
         for m in moves {
@@ -198,7 +198,7 @@ mod tests {
 
     #[test]
     fn triangulation_test() {
-        let mut pos = Chessboard::from_fen("8/1p1k4/1P6/2PK4/8/8/8/8 w - - 4 7", Strict).unwrap();
+        let mut pos = Board::from_fen("8/1p1k4/1P6/2PK4/8/8/8/8 w - - 4 7", Strict).unwrap();
         let moves = ["Ke5!", "Kc6", "Kd4", "Kd7"];
         let mut hist = ZobristHistory::default();
         for m in moves {

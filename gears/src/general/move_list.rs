@@ -1,11 +1,13 @@
-use crate::general::board::Board;
+use crate::general::board::BoardTrait;
 use arrayvec::ArrayVec;
 use smallvec::SmallVec;
 use std::fmt::Debug;
 
 /// A list of moves as returned by the board's `pseudolegal_moves`.
 /// Moves may or may not be ordered and may or may not be computed lazily.
-pub trait MoveList<B: Board>: IntoIterator<Item = B::Move, IntoIter: Send + ExactSizeIterator> + Debug {
+pub trait MoveListTrait<B: BoardTrait>:
+    IntoIterator<Item = B::Move, IntoIter: Send + ExactSizeIterator> + Debug
+{
     fn add_move(&mut self, mov: B::Move);
 
     fn num_moves(&self) -> usize;
@@ -22,13 +24,13 @@ pub trait MoveList<B: Board>: IntoIterator<Item = B::Move, IntoIter: Send + Exac
 }
 
 #[allow(type_alias_bounds)]
-pub type MoveIter<B: Board> = <B::MoveList as IntoIterator>::IntoIter;
+pub type MoveIter<B: BoardTrait> = <B::MoveList as IntoIterator>::IntoIter;
 
 /// A list of moves that is computed all at once and stored in-place.
 #[allow(type_alias_bounds)]
-pub type InplaceMoveList<B: Board, const N: usize> = ArrayVec<B::Move, N>;
+pub type InplaceMoveList<B: BoardTrait, const N: usize> = ArrayVec<B::Move, N>;
 
-impl<B: Board, const N: usize> MoveList<B> for InplaceMoveList<B, N> {
+impl<B: BoardTrait, const N: usize> MoveListTrait<B> for InplaceMoveList<B, N> {
     fn add_move(&mut self, mov: B::Move) {
         self.push(mov);
     }
@@ -57,9 +59,9 @@ impl<B: Board, const N: usize> MoveList<B> for InplaceMoveList<B, N> {
 }
 
 #[allow(type_alias_bounds)]
-pub type SboMoveList<B: Board, const N: usize> = SmallVec<B::Move, N>;
+pub type SboMoveList<B: BoardTrait, const N: usize> = SmallVec<B::Move, N>;
 
-impl<B: Board, const N: usize> MoveList<B> for SboMoveList<B, N> {
+impl<B: BoardTrait, const N: usize> MoveListTrait<B> for SboMoveList<B, N> {
     fn add_move(&mut self, mov: B::Move) {
         self.push(mov)
     }

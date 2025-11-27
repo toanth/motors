@@ -30,13 +30,15 @@ use crate::games::fairy::attacks::{
     AttackKind, AttackMode, AttackTypes, CaptureCondition, Dir, LeapingBitboards, MoveKind, RequiredForAttack,
     SliderDirections,
 };
-use crate::games::fairy::moves::FairyMove;
+use crate::games::fairy::moves::Move;
 use crate::games::fairy::rules::SquareFilter::{EmptySquares, InDirectionOf, NoSquares, Not, SideRelativeBitboard};
 use crate::games::fairy::rules::{PieceCond, PlayerCond, PromoFenModifier, Rules, SquareFilter};
-use crate::games::fairy::{FairyBitboard, FairyBoard, FairyColor, FairySize, FairySquare};
-use crate::games::{AbstractPieceType, CharType, Color, ColoredPieceType, DimT, NUM_CHAR_TYPES, NUM_COLORS, PieceType};
-use crate::general::bitboards::Bitboard;
-use crate::general::board::Board;
+use crate::games::fairy::{Bitboard, Board, Color, Size, Square};
+use crate::games::{
+    AbstractPieceType, CharType, ColorTrait, ColoredPieceTypeTrait, DimT, NUM_CHAR_TYPES, NUM_COLORS, PieceTypeTrait,
+};
+use crate::general::bitboards::BitboardTrait;
+use crate::general::board::BoardTrait;
 use crate::general::common::Res;
 use crate::general::squares::RectangularSize;
 use anyhow::bail;
@@ -71,7 +73,7 @@ impl PieceId {
     }
 }
 
-impl AbstractPieceType<FairyBoard> for PieceId {
+impl AbstractPieceType<Board> for PieceId {
     fn empty() -> Self {
         Self(u8::MAX)
     }
@@ -140,7 +142,7 @@ impl AbstractPieceType<FairyBoard> for PieceId {
     }
 }
 
-impl PieceType<FairyBoard> for PieceId {
+impl PieceTypeTrait<Board> for PieceId {
     type Colored = ColoredPieceId;
 
     fn from_idx(idx: usize) -> Self {
@@ -156,7 +158,7 @@ impl PieceType<FairyBoard> for PieceId {
 #[must_use]
 pub struct ColoredPieceId {
     id: PieceId,
-    color: Option<FairyColor>,
+    color: Option<Color>,
 }
 
 impl ColoredPieceId {
@@ -170,16 +172,16 @@ impl ColoredPieceId {
         let id = PieceId(val / 3);
         let color = match val % 3 {
             0 => None,
-            c => Some(FairyColor::from_idx(c as usize - 1)),
+            c => Some(Color::from_idx(c as usize - 1)),
         };
         ColoredPieceId { id, color }
     }
-    pub fn create(piece: PieceId, color: Option<FairyColor>) -> Self {
+    pub fn create(piece: PieceId, color: Option<Color>) -> Self {
         ColoredPieceId { id: piece, color }
     }
 }
 
-impl AbstractPieceType<FairyBoard> for ColoredPieceId {
+impl AbstractPieceType<Board> for ColoredPieceId {
     fn empty() -> Self {
         Self { id: PieceId::empty(), color: None }
     }
@@ -195,8 +197,8 @@ impl AbstractPieceType<FairyBoard> for ColoredPieceId {
                     [Some(Self { id: PieceId::new(idx), color: None }), None].into_iter()
                 } else {
                     [
-                        Some(Self { id: PieceId::new(idx), color: Some(FairyColor::first()) }),
-                        Some(Self { id: PieceId::new(idx), color: Some(FairyColor::second()) }),
+                        Some(Self { id: PieceId::new(idx), color: Some(Color::first()) }),
+                        Some(Self { id: PieceId::new(idx), color: Some(Color::second()) }),
                     ]
                     .into_iter()
                 }
@@ -217,9 +219,9 @@ impl AbstractPieceType<FairyBoard> for ColoredPieceId {
         let found = rules.pieces().find(|(_id, p)| p.player_symbol.iter().any(|s| s.contains(&c)));
         if let Some((id, p)) = found {
             if p.player_symbol[CharType::Ascii].contains(&c) {
-                Some(Self { id, color: Some(FairyColor::first()) })
+                Some(Self { id, color: Some(Color::first()) })
             } else {
-                Some(Self { id, color: Some(FairyColor::second()) })
+                Some(Self { id, color: Some(Color::second()) })
             }
         } else {
             rules.matching_piece_ids(|p| p.uncolored_symbol.contains(&c)).next().map(|id| Self { id, color: None })
@@ -270,14 +272,14 @@ impl AbstractPieceType<FairyBoard> for ColoredPieceId {
     }
 }
 
-impl ColoredPieceType<FairyBoard> for ColoredPieceId {
+impl ColoredPieceTypeTrait<Board> for ColoredPieceId {
     type Uncolored = PieceId;
 
-    fn new(color: FairyColor, uncolored: Self::Uncolored) -> Self {
+    fn new(color: Color, uncolored: Self::Uncolored) -> Self {
         Self { id: uncolored, color: Some(color) }
     }
 
-    fn color(self) -> Option<FairyColor> {
+    fn color(self) -> Option<Color> {
         self.color
     }
 
@@ -333,7 +335,7 @@ impl Promo {
         }
     }
 
-    fn gen_promo_impl<F: Fn(FairyBitboard) -> bool>(&self, contained: F, pos: &FairyBoard) -> GenPromoMoves {
+    fn gen_promo_impl<F: Fn(Bitboard) -> bool>(&self, contained: F, pos: &Board) -> GenPromoMoves {
         if contained(self.forced_promo_zone.bb(pos.active_player(), pos)) {
             GenPromoMoves::ForcedPromo
         } else if contained(self.optional_promo_zone.bb(pos.active_player(), pos)) {
@@ -343,13 +345,12 @@ impl Promo {
         }
     }
 
-    pub fn gen_promo(&self, source: FairySquare, dest: FairySquare, pos: &FairyBoard) -> GenPromoMoves {
+    pub fn gen_promo(&self, source: Square, dest: Square, pos: &Board) -> GenPromoMoves {
         match self.condition {
             PromoCondition::Never => GenPromoMoves::NoPromo,
             PromoCondition::TargetSquare => self.gen_promo_impl(|bb| bb.has(dest), pos),
             PromoCondition::SourceOrTargetNoDrop => {
-                let promo =
-                    |bb: FairyBitboard| source != FairySquare::no_coordinates() && (bb.has(dest) || bb.has(source));
+                let promo = |bb: Bitboard| source != Square::no_coordinates() && (bb.has(dest) || bb.has(source));
                 self.gen_promo_impl(promo, pos)
             }
         }
@@ -364,7 +365,7 @@ pub enum DrawCtrReset {
 }
 
 impl DrawCtrReset {
-    pub fn reset(&self, mov: FairyMove) -> bool {
+    pub fn reset(&self, mov: Move) -> bool {
         match self {
             DrawCtrReset::Always => true,
             DrawCtrReset::Never => false,
@@ -415,8 +416,8 @@ pub struct Piece {
 impl Piece {
     pub fn set_unicode_symbol(&mut self, symbol: char) {
         self.uncolored_symbol[Unicode] = symbol;
-        self.player_symbol[FairyColor::first()][Unicode] = symbol;
-        self.player_symbol[FairyColor::second()][Unicode] = symbol;
+        self.player_symbol[Color::first()][Unicode] = symbol;
+        self.player_symbol[Color::second()][Unicode] = symbol;
     }
 
     pub fn add_attack(mut self, attack: AttackKind) -> Self {
@@ -456,7 +457,7 @@ impl Piece {
         name: &str,
         n: usize,
         m: usize,
-        size: FairySize,
+        size: Size,
         ascii_char: Option<char>,
         unicode: Option<[char; 3]>,
     ) -> Self {
@@ -465,30 +466,30 @@ impl Piece {
         Self::new(name, attacks, ascii, unicode)
     }
 
-    fn chess_pawn_no_promo(size: FairySize) -> Self {
+    fn chess_pawn_no_promo(size: Size) -> Self {
         let normal_white = AttackKind::pawn_noncapture(
             Leaping(LeapingBitboards::range_hv(once(0), once(1), size)),
-            Player(FairyColor::first()),
+            Player(Color::first()),
         );
         let normal_black = AttackKind::pawn_noncapture(
             Leaping(LeapingBitboards::range_hv(once(0), once(-1), size)),
-            Player(FairyColor::second()),
+            Player(Color::second()),
         );
         let white_capture = AttackKind::pawn_capture(
             Leaping(LeapingBitboards::range_hv([-1, 1].into_iter(), once(1), size)),
-            Player(FairyColor::first()),
+            Player(Color::first()),
             SquareFilter::PawnCapture,
         );
         let black_capture = AttackKind::pawn_capture(
             Leaping(LeapingBitboards::range_hv([-1, 1].into_iter(), once(-1), size)),
-            Player(FairyColor::second()),
+            Player(Color::second()),
             SquareFilter::PawnCapture,
         );
         // promotions are handled as effects instead of duplicating all normal and capture moves
         let white_double = AttackKind {
             required: RequiredForAttack::PieceOnBoard,
             typ: Rider(SliderDirections::Vertical),
-            condition: OnRank(1, FairyColor::first()),
+            condition: OnRank(1, Color::first()),
             bitboard_filter: vec![EmptySquares, SquareFilter::Rank(3)],
             kind: DoublePawnPush,
             attack_mode: AttackMode::NoCaptures,
@@ -497,7 +498,7 @@ impl Piece {
         let black_double = AttackKind {
             required: RequiredForAttack::PieceOnBoard,
             typ: Rider(SliderDirections::Vertical),
-            condition: OnRank(size.height().get().saturating_sub(2), FairyColor::second()),
+            condition: OnRank(size.height().get().saturating_sub(2), Color::second()),
             bitboard_filter: vec![EmptySquares, SquareFilter::Rank(size.height().get().saturating_sub(4))],
             kind: DoublePawnPush,
             attack_mode: AttackMode::NoCaptures,
@@ -511,23 +512,23 @@ impl Piece {
     }
 
     // like the chess pawn, but without double pawn push and ep
-    fn pawn_shatranj_no_promo(size: FairySize) -> Self {
+    fn pawn_shatranj_no_promo(size: Size) -> Self {
         let normal_white = AttackKind::pawn_noncapture(
             Leaping(LeapingBitboards::range_hv(once(0), once(1), size)),
-            Player(FairyColor::first()),
+            Player(Color::first()),
         );
         let normal_black = AttackKind::pawn_noncapture(
             Leaping(LeapingBitboards::range_hv(once(0), once(-1), size)),
-            Player(FairyColor::second()),
+            Player(Color::second()),
         );
         let white_capture = AttackKind::pawn_capture(
             Leaping(LeapingBitboards::range_hv([-1, 1].into_iter(), once(1), size)),
-            Player(FairyColor::first()),
+            Player(Color::first()),
             SquareFilter::Them,
         );
         let black_capture = AttackKind::pawn_capture(
             Leaping(LeapingBitboards::range_hv([-1, 1].into_iter(), once(-1), size)),
-            Player(FairyColor::second()),
+            Player(Color::second()),
             SquareFilter::Them,
         );
         Self {
@@ -541,7 +542,7 @@ impl Piece {
             promotions: Promo {
                 pieces: vec![],
                 condition: PromoCondition::TargetSquare,
-                forced_promo_zone: SquareFilter::Bitboard(FairyBitboard::backranks_for(size).raw()),
+                forced_promo_zone: SquareFilter::Bitboard(Bitboard::backranks_for(size).raw()),
                 optional_promo_zone: NoSquares,
                 promoted_from: None,
                 promoted_version: None,
@@ -554,11 +555,11 @@ impl Piece {
         }
     }
 
-    fn ferz(size: FairySize) -> Self {
+    fn ferz(size: Size) -> Self {
         Self::leaper("ferz", 1, 1, size, None, Some(['\u{1FA54}', '\u{1FA56}', '\u{1FA55}']))
     }
 
-    fn knight(size: FairySize) -> Self {
+    fn knight(size: Size) -> Self {
         Self::leaper(
             "knight",
             1,
@@ -569,7 +570,7 @@ impl Piece {
         )
     }
 
-    fn silver_no_drop(size: FairySize) -> Self {
+    fn silver_no_drop(size: Size) -> Self {
         Self::new_for(
             "silver general",
             AttackKind::simple_side_relative(
@@ -612,7 +613,7 @@ impl Piece {
         )
     }
 
-    fn king_shatranj(size: FairySize) -> Self {
+    fn king_shatranj(size: Size) -> Self {
         let mut res = Self::new(
             "king (shatranj)",
             vec![Leaping(LeapingBitboards::fixed(1, 1, size).combine(LeapingBitboards::fixed(0, 1, size)))],
@@ -623,9 +624,9 @@ impl Piece {
         res
     }
 
-    pub fn pieces(size: FairySize) -> Vec<Self> {
+    pub fn pieces(size: Size) -> Vec<Self> {
         let not_their_rank =
-            move |rank: DimT| (!FairyBitboard::rank_for(size.height.get().saturating_sub(1 + rank), size)).raw();
+            move |rank: DimT| (!Bitboard::rank_for(size.height.get().saturating_sub(1 + rank), size)).raw();
         // order of leapers matters
         let mut leapers = vec![
             Self::leaper("wazir", 0, 1, size, None, Some(['🨠', '🨦', '🨬'])),
@@ -695,7 +696,7 @@ impl Piece {
                 res.attacks.push(AttackKind {
                     required: RequiredForAttack::PieceOnBoard,
                     typ: Rider(SliderDirections::Vertical),
-                    condition: OnRank(0, FairyColor::first()),
+                    condition: OnRank(0, Color::first()),
                     bitboard_filter: vec![EmptySquares, SquareFilter::Rank(2)],
                     kind: Normal,
                     attack_mode: AttackMode::NoCaptures,
@@ -704,7 +705,7 @@ impl Piece {
                 res.attacks.push(AttackKind {
                     required: RequiredForAttack::PieceOnBoard,
                     typ: Rider(SliderDirections::Vertical),
-                    condition: OnRank(size.height().get().saturating_sub(1), FairyColor::second()),
+                    condition: OnRank(size.height().get().saturating_sub(1), Color::second()),
                     bitboard_filter: vec![EmptySquares, SquareFilter::Rank(size.height().get().saturating_sub(3))],
                     kind: Normal,
                     attack_mode: AttackMode::NoCaptures,
@@ -721,7 +722,7 @@ impl Piece {
                 cowrie.resets_draw_counter = DrawCtrReset::Never;
                 let h = size.height.get();
                 let rank_3_and_6 =
-                    FairyBitboard::rank_for(h.saturating_sub(3), size) | FairyBitboard::rank_for(2.min(h - 1), size);
+                    Bitboard::rank_for(h.saturating_sub(3), size) | Bitboard::rank_for(2.min(h - 1), size);
                 cowrie.promotions.forced_promo_zone = SquareFilter::Bitboard(rank_3_and_6.raw());
                 cowrie
             },
@@ -852,7 +853,7 @@ impl Piece {
                 attacks: vec![AttackKind::drop(vec![EmptySquares])],
                 promotions: Promo::none(),
                 can_ep_capture: false,
-                resets_draw_counter: DrawCtrReset::Never,
+                resets_draw_counter: DrawCtrReset::Always,
                 royal: false,
                 // we set `output_as_pawn` to true because we don't want to print the piece type
                 output_omit_piece: true,
@@ -922,7 +923,7 @@ impl Piece {
     }
 
     pub fn chess_pieces() -> Vec<Piece> {
-        let size = FairySize::chess();
+        let size = Size::chess();
         let mut pieces = Self::complete_piece_map(size);
         let mut res = vec![
             pieces.remove("pawn").unwrap(),
@@ -939,7 +940,7 @@ impl Piece {
     }
 
     pub fn shatranj_pieces() -> Vec<Piece> {
-        let size = FairySize::chess();
+        let size = Size::chess();
         let mut pieces = Self::complete_piece_map(size);
         let mut res = vec![
             pieces.remove("pawn (shatranj)").unwrap(),
@@ -954,7 +955,7 @@ impl Piece {
     }
 
     pub fn makruk_pieces() -> Vec<Piece> {
-        let size = FairySize::chess();
+        let size = Size::chess();
         let mut pieces = Self::complete_piece_map(size);
         let mut res = vec![
             pieces.remove("cowrie").unwrap(),
@@ -971,7 +972,7 @@ impl Piece {
     }
 
     pub fn shogi_pieces() -> Vec<Piece> {
-        let size = FairySize::shogi();
+        let size = Size::shogi();
         let mut pieces = Self::complete_piece_map(size);
         let gold = pieces.remove("gold general").unwrap();
         // cloning precomputed piece attack bitboards uses copy-on-write semantics,
@@ -1024,7 +1025,7 @@ impl Piece {
         ];
         const PROMO: usize = 8;
         assert_eq!(res[PROMO].name, "tokin");
-        let back_rank = FairyBitboard::rank_for(size.height().get() - 1, size);
+        let back_rank = Bitboard::rank_for(size.height().get() - 1, size);
         let mut promo_zone = back_rank | back_rank.south();
         promo_zone |= promo_zone.south();
         for i in 0..PROMO - 2 {
@@ -1039,10 +1040,14 @@ impl Piece {
                 res[i].promotions.forced_promo_zone = SideRelativeBitboard((back_rank | back_rank.south()).raw());
             }
         }
+        // TODO: Do this in a post-processing step
+        for p in &mut res {
+            p.resets_draw_counter = DrawCtrReset::Always;
+        }
         res
     }
 
-    pub fn complete_piece_map(size: FairySize) -> HashMap<String, Self> {
+    pub fn complete_piece_map(size: Size) -> HashMap<String, Self> {
         let mut res = HashMap::new();
         for piece in Self::pieces(size) {
             // insertion can fail because some pieces get inserted twice
@@ -1051,7 +1056,7 @@ impl Piece {
         res
     }
 
-    pub fn create_piece_by_name(name: &str, size: FairySize) -> Option<Piece> {
+    pub fn create_piece_by_name(name: &str, size: Size) -> Option<Piece> {
         Self::pieces(size).into_iter().find(|p| p.name == name)
     }
 }

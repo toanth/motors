@@ -1,11 +1,11 @@
 use std::time::Duration;
 
 use criterion::{Criterion, black_box, criterion_group, criterion_main};
-use gears::games::chess::ChessColor::White;
-use gears::games::chess::Chessboard;
-use gears::general::bitboards::RawBitboard;
+use gears::games::chess::Board;
+use gears::games::chess::Color::White;
+use gears::general::bitboards::RawBitboardTrait;
 use gears::general::board::Strictness::Relaxed;
-use gears::general::board::{BitboardBoard, Board, BoardHelpers};
+use gears::general::board::{BitboardBoard, BoardHelpers, BoardTrait};
 use gears::general::perft::perft;
 use gears::search::DepthPly;
 
@@ -17,28 +17,28 @@ const PAWNS_FEN: &str = "k7/3P3P/7p/1p3pP1/2P5/3Pp3/2PP3P/K7 w - f6 0 2";
 
 pub fn perft_startpos_bench(c: &mut Criterion) {
     c.bench_function("perft 4 startpos", |b| {
-        let pos = Chessboard::default();
+        let pos = Board::default();
         b.iter(|| perft(DepthPly::new(4), pos, false));
     });
 }
 
 pub fn perft_kiwipete_bench(c: &mut Criterion) {
     c.bench_function("perft 4 kiwipete", |b| {
-        let pos = Chessboard::from_name("kiwipete").unwrap();
+        let pos = Board::from_name("kiwipete").unwrap();
         b.iter(|| perft(DepthPly::new(4), pos, false));
     });
 }
 
 fn gen_moves(c: &mut Criterion, name: &str, fen: &str) {
     c.bench_function(name, |b| {
-        let pos = Chessboard::from_fen(fen, Relaxed).unwrap();
+        let pos = Board::from_fen(fen, Relaxed).unwrap();
         b.iter(|| black_box(pos).pseudolegal_moves());
     });
 }
 
 fn play_moves(c: &mut Criterion, name: &str, fen: &str) {
     c.bench_function(name, |b| {
-        let pos = Chessboard::from_fen(fen, Relaxed).unwrap();
+        let pos = Board::from_fen(fen, Relaxed).unwrap();
         let moves = pos.pseudolegal_moves();
         b.iter(|| {
             for m in &moves {
@@ -90,7 +90,7 @@ pub fn play_pawn_moves(c: &mut Criterion) {
 
 pub fn bitboard_ones_bench(c: &mut Criterion) {
     c.bench_function("bitboard ones", |b| {
-        let positions = Chessboard::bench_positions();
+        let positions = Board::bench_positions();
         b.iter(|| {
             for pos in &positions {
                 let mut sum = 0;
@@ -105,7 +105,7 @@ pub fn bitboard_ones_bench(c: &mut Criterion) {
 
 pub fn bitboard_poplsb_bench(c: &mut Criterion) {
     c.bench_function("bitboard poplsb", |b| {
-        let positions = Chessboard::bench_positions();
+        let positions = Board::bench_positions();
         b.iter(|| {
             let mut sum = 0;
             for pos in &positions {
