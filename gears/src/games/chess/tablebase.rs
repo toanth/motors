@@ -312,19 +312,17 @@ fn decode(mut n: usize, mut k: usize) -> Bitboard {
 #[inline]
 fn encode(bb: Bitboard) -> usize {
     let mut r = 0;
-    let num_pieces = bb.num_ones();
     for (i, sq) in bb.into_iter().enumerate() {
         r += COMBINATIONS[sq.bb_idx()][i + 1];
     }
-    debug_assert!(r < COMBINATIONS[64][num_pieces]);
+    debug_assert!(r < COMBINATIONS[64][bb.num_ones()]);
     r
 }
 
 /// The next value in the same lexicographical order as `decode`.
 #[inline]
-fn next_combination(bb: Bitboard) -> Bitboard {
+fn next_combination(n: u64) -> Bitboard {
     // See `https://graphics.stanford.edu/~seander/bithacks.html#NextBitPermutation`
-    let n = bb.raw();
     let t = n | (n - 1);
     Bitboard::new((t + 1) | (((!t & (!t).wrapping_neg()) - 1) >> (n.trailing_zeros() + 1)))
     // TODO: Benchmark against the following (potentially using precomputed `fastdiv`):
@@ -484,8 +482,7 @@ impl<const PAWNS: bool> PosIdx<PAWNS> {
         res *= Self::num_king_squares();
         res += self.king_idx;
 
-        for i in self.num_pawn_bbs()..self.num_bbs - 2 {
-            let bb = self.bbs[i];
+        for &bb in &self.bbs[self.num_pawn_bbs()..self.num_bbs - 2] {
             debug_assert!(bb.has_any());
             let count = bb.num_ones();
             res *= COMBINATIONS[64][count];
@@ -496,7 +493,6 @@ impl<const PAWNS: bool> PosIdx<PAWNS> {
     }
 
     // This function can be pretty slow
-    // TODO: Use `next` function for iterating
     fn from_idx(mut idx: usize, piece_counts: PieceCounts) -> Self {
         let original_idx = idx;
         debug_assert_ne!(piece_counts[White][0] == 0 && piece_counts[Black][0] == 0, Self::has_pawn());
@@ -628,8 +624,8 @@ impl<const PAWNS: bool> PosIdx<PAWNS> {
         pieces: PieceCounts,
     ) -> impl Iterator<
         Item = (
-            impl ParallelIterator<Item = (usize, Self)> + Clone,
-            impl ParallelIterator<Item = (usize, Self)> + Clone,
+            impl ParallelIterator<Item = PosIdxIter<PAWNS>> + Clone,
+            impl ParallelIterator<Item = PosIdxIter<PAWNS>> + Clone,
         ),
     > {
         let max = Self::size(pieces);
@@ -638,14 +634,57 @@ impl<const PAWNS: bool> PosIdx<PAWNS> {
         (0..max).step_by(step).map(move |i| (Self::inner_iter(i, pieces), Self::inner_iter(i + inner_step, pieces)))
     }
 
-    fn inner_iter(n: usize, pieces: PieceCounts) -> impl ParallelIterator<Item = (usize, Self)> + Clone {
+    fn inner_iter(n: usize, pieces: PieceCounts) -> impl ParallelIterator<Item = PosIdxIter<PAWNS>> + Clone {
         let step = Self::inner_size(pieces) / NUM_COLORS;
-        (n..n + step).into_par_iter().map(move |i| (i, Self::from_idx(i, pieces)))
+        let num_chunks = rayon::current_num_threads() * 128;
+        let chunk_size = step.div_ceil(num_chunks);
+        (0..num_chunks)
+            .into_par_iter()
+            .map(move |i| Self::chunk_iter(n + i * chunk_size, n + ((i + 1) * chunk_size).min(step), pieces))
+    }
+
+    fn chunk_iter(lower: usize, upper: usize, pieces: PieceCounts) -> PosIdxIter<PAWNS> {
+        PosIdxIter { pos_idx: Self::from_idx(lower.min(upper - 1), pieces), current: lower, end: upper }
+    }
+}
+
+struct PosIdxIter<const PAWNS: bool> {
+    pos_idx: PosIdx<PAWNS>,
+    current: usize,
+    end: usize,
+}
+
+impl<const PAWNS: bool> Iterator for PosIdxIter<PAWNS> {
+    type Item = (usize, PosIdx<PAWNS>);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.current >= self.end {
+            return None;
+        }
+        let res = self.pos_idx;
+        self.current += 1;
+        let p = &mut self.pos_idx;
+        let non_pawns = p.num_pawn_bbs();
+        for bb in p.bbs[non_pawns..p.num_bbs - 2].iter_mut().rev() {
+            let n = bb.raw();
+            if n | (n - 1) != u64::MAX {
+                *bb = next_combination(n);
+                return Some((self.current - 1, res));
+            }
+            *bb = Bitboard::new((1 << bb.num_ones()) - 1);
+        }
+        p.king_idx += 1;
+        if p.king_idx < PosIdx::<PAWNS>::num_king_squares() {
+            let kings = p.kings();
+            p.bbs[p.num_bbs - 2] = kings[0].bb();
+            p.bbs[p.num_bbs - 1] = kings[1].bb();
+        }
+
+        Some((self.current - 1, res))
     }
 }
 
 fn set_base_case(pos: UnverifiedBoard, captured_or_promo: Bitboard) -> i8 {
-    // TODO: Uncomment code below, use Tablebase level
     let Ok(pos) = pos.verify_with_level(SelfChecks::Tablebase, Strictness::Relaxed) else {
         return INVALID;
     };
@@ -730,8 +769,16 @@ fn base_case_iter<const PAWN: bool>(
 fn base_case<const PAWNS: bool>(piece_counts: PieceCounts, table: &[Entry]) {
     let counts = piece_counts.map(|list| list.iter().sum::<u8>() as usize + 1);
     for (w_iter, b_iter) in PosIdx::<PAWNS>::outer_iter(piece_counts) {
-        w_iter.for_each(|(i, p)| table[i].store(base_case_iter(p, piece_counts, White, counts), Relaxed));
-        b_iter.for_each(|(i, p)| table[i].store(base_case_iter(p, piece_counts, Black, counts), Relaxed));
+        w_iter.for_each(|iter| {
+            for (i, p) in iter {
+                table[i].store(base_case_iter(p, piece_counts, White, counts), Relaxed)
+            }
+        });
+        b_iter.for_each(|iter| {
+            for (i, p) in iter {
+                table[i].store(base_case_iter(p, piece_counts, Black, counts), Relaxed)
+            }
+        });
     }
 }
 
@@ -918,15 +965,18 @@ fn fixed_point_iteration<const PAWNS: bool>(pieces: PieceCounts, table: &[Entry]
         let mut iteration = 0;
         loop {
             let fold_op = |color: Color| {
-                move |changed, item: (usize, PosIdx<PAWNS>)| {
-                    let res = step(item, table, color, pieces, iteration, num_pieces);
-                    match res {
-                        None => changed,
-                        Some(val) => {
-                            table[item.0].store(val, Relaxed);
-                            val != DRAW || changed
+                move |mut changed, iter: PosIdxIter<PAWNS>| {
+                    for item in iter {
+                        let res = step(item, table, color, pieces, iteration, num_pieces);
+                        match res {
+                            None => continue,
+                            Some(val) => {
+                                table[item.0].store(val, Relaxed);
+                                changed |= val != DRAW;
+                            }
                         }
                     }
+                    changed
                 }
             };
             // make sure the next call to `step` sees the updated entries (probably unnecessary in practice, but technically necessary)
@@ -943,7 +993,7 @@ fn fixed_point_iteration<const PAWNS: bool>(pieces: PieceCounts, table: &[Entry]
             }
             iteration += 1;
         }
-        if start.elapsed().as_millis() >= 10_000 && last_print.elapsed().as_millis() >= 2_000 {
+        if PAWNS && start.elapsed().as_millis() >= 10_000 && last_print.elapsed().as_millis() >= 2_000 {
             last_print = Instant::now();
             println!("\nPawn index {outer_i} of {0}", PosIdx::<PAWNS>::outer_size(pieces));
         }
@@ -1080,40 +1130,46 @@ fn postprocess<const PAWNS: bool>(table: &[Entry], pieces: PieceCounts) -> Vec<E
     let same_material = pieces[White] == pieces[Black];
     let mut compressed = vec![];
     compressed.resize_with(compact_size(pieces), || Entry::new(INVALID)); // TODO: Smaller size
+
+    let lambda = |i: usize, p2: PosIdx<PAWNS>| {
+        let colors = p2.player_bbs();
+        if colors[White].intersects(colors[Black])
+            || p2.pawns().intersects(Bitboard::backranks())
+            || p2.kings()[White].file() >= 4
+        {
+            return;
+        }
+        let val = table[i].load(Relaxed);
+        if val == INVALID {
+            return;
+        } else if val == DRAW {
+            _ = draws.fetch_add(1, Relaxed);
+        } else if (val > DRAW) == (p2.active == White) {
+            _ = wins.fetch_add(1, Relaxed);
+        } else {
+            _ = losses.fetch_add(1, Relaxed);
+        }
+        let p = normalize(p2, same_material);
+        let idx = compact_idx(p, same_material);
+        if !same_material {
+            debug_assert_eq!(compressed[idx].load(Relaxed), INVALID, "{idx} {i} {val} {p:?}");
+        } else {
+            debug_assert!(
+                [INVALID, val].contains(&compressed[idx].load(Relaxed)),
+                "{idx} {i} {val} {p:?} {0}",
+                compressed[idx].load(Relaxed)
+            );
+        }
+        compressed[idx].store(val, Relaxed);
+    };
+    let handle_batch = |iter: PosIdxIter<PAWNS>| {
+        for (i, p) in iter {
+            lambda(i, p);
+        }
+    };
     for (w_iter, b_iter) in PosIdx::<PAWNS>::outer_iter(pieces) {
-        let lambda = |i: usize, p2: PosIdx<PAWNS>| {
-            let colors = p2.player_bbs();
-            if colors[White].intersects(colors[Black])
-                || p2.pawns().intersects(Bitboard::backranks())
-                || p2.kings()[White].file() >= 4
-            {
-                return;
-            }
-            let val = table[i].load(Relaxed);
-            if val == INVALID {
-                return;
-            } else if val == DRAW {
-                _ = draws.fetch_add(1, Relaxed);
-            } else if (val > DRAW) == (p2.active == White) {
-                _ = wins.fetch_add(1, Relaxed);
-            } else {
-                _ = losses.fetch_add(1, Relaxed);
-            }
-            let p = normalize(p2, same_material);
-            let idx = compact_idx(p, same_material);
-            if !same_material {
-                debug_assert_eq!(compressed[idx].load(Relaxed), INVALID, "{idx} {i} {val} {p:?}");
-            } else {
-                debug_assert!(
-                    [INVALID, val].contains(&compressed[idx].load(Relaxed)),
-                    "{idx} {i} {val} {p:?} {0}",
-                    compressed[idx].load(Relaxed)
-                );
-            }
-            compressed[idx].store(val, Relaxed);
-        };
-        w_iter.for_each(|(i, p)| lambda(i, p));
-        b_iter.for_each(|(i, p)| lambda(i, p));
+        w_iter.for_each(|iter| handle_batch(iter));
+        b_iter.for_each(|iter| handle_batch(iter));
     }
     // these values are after symmetry reduction, so they are somewhat arbitrary
     let all = compressed.len();
