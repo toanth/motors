@@ -949,8 +949,7 @@ impl<'a> MoveParser<'a> {
         } else if self.current_char().is_some_and(|c| {
             matches!(c, '+' | '†')
                 // test for 'check' before 'ch' because otherwise 'ch' would accept for input 'check' and 'eck' would remain.
-                || self.parse_str_dont_consume_last_char("check")
-                || self.parse_str_dont_consume_last_char("ch")
+                || self.parse_str_dont_consume_last_char("check") || self.parse_str_dont_consume_last_char("ch")
         }) {
             let parsed_plus = self.current_char().unwrap() == '+';
             self.advance_char();

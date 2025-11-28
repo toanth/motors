@@ -52,8 +52,7 @@ impl<B: BoardTrait> GetLine<B> for InteractiveInput<B> {
                 "{}",
                 format!(
                     "\nIter    Depth/Seldepth    Score        Time       Nodes   (New)     NPS  Branch     TT     {pv_spacer}PV"
-                )
-                .bold(),
+                ).bold(),
             ));
             NonInteractiveInput::default().get_line(ugi)
         } else {

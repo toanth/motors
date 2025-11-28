@@ -304,7 +304,8 @@ impl Statistics {
     }
 
     #[inline(always)]
-    pub fn aggregate_searches(&mut self, _other: &Statistics) { /*do nothing*/
+    pub fn aggregate_searches(&mut self, _other: &Statistics) {
+        /*do nothing*/
     }
 
     #[inline(always)]

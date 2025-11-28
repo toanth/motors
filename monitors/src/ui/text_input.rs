@@ -246,9 +246,7 @@ impl<B: BoardTrait> TextInputThread<B> {
                     return Ok(true);
                 }
                 Err(err) => {
-                    let func = select_name_static(command, self.commands.iter(), "command", &B::game_name(), NoDescription)
-                        .map_err(|msg| anyhow!("'{command}' is not a legal move: {err}.\nIt's also not a command: {msg}\nType 'help' for more information."))?
-                        .func;
+                    let func = select_name_static(command, self.commands.iter(), "command", &B::game_name(), NoDescription).map_err(|msg| anyhow!("'{command}' is not a legal move: {err}.\nIt's also not a command: {msg}\nType 'help' for more information."))?.func;
                     func(client, &mut words)?;
                 }
             }

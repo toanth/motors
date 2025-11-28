@@ -1,7 +1,6 @@
 // TODO: Move into Bitboards.rs
 #[cfg(test)]
 mod bitboards {
-
     #[cfg(feature = "chess")]
     mod chessboard {
         use crate::games::chess::squares::{ChessboardSize, Square};

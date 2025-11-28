@@ -1403,7 +1403,6 @@ mod tests {
     use rand::SeedableRng;
     use rand::distr::{Distribution, Uniform};
     use rand::rngs::StdRng;
-    use std::sync::LazyLock;
 
     #[test]
     fn combinations_test() {

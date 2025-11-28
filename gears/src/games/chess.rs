@@ -260,8 +260,7 @@ impl BitboardRepr {
             (self.colors[color].is_bit_set_at(from.bb_idx()))
                 // in chess960 castling, it's possible that the king has been sent to the rook square,
                 // which means the color bit of this square is currently not set
-                || (piece == Rook && self.pieces[King].is_bit_set_at(from.bb_idx()))
-                || (piece == King && from.is_backrank()),
+                || (piece == Rook && self.pieces[King].is_bit_set_at(from.bb_idx())) || (piece == King && from.is_backrank()),
             "{self:?}"
         );
         // use ^ instead of | for to merge the from and to bitboards because in chess960 castling,

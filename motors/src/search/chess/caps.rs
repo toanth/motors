@@ -710,8 +710,7 @@ impl Caps {
 
             let ply_100_ctr = pos.ply_draw_clock();
 
-            if pos.is_50mr_draw()
-                || pos.has_insufficient_material()
+            if pos.is_50mr_draw() || pos.has_insufficient_material()
                 // no need to check for twofold repetitions as that is already handled by the upcoming repetition detection
                 || n_fold_repetition(3, &self.original_board_hist, pos.hash_pos(), ply_100_ctr.saturating_sub(ply))
             {
@@ -949,10 +948,7 @@ impl Caps {
         // reduce the depth.
         if depth >= cc::rfr_min_depth()
             // TODO: Constant (changes bench)
-            && eval >= beta + Score(32 * (depth / 128) as ScoreT)
-            && !in_check
-            && !root
-            && nmp_verif_score.is_none()
+            && eval >= beta + Score(32 * (depth / 128) as ScoreT) && !in_check && !root && nmp_verif_score.is_none()
         {
             let reduction = (depth / 128) / 2 * 128; // TODO: Turn into multiplcation with constant (changes bench)
             let score = self.negamax(pos, ply, depth - 128 - reduction, beta - 1, beta, FailHigh)?;
