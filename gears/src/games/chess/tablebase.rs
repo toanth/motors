@@ -310,12 +310,14 @@ fn decode(mut n: usize, mut k: usize) -> Bitboard {
 }
 
 #[inline]
-fn encode(bb: Bitboard) -> usize {
+fn encode(bb: Bitboard, num_pieces: u8) -> usize {
+    let num_pieces = num_pieces as usize;
+    debug_assert_eq!(num_pieces, bb.num_ones());
     let mut r = 0;
     for (i, sq) in bb.into_iter().enumerate() {
         r += COMBINATIONS[sq.bb_idx()][i + 1];
     }
-    debug_assert!(r < COMBINATIONS[64][bb.num_ones()]);
+    debug_assert!(r < COMBINATIONS[64][num_pieces]);
     r
 }
 
@@ -344,6 +346,7 @@ struct PosIdx<const PAWNS: bool> {
     num_bbs: usize,
     non_pawn_start: usize,
     piece_types: [ColoredPieceType; MAX_TB_MAN],
+    num_pieces: [u8; MAX_TB_MAN],
     active: Color,
 }
 
@@ -383,6 +386,7 @@ impl<const PAWNS: bool> PosIdx<PAWNS> {
         let mut non_pawn_start = 0;
         let mut bbs = [Bitboard::default(); MAX_TB_MAN];
         let mut piece_types = [ColoredPieceType::Empty; MAX_TB_MAN];
+        let mut num_pieces = [0; MAX_TB_MAN];
         let mut i = 0;
         for p in PieceType::pieces() {
             for c in Color::iter() {
@@ -392,6 +396,7 @@ impl<const PAWNS: bool> PosIdx<PAWNS> {
                 }
                 bbs[i] = bb;
                 piece_types[i] = ColoredPieceType::new(c, p);
+                num_pieces[i] = bb.num_ones() as u8;
                 i += 1;
             }
             if p == Pawn {
@@ -400,7 +405,7 @@ impl<const PAWNS: bool> PosIdx<PAWNS> {
         }
         let w_king = bbs[i - 2].to_square().unwrap();
         let b_king = bbs[i - 1].to_square().unwrap();
-        let res = Self { king_idx: 0, bbs, piece_types, active, num_bbs: i, non_pawn_start };
+        let res = Self { king_idx: 0, bbs, piece_types, num_pieces, active, num_bbs: i, non_pawn_start };
         res.normalize([w_king, b_king], compact)
     }
 
@@ -457,7 +462,6 @@ impl<const PAWNS: bool> PosIdx<PAWNS> {
 
     fn idx(&self) -> usize {
         debug_assert!(self.king_idx < Self::num_king_squares());
-        // debug_assert!(self.colors[White].num_ones() >= self.colors[Black].num_ones());
         let mut res = 0;
         // pawns are encoded separately because a) they have to be the outermost loop and b) white pawns must
         // be encoded in reverse order so that pawn pushes lead to positions that have already been computed
@@ -466,12 +470,12 @@ impl<const PAWNS: bool> PosIdx<PAWNS> {
             let mut i = 0;
             if self.piece_types[0] == WhitePawn {
                 i += 1;
-                res *= COMBINATIONS[Self::num_pawn_squares()][self.bbs[0].num_ones()];
-                res += encode(self.bbs[0].flip_up_down());
+                res *= COMBINATIONS[Self::num_pawn_squares()][self.num_pieces[0] as usize];
+                res += encode(self.bbs[0].flip_up_down(), self.num_pieces[0]);
             }
             if self.piece_types[i] == BlackPawn {
-                res *= COMBINATIONS[Self::num_pawn_squares()][self.bbs[i].num_ones()];
-                res += encode(self.bbs[i]);
+                res *= COMBINATIONS[Self::num_pawn_squares()][self.num_pieces[i] as usize];
+                res += encode(self.bbs[i], self.num_pieces[i]);
             }
         }
 
@@ -482,11 +486,11 @@ impl<const PAWNS: bool> PosIdx<PAWNS> {
         res *= Self::num_king_squares();
         res += self.king_idx;
 
-        for &bb in &self.bbs[self.num_pawn_bbs()..self.num_bbs - 2] {
+        for (i, &bb) in self.bbs[self.num_pawn_bbs()..self.num_bbs - 2].iter().enumerate() {
             debug_assert!(bb.has_any());
-            let count = bb.num_ones();
-            res *= COMBINATIONS[64][count];
-            let n = encode(bb);
+            let count = self.num_pieces[i + self.num_pawn_bbs()];
+            res *= COMBINATIONS[64][count as usize];
+            let n = encode(bb, count);
             res += n;
         }
         res
@@ -515,6 +519,7 @@ impl<const PAWNS: bool> PosIdx<PAWNS> {
                 let max = COMBINATIONS[64][count];
                 res.piece_types[i] = ColoredPieceType::new(c, PieceType::from_repr(j).unwrap());
                 res.bbs[i] = decode(idx % max, count);
+                res.num_pieces[i] = res.bbs[i].num_ones() as u8;
                 i += 1;
                 idx /= max;
             }
@@ -526,6 +531,8 @@ impl<const PAWNS: bool> PosIdx<PAWNS> {
         let king_bbs = res.kings().map(|sq| sq.bb());
         res.bbs[i] = king_bbs[0];
         res.bbs[i + 1] = king_bbs[1];
+        res.num_pieces[i] = 1;
+        res.num_pieces[1 + 1] = 1;
         res.num_bbs = i + 2;
         res.piece_types[i] = WhiteKing;
         res.piece_types[i + 1] = BlackKing;
@@ -541,9 +548,11 @@ impl<const PAWNS: bool> PosIdx<PAWNS> {
                     if c == White {
                         res.bbs[0] = bb.flip_up_down();
                         res.piece_types[0] = WhitePawn;
+                        res.num_pieces[0] = w_pawns as u8;
                     } else {
                         res.bbs[non_pawn_start - 1] = bb;
                         res.piece_types[non_pawn_start - 1] = BlackPawn;
+                        res.num_pieces[non_pawn_start - 1] = b_pawns as u8;
                     }
                     idx /= max;
                 }
@@ -1416,7 +1425,7 @@ mod tests {
         for k in 1..MAX {
             for n in 0..COMBINATIONS[64][k] {
                 let bb = decode(n, k);
-                let res = encode(bb);
+                let res = encode(bb, bb.num_ones() as u8);
                 assert_eq!(res, n, "{k} {arr:?}");
             }
         }
