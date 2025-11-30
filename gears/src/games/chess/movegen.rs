@@ -1,8 +1,8 @@
 use crate::games::chess::CastleRight::*;
 use crate::games::chess::Color::*;
 use crate::games::chess::castling::CastleRight;
-use crate::games::chess::moves::ChessMoveFlags::*;
 use crate::games::chess::moves::Move;
+use crate::games::chess::moves::MoveFlags::*;
 use crate::games::chess::pieces::PieceType::*;
 use crate::games::chess::pieces::{ColoredPieceType, PieceType};
 use crate::games::chess::squares::{C_FILE_NUM, ChessboardSize, G_FILE_NUM, Square};

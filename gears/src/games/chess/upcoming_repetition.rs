@@ -16,8 +16,8 @@
  *  along with Gears. If not, see <https://www.gnu.org/licenses/>.
  */
 use crate::games::chess::Board;
-use crate::games::chess::moves::ChessMoveFlags::NormalMove;
 use crate::games::chess::moves::Move;
+use crate::games::chess::moves::MoveFlags::NormalMove;
 use crate::games::chess::pieces::ColoredPieceType;
 use crate::games::chess::squares::{ChessboardSize, Square};
 use crate::games::chess::zobrist::ZOBRIST_KEYS;

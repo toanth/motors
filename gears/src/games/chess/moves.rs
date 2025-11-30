@@ -13,7 +13,7 @@ use strum_macros::{EnumIter, FromRepr};
 use crate::games::chess::Color::*;
 use crate::games::chess::castling::CastleRight;
 use crate::games::chess::castling::CastleRight::*;
-use crate::games::chess::moves::ChessMoveFlags::*;
+use crate::games::chess::moves::MoveFlags::*;
 use crate::games::chess::pieces::PieceType::*;
 use crate::games::chess::pieces::{ColoredPieceType, Piece, PieceType};
 use crate::games::chess::squares::{C_FILE_NUM, ChessboardSize, D_FILE_NUM, F_FILE_NUM, G_FILE_NUM, Square};
@@ -35,7 +35,7 @@ use crate::general::squares::RectangularCoordinates;
 
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Default, Debug, EnumIter, FromRepr)]
 #[must_use]
-pub enum ChessMoveFlags {
+pub enum MoveFlags {
     #[default]
     NormalMove,
     CastleKingside,
@@ -47,7 +47,7 @@ pub enum ChessMoveFlags {
     PromoQueen,
 }
 
-impl ChessMoveFlags {
+impl MoveFlags {
     fn is_promo(self) -> bool {
         self >= PromoKnight
     }
@@ -77,7 +77,7 @@ impl Debug for Move {
 }
 
 impl Move {
-    pub fn new(from: Square, to: Square, flags: ChessMoveFlags) -> Self {
+    pub fn new(from: Square, to: Square, flags: MoveFlags) -> Self {
         let idx = from.bb_idx() + (to.bb_idx() << 6) + ((flags as usize) << 12);
         Self(idx as u16)
     }
@@ -114,7 +114,7 @@ impl Move {
         Piece::new(ColoredPieceType::new(board.active, self.piece_type(board)), source)
     }
 
-    pub fn untrusted_flags(self) -> Res<ChessMoveFlags> {
+    pub fn untrusted_flags(self) -> Res<MoveFlags> {
         let flags = self.0 >> 12;
         if flags <= 12 {
             Ok(self.flags())
@@ -176,12 +176,12 @@ impl Move {
         if self.flags() == CastleQueenside { Queenside } else { Kingside }
     }
 
-    pub(super) fn flags(self) -> ChessMoveFlags {
+    pub(super) fn flags(self) -> MoveFlags {
         self.try_get_flags().unwrap_or_default()
     }
 
-    pub(super) fn try_get_flags(self) -> Option<ChessMoveFlags> {
-        ChessMoveFlags::iter().nth((self.0 >> 12) as usize)
+    pub(super) fn try_get_flags(self) -> Option<MoveFlags> {
+        MoveFlags::iter().nth((self.0 >> 12) as usize)
     }
 
     pub fn from_to_square(self) -> usize {
@@ -414,7 +414,7 @@ impl MoveTrait<Board> for Move {
     }
 }
 
-fn parse_short_promo_piece(s: &str) -> Option<(ChessMoveFlags, usize)> {
+fn parse_short_promo_piece(s: &str) -> Option<(MoveFlags, usize)> {
     if s.len() > 4 {
         let promo = s.chars().nth(4).unwrap().to_ascii_uppercase();
         let num_bytes = promo.len_utf8() + 4;

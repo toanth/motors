@@ -18,7 +18,7 @@ mod tests {
     use crate::{list_chess_evals, list_chess_searchers};
     use gears::PlayerResult::{Draw, Win};
     use gears::games::chess::Board;
-    use gears::games::chess::moves::{ChessMoveFlags, Move};
+    use gears::games::chess::moves::{Move, MoveFlags};
     use gears::games::chess::pieces::ColoredPieceType::BlackKnight;
     use gears::games::chess::pieces::Piece;
     use gears::games::chess::pieces::PieceType::Bishop;
@@ -96,7 +96,7 @@ mod tests {
         let res = engine.search_with_new_tt(board, SearchLimit::mate(DepthPly::new(5)));
         assert_eq!(
             res.chosen_move,
-            Move::new(Square::from_str("d1").unwrap(), Square::from_str("d6").unwrap(), ChessMoveFlags::NormalMove)
+            Move::new(Square::from_str("d1").unwrap(), Square::from_str("d6").unwrap(), MoveFlags::NormalMove)
         );
         assert_eq!(res.score, SCORE_WON - 3);
 

@@ -118,7 +118,7 @@ impl Board {
 mod tests {
     use super::*;
     use crate::games::chess::Color::White;
-    use crate::games::chess::moves::{ChessMoveFlags, Move};
+    use crate::games::chess::moves::{Move, MoveFlags};
     use crate::games::chess::squares::{D_FILE_NUM, E_FILE_NUM};
     use crate::general::board::Strictness::Strict;
     use crate::general::board::{BoardHelpers, BoardTrait};
@@ -185,7 +185,7 @@ mod tests {
         let mov = Move::new(
             Square::from_rank_file(1, E_FILE_NUM),
             Square::from_rank_file(3, E_FILE_NUM),
-            ChessMoveFlags::NormalMove,
+            MoveFlags::NormalMove,
         );
         let new_pos = position.make_move(mov).unwrap();
         assert_eq!(new_pos.hashes, new_pos.compute_zobrist());
@@ -193,7 +193,7 @@ mod tests {
         let ep_move = Move::new(
             Square::from_rank_file(3, D_FILE_NUM),
             Square::from_rank_file(2, E_FILE_NUM),
-            ChessMoveFlags::EnPassant,
+            MoveFlags::EnPassant,
         );
         let after_ep = new_pos.make_move(ep_move).unwrap();
         assert_eq!(after_ep.hashes, after_ep.compute_zobrist());
