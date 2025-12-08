@@ -674,3 +674,7 @@ fn pretty_variation<B: BoardTrait>(
     }
     (res, pos)
 }
+
+pub fn pretty_variation_simple<B: BoardTrait>(pv: &[B::Move], pos: B) -> (String, B) {
+    pretty_variation(pv, pos, None, None, Exact)
+}

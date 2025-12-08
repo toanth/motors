@@ -543,6 +543,10 @@ impl<B: BoardTrait> EngineWrapper<B> {
         self.tt_for_next_search.load(pos.hash_pos(), 0)
     }
 
+    pub fn tt(&mut self) -> TT {
+        self.tt_for_next_search.clone()
+    }
+
     pub fn set_eval(&mut self, eval: Box<dyn Eval<B>>) -> Res<()> {
         for aux in &self.auxiliary {
             aux.send(SetEval(clone_box(eval.as_ref()))).map_err(|err| anyhow!(err.to_string()))?;

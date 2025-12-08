@@ -1,3 +1,4 @@
+use crate::search::chess;
 use crate::spsa_params;
 use derive_more::Index;
 use gears::games::PosHash;
@@ -388,6 +389,50 @@ impl TT {
             _mm_prefetch::<_MM_HINT_T1>(&raw const self.tt[self.bucket_index_of(hash)] as *const i8);
         }
     }
+
+    /// Extract an approximate PV from the TT. Note that because of hash collisions and fail low nodes, this PV can be cut short.
+    /// Therefore, searchers like [`chess::caps::Caps`] or [`crate::Gaps`] use their own internal mechanism to track the PV.
+    /// This function is still useful for printing (debug) information and used when formatting TT entries.
+    pub fn extract_pv<B: BoardTrait>(&self, mut pos: B) -> TTPv<B> {
+        let mut legals = vec![];
+        let mut seen = vec![pos.hash_pos()];
+        let mut ply = 0;
+        let mut final_entry = self.load(pos.hash_pos(), ply).unwrap_or_default();
+        loop {
+            let Some(entry) = self.load(pos.hash_pos(), ply) else {
+                return TTPv { legals, end: EndTTPvMove::NoEntry, final_entry };
+            };
+            final_entry = entry.clone();
+            let best_move = entry.move_untrusted();
+            if best_move == UntrustedMove::from_move(B::Move::default()) {
+                return TTPv { legals, end: EndTTPvMove::NoMove, final_entry };
+            }
+            let Some(best_move) = best_move.check_legal(&pos) else {
+                return TTPv { legals, end: EndTTPvMove::Illegal(best_move), final_entry };
+            };
+            pos = pos.make_move(best_move).unwrap();
+            ply += 1;
+            if seen.contains(&pos.hash_pos()) {
+                // found a loop, so we stop after this move
+                return TTPv { legals, end: EndTTPvMove::Repeating(best_move), final_entry };
+            }
+            legals.push(best_move);
+            seen.push(pos.hash_pos());
+        }
+    }
+}
+
+pub struct TTPv<B: BoardTrait> {
+    pub legals: Vec<B::Move>,
+    pub end: EndTTPvMove<B>,
+    pub final_entry: TTEntry<B>,
+}
+
+pub enum EndTTPvMove<B: BoardTrait> {
+    Repeating(B::Move),
+    Illegal(UntrustedMove<B>),
+    NoMove,
+    NoEntry,
 }
 
 #[cfg(test)]

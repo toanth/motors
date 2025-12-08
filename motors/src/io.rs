@@ -31,9 +31,11 @@ use crate::io::command::{
     AbstractGoState, CommandList, GoState, accept_depth, go_options, query_options, ugi_commands,
 };
 use crate::io::input::Input;
-use crate::io::ugi_output::{AbstractUgiOutput, UgiOutput, color_for_score, pretty_score, score_gradient, suffix_for};
+use crate::io::ugi_output::{
+    AbstractUgiOutput, UgiOutput, color_for_score, pretty_score, pretty_variation_simple, score_gradient, suffix_for,
+};
 use crate::search::multithreading::EngineWrapper;
-use crate::search::tt::{DEFAULT_HASH_SIZE_MB, TT, TTEntry};
+use crate::search::tt::{DEFAULT_HASH_SIZE_MB, EndTTPvMove, TT, TTEntry};
 use crate::search::{EvalList, SearchParams, SearcherList, run_bench_with};
 use crate::{create_engine_box_from_str, create_engine_from_str, create_eval_from_str, create_match};
 use gears::MatchStatus::*;
@@ -55,7 +57,7 @@ use gears::general::common::{
 };
 use gears::general::common::{Res, Tokens};
 use gears::general::moves::ExtendedFormat::{Alternative, Standard};
-use gears::general::moves::MoveTrait;
+use gears::general::moves::{ExtendedFormat, MoveTrait};
 use gears::general::perft::Bulkness::{Bulk, NoBulk};
 use gears::general::perft::{SplitPerftRes, num_unique_positions_up_to, perft_for, split_perft};
 use gears::itertools::Itertools;
@@ -884,7 +886,7 @@ impl<B: BoardTrait> EngineUGI<B> {
                 format!("The engine '{}' doesn't have an eval function", info.short_name().bold())
             }
         } else if let Some(entry) = self.state.engine.tt_entry(&state.board) {
-            format_tt_entry(state, entry)
+            format_tt_entry(state, entry, self.state.engine.tt())
         } else {
             "There is no TT entry for this position".bold().to_string()
         };
@@ -1854,9 +1856,9 @@ fn invalid_command_msg(interactive: bool, first_word: &str, rest: &mut Tokens, e
     format!("{error_msg}, ignoring the entire command:\n{err_msg}\n{suggest_help}")
 }
 
-// take a BoardGameState instead of a board to correctly handle displaying the last move
+/// take a [`MatchState`] instead of a board to correctly handle displaying the last move
 #[cold]
-fn format_tt_entry<B: BoardTrait>(state: MatchState<B>, entry: TTEntry<B>) -> String {
+fn format_tt_entry<B: BoardTrait>(state: MatchState<B>, entry: TTEntry<B>, tt: TT) -> String {
     let pos = state.board.clone();
     let pos2 = pos.clone();
     let formatter = pos.pretty_formatter(None, state.last_move(), OutputOpts::default());
@@ -1893,16 +1895,47 @@ fn format_tt_entry<B: BoardTrait>(state: MatchState<B>, entry: TTEntry<B>) -> St
     let score = Score::from_compact(entry.score);
     write!(
         &mut res,
-        "\nHash: {6}\nScore: {bound_str}{0} ({1}), Raw Eval: {2}, Depth: {3}, Age Ctr: {4}, Best Move: {5}",
+        "\nHash: {6}\nScore: {bound_str}{0} ({1}), Raw Eval: {2}, Depth: {3}, Age Ctr: {4}, Best Move: {5}\nExtracted PV: {7}",
         pretty_score(score, None, None, &score_gradient(), true, false),
         entry.bound(),
         pretty_score(entry.raw_eval(), None, None, &score_gradient(), true, false),
         entry.depth.to_string().bold(),
         entry.age(),
         move_string,
-        pos.hash_pos()
+        pos.hash_pos(),
+        format_tt_pv(tt, state.board.clone())
     )
     .unwrap();
+    res
+}
+
+fn format_tt_pv<B: BoardTrait>(tt: TT, pos: B) -> String {
+    let pv = tt.extract_pv(pos.clone());
+    let (mut res, pos) = pretty_variation_simple(&pv.legals, pos);
+    let end = match pv.end {
+        EndTTPvMove::Repeating(mov) => format!(
+            "{} '{}' {} '{}' repeats a position",
+            "Move".dimmed(),
+            mov.extended_formatter(&pos, Standard, None).to_string().bold(),
+            "in".dimmed(),
+            pos.to_string().dimmed(),
+        ),
+        EndTTPvMove::Illegal(mov) => {
+            // This is not necessarily a bug because of hash collisions, but those are very unlikely
+            format!(
+                "Illegal move '{}' in '{}' (Likely a bug!)",
+                format!("{}", mov.to_underlying().into()).red(),
+                pos.to_string().bold()
+            )
+        }
+        EndTTPvMove::NoMove => format!("No move stored in '{pos}'").dimmed().to_string(),
+        EndTTPvMove::NoEntry => format!("{0}{pos}{1}'", "No TT entry for '".dimmed(), "'".dimmed()),
+    };
+    res += ". ";
+    res += &end;
+    let entry = pv.final_entry;
+    let score = pretty_score(entry.score(), Some(entry.bound()), None, &score_gradient(), true, false);
+    write!(res, ". Score {}", score).unwrap();
     res
 }
 
