@@ -334,6 +334,11 @@ fn next_combination(n: u64) -> Bitboard {
 }
 // TODO: Move to its own crate, probably called `rulers` (rename / rework existing rulers crate)
 
+// TODO: We could keep a separate table for each pawn bitboard during construction, which would drastically reduce the maximum
+// memory requirements. Alternatively, we could remove the temporary array and simply store to the compact array immediately; i.e.,
+// the temporary array gets turned into a view. It's still necessary to iterate in some specific order, but the backing memory can
+// be the compact array
+
 // todo: Profile and use <https://docs.rs/fastdiv/latest/fastdiv/>
 
 // TODO: Only store pawn positions with the king on the left half, requires treatng pawns specially
@@ -612,7 +617,7 @@ impl<const PAWNS: bool> PosIdx<PAWNS> {
         res
     }
 
-    /// For iterating, `next()` should be preferred
+    /// For iterating, [`PosIdxIter::next()`] should be preferred
     fn from_idx(mut idx: usize, t: &TableData<PAWNS>) -> Self {
         let original_idx = idx;
         debug_assert_ne!(t.piece_counts[White][0] == 0 && t.piece_counts[Black][0] == 0, PAWNS);

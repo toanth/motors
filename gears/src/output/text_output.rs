@@ -676,6 +676,7 @@ fn write_horizontal_bar(
         if x == printer.get_width() {
             res += &plus;
         } else {
+            let bar = if col.is_some() { HORIZONTAL_BAR } else { bar };
             let bar = with_color(&bar.repeat(sq_width), col, y_spacer);
             write!(&mut res, "{plus}{bar}").unwrap();
         }
@@ -706,16 +707,17 @@ fn display_board_pretty_impl(printer: &dyn AbstractPrettyBoardPrinter, flip: boo
         let mut line = format!(" {y_axis_token:>2} ").dimmed().to_string();
         for x in 0..printer.get_width() {
             let mut col = colors[y][x];
+            let bar = if x == 0 && col.is_none() { HEAVY_VERTICAL_BAR } else { VERTICAL_BAR };
             if col.is_none() && x > 0 {
                 col = colors[y][x - 1];
             }
-            let bar = if x == 0 { HEAVY_VERTICAL_BAR } else { VERTICAL_BAR };
             line += &with_color(bar, col, x % fmt.horizontal_spacer_interval() == 0);
             let xc = if flip { printer.get_width() - 1 - x } else { x };
             line += &fmt.display_piece_rank_file(y, xc, sq_width);
         }
+        let bar = if colors[y][printer.get_width() - 1].is_some() { VERTICAL_BAR } else { HEAVY_VERTICAL_BAR };
         line += &with_color(
-            HEAVY_VERTICAL_BAR,
+            bar,
             colors[y][printer.get_width() - 1],
             printer.get_width().is_multiple_of(fmt.horizontal_spacer_interval()),
         );

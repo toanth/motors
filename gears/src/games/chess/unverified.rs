@@ -242,8 +242,8 @@ impl Board {
         let pawn_origin_sq = ep_square.pawn_advance_unchecked(self.active);
         if !self.is_empty(ep_square) {
             bail!(
-                "The en passant square ({ep_square}) must be empty, but it's occupied by a {}",
-                self.piece_type_on(ep_square).to_name()
+                "The en passant square '{ep_square}' must be empty, but it's occupied by a {}",
+                self.colored_piece_on(ep_square)
             )
         } else if self.colored_piece_on(remove_pawn_sq).symbol != ColoredPieceType::new(inactive, Pawn) {
             bail!("FEN specifies en passant square '{ep_square}', but there is no {inactive} pawn on {remove_pawn_sq}");
@@ -264,7 +264,7 @@ impl Board {
                 let attacks_before = self.all_attacking(self.king_sq(active), sliders);
                 if !(attacks_before & self.player_bb(inactive) & !remove_pawn_sq.bb()).is_zero() {
                     bail!(
-                        "The en passant square is set, but the {active} king has been in check before the double pawn push"
+                        "The en passant square is set, but the {active} king was in check before the double pawn push"
                     )
                 }
             }

@@ -477,7 +477,7 @@ impl Caps {
                         if pv_num == 0 {
                             atomic.set_score(score);
                         } else {
-                            _ = atomic.get_score_t().fetch_max(score.0, Relaxed);
+                            _ = atomic.get_score().fetch_max(score.0, Relaxed);
                         }
                     }
                 }
@@ -735,6 +735,16 @@ impl Caps {
 
         let mut bound_so_far = FailLow;
 
+        let mut continued = None;
+        if ply >= 2 {
+            let entry = &self.state.search_stack[ply - 2];
+            let mov = entry.last_tried_move();
+            if !mov.is_null() {
+                let piece = mov.piece_type(&entry.pos);
+                continued = Some((mov, piece));
+            }
+        }
+
         // ************************
         // ***** Probe the TT *****
         // ************************
@@ -794,30 +804,21 @@ impl Caps {
                 }
             }
             raw_eval = tt_entry.raw_eval();
-            eval = raw_eval;
+            eval = self.state.custom.corr_hist.correct(pos, continued, raw_eval);
             // The TT score is backed by a search, so it should be more trustworthy than a simple call to static eval.
             // Note that the TT score may be a mate score, so `eval` can also be a mate score. This doesn't currently
             // create any problems, but should be kept in mind.
             if tt_bound == Exact
-                || (tt_bound == NodeType::lower_bound() && tt_score >= raw_eval)
-                || (tt_bound == NodeType::upper_bound() && tt_score <= raw_eval)
+                || (tt_bound == NodeType::lower_bound() && tt_score >= eval)
+                || (tt_bound == NodeType::upper_bound() && tt_score <= eval)
             {
                 eval = tt_score;
             }
         } else {
-            self.statistics.tt_miss(MainSearch);
+            self.state.statistics.tt_miss(MainSearch);
             raw_eval = self.eval(pos, ply);
-            eval = raw_eval;
+            eval = self.state.custom.corr_hist.correct(pos, continued, raw_eval);
         };
-        let mut continued = None;
-        if ply >= 2 {
-            let entry = &self.state.search_stack[ply - 2];
-            let mov = entry.last_tried_move();
-            if !mov.is_null() {
-                continued = Some((mov, &entry.pos));
-            }
-        }
-        eval = self.state.custom.corr_hist.correct(pos, continued, eval);
 
         self.record_pos(pos, eval, ply);
 
@@ -1249,6 +1250,7 @@ impl Caps {
         );
 
         if self.search_stack[ply].tried_moves.is_empty() {
+            // TODO: Test storing to the TT
             return Some(game_result_to_score(pos.no_moves_result().unwrap(), ply));
         }
 
@@ -1267,14 +1269,6 @@ impl Caps {
             || (best_score <= eval && bound_so_far == NodeType::lower_bound())
             || (best_score >= eval && bound_so_far == NodeType::upper_bound()))
         {
-            let mut continued = None;
-            if ply >= 2 {
-                let entry = &self.state.search_stack[ply - 2];
-                let mov = entry.last_tried_move();
-                if !mov.is_null() {
-                    continued = Some((mov, &entry.pos));
-                }
-            }
             self.state.custom.corr_hist.update(pos, continued, depth, eval, best_score);
         }
         if ply > 0 && bound_so_far == FailLow {
@@ -1288,6 +1282,10 @@ impl Caps {
                     (alpha - best_score) / 2,
                 );
             }
+        }
+
+        if best_score == MAX_NORMAL_SCORE && best_score < beta {
+            println!("Huh {pos}")
         }
 
         Some(best_score)
@@ -1310,6 +1308,16 @@ impl Caps {
         // see main search, store an invalid null move in the TT entry if all moves failed low.
         let mut best_move = Move::default();
 
+        let mut continued = None;
+        if ply >= 2 {
+            let entry = &self.state.search_stack[ply - 2];
+            let mov = entry.last_tried_move();
+            if !mov.is_null() {
+                let piece = mov.piece_type(&entry.pos);
+                continued = Some((mov, piece));
+            }
+        }
+
         // Don't do TT cutoffs with alpha already raised by the stand pat check, because that relies on the null move observation.
         // But if there's a TT entry from normal search that's worse than the stand pat score, we should trust that more.
         let old_entry = self.tt().load::<Board>(pos.hash_pos(), ply);
@@ -1328,7 +1336,7 @@ impl Caps {
                 return Some(tt_score);
             }
             raw_eval = tt_entry.raw_eval();
-            eval = raw_eval;
+            eval = self.state.custom.corr_hist.correct(pos, continued, raw_eval);
 
             // even though qsearch never checks for game over conditions, it's still possible for it to load a checkmate score
             // and propagate that up to a qsearch parent node, where it gets saved with a depth of 0, so game over scores
@@ -1346,22 +1354,14 @@ impl Caps {
             if let Some(mov) = tt_entry.mov(pos) {
                 best_move = mov;
             }
-        } else {
-            raw_eval = if in_check { SCORE_LOST + ply as ScoreT } else { self.eval(pos, ply) };
+        } else if in_check {
+            raw_eval = SCORE_LOST + ply as ScoreT;
             eval = raw_eval;
+        } else {
+            raw_eval = self.eval(pos, ply);
+            eval = self.state.custom.corr_hist.correct(pos, continued, raw_eval);
         }
         let mut best_score = eval;
-        if !in_check {
-            let mut continued = None;
-            if ply >= 2 {
-                let entry = &self.state.search_stack[ply - 2];
-                let mov = entry.last_tried_move();
-                if !mov.is_null() {
-                    continued = Some((mov, &entry.pos));
-                }
-            }
-            best_score = self.state.custom.corr_hist.correct(pos, continued, eval);
-        }
         // Saving to the TT is probably unnecessary since the score is either from the TT or just the static eval,
         // which is not very valuable. Also, the fact that there's no best move might have unfortunate interactions with
         // IIR, because it will make this fail-high node appear like a fail-low node. TODO: Test regardless, but probably
@@ -1552,7 +1552,10 @@ impl Caps {
 
     #[inline]
     fn maybe_send_currline(&mut self, pos: &Board, alpha: Score, beta: Score, ply: usize, score: Option<Score>) {
-        if self.uci_nodes() % DEFAULT_CHECK_TIME_INTERVAL == 0 && self.last_msg_time.elapsed().as_millis() >= 1000 {
+        if self.uci_nodes() % DEFAULT_CHECK_TIME_INTERVAL == 0
+            && ply > 0
+            && self.last_msg_time.elapsed().as_millis() >= 1000
+        {
             // calling qsearch instead of eval would give better results, but it would also mean that benches are no longer
             // deterministic
             let score = score.unwrap_or_else(|| self.eval(pos, ply));

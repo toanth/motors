@@ -23,7 +23,7 @@ use derive_more::{Deref, DerefMut, Index, IndexMut};
 use gears::colored::Colorize;
 use gears::games::chess::moves::Move;
 use gears::games::chess::moves::MoveFlags::NormalMove;
-use gears::games::chess::pieces::NUM_CHESS_PIECES;
+use gears::games::chess::pieces::{NUM_CHESS_PIECES, PieceType};
 use gears::games::chess::squares::{NUM_SQUARES, Square};
 use gears::games::chess::{Board, Color};
 use gears::games::{ColorTrait, NUM_COLORS};
@@ -178,8 +178,9 @@ impl CorrHist {
     fn update_entry(entry: &mut ScoreT, weight: isize, bonus: isize) {
         let val = *entry as isize;
         // Idea of clamping the max update from Simbelmyne
+        let corrhist_update_clamp = MAX_CORRHIST_VAL * cc::corrhist_update_clamp() / 1024;
         let new_val = ((val * (CORRHIST_SCALE - weight) + bonus * weight) / CORRHIST_SCALE)
-            .clamp(val - MAX_CORRHIST_VAL / 4, val + MAX_CORRHIST_VAL / 4)
+            .clamp(val - corrhist_update_clamp, val + corrhist_update_clamp)
             .clamp(-MAX_CORRHIST_VAL, MAX_CORRHIST_VAL);
         *entry = new_val as ScoreT;
     }
@@ -202,7 +203,7 @@ impl CorrHist {
     pub(super) fn update(
         &mut self,
         pos: &Board,
-        continued: Option<(Move, &Board)>,
+        continued: Option<(Move, PieceType)>,
         depth: isize,
         eval: Score,
         score: Score,
@@ -219,13 +220,13 @@ impl CorrHist {
             let nonpawn_idx = pos.nonpawn_key(c).0 as usize % CORRHIST_SIZE;
             Self::update_entry(&mut self.nonpawns[color][nonpawn_idx][c], weight, bonus);
         }
-        if let Some((mov, pos)) = continued {
-            let entry = &mut self.continuation[color][mov.dest_square().bb_idx()][mov.piece_type(pos) as usize];
+        if let Some((mov, piece)) = continued {
+            let entry = &mut self.continuation[color][mov.dest_square().bb_idx()][piece];
             Self::update_entry(entry, weight, bonus);
         }
     }
 
-    pub(super) fn correct(&mut self, pos: &Board, continued: Option<(Move, &Board)>, raw: Score) -> Score {
+    pub(super) fn correct(&mut self, pos: &Board, continued: Option<(Move, PieceType)>, raw: Score) -> Score {
         if raw.is_won_or_lost() {
             return raw;
         }
@@ -238,11 +239,11 @@ impl CorrHist {
             let nonpawn_idx = pos.nonpawn_key(c).0 as usize % CORRHIST_SIZE;
             correction += self.nonpawns[color][nonpawn_idx][c] as isize * cc::nonpawn_corrhist_weight() / 1024;
         }
-        if let Some((mov, pos)) = continued {
-            correction += self.continuation[color][mov.dest_square().bb_idx()][mov.piece_type(pos) as usize] as isize
-                * cc::contcorrhist_weight()
-                / 1024;
+        if let Some((mov, piece)) = continued {
+            correction +=
+                self.continuation[color][mov.dest_square().bb_idx()][piece] as isize * cc::contcorrhist_weight() / 1024;
         }
+        debug_assert!(correction.abs() / CORRHIST_SCALE < MAX_NORMAL_SCORE.0 as isize / 2);
         let score = raw.0 as isize + correction / CORRHIST_SCALE;
         Score(score.clamp(MIN_NORMAL_SCORE.0 as isize, MAX_NORMAL_SCORE.0 as isize) as ScoreT)
     }

@@ -223,7 +223,7 @@ impl<B: BoardTrait> AtomicSearchState<B> {
         Score(self.score.load(Relaxed))
     }
 
-    pub(super) fn get_score_t(&self) -> &AtomicI32 {
+    pub(super) fn get_score(&self) -> &AtomicI32 {
         &self.score
     }
 
