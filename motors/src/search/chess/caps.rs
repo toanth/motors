@@ -456,6 +456,7 @@ impl Caps {
                 self.current_pv_num = pv_num;
                 self.cur_pv_data_mut().bound = None;
                 let scaled_soft_limit = soft_limit.mul_f64(soft_limit_scale);
+                self.state.params.atomic.reset_seldepth();
                 let (keep_searching, incomplete, score) =
                     self.aspiration(pos, scaled_soft_limit, iter, budget as isize);
 

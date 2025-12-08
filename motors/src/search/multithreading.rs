@@ -219,6 +219,10 @@ impl<B: BoardTrait> AtomicSearchState<B> {
         DepthPly::new(self.seldepth.load(Relaxed))
     }
 
+    pub fn reset_seldepth(&self) {
+        self.seldepth.store(0, Relaxed);
+    }
+
     pub fn score(&self) -> Score {
         Score(self.score.load(Relaxed))
     }
