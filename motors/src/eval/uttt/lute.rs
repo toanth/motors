@@ -17,9 +17,9 @@
  */
 
 use crate::eval::Eval;
-use gears::games::uttt::{UtttBoard, UtttSubSquare};
-use gears::general::bitboards::RawBitboard;
-use gears::general::board::{Board, BoardHelpers};
+use gears::games::uttt::{Board, Color, SubSquare};
+use gears::general::bitboards::RawBitboardTrait;
+use gears::general::board::{BoardHelpers, BoardTrait};
 use gears::general::common::StaticallyNamedEntity;
 use gears::score::Score;
 use std::fmt::Display;
@@ -53,11 +53,11 @@ impl StaticallyNamedEntity for Lute {
 const PSQT: [Score; 9] =
     [Score(20), Score(10), Score(20), Score(10), Score(30), Score(10), Score(20), Score(10), Score(20)];
 
-impl Eval<UtttBoard> for Lute {
-    fn eval(&mut self, pos: &UtttBoard, _ply: usize) -> Score {
+impl Eval<Board> for Lute {
+    fn eval(&mut self, pos: &Board, _ply: usize, _engine: Color) -> Score {
         let mut score = Score::default();
         for color in [pos.active_player(), pos.inactive_player()] {
-            for sub_board in UtttSubSquare::iter() {
+            for sub_board in SubSquare::iter() {
                 if pos.is_sub_board_won(color, sub_board) {
                     score += PSQT[sub_board.bb_idx()] * 10;
                 } else {

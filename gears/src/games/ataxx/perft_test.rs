@@ -3,11 +3,12 @@
 /// as well as from [zataxx](<https://github.com/zzzzz151/Zataxx/blob/main/src/tests.rs>)
 #[cfg(test)]
 mod tests {
-    use crate::games::ataxx::AtaxxBoard;
+    use crate::games::ataxx::Board;
     use crate::general::board::BoardHelpers;
     use crate::general::board::Strictness::Strict;
+    use crate::general::perft::Bulkness::Bulk;
     use crate::general::perft::perft;
-    use crate::search::Depth;
+    use crate::search::DepthPly;
 
     #[rustfmt::skip]
     const PERFT4_POSITIONS: &[(&str, &[u64])] = &[
@@ -47,7 +48,6 @@ mod tests {
     #[rustfmt::skip]
     const PERFT6_POSITIONS: &[(&str, &[u64])] = &[
         ("7/7/7/7/-------/-------/x5o x 0 1", &[1, 2, 4, 13, 30, 73, 174]),
-        #[cfg(not(debug_assertions))]
         ("7/7/7/7/-------/-------/x5o o 0 1", &[1, 2, 4, 13, 30, 73, 174]),
         ("o5x/7/2-1-2/7/2-1-2/7/x5o o 0 1", &[1, 14, 196, 4_184, 86_528, 2_266_352]),
         #[cfg(not(debug_assertions))]
@@ -73,10 +73,10 @@ mod tests {
 
     fn test_perft(positions: &[(&str, &[u64])]) {
         for (fen, counts) in positions {
-            let pos = AtaxxBoard::from_fen(fen, Strict).unwrap();
+            let pos = Board::from_fen(fen, Strict).unwrap();
             for (depth, &count) in counts.iter().enumerate() {
-                let res = perft(Depth::new(depth), pos, false);
-                assert_eq!(res.nodes, count);
+                let res = perft(DepthPly::new(depth), pos, false, Bulk);
+                assert_eq!(res.nodes, count, "{fen}");
             }
         }
     }

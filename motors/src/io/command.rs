@@ -15,10 +15,10 @@
  *  You should have received a copy of the GNU General Public License
  *  along with Motors. If not, see <https://www.gnu.org/licenses/>.
  */
-use crate::io::SearchType::{Bench, Normal, Perft, Ponder, SplitPerft};
+use crate::io::SearchType::{Auto, Bench, Normal, Perft, Ponder, SplitPerft};
 use crate::io::autocomplete::AutoCompleteState;
 use crate::io::command::Standard::*;
-use crate::io::{AbstractEngineUgi, EngineUGI, SearchType};
+use crate::io::{AbstractEngineUgiState, EngineUGI, SearchType};
 use gears::GameResult;
 use gears::MatchStatus::{Ongoing, Over};
 use gears::ProgramStatus::Run;
@@ -27,22 +27,23 @@ use gears::arrayvec::ArrayVec;
 use gears::cli::Game;
 use gears::colored::Colorize;
 use gears::games::CharType::{Ascii, Unicode};
-use gears::games::{AbstractPieceType, Color, ColoredPiece, Size};
-use gears::general::board::{Board, BoardHelpers, ColPieceTypeOf, Strictness};
+#[cfg(feature = "fairy")]
+use gears::games::fairy::Board;
+use gears::games::{AbstractPieceType, ColorTrait, ColoredPieceTrait, SizeTrait};
+use gears::general::board::{BoardHelpers, BoardTrait, ColPieceTypeOf, Strictness};
 use gears::general::common::anyhow::{anyhow, bail};
 use gears::general::common::{
     Name, NamedEntity, Res, Tokens, parse_duration_ms, parse_int, parse_int_from_str, tokens,
 };
-use gears::general::move_list::MoveList;
-use gears::general::moves::{ExtendedFormat, Move};
+use gears::general::moves::{ExtendedFormat, MoveTrait};
 use gears::itertools::Itertools;
 use gears::output::Message::Warning;
 use gears::output::OutputOpts;
-use gears::search::{Depth, NodesLimit, SearchLimit};
+use gears::search::{DepthPly, NodesLimit, SearchLimit};
 use gears::ugi::{EngineOption, EngineOptionType, only_load_ugi_position};
 use std::fmt;
 use std::fmt::{Debug, Display, Formatter};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use strum::IntoEnumIterator;
 
 #[derive(Debug, Eq, PartialEq, Copy, Clone)]
@@ -69,7 +70,7 @@ struct SubCommandsFn(Option<SubCommandFnT>);
 
 impl Debug for SubCommandsFn {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        write!(f, "<subcommands>")
+        f.debug_tuple("SubCommandsFn").finish_non_exhaustive()
     }
 }
 
@@ -93,7 +94,7 @@ pub struct Command {
     pub help_text: Option<String>,
     pub standard: Standard,
     pub autocomplete_recurse: bool,
-    pub func: fn(&mut dyn AbstractEngineUgi, remaining_input: &mut Tokens, _cmd: &str) -> Res<()>,
+    pub func: fn(&mut dyn AbstractEngineUgiState, remaining_input: &mut Tokens, _cmd: &str) -> Res<()>,
     sub_commands: SubCommandsFn,
 }
 
@@ -102,7 +103,7 @@ impl Command {
         self.standard
     }
 
-    pub fn func(&self) -> fn(&mut dyn AbstractEngineUgi, &mut Tokens, &str) -> Res<()> {
+    pub fn func(&self) -> fn(&mut dyn AbstractEngineUgiState, &mut Tokens, &str) -> Res<()> {
         self.func
     }
 
@@ -192,7 +193,7 @@ pub fn ugi_commands() -> CommandList {
             go | g | search,
             All,
             "Start the search. Optionally takes a position and a mode such as `perft`",
-            |ugi: &mut dyn AbstractEngineUgi, words, _| { ugi.handle_go(Normal, words) },
+            |ugi: &mut dyn AbstractEngineUgiState, words, _| { ugi.handle_go(Normal, words) },
             --> |state: &mut dyn AutoCompleteState| state.go_subcmds(Normal),
             recurse = true
         ),
@@ -205,7 +206,7 @@ pub fn ugi_commands() -> CommandList {
             --> |state| state.pos_subcmds(false)
         ),
         command!(
-            ugi | uci | uai,
+            ugi | uci | uai | usi,
             All,
             "Starts UGI mode, ends interactive mode (can be re-enabled with `interactive`)",
             |ugi, _, proto| ugi.handle_ugi(proto)
@@ -216,7 +217,7 @@ pub fn ugi_commands() -> CommandList {
             Ok(())
         }),
         command!(
-            setoption | so,
+            setoption | so | set,
             All,
             "Sets an engine option",
             |ugi, words, _| ugi.handle_setoption(words),
@@ -238,7 +239,7 @@ pub fn ugi_commands() -> CommandList {
             "Flips the side to move, unless this results in an illegal position",
             |ugi, _, _| ugi.handle_flip()
         ),
-        command!(quit, All, "Exits the program immediately", |ugi, _, _| {
+        command!(quit | q, All, "Exits the program immediately", |ugi, _, _| {
             if cfg!(feature = "fuzzing") {
                 eprintln!("Fuzzing is enabled, ignoring 'quit' command");
                 return Ok(());
@@ -258,14 +259,14 @@ pub fn ugi_commands() -> CommandList {
             }
         ),
         command!(
-            query | q,
+            query,
             UgiNotUci,
             "Answer a query about the current match state",
             |ugi, words, _| ugi.handle_query(words),
             --> |state| state.query_subcmds()
         ),
         command!(
-            option | info,
+            option | info | listoptions,
             Custom,
             "Prints information about the current options. Optionally takes an option name",
             |ugi, words, _| {
@@ -275,11 +276,23 @@ pub fn ugi_commands() -> CommandList {
             --> |state| state.option_subcmds(true)
         ),
         command!(
+            variant,
+            Custom,
+            "Sets the variant, if supported by the current game",
+            |ugi, words, _| { ugi.handle_variant(words) },
+            --> |state| state.variant_subcmds()
+        ),
+        command!(
             engine_state,
             Custom,
             "Prints information about the internal engine state, if supported",
             |ugi, _, _| ugi.handle_engine_print()
         ),
+        command!(move_eval | me, Custom, "How the internal engine state considers this move, if supported",
+            |ugi, words, _| {
+                ugi.handle_move_eval(words)
+            },
+        --> |state| state.moves_subcmds(false, false)),
         command!(
             output | o,
             Custom,
@@ -344,13 +357,22 @@ pub fn ugi_commands() -> CommandList {
                 }
                 ugi.handle_play(words)
             },
-            --> |_| select_command::<Game>(&Game::iter().map(Box::new).collect_vec())
+            --> |_| {
+                #[allow(unused_mut)]
+                let mut games = Game::iter().map(|g| Box::new(Name::new(&g))).collect_vec();
+                #[cfg(feature = "fairy")]
+                {
+                    games.extend(Board::list_variants().unwrap_or_default().iter().map(|v| Box::new(Name::from_name(&format!("Fairy-{v}")))));
+                }
+                select_command::<Name>(&games)
+            }
         ),
         command!(
             idk | assist | respond,
             Custom,
             "Lets the engine play a move, or use 'on'/'off' to enable/disable automatic response",
-            |ugi, words, _| ugi.handle_assist(words)
+            |ugi, words, _| ugi.handle_assist(words),
+            --> |_| bool_options()
         ),
         command!(undo | take_back | u, Custom, "Undoes 1 or a given number of halfmoves", |ugi, words, _| {
             ugi.handle_undo(words)
@@ -376,14 +398,29 @@ pub fn ugi_commands() -> CommandList {
             --> |state| state.coords_subcmds(false, true)
         ),
         command!(
-            move_piece,
+            move_piece | mp,
             Custom,
             "Moves the piece on the first given square to the second given square, e.g. 'move a1 a2'",
             |ugi, words, _| ugi.handle_move_piece(words),
             --> |state| state.coords_subcmds(true, true)
         ),
         command!(
-            perft,
+            random_pos | randomize | rand,
+            Custom,
+            "Creates a new random position. No guarantees about the probability distribution",
+            |ugi, words, _| { ugi.handle_randomize(words) },
+            --> |state| state.randomize_subcmds()
+        ),
+        command!(
+            auto,
+            Custom,
+            "Search like 'go', then play the chosen move. Blocks until the search is complete",
+            |ugi, words, _| { ugi.handle_go(Auto, words) },
+            --> |state| state.go_subcmds(Auto),
+            recurse = true
+        ),
+        command!(
+            perft | pt,
             Custom,
             "Internal movegen test on current / bench positions",
             |ugi, words, _| ugi.handle_go(Perft, words),
@@ -391,7 +428,7 @@ pub fn ugi_commands() -> CommandList {
             recurse = true
         ),
         command!(
-            splitperft | sp,
+            splitperft | sp | split,
             Custom,
             "Internal movegen test on current / bench positions",
             |ugi, words, _| ugi.handle_go(SplitPerft, words),
@@ -428,6 +465,7 @@ pub fn ugi_commands() -> CommandList {
     ]
 }
 
+/// The purpose of this trait is to type erase the Board
 pub trait AbstractGoState: Debug {
     fn set_searchmoves(&mut self, words: &mut Tokens) -> Res<()>;
     fn set_time(&mut self, words: &mut Tokens, first: bool, inc: bool, name: &str) -> Res<()>;
@@ -437,9 +475,10 @@ pub trait AbstractGoState: Debug {
     fn load_pos(&mut self, name: &str, words: &mut Tokens, allow_partial: bool) -> Res<()>;
     fn set_search_type(&mut self, search_type: SearchType, depth_words: Option<&mut Tokens>) -> Res<()>;
     fn set_engine(&mut self, words: &mut Tokens) -> Res<()>;
+    fn is_first_player_active(&self) -> bool;
 }
 
-impl<B: Board> AbstractGoState for GoState<B> {
+impl<B: BoardTrait> AbstractGoState for GoState<B> {
     fn set_searchmoves(&mut self, words: &mut Tokens) -> Res<()> {
         let mut search_moves = vec![];
         while let Some(mov) = words.peek().and_then(|m| B::Move::from_text(m, &self.pos).ok()) {
@@ -467,7 +506,7 @@ impl<B: Board> AbstractGoState for GoState<B> {
     }
 
     fn override_hash(&mut self, words: &mut Tokens) -> Res<()> {
-        self.generic.override_hash_size = Some(parse_int(words, "TT size in MB")?);
+        self.generic.override_hash_size = Some(parse_int(words, "TT size in MiB")?);
         Ok(())
     }
 
@@ -505,10 +544,14 @@ impl<B: Board> AbstractGoState for GoState<B> {
         _ = words.next();
         Ok(())
     }
+
+    fn is_first_player_active(&self) -> bool {
+        self.pos.active_player().is_first()
+    }
 }
 
 #[derive(Debug, Clone)]
-pub struct GoState<B: Board> {
+pub struct GoState<B: BoardTrait> {
     pub generic: GenericGoState,
     pub search_moves: Option<Vec<B::Move>>,
     pub pos: B,
@@ -522,16 +565,19 @@ pub struct GenericGoState {
     pub threads: Option<usize>,
     pub search_type: SearchType,
     pub complete: bool,
+    pub unique: bool,
+    pub compare: bool,
+    pub no_bulk: bool,
     pub move_overhead: Duration,
     pub strictness: Strictness,
     pub override_hash_size: Option<usize>,
     pub engine_name: Option<String>,
-    default_bench_depth: Depth,
-    default_perft_depth: Depth,
+    default_bench_depth: DepthPly,
+    default_perft_depth: DepthPly,
 }
 
-impl<B: Board> GoState<B> {
-    pub fn default_depth_limit(ugi: &EngineUGI<B>, search_type: SearchType) -> Depth {
+impl<B: BoardTrait> GoState<B> {
+    pub fn default_depth_limit(ugi: &EngineUGI<B>, search_type: SearchType) -> DepthPly {
         match search_type {
             Bench => ugi.state.engine.get_engine_info().default_bench_depth(),
             Perft | SplitPerft => ugi.state.pos().default_perft_depth(),
@@ -539,8 +585,9 @@ impl<B: Board> GoState<B> {
             _ => SearchLimit::infinite().depth,
         }
     }
-    pub fn new(ugi: &EngineUGI<B>, search_type: SearchType) -> Self {
-        let limit = SearchLimit::depth(Self::default_depth_limit(ugi, search_type));
+    pub fn new(ugi: &EngineUGI<B>, search_type: SearchType, start_time: Instant) -> Self {
+        let mut limit = SearchLimit::depth(Self::default_depth_limit(ugi, search_type));
+        limit.start_time = start_time;
         let bench_limit = Self::default_depth_limit(ugi, Bench);
         let perft_limit = Self::default_depth_limit(ugi, Perft);
         Self::new_for_pos(
@@ -560,8 +607,8 @@ impl<B: Board> GoState<B> {
         strictness: Strictness,
         move_overhead: Duration,
         search_type: SearchType,
-        default_bench_depth: Depth,
-        default_perft_depth: Depth,
+        default_bench_depth: DepthPly,
+        default_perft_depth: DepthPly,
     ) -> Self {
         Self {
             generic: GenericGoState {
@@ -571,6 +618,9 @@ impl<B: Board> GoState<B> {
                 threads: None,
                 search_type,
                 complete: false,
+                unique: false,
+                compare: false,
+                no_bulk: false,
                 move_overhead,
                 strictness,
                 override_hash_size: None,
@@ -582,29 +632,31 @@ impl<B: Board> GoState<B> {
             pos,
         }
     }
+    pub(super) fn start_time(&self) -> Instant {
+        self.generic.limit.start_time
+    }
 }
 
 pub(super) fn accept_depth(limit: &mut SearchLimit, words: &mut Tokens) -> Res<()> {
-    if let Some(word) = words.peek() {
-        if let Ok(number) = parse_int_from_str(word, "depth") {
-            limit.depth = Depth::try_new(number)?;
-            _ = words.next();
-        }
+    if let Some(word) = words.peek()
+        && let Ok(number) = parse_int_from_str(word, "depth")
+    {
+        limit.depth = DepthPly::try_new(number)?;
+        _ = words.next();
     }
+
     Ok(())
 }
 
 pub(super) fn depth_cmd() -> Command {
     command!(depth | d, All, "Maximum search depth in plies (a.k.a. half-moves)", |state, words, _| {
-        state.go_state_mut().limit_mut().depth = Depth::try_new(parse_int(words, "depth number")?)?;
+        state.go_state_mut().limit_mut().depth = DepthPly::try_new(parse_int(words, "depth number")?)?;
         Ok(())
     })
 }
 
-pub(super) fn go_options<B: Board>(mode: Option<SearchType>) -> CommandList {
-    // TODO: This doesn't update the colors when they are changed at runtime in the Fairy board,
-    // so even though the FEN will parse e.g. x/o it'll still be wtime/btime.
-    let pos = B::default();
+pub(super) fn go_options<B: BoardTrait>(mode: Option<SearchType>, settings: B::SettingsRef) -> CommandList {
+    let pos = B::startpos_for_settings(settings);
     let mut res = go_options_impl(mode, pos.color_chars(), pos.color_names());
 
     // We don't want to allow `go e4` or `go moves e4` for two reasons: Because that's a bit confusing, and because it would make the number of
@@ -621,7 +673,17 @@ pub(super) fn go_options_impl(
     color_names: [String; 2],
 ) -> CommandList {
     let mut res = vec![depth_cmd()];
-    if !matches!(mode.unwrap_or(Normal), Perft | SplitPerft) {
+    if matches!(mode.unwrap_or(Normal), Perft | SplitPerft) {
+        res.push(command!(
+            threads | t,
+            Custom,
+            "The only valid number is '1' to disable multithreading",
+            |state, words, _| {
+                state.go_state_mut().get_mut().threads = Some(parse_int(words, "threads")?);
+                Ok(())
+            }
+        ));
+    } else {
         let mut additional: CommandList = vec![
             Command {
                 primary_name: format!("{}time", color_chars[0]),
@@ -667,6 +729,36 @@ pub(super) fn go_options_impl(
                 func: |state, words, _| state.go_state_mut().set_time(words, false, true, "p2inc"),
                 sub_commands: SubCommandsFn::default(),
             },
+            command!(
+                byoyomi,
+                Custom,
+                "How many milliseconds the remaining time is allowed to go negative",
+                |state, words, _| {
+                    state.go_state_mut().limit_mut().byoyomi = parse_duration_ms(words, "byoyomi")?;
+                    Ok(())
+                }
+            ),
+            command!(
+                time,
+                Custom,
+                "Remaining time in ms for the current player (for the entire game, unlike 'movetime')",
+                |state, words, _| {
+                    let active = state.go_state_mut().is_first_player_active();
+                    state.go_state_mut().set_time(words, active, false, "time")
+                }
+            ),
+            command!(opptime, Custom, "Remaining time in ms for the current player's opponent", |state, words, _| {
+                let active = state.go_state_mut().is_first_player_active();
+                state.go_state_mut().set_time(words, !active, false, "opptime")
+            }),
+            command!(increment, Custom, "Increment in ms for the current player", |state, words, _| {
+                let active = state.go_state_mut().is_first_player_active();
+                state.go_state_mut().set_time(words, active, true, "increment")
+            }),
+            command!(oppincrement, Custom, "Increment in ms for the current player's opponent", |state, words, _| {
+                let active = state.go_state_mut().is_first_player_active();
+                state.go_state_mut().set_time(words, !active, true, "oppincrement")
+            }),
             command!(movestogo | mtg, All, "Full moves until the time control is reset", |state, words, _| {
                 let moves_to_go: isize = parse_int(words, "'movestogo' number")?;
                 if moves_to_go < 0 {
@@ -684,12 +776,23 @@ pub(super) fn go_options_impl(
                     .ok_or_else(|| anyhow!("node count can't be zero"))?;
                 Ok(())
             }),
+            command!(
+                softnodes | sn,
+                Custom,
+                "Don't increase the depth after this limit has been reached",
+                |state, words, _| {
+                    state.go_state_mut().limit_mut().soft_nodes =
+                        NodesLimit::new(parse_int(words, "soft nodes limit")?)
+                            .ok_or_else(|| anyhow!("soft nodes limit can't be zero"))?;
+                    Ok(())
+                }
+            ),
             command!(mate | m, All, "Maximum depth in moves until a mate has to be found", |state, words, _| {
                 let depth: isize = parse_int(words, "mate move count")?;
-                state.go_state_mut().limit_mut().mate = Depth::try_new(depth * 2)?; // 'mate' is given in moves instead of plies
+                state.go_state_mut().limit_mut().mate = DepthPly::try_new(depth * 2)?; // 'mate' is given in moves instead of plies
                 Ok(())
             }),
-            command!(movetime | mt | time, All, "Maximum time in ms", |state, words, _| {
+            command!(movetime | mt, All, "Maximum time in ms", |state, words, _| {
                 let generic = state.go_state_mut().get_mut();
                 let limit = &mut generic.limit;
                 limit.fixed_time = parse_duration_ms(words, "time per move in milliseconds")?;
@@ -759,20 +862,59 @@ pub(super) fn go_options_impl(
                 "Use the given engine without modifying the current engine's state",
                 |state, words, _| state.go_state_mut().set_engine(words)
             ),
-            command!(complete | all, Custom, "Run bench / perft on all bench positions", |state, _, _| {
-                if ![Bench, Perft].contains(&state.go_state_mut().get_mut().search_type) {
-                    bail!("The 'all' option can only be used with 'bench' or 'perft' searches")
-                }
-                state.go_state_mut().get_mut().complete = true;
-                Ok(())
-            }),
         ];
         res.append(&mut additional);
+    }
+    // this checks only the mode that `go_options` is called for, but it can be changed through args (eg `go perft`),
+    // which is why there's another check when actually handling it. Still, the first check prevents it from showing up in completion suggestion.
+    if mode.is_none_or(|m| [Bench, Perft].iter().contains(&m)) {
+        res.push(command!(complete | all, Custom, "Run bench / perft on all bench positions", |state, _, _| {
+            if ![Bench, Perft].contains(&state.go_state_mut().get_mut().search_type) {
+                bail!("The 'all' option can only be used with 'bench' or 'perft' searches")
+            }
+            state.go_state_mut().get_mut().complete = true;
+            Ok(())
+        }));
+    }
+    if mode.is_none_or(|m| m == Perft) {
+        res.push(command!(unique, Custom, "Only count unique positions in perft", |state, _, _| {
+            if state.go_state_mut().get_mut().search_type != Perft {
+                bail!("The 'all' option can only be used with 'perft' searches")
+            }
+            state.go_state_mut().get_mut().unique = true;
+            Ok(())
+        }));
+    }
+    if mode.is_none_or(|m| m == SplitPerft) {
+        let c = command!(
+            compare | cmp | diff,
+            Custom,
+            "Compare user-provided splitperft results against this implementation",
+            |state, _, _| {
+                if state.go_state_mut().get_mut().search_type != SplitPerft {
+                    bail!("The 'compare' option can only be used with 'splitperft' searches")
+                }
+                state.go_state_mut().get_mut().compare = true;
+                Ok(())
+            }
+        );
+        res.push(c);
+    }
+    if mode.is_none_or(|m| [Perft, SplitPerft].contains(&m)) {
+        res.push(command!(
+            no_bulk | non_bulk | nb,
+            Custom,
+            "Turn off (pseudo) bulk counting in perft/splitperft; this makes it slower",
+            |state, _words, _| {
+                state.go_state_mut().get_mut().no_bulk = true;
+                Ok(())
+            }
+        ));
     }
     res
 }
 
-pub(super) fn query_options<B: Board>() -> CommandList {
+pub(super) fn query_options<B: BoardTrait>() -> CommandList {
     // TODO: See go_options, doesn't update the chars
     query_options_impl(B::default().color_chars())
 }
@@ -823,16 +965,14 @@ macro_rules! pos_command {
     }
 }
 
-fn generic_go_options(accept_pos_word: bool) -> CommandList {
-    // TODO: The first couple of options don't depend on B, move in new function?
+fn generic_position_options(accept_pos_word: bool) -> CommandList {
     let mut res = vec![
         pos_command!(
-            fen | f,
+            fen | f | sfen,
             All,
             "Load a positions from a FEN",
             |state, words, _| state.load_go_state_pos("fen", words),
             --> |state| state.moves_subcmds(true, true),
-            // TODO: Set position based on the FEN
             recurse = true
         ),
         pos_command!(
@@ -879,20 +1019,42 @@ fn bool_options() -> CommandList {
     ]
 }
 
-pub(super) fn position_options<B: Board>(pos: Option<&B>, accept_pos_word: bool) -> CommandList {
-    let mut res = generic_go_options(accept_pos_word);
-    for p in B::name_to_pos_map() {
-        let c = Command {
-            primary_name: p.short_name(),
-            other_names: Default::default(),
-            help_text: Some(p.description().unwrap_or(format!("Load a custom position called '{}'", p.short_name()))),
-            standard: Custom,
-            autocomplete_recurse: false,
-            func: |state, words, name| state.load_go_state_pos(name, words),
-            sub_commands: SubCommandsFn::new(|state| state.moves_subcmds(true, true)),
-        };
-        res.push(c);
-    }
+pub(super) fn position_options<B: BoardTrait>(pos: Option<&B>, accept_pos_word: bool) -> CommandList {
+    let all_names_fn = || {
+        let mut res = vec![];
+        for p in B::name_to_pos_map() {
+            let lambda = || Command {
+                primary_name: p.short_name(),
+                other_names: Default::default(),
+                help_text: Some(
+                    p.description().unwrap_or(format!("Load a custom position called '{}'", p.short_name())),
+                ),
+                standard: Custom,
+                autocomplete_recurse: false,
+                func: |state, words, name| state.load_go_state_pos(name, words),
+                sub_commands: SubCommandsFn::new(|state| state.moves_subcmds(true, true)),
+            };
+            res.push(lambda());
+        }
+        res
+    };
+    let mut res = all_names_fn();
+    let name_cmd = command!(
+        name | pos_name,
+        Custom,
+        "Load a position by its name",
+        |state, words, _| {
+            let Some(name) = words.next() else {
+                bail!(
+                    "The 'name' subcommand must be followed by a position name, such as 'startpos' or 'kiwipete' in chess"
+                )
+            };
+            state.load_go_state_pos(name, words)
+        },
+        --> move |_| all_names_fn()
+    );
+    res.push(name_cmd);
+    res.append(&mut generic_position_options(accept_pos_word));
     res.push(move_command(false));
     if let Some(pos) = pos {
         res.append(&mut moves_options(pos, true))
@@ -910,19 +1072,20 @@ pub(super) fn move_command(recurse: bool) -> Command {
     )
 }
 
-pub(super) fn moves_options<B: Board>(pos: &B, recurse: bool) -> CommandList {
+pub(super) fn moves_options<B: BoardTrait>(pos: &B, recurse: bool) -> CommandList {
     let mut res: CommandList = vec![];
-    for mov in pos.legal_moves_slow().iter_moves() {
+    let legals = pos.legal_moves_slow().into_iter().collect_vec();
+    for &mov in &legals {
         let primary_name = mov.compact_formatter(pos).to_string();
         let mut other_names = ArrayVec::default();
-        let extended = mov.to_extended_text(pos, ExtendedFormat::Standard);
+        let extended = mov.extended_formatter(pos, ExtendedFormat::Standard, Some(legals.as_slice())).to_string();
         if extended != primary_name {
             other_names.push(extended);
         }
         let cmd = Command {
             primary_name: primary_name.clone(),
             other_names,
-            help_text: Some(format!("Play move '{}'", mov.compact_formatter(pos).to_string().bold())),
+            help_text: Some(mov.description(pos)),
             standard: All,
             autocomplete_recurse: false,
             func: |_, _, _| Ok(()),
@@ -940,19 +1103,19 @@ pub(super) fn moves_options<B: Board>(pos: &B, recurse: bool) -> CommandList {
     res
 }
 
-pub(super) fn coords_options<B: Board>(pos: &B, ac_coords: bool, only_occupied: bool) -> CommandList {
+pub(super) fn coords_options<B: BoardTrait>(pos: &B, ac_coords: bool, only_occupied: bool) -> CommandList {
     let mut res = vec![];
     for c in pos.size().valid_coordinates() {
         if only_occupied && pos.is_empty(c) {
             continue;
         }
-        let n = Name { short: c.to_string(), long: c.to_string(), description: None };
+        let n = Name::from_name(&c.to_string());
         let mut cmd = named_entity_to_command(&n);
         let piece = pos.colored_piece_on(c).colored_piece_type();
         if pos.is_empty(c) {
             cmd.help_text = Some("Currently empty".to_string());
         } else {
-            cmd.help_text = Some(format!("Currently occupied by: {}", piece.name(&pos.settings()).as_ref()));
+            cmd.help_text = Some(format!("Currently occupied by: {}", piece.name(pos.settings()).as_ref()));
         }
         if ac_coords {
             cmd.sub_commands = SubCommandsFn(Some(Box::new(|state| state.coords_subcmds(false, false))))
@@ -962,14 +1125,13 @@ pub(super) fn coords_options<B: Board>(pos: &B, ac_coords: bool, only_occupied: 
     res
 }
 
-pub(super) fn piece_options<B: Board>(pos: &B) -> CommandList {
+pub(super) fn piece_options<B: BoardTrait>(pos: &B) -> CommandList {
     let mut res = vec![];
     let settings = pos.settings();
-    for p in ColPieceTypeOf::<B>::non_empty(&settings) {
-        let name = p.name(&settings).as_ref().to_string();
-        let n = Name { short: name.clone(), long: name.clone(), description: None };
+    for p in ColPieceTypeOf::<B>::non_empty(settings) {
+        let n = Name::from_name(p.name(settings).as_ref());
         let mut cmd = named_entity_to_command(&n);
-        let list = [p.to_char(Ascii, &settings), p.to_char(Unicode, &settings)];
+        let list = [p.to_char(Ascii, settings), p.to_char(Unicode, settings)];
         for c in list.iter().sorted().dedup() {
             cmd.other_names.push(c.to_string());
         }

@@ -1,22 +1,24 @@
 //! This module contains generic test functions that are completely independent of the actual game.
 //! Since those generics aren't instantiated here, there are no actual tests here.
-use crate::games::{Color, ColoredPiece, Coordinates, PosHash, Size};
+use crate::games::{ColorTrait, ColoredPieceTrait, CoordinatesTrait, PosHash, SizeTrait};
 use crate::general::board::Strictness::{Relaxed, Strict};
-use crate::general::board::{Board, BoardHelpers, UnverifiedBoard};
+use crate::general::board::{BoardHelpers, BoardTrait, UnverifiedBoardTrait};
 use crate::general::moves::ExtendedFormat::{Alternative, Standard};
 use crate::general::moves::Legality::Legal;
-use crate::general::moves::Move;
+use crate::general::moves::MoveTrait;
 use itertools::Itertools;
-use rand::rngs::StdRng;
+use num::ToPrimitive;
+use proptest::proptest;
 use rand::SeedableRng;
+use rand::rngs::StdRng;
 use std::collections::{HashSet, VecDeque};
 use std::marker::PhantomData;
 
-pub struct GenericTests<B: Board> {
+pub struct GenericTests<B: BoardTrait> {
     _phantom: PhantomData<B>,
 }
 
-impl<B: Board> GenericTests<B> {
+impl<B: BoardTrait> GenericTests<B> {
     pub fn coordinates_test() {
         let pos = B::default();
         let size = pos.size();
@@ -36,7 +38,7 @@ impl<B: Board> GenericTests<B> {
                 assert!(!found_center);
                 found_center = true;
             }
-            assert_eq!(pos.is_empty(coords), pos.colored_piece_on(coords).color().is_none());
+            assert_eq!(pos.is_empty(coords), pos.colored_piece_on(coords).color().is_none(), "{pos} {coords}");
             p.try_remove_piece(coords).unwrap();
         }
         assert_eq!(p.verify(Strict).map_err(|_| ()), B::empty().into().verify(Strict).map_err(|_| ()));
@@ -48,9 +50,10 @@ impl<B: Board> GenericTests<B> {
             let pos = pos.create::<B>();
             for mov in pos.legal_moves_slow() {
                 for format in [Standard, Alternative] {
+                    println!("{} {pos}", mov.compact_formatter(&pos));
                     let encoded = mov.to_extended_text(&pos, format);
                     let decoded = B::Move::from_extended_text(&encoded, &pos);
-                    assert!(decoded.is_ok());
+                    assert!(decoded.is_ok(), "{encoded}, {}", decoded.unwrap_err());
                     assert_eq!(decoded.unwrap(), mov);
                 }
             }
@@ -105,8 +108,9 @@ impl<B: Board> GenericTests<B> {
     }
 
     fn basic_test() {
-        assert!(!B::bench_positions().is_empty());
+        assert!(B::bench_positions().into_iter().count() > 0);
         for pos in B::bench_positions() {
+            println!("{pos}");
             let ply = pos.halfmove_ctr_since_start();
             // use a new hash set per position because bench positions can be only one ply away from each other
             let mut hashes = HashSet::new();
@@ -119,7 +123,7 @@ impl<B: Board> GenericTests<B> {
                 // in some bench positions, the game is already won
                 continue;
             }
-            if B::Move::legality() == Legal {
+            if B::Move::legality(pos.settings()) == Legal {
                 assert_eq!(pos.legal_moves_slow().into_iter().count(), pos.pseudolegal_moves().into_iter().count());
             }
             for mov in pos.legal_moves_slow() {
@@ -131,19 +135,20 @@ impl<B: Board> GenericTests<B> {
                 assert_eq!(new_pos.is_some(), pos.is_pseudolegal_move_legal(mov));
                 let Some(new_pos) = new_pos else { continue };
                 let new_pos = new_pos.debug_verify_invariants(Strict).unwrap();
+                let fen = new_pos.as_fen();
                 assert_eq!(new_pos.active_player().other(), pos.active_player());
-                assert_ne!(new_pos.as_fen(), pos.as_fen());
+                assert_ne!(fen, pos.as_fen());
 
-                let roundtrip = B::from_fen(&new_pos.as_fen(), Strict).unwrap();
+                let roundtrip = B::from_fen(&fen, Strict).unwrap();
                 let roundtrip = roundtrip.debug_verify_invariants(Strict).unwrap();
-                assert_eq!(roundtrip.as_fen(), new_pos.as_fen());
+                assert_eq!(roundtrip.as_fen(), fen);
                 if !new_pos.cannot_call_movegen() {
                     assert_eq!(
                         roundtrip.legal_moves_slow().into_iter().collect_vec(),
                         new_pos.legal_moves_slow().into_iter().collect_vec()
                     );
                 }
-                assert_eq!(roundtrip, new_pos);
+                assert_eq!(roundtrip, new_pos, "{fen}");
                 assert_eq!(roundtrip.hash_pos(), new_pos.hash_pos());
 
                 assert_ne!(new_pos.hash_pos().0, hash); // Even for null moves, the side to move has changed
@@ -193,5 +198,27 @@ impl<B: Board> GenericTests<B> {
         Self::fen_roundtrip_test();
         Self::statistical_hash_test(B::default());
         Self::unverified_tests();
+        Self::move_test();
+    }
+
+    fn move_test() {
+        let num_bits = size_of::<<B::Move as MoveTrait<B>>::Underlying>() * 8;
+        let max_val: u64 = 1 << num_bits.min(32);
+        for pos in B::bench_positions() {
+            proptest!(|(pattern in 0..max_val)| {
+                let m = B::Move::from_u64_unchecked(pattern);
+                assert_eq!(m.clone().to_underlying().to_u64().unwrap(), pattern);
+                if let Some(m) = m.clone().check_pseudolegal(&pos) {
+                    let new_pos = pos.clone().make_move(m);
+                    if pos.is_pseudolegal_move_legal(m) {
+                        assert!(new_pos.is_some());
+                    } else {
+                        assert!(new_pos.is_none());
+                    }
+                }
+                // even invalid moves must be able to be printed in this format
+                let _text = m.trust_unchecked().compact_formatter(&pos).to_string();
+            })
+        }
     }
 }

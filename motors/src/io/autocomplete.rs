@@ -15,35 +15,39 @@
  *  You should have received a copy of the GNU General Public License
  *  along with Motors. If not, see <https://www.gnu.org/licenses/>.
  */
-use crate::io::command::{
-    coords_options, go_options, move_command, moves_options, named_entity_to_command, options_options, piece_options,
-    position_options, query_options, select_command, ugi_commands, AbstractGoState, Command, CommandList, GoState,
-};
 use crate::io::SearchType::Normal;
-use crate::io::{AbstractEngineUgi, EngineUGI, SearchType};
+use crate::io::command::{
+    AbstractGoState, Command, CommandList, GoState, coords_options, go_options, move_command, moves_options,
+    named_entity_to_command, options_options, piece_options, position_options, query_options, select_command,
+    ugi_commands,
+};
+use crate::io::{AbstractEngineUgiState, EngineUGI, SearchType};
 use crate::search::{AbstractEvalBuilder, AbstractSearcherBuilder, EvalList, SearcherList};
 use edit_distance::edit_distance;
+use gears::MatchStatus::Ongoing;
+use gears::ProgramStatus::Run;
 use gears::colored::Colorize;
 use gears::games::OutputList;
-use gears::general::board::Board;
+use gears::general::board::{BoardHelpers, BoardTrait, Symmetry};
 use gears::general::common::anyhow::anyhow;
-use gears::general::common::{tokens, Name, NamedEntity, Res, Tokens};
-use gears::general::moves::Move;
+use gears::general::common::{Name, NamedEntity, Res, Tokens, tokens};
+use gears::general::moves::MoveTrait;
 use gears::itertools::Itertools;
 use gears::output::{Message, OutputBuilder, OutputOpts};
 use gears::rand::prelude::IndexedRandom;
-use gears::rand::{rng, Rng};
+use gears::rand::{Rng, rng};
 use gears::ugi::EngineOption;
-use gears::MatchStatus::Ongoing;
-use gears::ProgramStatus::Run;
 use gears::{ProgramStatus, Quitting};
 use inquire::autocompletion::Replacement;
 use inquire::{Autocomplete, CustomUserError};
 use std::fmt;
 use std::fmt::Debug;
 use std::iter::once;
+use std::ops::DerefMut;
 use std::rc::Rc;
 use std::str::from_utf8;
+use std::time::Instant;
+use strum::IntoEnumIterator;
 
 fn add<T>(mut a: Vec<T>, mut b: Vec<T>) -> Vec<T> {
     a.append(&mut b);
@@ -51,7 +55,7 @@ fn add<T>(mut a: Vec<T>, mut b: Vec<T>) -> Vec<T> {
 }
 
 #[derive(Debug, Clone)]
-pub struct ACState<B: Board> {
+pub struct ACState<B: BoardTrait> {
     pub go_state: GoState<B>,
     outputs: Rc<OutputList<B>>,
     searchers: Rc<SearcherList<B>>,
@@ -59,7 +63,7 @@ pub struct ACState<B: Board> {
     pub(super) options: Rc<Vec<EngineOption>>,
 }
 
-impl<B: Board> ACState<B> {
+impl<B: BoardTrait> ACState<B> {
     fn pos(&self) -> &B {
         &self.go_state.pos
     }
@@ -80,13 +84,17 @@ pub(super) trait AutoCompleteState: Debug {
     fn set_eval_subcmds(&self) -> CommandList;
     fn coords_subcmds(&self, ac_coords: bool, only_occupied: bool) -> CommandList;
     fn piece_subcmds(&self) -> CommandList;
+    fn randomize_subcmds(&self) -> CommandList;
+    fn variant_subcmds(&self) -> CommandList;
     fn make_move(&mut self, mov: &str);
     fn options(&self) -> &[EngineOption];
+    fn dyn_cloned(&self) -> Box<dyn AutoCompleteState>;
+    fn upcast_mut(&mut self) -> &mut dyn AbstractEngineUgiState;
 }
 
-impl<B: Board> AutoCompleteState for ACState<B> {
+impl<B: BoardTrait> AutoCompleteState for ACState<B> {
     fn go_subcmds(&self, search_type: SearchType) -> CommandList {
-        go_options::<B>(Some(search_type))
+        go_options::<B>(Some(search_type), self.pos().settings_ref())
     }
     fn pos_subcmds(&self, accept_pos: bool) -> CommandList {
         position_options(Some(self.pos()), accept_pos)
@@ -139,6 +147,27 @@ impl<B: Board> AutoCompleteState for ACState<B> {
         piece_options(&self.go_state.pos)
     }
 
+    fn randomize_subcmds(&self) -> CommandList {
+        Symmetry::iter().map(|s| named_entity_to_command(&s)).collect()
+    }
+
+    fn variant_subcmds(&self) -> CommandList {
+        if let Some(list) = B::list_variants() {
+            list.iter().map(|v| named_entity_to_command(&Name::from_name(v))).collect()
+        } else {
+            vec![named_entity_to_command(&Name {
+                short: "<No variants>".to_string(),
+                long: "<No variants>".to_string(),
+                description: Some(format!(
+                    "The game '{0}' doesn't have any variants (consider using {1} with '{2}')",
+                    B::game_name().bold(),
+                    "fairy".bold(),
+                    "play fairy".bold()
+                )),
+            })]
+        }
+    }
+
     fn make_move(&mut self, mov: &str) {
         let Ok(mov) = B::Move::from_text(mov, self.pos()) else {
             return;
@@ -151,9 +180,17 @@ impl<B: Board> AutoCompleteState for ACState<B> {
     fn options(&self) -> &[EngineOption] {
         self.options.as_slice()
     }
+
+    fn dyn_cloned(&self) -> Box<dyn AutoCompleteState> {
+        Box::new(self.clone())
+    }
+
+    fn upcast_mut(&mut self) -> &mut dyn AbstractEngineUgiState {
+        self
+    }
 }
 
-impl<B: Board> AbstractEngineUgi for ACState<B> {
+impl<B: BoardTrait> AbstractEngineUgiState for ACState<B> {
     fn options_text(&self, _words: &mut Tokens) -> Res<String> {
         Ok(String::new())
     }
@@ -215,6 +252,9 @@ impl<B: Board> AbstractEngineUgi for ACState<B> {
     fn handle_engine_print(&mut self) -> Res<()> {
         Ok(())
     }
+    fn handle_move_eval(&mut self, _words: &mut Tokens) -> Res<()> {
+        Ok(())
+    }
     fn handle_eval_or_tt(&mut self, _eval: bool, _words: &mut Tokens) -> Res<()> {
         Ok(())
     }
@@ -232,6 +272,9 @@ impl<B: Board> AbstractEngineUgi for ACState<B> {
         Ok(())
     }
     fn handle_query(&mut self, _words: &mut Tokens) -> Res<()> {
+        Ok(())
+    }
+    fn handle_variant(&mut self, _swords: &mut Tokens) -> Res<()> {
         Ok(())
     }
     fn handle_wait(&mut self, _words: &mut Tokens) -> Res<()> {
@@ -258,7 +301,9 @@ impl<B: Board> AbstractEngineUgi for ACState<B> {
     fn handle_move_piece(&mut self, _words: &mut Tokens) -> Res<()> {
         Ok(())
     }
-
+    fn handle_randomize(&mut self, _words: &mut Tokens) -> Res<()> {
+        Ok(())
+    }
     fn print_help(&mut self) -> Res<()> {
         Ok(())
     }
@@ -277,22 +322,23 @@ impl<B: Board> AbstractEngineUgi for ACState<B> {
 }
 
 #[derive(Debug, Clone)]
-pub struct CommandAutocomplete<B: Board> {
+pub struct CommandAutocomplete<B: BoardTrait> {
     // Rc because the Autocomplete trait requires DynClone and invokes `clone` on every prompt call
     pub list: Rc<CommandList>,
     pub state: ACState<B>,
+    last_completion: Instant,
 }
 
-impl<B: Board> CommandAutocomplete<B> {
+impl<B: BoardTrait> CommandAutocomplete<B> {
     pub fn new(ugi: &EngineUGI<B>) -> Self {
         let state = ACState {
-            go_state: GoState::new(ugi, Normal),
+            go_state: GoState::new(ugi, Normal, Instant::now()),
             outputs: ugi.output_factories.clone(),
             searchers: ugi.searcher_factories.clone(),
             evals: ugi.eval_factories.clone(),
             options: Rc::new(ugi.get_options()),
         };
-        Self { list: Rc::new(ugi_commands()), state }
+        Self { list: Rc::new(ugi_commands()), state, last_completion: Instant::now() }
     }
 }
 
@@ -319,9 +365,9 @@ fn push(completions: &mut Vec<(isize, Completion)>, word: &str, node: &Command) 
 /// Recursively go through all commands that have been typed so far and add completions.
 /// `node` is the command we're currently looking at, `rest` are the tokens after that,
 /// and `to_complete` is the last typed token or `""`, which is the one that should be completed
-fn completions_for<B: Board>(
+fn completions_for(
     node: &Command,
-    state: &mut ACState<B>,
+    state: &mut dyn AutoCompleteState,
     rest: &mut Tokens,
     to_complete: &str,
 ) -> Vec<(isize, Completion)> {
@@ -330,6 +376,9 @@ fn completions_for<B: Board>(
     // ignore all other suggestions if the last complete token requires a subcommand
     // compute this before `next_token` might be changed in the loop
     let add_subcommands = next_token.is_none_or(|n| n == to_complete) || node.autocomplete_recurse();
+    if !add_subcommands && next_token.is_none() {
+        return res; // early exit to avoid having to generate all subcommands, which can be very expensive
+    }
     loop {
         let mut found_subcommand = false;
         for child in &node.sub_commands(state) {
@@ -342,10 +391,10 @@ fn completions_for<B: Board>(
             if next_token.is_some_and(|name| child.matches(name)) {
                 found_subcommand = true;
                 _ = rest.next(); // eat the token for the subcommand
-                let mut state = state.clone();
+                let mut state = state.dyn_cloned();
                 // possibly change the autocomplete state
-                _ = child.func()(&mut state, rest, next_token.unwrap());
-                let mut new_completions = completions_for(child, &mut state, rest, to_complete);
+                _ = child.func()(state.deref_mut().upcast_mut(), rest, next_token.unwrap());
+                let mut new_completions = completions_for(child, state.deref_mut(), rest, to_complete);
                 next_token = rest.peek().copied();
                 res.append(&mut new_completions);
             }
@@ -358,11 +407,7 @@ fn completions_for<B: Board>(
 }
 
 fn underline_match(name: &str, word: &str) -> String {
-    if name == word {
-        format!("{}", name.underline())
-    } else {
-        name.to_string()
-    }
+    if name == word { format!("{}", name.underline()) } else { name.to_string() }
 }
 
 fn completion_text(n: &Command, word: &str) -> String {
@@ -385,7 +430,7 @@ struct Completion {
 }
 
 /// top-level function for completion suggestions, calls the recursive completions() function
-fn suggestions<B: Board>(autocomplete: &CommandAutocomplete<B>, input: &str) -> Vec<Completion> {
+fn suggestions<B: BoardTrait>(autocomplete: &CommandAutocomplete<B>, input: &str) -> Vec<Completion> {
     let mut words = tokens(input);
     let Some(cmd_name) = words.next() else {
         return vec![];
@@ -419,9 +464,16 @@ fn suggestions<B: Board>(autocomplete: &CommandAutocomplete<B>, input: &str) -> 
     }
 }
 
-impl<B: Board> Autocomplete for CommandAutocomplete<B> {
+impl<B: BoardTrait> Autocomplete for CommandAutocomplete<B> {
     fn get_suggestions(&mut self, input: &str) -> Result<Vec<String>, CustomUserError> {
-        Ok(suggestions(self, input).into_iter().map(|c| c.text).collect())
+        if self.last_completion.elapsed().as_millis() < 3 {
+            // prevents doing unnecessary work when copy-pasting parts of a command, which could otherwise lead to a noticeable
+            // slowdown in debug builds
+            return Ok(vec![]);
+        }
+        let res = suggestions(self, input).into_iter().map(|c| c.text).collect();
+        self.last_completion = Instant::now();
+        Ok(res)
     }
 
     fn get_completion(
@@ -454,7 +506,7 @@ impl<B: Board> Autocomplete for CommandAutocomplete<B> {
 
 // Useful for generating a fuzz testing corpus
 #[allow(unused)]
-pub fn random_command<B: Board>(initial: String, ac: &mut CommandAutocomplete<B>, depth: usize) -> String {
+pub fn random_command<B: BoardTrait>(initial: String, ac: &mut CommandAutocomplete<B>, depth: usize) -> String {
     let mut res = initial;
     for i in 0..depth {
         res.push(' ');

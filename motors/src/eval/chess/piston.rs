@@ -1,10 +1,10 @@
 use std::fmt::Display;
 
-use gears::games::chess::pieces::ChessPieceType;
-use gears::games::chess::{ChessColor, Chessboard};
-use gears::games::Color;
-use gears::general::bitboards::RawBitboard;
-use gears::general::board::{BitboardBoard, Board};
+use gears::games::ColorTrait;
+use gears::games::chess::pieces::PieceType;
+use gears::games::chess::{Board, Color};
+use gears::general::bitboards::RawBitboardTrait;
+use gears::general::board::{BitboardBoard, BoardTrait};
 use gears::general::common::StaticallyNamedEntity;
 use gears::score::{PhasedScore, Score, ScoreT};
 
@@ -177,21 +177,21 @@ impl StaticallyNamedEntity for PistonEval {
     }
 }
 
-impl Eval<Chessboard> for PistonEval {
-    fn eval(&mut self, pos: &Chessboard, _ply: usize) -> Score {
+impl Eval<Board> for PistonEval {
+    fn eval(&mut self, pos: &Board, _ply: usize, _engine: Color) -> Score {
         let mut mg = Score(0);
         let mut eg = Score(0);
         let mut phase = 0;
-        for color in ChessColor::iter() {
-            for piece in ChessPieceType::pieces() {
-                let mut bb = pos.colored_piece_bb(color, piece);
-                while bb.has_set_bit() {
+        for color in Color::iter() {
+            for piece in PieceType::pieces() {
+                let mut bb = pos.col_piece_bb(color, piece);
+                while bb.has_any() {
                     let idx = bb.pop_lsb();
                     let mg_table = piece as usize * 2;
                     let eg_table = mg_table + 1;
                     let square = match color {
-                        ChessColor::White => idx ^ 0b111_000,
-                        ChessColor::Black => idx,
+                        Color::White => idx ^ 0b111_000,
+                        Color::Black => idx,
                     };
                     mg += Score(PSQTS[mg_table][square]);
                     eg += Score(PSQTS[eg_table][square]);
@@ -204,8 +204,8 @@ impl Eval<Chessboard> for PistonEval {
         // TODO: Store phased scores in the PSQTs.
         let score = PhasedScore::new(mg.0 as i16, eg.0 as i16).taper(phase, 24);
         match pos.active_player() {
-            ChessColor::White => score,
-            ChessColor::Black => -score,
+            Color::White => score,
+            Color::Black => -score,
         }
     }
 

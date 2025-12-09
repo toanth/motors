@@ -9,16 +9,17 @@ use crate::GameResult::Aborted;
 use crate::MatchStatus::{NotStarted, Ongoing, Over};
 use crate::PlayerResult::{Draw, Lose, Win};
 use crate::ProgramStatus::Run;
-use crate::games::Color;
-use crate::games::{BoardHistory, ZobristHistory};
-use crate::general::board::{Board, BoardHelpers, Strictness};
+use crate::games::{BoardHistDyn, ZobristHistory};
+use crate::games::{ColorTrait, NoHistory};
+use crate::general::board::{BoardHelpers, BoardTrait, Strictness};
 use crate::general::common::Description::WithDescription;
 use crate::general::common::{Res, Tokens, select_name_dyn};
-use crate::general::moves::Move;
+use crate::general::moves::MoveTrait;
 use crate::output::OutputBuilder;
 use crate::search::TimeControl;
-use crate::ugi::{ParseUgiPosState, parse_ugi_position_and_moves};
+use crate::ugi::{ParseUgiPosState, Protocol, parse_ugi_position_and_moves};
 use anyhow::{anyhow, bail};
+use arbitrary::Arbitrary;
 pub use arrayvec;
 pub use colored;
 use colored::Colorize;
@@ -27,6 +28,7 @@ pub use crossterm;
 pub use dyn_clone;
 pub use itertools;
 use itertools::Itertools;
+pub use num;
 pub use rand;
 use std::fmt::{Debug, Display, Formatter};
 use std::ops::Deref;
@@ -102,7 +104,7 @@ impl MatchStatus {
 }
 
 /// Low-level result of a match from a `MatchManager`'s perspective
-#[derive(Copy, Clone, Eq, PartialEq, Debug)]
+#[derive(Copy, Clone, Eq, PartialEq, Debug, Arbitrary)]
 #[must_use]
 pub enum GameResult {
     P1Win,
@@ -119,10 +121,10 @@ const ABORTED: &str = "The game was aborted";
 impl Display for GameResult {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
-            GameResult::P1Win => write!(f, "{}", P1_VICTORY),
-            GameResult::P2Win => write!(f, "{}", P2_VICTORY),
-            GameResult::Draw => write!(f, "{}", DRAW),
-            Aborted => write!(f, "{}", ABORTED),
+            GameResult::P1Win => write!(f, "{P1_VICTORY}"),
+            GameResult::P2Win => write!(f, "{P2_VICTORY}"),
+            GameResult::Draw => write!(f, "{DRAW}"),
+            Aborted => write!(f, "{ABORTED}"),
         }
     }
 }
@@ -221,7 +223,7 @@ pub enum GameOverReason {
 impl Display for GameOverReason {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
-            GameOverReason::Normal => write!(f, "The game ended normally"),
+            GameOverReason::Normal => write!(f, "The game ended in a normal way"),
             GameOverReason::Adjudication(a) => write!(f, "{a}"),
         }
     }
@@ -235,7 +237,7 @@ pub struct MatchResult {
     pub reason: GameOverReason,
 }
 
-pub fn player_res_to_match_res<C: Color>(game_over: GameOver, color: C) -> MatchResult {
+pub fn player_res_to_match_res<C: ColorTrait>(game_over: GameOver, color: C) -> MatchResult {
     let result = match game_over.result {
         PlayerResult::Draw => GameResult::Draw,
         res => {
@@ -286,7 +288,7 @@ impl Default for ProgramStatus {
 
 /// Base trait for the different modes in which the user can run the program.
 /// It contains one important method: [`run`].
-/// The [`handle_input`] and [`quit`] method are really just hacks to support fuzzing.
+/// The [`handle_input`] and [`quit`] method are really just hacks to support (fuzz) testing.
 pub trait AbstractRun: Debug {
     fn run(&mut self) -> Quitting;
     fn handle_input(&mut self, _input: &str) -> Res<()> {
@@ -302,10 +304,11 @@ pub trait AbstractRun: Debug {
 pub type AnyRunnable = Box<dyn AbstractRun>;
 
 /// The current state of the match.
-pub trait GameState<B: Board> {
+pub trait GameState<B: BoardTrait> {
     fn initial_pos(&self) -> &B;
     fn get_board(&self) -> &B;
     fn game_name(&self) -> &str;
+    fn board_hist(&self) -> &dyn BoardHistDyn;
     fn move_history(&self) -> &[B::Move];
     fn active_player(&self) -> B::Color {
         self.get_board().active_player()
@@ -326,43 +329,28 @@ pub trait GameState<B: Board> {
     fn player_name(&self, color: B::Color) -> Option<String>;
     fn time(&self, color: B::Color) -> Option<TimeControl>;
     fn thinking_since(&self, color: B::Color) -> Option<Instant>;
-    fn engine_state(&self) -> Res<String>;
+    fn print_engine_state(&self) -> Res<String>;
+    fn print_engine_state_for_move(&self, pos: &B, mov: B::Move) -> Res<String>;
 }
 
-pub fn output_builder_from_str<B: Board>(
+pub fn output_builder_from_str<B: BoardTrait>(
     name: &str,
     list: &[Box<dyn OutputBuilder<B>>],
 ) -> Res<Box<dyn OutputBuilder<B>>> {
     Ok(dyn_clone::clone_box(select_name_dyn(name, list, "output", &B::game_name(), WithDescription)?))
 }
 
-pub fn create_selected_output_builders<B: Board>(
+pub fn create_selected_output_builders<B: BoardTrait>(
     outputs: &[OutputArgs],
     list: &[Box<dyn OutputBuilder<B>>],
 ) -> Res<Vec<Box<dyn OutputBuilder<B>>>> {
     outputs.iter().map(|o| output_builder_from_str(&o.name, list)).collect()
 }
 
-/// Everything that's necessary to reconstruct the match without match-specific info like timers.
-/// Can be used to represent everything that gets set through a ugi `position` command, or the data inside a PGN.
+/// The relevant data in a UGI `position` command or a PGN, i.e. position and moves, as well as some metadata
 #[derive(Debug, Default, Clone)]
 #[must_use]
-pub struct MatchState<B: Board> {
-    state_hist: Vec<UgiPosState<B>>,
-    current: UgiPosState<B>,
-}
-
-impl<B: Board> Deref for MatchState<B> {
-    type Target = UgiPosState<B>;
-
-    fn deref(&self) -> &Self::Target {
-        &self.current
-    }
-}
-
-#[derive(Debug, Default, Clone)]
-#[must_use]
-pub struct UgiPosState<B: Board> {
+pub struct UgiPosState<B: BoardTrait> {
     pub board: B,
     pub status: ProgramStatus,
     pub mov_hist: Vec<B::Move>,
@@ -370,46 +358,18 @@ pub struct UgiPosState<B: Board> {
     pub pos_before_moves: B,
 }
 
-impl<B: Board> UgiPosState<B> {
-    pub fn new(pos: B) -> Self {
-        UgiPosState {
-            board: pos.clone(),
-            status: Run(NotStarted),
-            mov_hist: Vec::with_capacity(256),
-            board_hist: ZobristHistory::with_capacity(256),
-            pos_before_moves: pos,
-        }
-    }
+pub trait AbstractUgiPosState {
+    fn undo_moves(&mut self, count: usize) -> Res<usize>;
 
-    fn make_move(&mut self, mov: B::Move, check_game_over: bool) -> Res<()> {
-        debug_assert!(self.board.is_move_pseudolegal(mov));
-        if let Run(Over(result)) = &self.status {
-            bail!(
-                "Cannot play move '{3}' because the game is already over: {0} ({1}). The position is '{2}'",
-                result.result,
-                result.reason,
-                self.board,
-                mov.compact_formatter(&self.board).to_string().red()
-            )
-        }
-        self.board_hist.push(self.board.hash_pos());
-        self.mov_hist.push(mov);
-        self.board = self.board.clone().make_move(mov).ok_or_else(|| {
-            anyhow!(
-                "Illegal move {0} (pseudolegal but not legal) in position {1}",
-                mov.compact_formatter(&self.board).to_string().red(),
-                self.board
-            )
-        })?;
-        if check_game_over {
-            if let Some(res) = self.board.match_result_slow(&self.board_hist) {
-                self.status = Run(Over(res));
-            }
-        }
-        Ok(())
-    }
+    fn clear_current_state(&mut self);
 
-    pub fn undo_moves(&mut self, count: usize) -> Res<usize> {
+    fn handle_variant(&mut self, first: &str, words: &mut Tokens, protocol: Protocol) -> Res<()>;
+
+    fn player_result(&self) -> Option<PlayerResult>;
+}
+
+impl<B: BoardTrait> AbstractUgiPosState for UgiPosState<B> {
+    fn undo_moves(&mut self, count: usize) -> Res<usize> {
         let mut pos = self.pos_before_moves.clone();
         assert_eq!(self.mov_hist.len(), self.board_hist.len());
         if self.mov_hist.is_empty() && count > 0 {
@@ -433,6 +393,66 @@ impl<B: Board> UgiPosState<B> {
         Ok(count)
     }
 
+    fn clear_current_state(&mut self) {
+        self.board = self.pos_before_moves.clone();
+        self.mov_hist.clear();
+        self.board_hist.clear();
+        self.status = Run(NotStarted);
+    }
+
+    fn handle_variant(&mut self, first: &str, words: &mut Tokens, protocol: Protocol) -> Res<()> {
+        self.board = B::variant_for(first, words, protocol)?;
+        self.pos_before_moves = self.board.clone();
+        self.mov_hist.clear();
+        self.board_hist.clear();
+        self.status = Run(NotStarted);
+        Ok(())
+    }
+
+    fn player_result(&self) -> Option<PlayerResult> {
+        self.board.player_result_slow(&self.board_hist)
+    }
+}
+
+impl<B: BoardTrait> UgiPosState<B> {
+    pub fn new(pos: B) -> Self {
+        let status =
+            if let Some(res) = pos.match_result_slow(&NoHistory::default()) { Run(Over(res)) } else { Run(NotStarted) };
+        UgiPosState {
+            board: pos.clone(),
+            status,
+            mov_hist: Vec::with_capacity(256),
+            board_hist: ZobristHistory::with_capacity(256),
+            pos_before_moves: pos,
+        }
+    }
+
+    fn make_move(&mut self, mov: B::Move, check_game_over: bool) -> Res<()> {
+        debug_assert!(mov.is_null() || self.board.is_move_pseudolegal(mov));
+        if let Run(Over(result)) = &self.status {
+            bail!(
+                "Cannot play move '{3}' because the game is already over: {0} ({1}). The position is '{2}'",
+                result.result,
+                result.reason,
+                self.board,
+                mov.compact_formatter(&self.board).to_string().red()
+            )
+        }
+        self.board_hist.push(self.board.hash_pos());
+        self.mov_hist.push(mov);
+        self.board = self.board.clone().make_move_or_nullmove(mov).ok_or_else(|| {
+            anyhow!(
+                "Illegal move {0} (pseudolegal but not legal) in position {1}",
+                mov.compact_formatter(&self.board).to_string().red(),
+                self.board
+            )
+        })?;
+        if check_game_over && let Some(res) = self.board.match_result_slow(&self.board_hist) {
+            self.status = Run(Over(res));
+        }
+        Ok(())
+    }
+
     pub fn seen_so_far(&self) -> impl Iterator<Item = (B, B::Move)> {
         let mut pos = self.pos_before_moves.clone();
         let moves = self.mov_hist.clone();
@@ -442,29 +462,34 @@ impl<B: Board> UgiPosState<B> {
             res
         })
     }
+}
 
-    fn clear_current_state(&mut self) {
-        self.board = self.pos_before_moves.clone();
-        self.mov_hist.clear();
-        self.board_hist.clear();
-        self.status = Run(NotStarted);
-    }
+/// Everything that's necessary to reconstruct the match without match-specific info like timers.
+/// Can be used to represent everything that gets set through a ugi `position` command, or the data inside a PGN.
+#[derive(Debug, Default, Clone)]
+#[must_use]
+pub struct MatchState<B: BoardTrait> {
+    state_hist: Vec<UgiPosState<B>>,
+    current: UgiPosState<B>,
+}
 
-    fn handle_variant(&mut self, first: &str, words: &mut Tokens) -> Res<()> {
-        self.board = B::variant(first, words)?;
-        self.pos_before_moves = self.board.clone();
-        self.mov_hist.clear();
-        self.board_hist.clear();
-        self.status = Run(NotStarted);
-        Ok(())
+impl<B: BoardTrait> Deref for MatchState<B> {
+    type Target = UgiPosState<B>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.current
     }
 }
 
-impl<B: Board> MatchState<B> {
+impl<B: BoardTrait> MatchState<B> {
     pub fn new(pos: B) -> Self {
         let state_hist = Vec::with_capacity(256);
         let pos_state = UgiPosState::new(pos);
         Self { state_hist, current: pos_state }
+    }
+
+    pub fn abstract_pos_state(&self) -> &dyn AbstractUgiPosState {
+        &self.current
     }
 
     pub fn pos(&self) -> &B {
@@ -538,18 +563,18 @@ impl<B: Board> MatchState<B> {
         Ok(())
     }
 
-    pub fn handle_variant(&mut self, first: &str, words: &mut Tokens) -> Res<()> {
-        self.current.handle_variant(first, words)
+    pub fn handle_variant(&mut self, first: &str, words: &mut Tokens, protocol: Protocol) -> Res<()> {
+        self.current.handle_variant(first, words, protocol)
     }
 }
 
-struct ParseUgiMatchState<'a, B: Board> {
+struct ParseUgiMatchState<'a, B: BoardTrait> {
     match_state: &'a mut MatchState<B>,
     check_game_over: bool,
     keep_hist: bool,
 }
 
-impl<B: Board> ParseUgiPosState<B> for ParseUgiMatchState<'_, B> {
+impl<B: BoardTrait> ParseUgiPosState<B> for ParseUgiMatchState<'_, B> {
     fn pos(&mut self) -> &mut B {
         &mut self.match_state.current.board
     }

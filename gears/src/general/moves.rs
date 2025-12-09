@@ -16,7 +16,7 @@
  *  along with Gears. If not, see <https://www.gnu.org/licenses/>.
  */
 
-use crate::general::board::Board;
+use crate::general::board::BoardTrait;
 use crate::general::common::Res;
 use anyhow::bail;
 use arbitrary::Arbitrary;
@@ -31,6 +31,8 @@ use std::hash::Hash;
 /// for the given position, which is why such a move is represented as a `Untrusted<Move>`.
 /// Note that legality depends on the position and can't be statically enforced; incorrectly assuming (pseudo)legality
 /// usually results in a panic when playing the move, although *there is no guarantee given; the behavior is unspecified*.
+/// Also note that it is up to the game implementation to decide what it considers to be a pseudolegal move; this decision
+/// does not have to coincide with commonly-used definitions: E.g. chess is allowed to not even generate some illegal pseudolegal moves.
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Arbitrary)]
 pub enum Legality {
     PseudoLegal,
@@ -47,11 +49,16 @@ pub enum ExtendedFormat {
 /// information to reconstruct the move without the position.
 /// All `Move` functions that take a `Board` parameter assume that the move is pseudolegal for the given board
 /// unless otherwise noted. [`UntrustedMove`] should be used when it's not clear that a move is pseudolegal.
-pub trait Move<B: Board>: Eq + Copy + Clone + Debug + Default + Hash + Send + Sync + for<'a> Arbitrary<'a>
+pub trait MoveTrait<B: BoardTrait>:
+    Eq + Copy + Clone + Debug + Default + Hash + Send + Sync + for<'a> Arbitrary<'a>
 where
-    B: Board<Move = Self>,
+    B: BoardTrait<Move = Self>,
 {
     type Underlying: PrimInt + Into<u64>;
+
+    fn num_bits() -> usize {
+        8 * size_of::<Self::Underlying>()
+    }
 
     fn is_null(self) -> bool {
         self == Self::default()
@@ -61,7 +68,7 @@ where
     /// `PseudoLegal`. Note that legality depends on the move and the position, which means the result of this function
     /// is not a statically guaranteed property and instead a promise that depends on correct usage.
     /// If pseudolegality can't be expected, [`UntrustedMove`] should be used to wrap the move.
-    fn legality() -> Legality;
+    fn legality(settings: &B::Settings) -> Legality;
 
     /// From which square does the piece move?
     /// When this doesn't make sense, such as for m,n,k games, return some default value, such as `no_coordinates()`
@@ -74,8 +81,11 @@ where
     /// knight promotions in chess. Always returning `false` is a valid choice.
     fn is_tactical(self, board: &B) -> bool;
 
+    /// A human-readable and formatted description of this move, e.g. 'move the white knight from g1 to f3'
+    fn description(self, board: &B) -> String;
+
     /// Compact text representation is used by UGI, e.g. for chess it's `<to><from><promo_piece_if_present>`.
-    /// Takes a [`Board`] parameter because some move types may not store enough information to be printed in a human-readable
+    /// Takes a [`BoardTrait`] parameter because some move types may not store enough information to be printed in a human-readable
     /// way without that.
     /// Similarly, the compact text representation may not store enough information to reconstruct a `Move`
     /// without using a `Board`.
@@ -85,35 +95,48 @@ where
 
     /// Returns a longer representation of the move that may require the board, such as long algebraic notation
     /// Implementations of this trait *may* choose to ignore the board and to not require pseudolegality.
-    fn format_extended(self, f: &mut Formatter<'_>, board: &B, _format: ExtendedFormat) -> fmt::Result {
+    fn format_extended(
+        self,
+        f: &mut Formatter<'_>,
+        board: &B,
+        _format: ExtendedFormat,
+        _all_legals: Option<&[B::Move]>,
+    ) -> fmt::Result {
         self.format_compact(f, board)
     }
 
     /// Returns a formatter object that implements `Display` such that it prints the result of `to_compact_text`.
-    fn compact_formatter(self, pos: &B) -> CompactFormatter<B> {
+    fn compact_formatter(self, pos: &B) -> CompactFormatter<'_, B> {
         CompactFormatter { pos, mov: self }
     }
 
     /// Returns a formatter object that implements `Display` such that it prints the result of `to_extended_text`.
     /// Like [`self.format_extended`], an implementation *may* choose to not require pseudolegality.
-    fn extended_formatter(self, pos: &B, format: ExtendedFormat) -> ExtendedFormatter<B> {
-        ExtendedFormatter { pos, mov: self, format }
+    /// Takes an optional list of all legal moves because formatting extended text often requires generating all legal moves,
+    /// which would make formatting all legal moves an O(n^2) operation if each move recomputed that.
+    fn extended_formatter<'a>(
+        self,
+        pos: &'a B,
+        format: ExtendedFormat,
+        all_legals: Option<&'a [B::Move]>,
+    ) -> ExtendedFormatter<'a, B> {
+        ExtendedFormatter { pos, mov: self, format, all_legals }
     }
 
     /// A convenience method based on `format_extended` that returns a `String`.
     fn to_extended_text(self, board: &B, format: ExtendedFormat) -> String {
-        self.extended_formatter(board, format).to_string()
+        self.extended_formatter(board, format, None).to_string()
     }
 
     /// Parse a compact text representation emitted by `to_compact_text`, such as the one used by UCI.
     /// Returns the remaining input.
     /// Needs to ensure that the move is at least pseudolegal.
-    fn parse_compact_text<'a>(s: &'a str, board: &B) -> Res<(&'a str, B::Move)>;
+    fn parse_compact_text<'a>(s: &'a str, board: &B) -> Res<(&'a str, Self)>;
 
     /// Parse a compact text representation emitted by `to_compact_text`, such as the one used by UCI.
     /// Returns an error unless the entire input has been consumed.
     /// Needs to ensure that the move is at least pseudolegal.
-    fn from_compact_text(s: &str, board: &B) -> Res<B::Move> {
+    fn from_compact_text(s: &str, board: &B) -> Res<Self> {
         let (remaining, parsed) = Self::parse_compact_text(s, board)?;
         if !remaining.is_empty() {
             bail!("Additional input after move {0}: '{1}'", parsed.compact_formatter(board), remaining);
@@ -124,13 +147,15 @@ where
     /// Parse a longer text representation emitted by `format_extended`, such as long algebraic notation.
     /// May optionally also parse additional notation, such as short algebraic notation.
     /// Needs to ensure that the move is at least pseudolegal. Returns the remaining input.
-    fn parse_extended_text<'a>(s: &'a str, board: &B) -> Res<(&'a str, B::Move)>;
+    /// If the input format is unknown, calling [`Self::parse_text`] is the better choice.
+    fn parse_extended_text<'a>(s: &'a str, board: &B) -> Res<(&'a str, Self)>;
 
     /// Parse a longer text representation emitted by `format_extended`, such as long algebraic notation.
     /// May optionally also parse additional notation, such as short algebraic notation.
     /// Needs to ensure that the move is at least pseudolegal.
     /// Returns an error unless the entire input has been consumed.
-    fn from_extended_text(s: &str, board: &B) -> Res<B::Move> {
+    /// If the input format is unknown, calling [`Self::from_text`] is the better choice.
+    fn from_extended_text(s: &str, board: &B) -> Res<Self> {
         let (remaining, parsed) = Self::parse_extended_text(s, board)?;
         if !remaining.is_empty() {
             bail!("Additional input after move {0}: '{1}'", parsed.compact_formatter(board), remaining);
@@ -143,7 +168,12 @@ where
     /// This is supposed to be used whenever the move format is unknown, such as when the user enters a move, and therefore
     /// should handle as many different cases as possible, but always needs to handle the compact text representation.
     /// Like all move parsing functions, this function needs to ensure that the move is pseudolegal in the current position.
-    fn from_text(s: &str, board: &B) -> Res<B::Move> {
+    fn parse_text<'a>(s: &'a str, board: &B) -> Res<(&'a str, Self)> {
+        Self::parse_compact_text(s, board).or_else(|_| Self::parse_extended_text(s, board))
+    }
+
+    /// See [`Self::parse_text`]. This function returns an error unless the entire input has been consumed.
+    fn from_text(s: &str, board: &B) -> Res<Self> {
         // Try `from_compact_text` first because that's usually cheaper and will be used by the GUI, i.e., when performance matters
         B::Move::from_compact_text(s, board).or_else(|_| B::Move::from_extended_text(s, board))
     }
@@ -160,30 +190,31 @@ where
 }
 
 #[derive(Debug, Copy, Clone)]
-pub struct CompactFormatter<'a, B: Board> {
+pub struct CompactFormatter<'a, B: BoardTrait> {
     pos: &'a B,
     mov: B::Move,
 }
 
-impl<B: Board> Display for CompactFormatter<'_, B> {
+impl<B: BoardTrait> Display for CompactFormatter<'_, B> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         self.mov.format_compact(f, self.pos)
     }
 }
 
 #[derive(Debug, Copy, Clone)]
-pub struct ExtendedFormatter<'a, B: Board> {
+pub struct ExtendedFormatter<'a, B: BoardTrait> {
     pos: &'a B,
     mov: B::Move,
+    all_legals: Option<&'a [B::Move]>,
     format: ExtendedFormat,
 }
 
-impl<B: Board> Display for ExtendedFormatter<'_, B> {
+impl<B: BoardTrait> Display for ExtendedFormatter<'_, B> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         if self.mov == B::Move::default() {
             write!(f, "0000")
         } else {
-            self.mov.format_extended(f, self.pos, self.format)
+            self.mov.format_extended(f, self.pos, self.format, self.all_legals)
         }
     }
 }
@@ -195,9 +226,9 @@ impl<B: Board> Display for ExtendedFormatter<'_, B> {
 #[derive(Debug, Default, Copy, Clone, Eq, PartialEq, Hash)]
 #[must_use]
 #[repr(transparent)]
-pub struct UntrustedMove<B: Board>(B::Move);
+pub struct UntrustedMove<B: BoardTrait>(B::Move);
 
-impl<B: Board> Display for UntrustedMove<B>
+impl<B: BoardTrait> Display for UntrustedMove<B>
 where
     B::Move: Display,
 {
@@ -206,32 +237,24 @@ where
     }
 }
 
-impl<B: Board> UntrustedMove<B> {
+impl<B: BoardTrait> UntrustedMove<B> {
     pub fn from_move(mov: B::Move) -> Self {
         Self(mov)
     }
 
     pub fn check_pseudolegal(self, pos: &B) -> Option<B::Move> {
-        if pos.is_move_pseudolegal(self.0) {
-            Some(self.0)
-        } else {
-            None
-        }
+        if pos.is_move_pseudolegal(self.0) { Some(self.0) } else { None }
     }
 
     pub fn check_legal(&self, pos: &B) -> Option<B::Move> {
-        if pos.is_move_legal(self.0) {
-            Some(self.0)
-        } else {
-            None
-        }
+        if pos.is_move_legal(self.0) { Some(self.0) } else { None }
     }
 
     pub fn trust_unchecked(self) -> B::Move {
         self.0
     }
 
-    pub fn to_underlying(self) -> <B::Move as Move<B>>::Underlying {
+    pub fn to_underlying(self) -> <B::Move as MoveTrait<B>>::Underlying {
         self.0.to_underlying()
     }
 }

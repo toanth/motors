@@ -5,6 +5,7 @@ authors = ["ToTheAnd"]
 edition = "2024"
 license = "GPL-3"
 description = "A collection of several games and engines"
+build = "../build.rs"
 
 [[bench]]
 name = "bench_caps_bench"
@@ -12,16 +13,15 @@ harness = false
 
 [dev-dependencies]
 criterion = "0.5.1"
+proptest = "1.6.0"
 
 [dependencies]
 gears = { path = "../gears", default-features = false }
-strum = "0.26.3"
-strum_macros = "0.26.4"
-derive_more = { version = "1.0.0", features = ["full"] }
-static_assertions = "1.1.0"
+strum = "0.27"
+strum_macros = "0.27"
+derive_more = { version = "2.0", features = ["full"] }
 # TODO: Remove crossbeam?
 crossbeam-channel = "0.5.14"
-portable-atomic = "1.10.0" # TODO: Remove?
 rayon = "1.10.0"
 inquire = { version = "0.7.5", features = ["editor"] }
 # TODO: Should probably move autocompletion to gears? Then this dependency would be unnecessary
@@ -30,8 +30,8 @@ indicatif = "0.17.11"
 
 
 [features]
-default = ["unsafe", "chess", "ataxx", "mnk", "uttt", "fairy", "random_mover", "proof_number", "gaps", "caps"]
-random_mover = []
+default = ["unsafe", "chess", "ataxx", "mnk", "uttt", "fairy", "proof_number", "gaps", "caps"]
+# the random mover is always enabled, there's no real reason to disable it
 proof_number = []
 gaps = []
 caps = ["chess"] # enabling the caps feature also enables the chess feature
@@ -40,7 +40,7 @@ unsafe = []
 fuzzing = []
 spsa = ["unsafe"] # the implementation uses "unsafe"
 
-generic-engines = ["random_mover", "gaps"]
+generic-engines = ["gaps"]
 chess-engines = ["caps"]
 mnk-engines = [] # does nothing at the moment
 ataxx-engines = [] # does nothing at the moment

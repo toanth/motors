@@ -1,119 +1,114 @@
-use crate::games::ataxx::common::AtaxxMove;
 use crate::games::ataxx::common::AtaxxMoveType::{Cloning, Leaping};
-use crate::games::ataxx::{AtaxxBitboard, AtaxxBoard, AtaxxColor, AtaxxMoveList, AtaxxSquare, UnverifiedAtaxxBoard};
-use crate::games::{Board, Color, PosHash};
+use crate::games::ataxx::common::Move;
+use crate::games::ataxx::{Bitboard, Board, Color, MoveList, Square, UnverifiedAtaxxBoard};
+use crate::games::{BoardTrait, ColorTrait, PosHash};
 use crate::general::bitboards::chessboard::{ATAXX_LEAPERS, KINGS};
-use crate::general::bitboards::{Bitboard, KnownSizeBitboard, RawBitboard};
+use crate::general::bitboards::{BitboardTrait, KnownSizeBitboard, RawBitboardTrait};
 use crate::general::board::SelfChecks::CheckFen;
-use crate::general::board::{read_simple_fen_part, BitboardBoard, BoardHelpers, Strictness, UnverifiedBoard};
+use crate::general::board::{
+    BitboardBoard, Strictness, UnverifiedBoardTrait, read_common_fen_part, read_two_move_numbers,
+};
 use crate::general::common::{Res, Tokens};
-use crate::general::move_list::MoveList;
 use crate::general::squares::sup_distance;
 use anyhow::anyhow;
 use std::hash::{DefaultHasher, Hash, Hasher};
 
-impl AtaxxBoard {
-    pub fn create(blocked: AtaxxBitboard, x_bb: AtaxxBitboard, o_bb: AtaxxBitboard) -> Res<Self> {
-        let blocked = blocked | AtaxxBitboard::INVALID_EDGE_MASK;
-        if (o_bb & x_bb).has_set_bit() {
+impl Board {
+    pub fn create(blocked: Bitboard, x_bb: Bitboard, o_bb: Bitboard) -> Res<Self> {
+        let blocked = blocked | Bitboard::INVALID_EDGE_MASK;
+        if o_bb.intersects(x_bb) {
             return Err(anyhow!("Overlapping x and o pieces (bitboard: {})", o_bb & x_bb));
         }
-        if (blocked & (o_bb | x_bb)).has_set_bit() {
+        if blocked.intersects(o_bb | x_bb) {
             return Err(anyhow!("Pieces on blocked squares (bitboard: {}", blocked & (o_bb | x_bb)));
         }
         // it's legal for the position to not contain any pieces at all
         Ok(Self {
             colors: [x_bb, o_bb],
             empty: !(blocked | o_bb | x_bb),
-            active_player: AtaxxColor::first(),
+            active_player: Color::first(),
             ply_100_ctr: 0,
             ply: 0,
         })
     }
 
-    pub fn color_bb(&self, color: AtaxxColor) -> AtaxxBitboard {
+    pub fn color_bb(&self, color: Color) -> Bitboard {
         self.colors[color as usize]
     }
 
-    pub fn occupied_non_blocked_bb(&self) -> AtaxxBitboard {
+    pub fn occupied_non_blocked_bb(&self) -> Bitboard {
         self.colors[0] | self.colors[1]
     }
 
-    pub fn empty_bb(&self) -> AtaxxBitboard {
+    pub fn empty_bb(&self) -> Bitboard {
         self.empty
     }
 
-    pub fn blocked_bb(&self) -> AtaxxBitboard {
+    pub fn blocked_bb(&self) -> Bitboard {
         !(self.empty | self.colors[0] | self.colors[1])
     }
 
-    pub fn active_bb(&self) -> AtaxxBitboard {
-        self.color_bb(self.active_player)
-    }
-
-    pub fn inactive_bb(&self) -> AtaxxBitboard {
-        self.color_bb(!self.active_player)
-    }
-
-    pub(super) fn gen_legal<T: MoveList<Self>>(&self, moves: &mut T) {
-        let pieces = self.active_bb();
+    pub(super) fn gen_legal(&self, mut callback: impl FnMut(Move)) {
+        let pieces = self.active_player_bb();
         let empty = self.empty_bb();
         // TODO: Use precomputed table
-        let neighbors = pieces.moore_neighbors() & empty;
+        let neighbors = pieces.moore_inclusive() & empty;
+        let mut moves = neighbors;
         for sq in neighbors.ones() {
-            moves.add_move(AtaxxMove::cloning(sq));
+            callback(Move::cloning(sq));
         }
         for source in pieces.ones() {
-            let leaps = AtaxxBitboard::new(ATAXX_LEAPERS[source.bb_idx()].raw()) & empty;
+            let leaps = Bitboard::new(ATAXX_LEAPERS[source.bb_idx()].raw()) & empty;
+            moves |= leaps;
             for target in leaps.ones() {
-                moves.add_move(AtaxxMove::leaping(source, target));
+                callback(Move::leaping(source, target));
             }
         }
-        if moves.num_moves() == 0 && pieces.has_set_bit() {
+        if moves.is_zero() && pieces.has_any() {
             let other_bb = self.inactive_player_bb();
             // if the other player doesn't have any legal moves, the game is over.
             // return an empty move list in that case so that the user can pick up on this
             // otherwise, the only legal move is the passing move
-            if (other_bb.extended_moore_neighbors(2) & empty).has_set_bit() {
-                moves.add_move(AtaxxMove::default());
+            if other_bb.extended_moore_neighborhood(2).intersects(empty) {
+                callback(Move::default());
             }
         }
     }
 
     pub(super) fn num_moves(&self) -> usize {
-        let pieces = self.active_bb();
+        let pieces = self.active_player_bb();
         let empty = self.empty_bb();
-        let mut res = (pieces.moore_neighbors() & empty).num_ones();
+        let mut res = (pieces.moore_inclusive() & empty).num_ones();
         for source in pieces.ones() {
-            let leaps = AtaxxBitboard::new(ATAXX_LEAPERS[source.bb_idx()].raw()) & empty;
+            let leaps = Bitboard::new(ATAXX_LEAPERS[source.bb_idx()].raw()) & empty;
             res += leaps.num_ones();
         }
-        if res == 0 && pieces.has_set_bit() {
+        if res == 0 && pieces.has_any() {
             // if the other player doesn't have any legal moves, the game is over.
             // otherwise, the only legal move is the passing move
-            if (self.inactive_player_bb().extended_moore_neighbors(2) & empty).has_set_bit() {
+            if self.inactive_player_bb().extended_moore_neighborhood(2).intersects(empty) {
                 return 1;
             }
         }
         res
     }
 
-    pub fn legal_moves(&self) -> AtaxxMoveList {
+    pub fn legal_moves(&self) -> MoveList {
         self.pseudolegal_moves()
     }
 
-    pub(super) fn make_move_impl(mut self, mov: AtaxxMove) -> Self {
+    pub(super) fn make_move_impl(mut self, mov: Move) -> Self {
         let color = self.active_player;
         self.active_player = color.other();
         self.ply += 1;
-        if mov == AtaxxMove::default() {
+        if mov == Move::default() {
             self.ply_100_ctr += 1;
             return self;
         }
         debug_assert!(mov.typ() == Cloning || self.color_bb(color).is_bit_set_at(mov.source as usize));
         if mov.typ() == Leaping {
-            let source = AtaxxSquare::unchecked(mov.source as usize);
-            let source_bb = AtaxxBitboard::single_piece(source);
+            let source = Square::unchecked(mov.source as usize);
+            let source_bb = Bitboard::single_piece(source);
             self.colors[color as usize] ^= source_bb;
             self.empty ^= source_bb;
             self.ply_100_ctr += 1;
@@ -122,8 +117,8 @@ impl AtaxxBoard {
         }
         debug_assert!(self.empty_bb().is_bit_set_at(mov.dest_square().bb_idx()));
         let dest = mov.dest_square();
-        let dest_bb = AtaxxBitboard::single_piece(dest);
-        let in_range = AtaxxBitboard::new(KINGS[dest.bb_idx()].raw());
+        let dest_bb = Bitboard::single_piece(dest);
+        let in_range = Bitboard::new(KINGS[dest.bb_idx()].raw());
         let converted = self.colors[color.other() as usize] & in_range;
         debug_assert!((converted & dest_bb).is_zero());
         self.colors[color.other() as usize] ^= converted;
@@ -132,20 +127,20 @@ impl AtaxxBoard {
         self
     }
 
-    pub(super) fn is_move_legal_impl(&self, mov: AtaxxMove) -> bool {
-        if mov == AtaxxMove::default() {
+    pub(super) fn is_move_legal_impl(&self, mov: Move) -> bool {
+        if mov == Move::default() {
             let moves = self.pseudolegal_moves();
-            return moves.iter().next().is_some_and(|m| *m == AtaxxMove::default());
+            return moves.iter().next().is_some_and(|m| *m == Move::default());
         }
         let empty = self.empty_bb();
         if !empty.is_bit_set_at(mov.dest_square().bb_idx()) {
             return false;
         }
-        let pieces = self.active_bb();
+        let pieces = self.active_player_bb();
         if mov.typ() == Cloning {
-            pieces.moore_neighbors().is_bit_set_at(mov.dest_square().bb_idx())
+            pieces.moore_inclusive().is_bit_set_at(mov.dest_square().bb_idx())
         } else {
-            let source = AtaxxSquare::unchecked(mov.source as usize);
+            let source = Square::unchecked(mov.source as usize);
             pieces.is_bit_set_at(mov.source as usize) && sup_distance(source, mov.dest_square()) == 2
         }
     }
@@ -159,8 +154,9 @@ impl AtaxxBoard {
     }
 
     pub fn read_fen_impl(words: &mut Tokens, strictness: Strictness) -> Res<Self> {
-        let empty = UnverifiedAtaxxBoard::new(AtaxxBoard::empty());
-        let board = read_simple_fen_part::<AtaxxBoard>(words, empty, strictness)?;
+        let mut board = UnverifiedAtaxxBoard::new(Board::empty());
+        read_common_fen_part::<Board>(words, &mut board)?;
+        read_two_move_numbers::<Board>(words, &mut board, strictness)?;
         board.verify_with_level(CheckFen, strictness)
     }
 }

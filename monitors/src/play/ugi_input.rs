@@ -3,7 +3,6 @@
 use std::fmt::{Display, Formatter};
 use std::io::{BufRead, BufReader};
 use std::process::ChildStdout;
-use std::str::FromStr;
 use std::sync::{Arc, Mutex, MutexGuard, Weak};
 use std::time::{Duration, Instant};
 
@@ -12,20 +11,21 @@ use crate::play::player::{EnginePlayer, Protocol};
 use crate::play::ugi_client::{Client, PlayerId};
 use crate::play::ugi_input::EngineStatus::*;
 use crate::play::ugi_input::HandleBestMove::{Ignore, Play};
+use gears::MatchStatus::Over;
 use gears::colored::Colorize;
-use gears::general::board::Board;
+use gears::general::board::BoardTrait;
 use gears::general::common::anyhow::{anyhow, bail};
 use gears::general::common::{
-    parse_duration_ms, parse_int_from_str, tokens, tokens_to_string, Res, Tokens, TokensToString,
+    Res, Tokens, TokensToString, parse_duration_ms, parse_int_from_str, tokens, tokens_to_string,
 };
-use gears::general::moves::Move;
+use gears::general::moves::MoveTrait;
 use gears::output::Message::*;
-use gears::score::{Score, ScoreT, SCORE_LOST, SCORE_WON};
-use gears::search::{Depth, NodeType, NodesLimit, SearchInfo, SearchLimit};
+use gears::score::{SCORE_LOST, SCORE_WON, Score, ScoreT};
+use gears::search::{Budget, DepthPly, NodeType, NodesLimit, SearchInfo, SearchLimit};
 use gears::ugi::EngineOptionType::*;
-use gears::ugi::{EngineOption, EngineOptionName, UgiCheck, UgiCombo, UgiSpin, UgiString};
-use gears::MatchStatus::Over;
-use gears::{player_res_to_match_res, AdjudicationReason, GameOver, GameOverReason, MatchStatus, PlayerResult};
+use gears::ugi::Protocol::Interactive;
+use gears::ugi::{EngineOption, EngineOptionNameForProto, UgiCheck, UgiCombo, UgiSpin, UgiString};
+use gears::{AdjudicationReason, GameOver, GameOverReason, MatchStatus, PlayerResult, player_res_to_match_res};
 // TODO: Does not currently handle engines that simply don't terminate the search (unless the user inputs 'stop')
 // (not receiving ugiok/uiok is handled, as is losing on time with a bestmove response,
 // but non-responding engines currently require user intervention)
@@ -102,10 +102,11 @@ impl EngineStatus {
 // Uses a `Vec` to store the PV, unlike the `SearchInfo`
 #[derive(Debug, Clone)]
 #[must_use]
-pub struct OwnedSearchInfo<B: Board> {
+pub struct OwnedSearchInfo<B: BoardTrait> {
     pub best_move_of_all_pvs: B::Move,
-    pub depth: Depth,
-    pub seldepth: Depth,
+    pub iterations: DepthPly,
+    pub budget: Budget,
+    pub seldepth: DepthPly,
     pub time: Duration,
     pub nodes: NodesLimit,
     pub pv_num: usize,
@@ -118,12 +119,13 @@ pub struct OwnedSearchInfo<B: Board> {
     pub additional: Option<String>,
 }
 
-impl<B: Board> Default for OwnedSearchInfo<B> {
+impl<B: BoardTrait> Default for OwnedSearchInfo<B> {
     fn default() -> Self {
         Self {
             best_move_of_all_pvs: B::Move::default(),
-            depth: Depth::default(),
-            seldepth: Depth::default(),
+            iterations: DepthPly::default(),
+            budget: Budget::default(),
+            seldepth: DepthPly::default(),
             time: Duration::default(),
             nodes: NodesLimit::MAX,
             pv_num: 1,
@@ -138,17 +140,18 @@ impl<B: Board> Default for OwnedSearchInfo<B> {
     }
 }
 
-impl<B: Board> Display for OwnedSearchInfo<B> {
+impl<B: BoardTrait> Display for OwnedSearchInfo<B> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         self.to_search_info().fmt(f)
     }
 }
 
-impl<B: Board> OwnedSearchInfo<B> {
-    pub fn to_search_info(&self) -> SearchInfo<B> {
+impl<B: BoardTrait> OwnedSearchInfo<B> {
+    pub fn to_search_info(&self) -> SearchInfo<'_, B> {
         SearchInfo {
             best_move_of_all_pvs: self.best_move_of_all_pvs,
-            depth: self.depth,
+            iterations: self.iterations,
+            budget: self.budget,
             seldepth: self.seldepth,
             time: self.time,
             nodes: self.nodes,
@@ -159,14 +162,16 @@ impl<B: Board> OwnedSearchInfo<B> {
             hashfull: self.hashfull,
             pos: self.pos.clone(),
             bound: self.bound,
+            num_threads: 1,
             additional: self.additional.clone(),
+            final_info: false,
         }
     }
 }
 
 #[derive(Debug)]
 #[must_use]
-pub struct CurrentMatch<B: Board> {
+pub struct CurrentMatch<B: BoardTrait> {
     pub search_info: Option<OwnedSearchInfo<B>>,
     pub limit: SearchLimit,
     pub original_limit: SearchLimit,
@@ -175,23 +180,23 @@ pub struct CurrentMatch<B: Board> {
     pub color: B::Color,
 }
 
-impl<B: Board> CurrentMatch<B> {
+impl<B: BoardTrait> CurrentMatch<B> {
     pub fn new(limit: SearchLimit, color: B::Color) -> Self {
         Self { search_info: None, limit, original_limit: limit, color }
     }
 }
 
-pub fn access_client<B: Board>(client: Weak<Mutex<Client<B>>>) -> Res<Arc<Mutex<Client<B>>>> {
+pub fn access_client<B: BoardTrait>(client: Weak<Mutex<Client<B>>>) -> Res<Arc<Mutex<Client<B>>>> {
     client.upgrade().ok_or_else(|| anyhow!("The player tried to access a match which was already cancelled"))
 }
 
-pub struct InputThread<B: Board> {
+pub struct InputThread<B: BoardTrait> {
     id: usize,
     client: Weak<Mutex<Client<B>>>,
     child_stdout: BufReader<ChildStdout>,
 }
 
-impl<B: Board> InputThread<B> {
+impl<B: BoardTrait> InputThread<B> {
     pub fn run_ugi_player_input_thread(
         id: usize,
         client: Weak<Mutex<Client<B>>>,
@@ -299,8 +304,8 @@ impl<B: Board> InputThread<B> {
             .as_ref()
             .map(|c| c.color)
             .ok_or_else(|| anyhow!("The engine '{engine_name}' is not currently playing in a match"));
-        if let Some(command) = words.next() {
-            if let Err(err) = match status {
+        if let Some(command) = words.next()
+            && let Err(err) = match status {
                 ThinkingSince(_) => Self::handle_ugi_active_state(command, words.clone(), &mut client, c?),
                 // In the idle or sync state, it's possible that the engine isn't participating in a match, so don't use the color to refer to it.
                 Idle => Self::handle_ugi_idle_state(command, words.clone(), &mut client, self.id),
@@ -311,12 +316,12 @@ impl<B: Board> InputThread<B> {
                 Halt(handle_bestmove) => {
                     Self::handle_ugi_halt_state(command, words.clone(), &mut client, c?, handle_bestmove)
                 }
-            } {
-                bail!(
-                    "Invalid UGI message ('{ugi_str}') from engine '{engine_name}' while in state {status}: {err}",
-                    ugi_str = tokens_to_string(command, words).red()
-                )
             }
+        {
+            bail!(
+                "Invalid UGI message ('{ugi_str}') from engine '{engine_name}' while in state {status}: {err}",
+                ugi_str = tokens_to_string(command, words).red()
+            )
         }
         // Empty uci commands should be ignored, according to the spec
         Ok(client.match_state().status.clone())
@@ -427,7 +432,9 @@ impl<B: Board> InputThread<B> {
             bail!("Expected a single word after 'protocol', but the engine message just ends there")
         };
         if let Some(next) = words.next() {
-            bail!("Expected a single word after 'protocol' (which would have been '{version}'), but it's followed by '{next}'")
+            bail!(
+                "Expected a single word after 'protocol' (which would have been '{version}'), but it's followed by '{next}'"
+            )
         }
         client.show_message(Debug, &format_args!("protocol version of engine '{name}': '{version}'"));
         Ok(())
@@ -523,8 +530,8 @@ impl<B: Board> InputThread<B> {
             let key = key.unwrap();
             let Some(value) = words.next() else { bail!("info line ends after '{key}', expected a value") };
             match key {
-                "depth" => res.depth = Depth::try_new(parse_int_from_str(value, "depth")?)?,
-                "seldepth" => res.seldepth = Depth::try_new(parse_int_from_str(value, "seldepth")?)?,
+                "depth" => res.iterations = DepthPly::try_new(parse_int_from_str(value, "depth")?)?,
+                "seldepth" => res.seldepth = DepthPly::try_new(parse_int_from_str(value, "seldepth")?)?,
                 "time" => {
                     res.time = parse_duration_ms(&mut tokens(value), "time")?;
                 }
@@ -596,23 +603,23 @@ impl<B: Board> InputThread<B> {
         if word != "name" {
             bail!("expected 'name' after 'option', got '{word}'")
         }
-        let mut res = EngineOption::default();
         // TODO: Technically, the spec demands to accept multi-token names
         let Some(name) = option.next() else { bail!("Line ended after 'name', missing the option name") };
-        res.name = EngineOptionName::from_str(name)?;
+        let name = EngineOptionNameForProto::parse(name, Interactive)?;
         let Some(typ) = option.next() else { bail!("Line ended after option name, missing 'type'") };
         if typ != "type" {
             bail!("Expected 'type' after option name, got {typ}")
         }
         let Some(typ) = option.next() else { bail!("Line ended after 'type', missing the option type") };
-        match typ {
-            "check" => res.value = Check(UgiCheck::default()),
-            "spin" => res.value = Spin(UgiSpin::default()),
-            "combo" => res.value = Combo(UgiCombo::default()),
-            "button" => res.value = Button,
-            "string" => res.value = UString(UgiString::default()),
+        let value = match typ {
+            "check" => Check(UgiCheck::default()),
+            "spin" => Spin(UgiSpin::default()),
+            "combo" => Combo(UgiCombo::default()),
+            "button" => Button,
+            "string" => UString(UgiString::default()),
             x => bail!("Unrecognized option type {x}"),
-        }
+        };
+        let mut res = EngineOption { name, value };
         loop {
             let next = option.next();
             if next.is_none() {

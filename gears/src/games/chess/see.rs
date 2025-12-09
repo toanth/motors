@@ -1,11 +1,12 @@
-use crate::games::chess::moves::ChessMove;
-use crate::games::chess::pieces::ChessPieceType::*;
-use crate::games::chess::pieces::{ChessPieceType, NUM_CHESS_PIECES};
-use crate::games::chess::squares::ChessSquare;
-use crate::games::chess::{Chessboard, PAWN_CAPTURES};
-use crate::games::{AbstractPieceType, Board, Color};
-use crate::general::bitboards::chessboard::ChessBitboard;
-use crate::general::bitboards::{KnownSizeBitboard, RawBitboard};
+use crate::games::chess::Color::{Black, White};
+use crate::games::chess::moves::Move;
+use crate::games::chess::pieces::PieceType::*;
+use crate::games::chess::pieces::{NUM_CHESS_PIECES, PieceType};
+use crate::games::chess::squares::{ChessboardSize, Square};
+use crate::games::chess::{Board, PAWN_CAPTURES};
+use crate::games::{AbstractPieceType, BoardTrait};
+use crate::general::bitboards::chessboard::Bitboard;
+use crate::general::bitboards::{BitboardTrait, KnownSizeBitboard, RawBitboardTrait};
 use crate::general::board::BitboardBoard;
 use crate::general::hq::ChessSliderGenerator;
 use derive_more::{Add, AddAssign, Neg, Sub, SubAssign};
@@ -26,38 +27,45 @@ pub const SEE_SCORES: [SeeScore; NUM_CHESS_PIECES + 1] = [
     SeeScore(0), // also give the empty square a see value to make the implementation simpler
 ];
 
-pub fn piece_see_value(piece: ChessPieceType) -> SeeScore {
+pub fn piece_see_value(piece: PieceType) -> SeeScore {
     SEE_SCORES[piece.to_uncolored_idx()]
 }
 
-impl Chessboard {
-    fn next_see_attacker(&self, our_remaining_attackers: ChessBitboard) -> Option<(ChessPieceType, ChessSquare)> {
-        for piece in ChessPieceType::pieces() {
+impl Board {
+    fn next_see_attacker(&self, our_remaining_attackers: Bitboard) -> Option<(PieceType, Square)> {
+        for piece in PieceType::pieces() {
             let mut current_attackers = self.piece_bb(piece) & our_remaining_attackers;
-            if current_attackers.has_set_bit() {
-                return Some((piece, ChessSquare::from_bb_index(current_attackers.pop_lsb())));
+            if current_attackers.has_any() {
+                return Some((piece, Square::from_bb_idx(current_attackers.pop_lsb())));
             };
         }
         None
     }
 
-    pub fn see(&self, mov: ChessMove, mut alpha: SeeScore, mut beta: SeeScore) -> SeeScore {
+    pub fn see(&self, mov: Move, mut alpha: SeeScore, mut beta: SeeScore) -> SeeScore {
         debug_assert!(alpha < beta);
         let square = mov.dest_square();
-        let mut us = self.active_player;
-        let original_moving_piece = mov.piece_type();
+        let mut us = self.active;
+        let original_moving_piece = mov.piece_type(self);
         let mut our_victim = self.piece_type_on(square);
         // A simple shortcut to avoid doing most of the work of SEE for a large portion of the cases it's called.
         // This needs to handle the case of the opponent recapturing with a pawn promotion.
         if piece_see_value(our_victim) - piece_see_value(original_moving_piece) >= beta
-            && !(square.is_backrank()
-                && (PAWN_CAPTURES[us as usize][square.bb_idx()] & self.colored_piece_bb(us.other(), Pawn))
-                    .has_set_bit())
+            && !(square.is_backrank() && PAWN_CAPTURES[us][square].intersects(self.col_piece_bb(!us, Pawn)))
         {
             return beta;
         }
+        let size = ChessboardSize {};
         let generator = self.slider_generator();
-        let mut remaining_attackers = self.all_attacking(square, &generator);
+        let king_rays = [
+            Bitboard::ray_exclusive(square, self.king_sq(White), size),
+            Bitboard::ray_exclusive(square, self.king_sq(Black), size),
+        ];
+        let mut remaining_attackers = self.all_attacking(square, generator);
+        // don't consider pinned pieces unless they're moving along the pin ray. Idea from pawnocchio.
+        let pinned =
+            self.pinned & !(self.player_bb(White) & king_rays[White]) & !(self.player_bb(Black) & king_rays[Black]);
+        remaining_attackers &= !pinned;
         let mut remaining_blockers = self.occupied_bb();
         let mut their_victim = original_moving_piece;
         let mut eval = SeeScore(0);
@@ -67,7 +75,7 @@ impl Chessboard {
         } else if mov.is_ep() {
             our_victim = Pawn;
             let bb = mov.square_of_pawn_taken_by_ep().unwrap().bb();
-            debug_assert_eq!(bb & !self.occupied_bb(), ChessBitboard::default());
+            debug_assert_eq!(bb & !self.occupied_bb(), Bitboard::default());
             let generator = ChessSliderGenerator::new(self.occupied_bb() ^ bb);
             remaining_attackers |= generator.vertical_attacks(square) & (self.piece_bb(Rook) | self.piece_bb(Queen));
         }
@@ -79,24 +87,23 @@ impl Chessboard {
         // so let's not do that. This also significantly simplifies the code, because the max recapture score can be larger
         // than the captured piece value in case of promotions.
 
-        let mut see_attack =
-            |attacker: ChessSquare, all_remaining_attackers: &mut ChessBitboard, piece: ChessPieceType| {
-                let removed = ChessBitboard::single_piece(attacker);
-                debug_assert!((removed & remaining_blockers).has_set_bit());
-                // `&= !` instead of `^` because in the case of a regular pawn move, the moving pawn wasn't part of the attacker bb.
-                *all_remaining_attackers &= !removed;
-                remaining_blockers ^= removed;
-                // xrays for sliders
-                let ray_attacks = self.ray_attacks(square, attacker, remaining_blockers);
-                let new_attack = ray_attacks & remaining_blockers;
-                debug_assert!((new_attack & !*all_remaining_attackers).count_ones() <= 1);
-                *all_remaining_attackers |= new_attack;
-                if piece == Pawn && square.is_backrank() {
-                    (piece_see_value(Queen) - piece_see_value(Pawn), Queen)
-                } else {
-                    (SeeScore(0), piece)
-                }
-            };
+        let mut see_attack = |attacker: Square, all_remaining_attackers: &mut Bitboard, piece: PieceType| {
+            let removed = Bitboard::single_piece(attacker);
+            debug_assert!(removed.intersects(remaining_blockers));
+            // `&= !` instead of `^` because in the case of a regular pawn move, the moving pawn wasn't part of the attacker bb.
+            *all_remaining_attackers &= !removed;
+            remaining_blockers ^= removed;
+            // xrays for sliders
+            let ray_attacks = self.ray_attacks(square, attacker, remaining_blockers) & !pinned;
+            let new_attack = ray_attacks & remaining_blockers;
+            debug_assert!((new_attack & !*all_remaining_attackers).count_ones() <= 1);
+            *all_remaining_attackers |= new_attack;
+            if piece == Pawn && square.is_backrank() {
+                (piece_see_value(Queen) - piece_see_value(Pawn), Queen)
+            } else {
+                (SeeScore(0), piece)
+            }
+        };
         _ = see_attack(mov.src_square(), &mut remaining_attackers, original_moving_piece);
 
         loop {
@@ -105,13 +112,13 @@ impl Chessboard {
             eval = -eval;
             swap(&mut our_victim, &mut their_victim);
             if eval >= beta {
-                return if us == self.active_player { beta } else { -beta };
+                return if us == self.active { beta } else { -beta };
             } else if eval > alpha {
                 alpha = eval;
             }
             let our_remaining_attackers = remaining_attackers & self.player_bb(us);
             let Some((piece, attacker_src_square)) = self.next_see_attacker(our_remaining_attackers) else {
-                return if us == self.active_player { eval.max(alpha) } else { -eval.max(alpha) };
+                return if us == self.active { eval.max(alpha) } else { -eval.max(alpha) };
             };
             let (additional_score, piece) = see_attack(attacker_src_square, &mut remaining_attackers, piece);
             eval += piece_see_value(our_victim) + additional_score;
@@ -120,7 +127,7 @@ impl Chessboard {
     }
 
     #[must_use]
-    pub fn see_at_least(&self, mov: ChessMove, beta: SeeScore) -> bool {
+    pub fn see_at_least(&self, mov: Move, beta: SeeScore) -> bool {
         self.see(mov, beta - SeeScore(1), beta).0 >= beta.0
     }
 }
@@ -128,77 +135,72 @@ impl Chessboard {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::games::Board;
-    use crate::games::chess::Chessboard;
+    use crate::games::BoardTrait;
+    use crate::games::chess::Board;
     use crate::general::board::BoardHelpers;
     use crate::general::board::Strictness::Relaxed;
     use crate::general::common::parse_int_from_str;
-    use crate::general::moves::Move;
+    use crate::general::moves::MoveTrait;
 
     #[test]
     fn trivial_see_test() {
-        let board = Chessboard::from_name("kiwipete").unwrap();
+        let board = Board::from_name("kiwipete").unwrap();
         let see_score_no_capture =
-            board.see(ChessMove::from_compact_text("a1b1", &board).unwrap(), SeeScore(-1000), SeeScore(1000));
+            board.see(Move::from_compact_text("a1b1", &board).unwrap(), SeeScore(-1000), SeeScore(1000));
         assert_eq!(see_score_no_capture, SeeScore(0));
         let see_score_bishop_capture =
-            board.see(ChessMove::from_compact_text("e2a6", &board).unwrap(), SeeScore(-1000), SeeScore(1000));
+            board.see(Move::from_compact_text("e2a6", &board).unwrap(), SeeScore(-1000), SeeScore(1000));
         assert_eq!(see_score_bishop_capture, SeeScore(300));
         let see_score_bishop_capture =
-            board.see(ChessMove::from_compact_text("e2a6", &board).unwrap(), SeeScore(0), SeeScore(1));
+            board.see(Move::from_compact_text("e2a6", &board).unwrap(), SeeScore(0), SeeScore(1));
         assert!(see_score_bishop_capture >= SeeScore(1));
 
         let see_score_bad_capture =
-            board.see(ChessMove::from_compact_text("f3f6", &board).unwrap(), SeeScore(-9999), SeeScore(9999));
+            board.see(Move::from_compact_text("f3f6", &board).unwrap(), SeeScore(-9999), SeeScore(9999));
         assert_eq!(see_score_bad_capture, SeeScore(-600));
 
         let see_score_bad_pawn_capture =
-            board.see(ChessMove::from_compact_text("f3h3", &board).unwrap(), SeeScore(-9999), SeeScore(9999));
+            board.see(Move::from_compact_text("f3h3", &board).unwrap(), SeeScore(-9999), SeeScore(9999));
         assert_eq!(see_score_bad_pawn_capture, SeeScore(-300));
 
         let see_score_good_pawn_capture =
-            board.see(ChessMove::from_compact_text("g2h3", &board).unwrap(), SeeScore(-9999), SeeScore(9999));
+            board.see(Move::from_compact_text("g2h3", &board).unwrap(), SeeScore(-9999), SeeScore(9999));
         assert_eq!(see_score_good_pawn_capture, SeeScore(100));
     }
 
     #[test]
     fn see_test() {
-        let board = Chessboard::from_name("see_win_pawn").unwrap();
-        let see_score =
-            board.see(ChessMove::from_compact_text("f4e5", &board).unwrap(), SeeScore(-9999), SeeScore(9999));
+        let board = Board::from_name("see_win_pawn").unwrap();
+        let see_score = board.see(Move::from_compact_text("f4e5", &board).unwrap(), SeeScore(-9999), SeeScore(9999));
         assert_eq!(see_score, SeeScore(100));
 
-        let see_score = board.see(ChessMove::from_compact_text("d3e5", &board).unwrap(), SeeScore(-120), SeeScore(101));
+        let see_score = board.see(Move::from_compact_text("d3e5", &board).unwrap(), SeeScore(-120), SeeScore(101));
         assert_eq!(see_score, SeeScore(100));
 
-        let see_score = board.see(ChessMove::from_compact_text("c5d6", &board).unwrap(), SeeScore(-120), SeeScore(200));
+        let see_score = board.see(Move::from_compact_text("c5d6", &board).unwrap(), SeeScore(-120), SeeScore(200));
         assert_eq!(see_score, SeeScore(200));
 
-        let see_score = board.see(ChessMove::from_compact_text("f4e5", &board).unwrap(), SeeScore(200), SeeScore(9999));
+        let see_score = board.see(Move::from_compact_text("f4e5", &board).unwrap(), SeeScore(200), SeeScore(9999));
         // TODO: Fail soft? It doesn't make sense to clamp to the window.
         assert_eq!(see_score, SeeScore(200));
 
         let board = board.make_nullmove().unwrap();
-        let see_score =
-            board.see(ChessMove::from_compact_text("e5d4", &board).unwrap(), SeeScore(-999), SeeScore(9999));
+        let see_score = board.see(Move::from_compact_text("e5d4", &board).unwrap(), SeeScore(-999), SeeScore(9999));
         assert_eq!(see_score, SeeScore(100));
 
-        let see_score =
-            board.see(ChessMove::from_compact_text("e5f4", &board).unwrap(), SeeScore(-1234), SeeScore(567_890));
+        let see_score = board.see(Move::from_compact_text("e5f4", &board).unwrap(), SeeScore(-1234), SeeScore(567_890));
         assert_eq!(see_score, SeeScore(0));
 
-        let see_score =
-            board.see(ChessMove::from_compact_text("d7c5", &board).unwrap(), SeeScore(-9999), SeeScore(9999));
+        let see_score = board.see(Move::from_compact_text("d7c5", &board).unwrap(), SeeScore(-9999), SeeScore(9999));
         assert_eq!(see_score, SeeScore(-200));
     }
 
     #[test]
     fn see_xray_test() {
-        let board = Chessboard::from_name("see_xray").unwrap();
-        let see_score =
-            board.see(ChessMove::from_compact_text("c4f4", &board).unwrap(), SeeScore(-9999), SeeScore(9999));
+        let board = Board::from_name("see_xray").unwrap();
+        let see_score = board.see(Move::from_compact_text("c4f4", &board).unwrap(), SeeScore(-9999), SeeScore(9999));
         assert_eq!(see_score, SeeScore(-600));
-        let see_score = board.see(ChessMove::from_compact_text("b4b8", &board).unwrap(), SeeScore(-1234), SeeScore(1));
+        let see_score = board.see(Move::from_compact_text("b4b8", &board).unwrap(), SeeScore(-1234), SeeScore(1));
         assert_eq!(see_score, SeeScore(-500));
     }
 
@@ -208,6 +210,7 @@ mod tests {
     fn see_test_suite() {
         // There are quite a few unrealistic but tricky corner cases that are neither handled not tested properly here
         let tests = [
+            "2R5/1P2k3/1K6/8/8/8/2r5/8 b - - 5 3; Rc1; -500",
             "6k1/1pp4p/p1pb4/6q1/3P1pRr/2P4P/PP1Br1P1/5RKN w - -; Rfxf4; -100; P - R + B",
             "5rk1/1pp2q1p/p1pb4/8/3P1NP1/2P5/1P1BQ1P1/5RK1 b - -; Bxf4; 0; -N + B",
             "4R3/2r3p1/5bk1/1p1r3p/p2PR1P1/P1BK1P2/1P6/8 b - -; hxg4; 0;",
@@ -226,7 +229,7 @@ mod tests {
             "8/4kp2/2npp3/1Nn5/1p2P1P1/7q/1PP1B3/4KR1r b - -; Rxf1+; 0;",
             "2r2r1k/6bp/p7/2q2p1Q/3PpP2/1B6/P5PP/2RR3K b - -; Qxc1; 100; R - Q + R",
             "r2qk1nr/pp2ppbp/2b3p1/2p1p3/8/2N2N2/PPPP1PPP/R1BQR1K1 w kq -; Nxe5; 100; P",
-            "6r1/4kq2/b2p1p2/p1pPb3/p1P2B1Q/2P4P/2B1R1P1/6K1 w - -; Bxe5; 0;",
+            "6r1/4kq2/b2p1p2/p1pPb3/p1P2B1Q/2P4P/2B1R1P1/6K1 w - -; Bxe5; 100;",
             "3q2nk/pb1r1p2/np6/3P2Pp/2p1P3/2R4B/PQ3P1P/3R2K1 w - h6; gxh6; 0;",
             "3q2nk/pb1r1p2/np6/3P2Pp/2p1P3/2R1B2B/PQ3P1P/3R2K1 w - h6; gxh6; 100; P",
             "2r4r/1P4pk/p2p1b1p/7n/BB3p2/2R2p2/P1P2P2/4RK2 w - -; Rxc8; 500; R",
@@ -288,8 +291,8 @@ mod tests {
         ];
         for testcase in tests {
             let mut parts = testcase.split(';');
-            let board = Chessboard::from_fen(parts.next().unwrap(), Relaxed).unwrap();
-            let mov = ChessMove::from_extended_text(parts.next().unwrap().trim(), &board).unwrap();
+            let board = Board::from_fen(parts.next().unwrap(), Relaxed).unwrap();
+            let mov = Move::from_extended_text(parts.next().unwrap().trim(), &board).unwrap();
             let expected_score = parse_int_from_str(parts.next().unwrap().trim(), "score").unwrap();
             let result = board.see(mov, SeeScore(-9999), SeeScore(9999));
             assert_eq!(result, SeeScore(expected_score), "{testcase}");

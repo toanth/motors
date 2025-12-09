@@ -1,10 +1,10 @@
-use gears::general::board::Board;
-use gears::rand::{rng, Rng};
+use gears::general::board::BoardTrait;
+use gears::rand::{Rng, rng};
 use std::fmt::Display;
 
 use crate::eval::Eval;
 use gears::general::common::StaticallyNamedEntity;
-use gears::score::{Score, ScoreT, MAX_NORMAL_SCORE, MIN_NORMAL_SCORE};
+use gears::score::{MAX_NORMAL_SCORE, MIN_NORMAL_SCORE, Score, ScoreT};
 
 #[derive(Debug, Clone)]
 pub struct RandEval {
@@ -40,8 +40,8 @@ impl StaticallyNamedEntity for RandEval {
     }
 }
 
-impl<B: Board> Eval<B> for RandEval {
-    fn eval(&mut self, pos: &B, _ply: usize) -> Score {
+impl<B: BoardTrait> Eval<B> for RandEval {
+    fn eval(&mut self, pos: &B, _ply: usize, _engine: B::Color) -> Score {
         if self.deterministic {
             // deterministic and faster than seeding a rng while still being good enough
             let random = (pos.hash_pos().0 % (MAX_NORMAL_SCORE.0 as i64 - MIN_NORMAL_SCORE.0 as i64 + 1) as u64) as i64;

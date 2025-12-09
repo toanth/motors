@@ -9,12 +9,12 @@ use std::time::Duration;
 
 use itertools::Itertools;
 
-use gears::cli::{get_next_arg, get_next_int, get_next_nonzero_usize, parse_output, ArgIter, Game};
-use gears::general::common::anyhow::{anyhow, bail};
-use gears::general::common::{nonzero_u64, parse_duration_ms, parse_fp_from_str, parse_int_from_str, tokens, Res};
-use gears::score::Score;
-use gears::search::{Depth, TimeControl};
 use gears::OutputArgs;
+use gears::cli::{ArgIter, Game, get_next_arg, get_next_int, get_next_nonzero_usize, parse_output};
+use gears::general::common::anyhow::{anyhow, bail};
+use gears::general::common::{Res, nonzero_u64, parse_duration_ms, parse_fp_from_str, parse_int_from_str, tokens};
+use gears::score::Score;
+use gears::search::{DepthPly, TimeControl};
 
 use crate::cli::PlayerArgs::{Engine, Human};
 use crate::cli::Protocol::{Uci, Ugi};
@@ -125,10 +125,10 @@ pub struct ClientEngineCliArgs {
     pub white_pov: bool,
 
     /// Limit the depth the engine searches to.
-    pub depth: Option<Depth>,
+    pub depth: Option<DepthPly>,
 
     /// Try to find a mate in n *moves* (not plies), searches forever if there isn't one (unless another limit is also specified)
-    pub mate: Option<Depth>,
+    pub mate: Option<DepthPly>,
 
     /// Limit the engine to the given number of nodes
     pub nodes: Option<NonZeroU64>,
@@ -223,7 +223,9 @@ pub fn parse_engine<Iter: Iterator<Item = String>>(args: &mut Peekable<Iter>) ->
             "proto" => match value?.to_ascii_lowercase().as_str() {
                 "ugi" => res.proto = Some(Ugi),
                 "uci" => res.proto = Some(Uci),
-                x => bail!("Unrecognized engine protocol '{x}'. Only 'uci', 'ugi' or simply not specifying this argument are valid")
+                x => bail!(
+                    "Unrecognized engine protocol '{x}'. Only 'uci', 'ugi' or simply not specifying this argument are valid"
+                ),
             },
             "tc" => res.tc = Some(TimeControl::from_str(value?)?),
             "st" => res.move_time = Some(Duration::from_secs_f64(parse_fp_from_str(value?, "st (move time)")?)),
@@ -231,14 +233,16 @@ pub fn parse_engine<Iter: Iterator<Item = String>>(args: &mut Peekable<Iter>) ->
             "book" => todo!(),
             "bookdepth" => todo!(),
             "whitepov" => res.white_pov = true,
-            "depth" => res.depth = Some(Depth::try_new(parse_int_from_str(value?, "depth")?)?),
-            "mate" => res.mate = Some(Depth::try_new(parse_int_from_str(value?, "mate")?)?),
+            "depth" => res.depth = Some(DepthPly::try_new(parse_int_from_str(value?, "depth")?)?),
+            "mate" => res.mate = Some(DepthPly::try_new(parse_int_from_str(value?, "mate")?)?),
             "nodes" => res.nodes = Some(nonzero_u64(parse_int_from_str(value?, "nodes")?, "nodes")?),
             "ponder" => todo!("'ponder' isn't yet implemented"),
             "tscale" => todo!("'tscale' isn't yet implemented"),
             x => match x.strip_prefix("option.") {
                 None => bail!("Unknown engine option {x}"),
-                Some(opt) => { res.custom_options.insert(x.to_string(), opt.to_string()); },
+                Some(opt) => {
+                    res.custom_options.insert(x.to_string(), opt.to_string());
+                }
             },
         }
     }

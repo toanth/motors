@@ -18,15 +18,17 @@
 
 //! Anything related to search that is also used by `monitors`, and therefore doesn't belong in `motors`.
 
+use crate::PlayerResult;
 use crate::general::common::Res;
 use crate::search::NodeType;
 use crate::search::NodeType::{Exact, FailHigh, FailLow};
-use crate::PlayerResult;
 use anyhow::anyhow;
-use derive_more::{Add, AddAssign, Mul, MulAssign, Neg, Sub, SubAssign};
+use derive_more::{Add, AddAssign, Neg, Sub, SubAssign};
 use num::ToPrimitive;
+use num::traits::WrappingAdd;
 use std::fmt::{Display, Formatter};
-use std::ops::{Div, DivAssign};
+use std::num::Wrapping;
+use std::ops::{Add, Div, DivAssign, Mul, MulAssign, Sub};
 
 /// Valid scores fit into 16 bits, but it's possible to temporarily overflow that range with some operations,
 /// e.g. when computing `score - previous_score`. So in order to avoid bugs related to that, simply use 32 bits.
@@ -46,6 +48,13 @@ impl Display for Score {
         } else {
             write!(f, "cp {0}", self.0) // TODO: WDL normalization
         }
+    }
+}
+
+impl WrappingAdd for Score {
+    fn wrapping_add(&self, v: &Self) -> Self {
+        let res = self.0.wrapping_add(v.0);
+        Score(res)
     }
 }
 
@@ -143,11 +152,7 @@ impl Score {
     }
 
     pub fn flip_if(self, flip: bool) -> Self {
-        if flip {
-            -self
-        } else {
-            self
-        }
+        if flip { -self } else { self }
     }
 
     pub fn node_type(self, alpha: Score, beta: Score) -> NodeType {
@@ -173,10 +178,12 @@ pub const SCORE_LOST: Score = Score(-31_000);
 pub const SCORE_WON: Score = Score(31_000);
 pub const SCORE_TIME_UP: Score = Score(SCORE_LOST.0 - 1000);
 // can't use + directly because derive_more's + isn't `const`
-pub const MIN_SCORE_WON: Score = Score(SCORE_WON.0 - 1000);
-pub const MAX_SCORE_LOST: Score = Score(SCORE_LOST.0 + 1000);
-pub const MIN_NORMAL_SCORE: Score = Score(MAX_SCORE_LOST.0 + 1);
-pub const MAX_NORMAL_SCORE: Score = Score(MIN_SCORE_WON.0 - 1);
+pub const MIN_SCORE_WON: Score = Score(SCORE_WON.0 - 1000 + 1);
+pub const MAX_SCORE_LOST: Score = Score(SCORE_LOST.0 + 1000 - 1);
+pub const BITBASE_WIN: Score = Score(MIN_SCORE_WON.0 - 1);
+pub const BITBASE_LOSS: Score = Score(MAX_SCORE_LOST.0 + 1);
+pub const MAX_NORMAL_SCORE: Score = Score(BITBASE_WIN.0 - 1);
+pub const MIN_NORMAL_SCORE: Score = Score(BITBASE_LOSS.0 + 1);
 pub const NO_SCORE_YET: Score = Score(SCORE_LOST.0 - 100);
 
 pub fn game_result_to_score(res: PlayerResult, ply: usize) -> Score {
@@ -194,9 +201,11 @@ pub const fn is_valid_score(score: ScoreT) -> bool {
 /// Uses a SWAR (SIMD Within A Register) technique to store and manipulate middlegame and endgame scores
 /// at the same time, by treating them as the lower and upper half of a single value.
 /// This improves performance, which is especially important because the eval of a typical a/b engine is hot.
+// We use wrapping add and neg to not panic on scores that are out of range; these scores will be incorrect but that's
+// not a concern in practice because the eval function should not generate them in any "normal" position.
 #[derive(Debug, Default, Copy, Clone, Eq, PartialEq, Add, AddAssign, Sub, SubAssign, Neg)]
 #[must_use]
-pub struct PhasedScore(ScoreT);
+pub struct PhasedScore(Wrapping<ScoreT>);
 
 impl Display for PhasedScore {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
@@ -211,21 +220,21 @@ const COMPACT_SCORE_BITS: usize = CompactScoreT::BITS as usize;
 impl PhasedScore {
     // `const`, unlike `default`
     pub const fn zero() -> Self {
-        PhasedScore(0)
+        PhasedScore(Wrapping(0))
     }
     pub const fn new(mg: CompactScoreT, eg: CompactScoreT) -> Self {
         debug_assert!(is_valid_score(mg as ScoreT));
         debug_assert!(is_valid_score(eg as ScoreT));
-        Self(((mg as ScoreT) << COMPACT_SCORE_BITS) + eg as ScoreT)
+        Self(Wrapping(((mg as ScoreT) << COMPACT_SCORE_BITS) + eg as ScoreT))
     }
     pub const fn underlying(self) -> ScoreT {
-        self.0
+        self.0.0
     }
 
     pub const fn mg(self) -> Score {
         // The eg score could have overflown into the mg score, so add (1 << 15) to undo that overflow
         // with another potential overflow
-        Score(((self.0 + (1 << (COMPACT_SCORE_BITS - 1))) >> COMPACT_SCORE_BITS) as ScoreT)
+        Score(((self.underlying() + (1 << (COMPACT_SCORE_BITS - 1))) >> COMPACT_SCORE_BITS) as ScoreT)
     }
 
     pub const fn eg(self) -> Score {

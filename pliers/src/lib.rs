@@ -1,5 +1,5 @@
 #![deny(missing_docs)]
-#![deny(missing_crate_level_docs)]
+#![deny(rustdoc::missing_crate_level_docs)]
 #![deny(rustdoc::broken_intra_doc_links)]
 #![deny(rustdoc::private_intra_doc_links)]
 #![deny(rustdoc::invalid_codeblock_attributes)]
@@ -14,7 +14,7 @@
 //! # Example:
 //!
 //! ```no_run
-//! # use gears::games::chess::Chessboard;
+//! # use gears::games::chess::Board;
 //! # use motors::eval::*;
 //! # use pliers::*;
 //! # use pliers::eval::chess::piston_eval::PistonEval;
@@ -27,7 +27,7 @@
 //!     // Then, this will print out the final tuned weights and some additional information, like the number of times
 //!     // each feature appeared in the training dataset. Note that post-processing steps like interpolating with initial
 //!     // values are only performed for the final printed values.
-//!     run::<Chessboard, Eval>();
+//!     run::<Board, Eval>();
 //! }
 //! ```
 //!
@@ -37,7 +37,7 @@
 //! There are even lower-level functions like [`optimize_dataset`] for yet greater control, but most users shouldn't
 //! need to bother with them.
 //! ```no_run
-//! # use gears::games::ataxx::AtaxxBoard;
+//! # use gears::games::ataxx::Board;
 //! # use gears::general::common::Res;
 //! # use pliers::*;
 //! # use pliers::gd::*;
@@ -57,7 +57,7 @@
 //! #    }
 //! # }
 //!
-//! # impl Eval<AtaxxBoard> for MyAtaxxEval {
+//! # impl Eval<Board> for MyAtaxxEval {
 //! #    fn num_weights() -> usize {
 //! #        todo!()
 //! #    }
@@ -65,10 +65,9 @@
 //! #        todo!()
 //! #    }
 //!
-//! #    type D = NonTaperedDatapoint;
 //! #    type Filter = NoFilter;
 //!
-//! #    fn feature_trace(pos: &AtaxxBoard) -> impl TraceTrait {
+//! #    fn feature_trace(pos: &Board) -> impl TraceTrait {
 //! #        SimpleTrace::default()
 //! #    }
 //! # }
@@ -78,7 +77,7 @@
 //!     // JSON file which contains the list of datasets or fallback to a game-specific location.
 //!     let path = "Some/hardcoded/path/../consider/not/doing/this.json";
 //!     let file_list = load_datasets_from_json(Path::new(path))?;
-//!     optimize_for::<AtaxxBoard, MyAtaxxEval, SimpleGDOptimizer>(&file_list, 1234)?;
+//!     optimize_for::<Board, MyAtaxxEval, SimpleGDOptimizer>(&file_list, 1234)?;
 //!     Ok(())
 //! }
 //! ```
@@ -95,17 +94,15 @@
 extern crate core;
 
 use crate::eval::EvalScale::{InitialWeights, Scale};
-use crate::eval::{count_occurrences, display, Eval};
-use crate::gd::{
-    optimize_dataset, print_optimized_weights, Datapoint, Dataset, DefaultOptimizer, Optimizer, Weight, Weights,
-};
+use crate::eval::{Eval, count_occurrences, display};
+use crate::gd::{DefaultOptimizer, Optimizer, Weight, Weights, optimize_dataset, print_optimized_weights};
 use crate::load_data::Perspective::White;
 use crate::load_data::{AnnotatedFenFile, FenReader};
 use gears::colored::Colorize;
-use gears::games::chess::Chessboard;
-use gears::general::board::{Board, BoardHelpers};
-use gears::general::common::anyhow::{anyhow, bail};
+use gears::games::chess::Board;
+use gears::general::board::{BoardHelpers, BoardTrait};
 use gears::general::common::Res;
+use gears::general::common::anyhow::{anyhow, bail};
 use serde_json::from_reader;
 use std::env::args;
 use std::fs::File;
@@ -126,7 +123,7 @@ const DEFAULT_NUM_EPOCHS: usize = 4000;
 /// but this is the easiest way to use the tuner. Simply call this function with your eval,
 /// e.g. `run::<Chessboard, MaterialOnlyEval>()`. Make sure to provide a JSON file with a list of datasets.
 /// The filenames in that JSON file should be either absolute or relative to the location of the JSON file.
-pub fn run<B: Board, E: Eval<B>>() {
+pub fn run<B: BoardTrait, E: Eval<B>>() {
     if let Err(err) = try_to_run::<B, E>() {
         eprintln!("{err}");
         exit(1)
@@ -134,7 +131,7 @@ pub fn run<B: Board, E: Eval<B>>() {
 }
 
 /// like [`run`], but returns a `Res` instead of exiting on errors.
-pub fn try_to_run<B: Board, E: Eval<B>>() -> Res<()> {
+pub fn try_to_run<B: BoardTrait, E: Eval<B>>() -> Res<()> {
     let files = get_datasets::<B>()?;
     optimize::<B, E>(files.as_ref())
 }
@@ -143,7 +140,7 @@ pub fn try_to_run<B: Board, E: Eval<B>>() -> Res<()> {
 ///
 /// The path to this file is extracted from the first command line argument, with a game-specific fallback
 /// if no command line arguments are used.
-pub fn get_datasets<B: Board>() -> Res<Vec<AnnotatedFenFile>> {
+pub fn get_datasets<B: BoardTrait>() -> Res<Vec<AnnotatedFenFile>> {
     let default_path = format!("pliers/datasets/{}/datasets.json", B::game_name());
     let json_file_path = args().nth(1).unwrap_or(default_path);
     let json_file_path = Path::new(&json_file_path);
@@ -176,31 +173,27 @@ pub fn load_datasets_from_json(json_file_path: &Path) -> Res<Vec<AnnotatedFenFil
 }
 
 /// Optimize the eval with the [`DefaultOptimizer`] on the supplied `file_list`.
-pub fn optimize<B: Board, E: Eval<B>>(file_list: &[AnnotatedFenFile]) -> Res<()> {
+pub fn optimize<B: BoardTrait, E: Eval<B>>(file_list: &[AnnotatedFenFile]) -> Res<()> {
     optimize_for::<B, E, DefaultOptimizer>(file_list, DEFAULT_NUM_EPOCHS)
 }
 
 /// Optimize the eval with the given optimizer for the given number of epochs.
 ///
 /// Runs the optimizer on the entire dataset.
-pub fn optimize_for<B: Board, E: Eval<B>, O: Optimizer<E::D>>(
+pub fn optimize_for<B: BoardTrait, E: Eval<B>, O: Optimizer>(
     file_list: &[AnnotatedFenFile],
     num_epochs: usize,
 ) -> Res<()> {
     #[cfg(debug_assertions)]
     println!("Running in debug mode. Run in release mode for increased performance.");
-    let mut dataset = Dataset::new(E::num_weights());
-    for file in file_list {
-        dataset.union(FenReader::<B, E>::load_from_file(file)?);
-    }
+    let mut dataset = FenReader::<B, E>::load_from_file_list(file_list, Some(20.0))?;
     let e = E::default();
     let batch = dataset.as_batch();
     let scale = e.eval_scale().to_scaling_factor(batch, &e);
     let mut optimizer = O::new(batch, scale);
 
-    let num_all_features = batch.datapoints.iter().map(|d| d.features().count()).sum::<usize>();
-    let average = num_all_features as f64 / batch.datapoints.len() as f64;
-    println!("\nAverage Number of Features per Position: {}\n", format!("{average:.3}").bold());
+    let average = batch.num_entries() as f64 / batch.num_datapoins() as f64;
+    println!("\nAverage number of Entries per Position: {}\n", format!("{average:.3}").bold());
 
     let occurrences = Weights(count_occurrences(batch).into_iter().map(Weight).collect());
     println!("Occurrences:\n{}", display(&e, &occurrences, &[]));
@@ -210,18 +203,18 @@ pub fn optimize_for<B: Board, E: Eval<B>, O: Optimizer<E::D>>(
 }
 
 /// Convenience wrapper for [`optimize`] for chess.
-pub fn optimize_chess_eval<E: Eval<Chessboard>>(file_list: &[AnnotatedFenFile]) -> Res<()> {
+pub fn optimize_chess_eval<E: Eval<Board>>(file_list: &[AnnotatedFenFile]) -> Res<()> {
     debug_eval_on_lucena::<E>();
-    optimize::<Chessboard, E>(file_list)
+    optimize::<Board, E>(file_list)
 }
 
 /// Function intended for debugging the eval, uses a single simple position.
-pub fn debug_eval_on_pos<B: Board, E: Eval<Chessboard>>(pos: B) {
+pub fn debug_eval_on_pos<B: BoardTrait, E: Eval<Board>>(pos: B) {
     println!("\nSTARTING DEBUG POSITION OUTPUT:");
     let fen = format!("{} [1.0]", pos.as_fen());
     println!("(FEN: {fen}\n");
     let e = E::default();
-    let mut dataset = FenReader::<Chessboard, E>::load_from_str(&fen, White).unwrap();
+    let mut dataset = FenReader::<Board, E>::load_from_str(&fen, White).unwrap();
     assert_eq!(dataset.num_weights(), E::num_weights());
     let scale = match e.eval_scale() {
         Scale(scale) => scale,
@@ -231,19 +224,18 @@ pub fn debug_eval_on_pos<B: Board, E: Eval<Chessboard>>(pos: B) {
     let weights = optimize_dataset(&mut dataset, scale, 1, &e, &mut optimizer);
     assert_eq!(weights.len(), E::num_weights());
     println!(
-        "There are {0} weights and {1} out of {2} active features",
-        weights.len(),
-        dataset.data()[0].features().count(),
-        E::num_features()
+        "There are {0} out of {1} active weights",
+        dataset.as_batch().datapoint_iter().next().unwrap().entries.len(),
+        E::num_weights()
     );
     print_optimized_weights(&weights, dataset.as_batch(), scale, &e);
     println!("\nEND DEBUG POSITION OUTPUT\n");
 }
 
 /// Debug a chess eval on the lucena position.
-pub fn debug_eval_on_lucena<E: Eval<Chessboard>>() {
-    let pos = Chessboard::from_name("lucena").unwrap();
-    debug_eval_on_pos::<Chessboard, E>(pos);
+pub fn debug_eval_on_lucena<E: Eval<Board>>() {
+    let pos = Board::from_name("lucena").unwrap();
+    debug_eval_on_pos::<Board, E>(pos);
 }
 
 #[cfg(test)]
@@ -253,35 +245,37 @@ mod tests {
 
     use crate::eval::chess::piston_eval::PistonEval;
     use crate::gd::{
-        cp_eval_for_weights, cp_to_wr, loss_for, quadratic_sample_loss, Adam, AdamW, CpScore, CrossEntropyLoss, Float,
-        Outcome, QuadraticLoss,
+        Adam, AdamW, CpScore, CrossEntropyLoss, Float, Outcome, QuadraticLoss, cp_eval_for_weights, cp_to_wr, loss_for,
+        quadratic_sample_loss,
     };
     use crate::load_data::Perspective::SideToMove;
-    use gears::games::chess::pieces::{ChessPieceType, ColoredChessPieceType};
+    use PieceType::*;
+    use gears::games::chess::Color::White;
+    use gears::games::chess::Settings;
+    use gears::games::chess::pieces::{ColoredPieceType, PieceType};
     use gears::games::chess::zobrist::NUM_PIECE_SQUARE_ENTRIES;
-    use gears::games::chess::ChessColor::White;
-    use gears::games::chess::ChessSettings;
-    use gears::games::{AbstractPieceType, CharType, ColoredPieceType};
-    use ChessPieceType::*;
+    use gears::games::{AbstractPieceType, CharType, ColoredPieceTypeTrait};
 
     #[test]
     pub fn two_chess_positions_test() {
         let positions = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1 [0.5]
         7k/8/8/8/8/8/8/R6K w - - 0 1 [1-0]";
-        let mut positions = FenReader::<Chessboard, PistonEval>::load_from_str(positions, SideToMove).unwrap();
+        let mut positions = FenReader::<Board, PistonEval>::load_from_str(positions, SideToMove).unwrap();
         assert_eq!(positions.data().len(), 2);
-        assert_eq!(positions.data()[0].outcome(), Outcome::new(0.5));
-        assert_eq!(positions.data()[1].outcome(), Outcome::new(1.0));
+        assert_eq!(positions.data()[0].outcome, Outcome::new(0.5));
+        assert_eq!(positions.data()[1].outcome, Outcome::new(1.0));
         assert_eq!(positions.num_weights(), NUM_PIECE_SQUARE_ENTRIES * 2);
+        let batch = positions.as_batch();
         // the kings are on mirrored positions and cancel each other out
-        assert_eq!(positions.data()[0].features().count(), 0);
-        assert_eq!(positions.data()[1].features().count(), 2); // 1 feature per phases
+        assert_eq!(batch.entries_at(0).len(), 0);
+        assert_eq!(batch.entries_at(1).len(), 2); // 1 feature, 2 weights
         let batch = positions.batch(0, 1);
         let eval_scale = 100.0;
         let mut optimizer = AdamW::<CrossEntropyLoss>::new(batch, eval_scale);
         let startpos_weights =
             optimize_dataset(&mut positions, eval_scale, 100, &PistonEval::default(), &mut optimizer);
-        let startpos_eval = cp_eval_for_weights(&startpos_weights, &positions.data()[0]);
+        let batch = positions.batch(0, 1);
+        let startpos_eval = cp_eval_for_weights(&startpos_weights, batch.datapoint_iter().next().unwrap());
         assert_eq!(startpos_eval, CpScore(0.0));
         let mut optimizer = Adam::<QuadraticLoss>::new(positions.as_batch(), eval_scale);
         let weights = optimize_dataset(&mut positions, eval_scale, 500, &PistonEval::default(), &mut optimizer);
@@ -300,22 +294,22 @@ mod tests {
         };
         let eval_scale = 10.0;
         let mut fens = String::default();
-        for piece in ChessPieceType::non_king_pieces() {
+        for piece in PieceType::non_king_pieces() {
             let str = format!(
                 "8/7{0}/8/8/8/k7/8/K7 w - - 0 1 | {1}\n",
-                ColoredChessPieceType::new(White, piece).to_char(CharType::Ascii, &ChessSettings::default()),
+                ColoredPieceType::new(White, piece).to_char(CharType::Ascii, &Settings::default()),
                 cp_to_wr(CpScore(piece_val(piece) as Float), eval_scale),
             );
             fens += &str;
         }
-        let datapoints = FenReader::<Chessboard, MaterialOnlyEval>::load_from_str(&fens, SideToMove).unwrap();
+        let datapoints = FenReader::<Board, MaterialOnlyEval>::load_from_str(&fens, SideToMove).unwrap();
         let batch = datapoints.as_batch();
         let weights = AdamW::<CrossEntropyLoss>::new(batch, eval_scale).optimize_simple(batch, eval_scale, 2000);
         assert_eq!(weights.len(), 5);
         let weight = weights[0];
-        for piece in ChessPieceType::non_king_pieces() {
+        for piece in PieceType::non_king_pieces() {
             let ratio = weights[piece as usize].0 / weight.0;
-            assert!((ratio - piece_val(piece) as Float).abs() <= 0.1);
+            assert!((ratio - piece_val(piece) as Float).abs() <= 0.1, "{ratio} {piece}");
         }
     }
 }
