@@ -57,7 +57,7 @@ use gears::general::common::{
 };
 use gears::general::common::{Res, Tokens};
 use gears::general::moves::ExtendedFormat::{Alternative, Standard};
-use gears::general::moves::{ExtendedFormat, MoveTrait};
+use gears::general::moves::MoveTrait;
 use gears::general::perft::Bulkness::{Bulk, NoBulk};
 use gears::general::perft::{SplitPerftRes, num_unique_positions_up_to, perft_for, split_perft};
 use gears::itertools::Itertools;

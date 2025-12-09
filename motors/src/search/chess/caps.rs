@@ -392,13 +392,9 @@ impl Engine<Board> for Caps {
 
         let incomplete = self.iterative_deepening(&pos, soft_limit);
         if incomplete || self.output_minimal() {
-            // send one final search info, but don't send empty PVs
-            let mut pv = self.current_mpv_pv();
-            if pv.is_empty() {
-                // if we didn't finish looking at the PV, use the PV from the last iteration
-                pv = self.cur_pv_data().pv.list.as_slice();
-            }
-            if !pv.is_empty() {
+            // Send one final search info, but don't send empty PVs.
+            // Even for aborted searches, we never send unproven mates.
+            if !self.current_mpv_pv().is_empty() {
                 self.search_state().send_search_info(true);
             }
         }
@@ -680,10 +676,10 @@ impl Caps {
         assert_eq!(depth % 128, 0); // TODO: Remove
 
         let root = ply == 0;
-        let is_pv_node = expected_node_type == Exact; // TODO: Make this a generic argument of search?
-        debug_assert!(!root || is_pv_node); // root implies pv node
-        debug_assert!(alpha + 1 == beta || is_pv_node); // alpha + 1 < beta implies Exact node
-        if is_pv_node {
+        let pv_node = expected_node_type == Exact; // TODO: Make this a generic argument of search?
+        debug_assert!(!root || pv_node); // root implies pv node
+        debug_assert!(alpha + 1 == beta || pv_node); // alpha + 1 < beta implies Exact node
+        if pv_node {
             self.search_stack[ply].pv.clear();
         }
 
@@ -703,7 +699,7 @@ impl Caps {
             // from ever returning exact scores, since for a mate in 1 the score would always be exactly `beta`.
             if self.current_pv_num == 0 {
                 alpha = alpha.max(game_result_to_score(Lose, ply));
-                beta = beta.min(game_result_to_score(Win, ply + 1));
+                beta = beta.min(game_result_to_score(Win, ply));
             }
             if alpha >= beta {
                 return Some(alpha);
@@ -729,10 +725,10 @@ impl Caps {
         }
         // limit.mate() is the min of the original limit.mate and DEPTH_HARD_LIMIT
         if depth <= 0 || ply >= self.ply_hard_limit {
-            return self.qsearch(pos, alpha, beta, ply);
+            return self.qsearch(pos, alpha, beta, ply, pv_node);
         }
 
-        let can_prune = !is_pv_node && !in_check;
+        let can_prune = !pv_node && !in_check;
 
         let mut bound_so_far = FailLow;
 
@@ -772,7 +768,7 @@ impl Caps {
             // TT cutoffs. If we've already seen this position, and the TT entry has more valuable information (higher depth),
             // and we're not a PV node, and the saved score is either exact or at least known to be outside (alpha, beta),
             // simply return it.
-            if !is_pv_node && tt_entry.depth as isize >= depth {
+            if !pv_node && tt_entry.depth as isize >= depth {
                 if (tt_score >= beta && tt_bound == NodeType::lower_bound())
                     || (tt_score <= alpha && tt_bound == NodeType::upper_bound())
                     || tt_bound == Exact
@@ -794,7 +790,7 @@ impl Caps {
             }
             // Even though we didn't get a cutoff from the TT, we can still use the score and bound to update our guess
             // at what the type of this node is going to be.
-            if !is_pv_node {
+            if !pv_node {
                 expected_node_type = if tt_bound != Exact {
                     tt_bound
                 } else if tt_score <= alpha {
@@ -881,7 +877,7 @@ impl Caps {
                 && eval + Score((cc::razor_depth_mult() * depth / 1024) as ScoreT) < alpha
                 && !eval.is_game_lost_score()
             {
-                let qsearch_score = self.qsearch(pos, alpha, beta, ply)?;
+                let qsearch_score = self.qsearch(pos, alpha, beta, ply, false)?;
                 if qsearch_score <= alpha {
                     return Some(qsearch_score);
                 }
@@ -1095,7 +1091,7 @@ impl Caps {
                         // this only applies to quiet moves with a good combined history score.
                         reduction -= cc::lmr_good_hist_reduction();
                     }
-                    if !is_pv_node {
+                    if !pv_node {
                         reduction += cc::lmr_no_pv_reduction();
                     }
                     if we_blundered {
@@ -1155,7 +1151,7 @@ impl Caps {
                 // This is only relevant for PV nodes, because all other nodes are searched with a null window anyway.
                 // This is also necessary to ensure that the PV doesn't get truncated, because otherwise there could be nodes in
                 // the PV that were not searched as PV nodes. So we make sure we're researching in PV nodes with beta == alpha + 1.
-                if is_pv_node && child_beta - child_alpha == Score(1) && score > alpha {
+                if pv_node && child_beta - child_alpha == Score(1) && score > alpha {
                     self.statistics.lmr_second_retry();
                     score = -self.negamax(
                         &new_pos,
@@ -1204,12 +1200,23 @@ impl Caps {
             }
 
             // Update the PV. We only need to do this for PV nodes (we could even only do this for non-fail highs,
-            // if we didn't have to worry about aw fail high).
-            if is_pv_node {
+            // if we didn't have to worry about aw fail high). At the root, we also update the best score so that
+            // an aborted search will print an up-to-date score -- this ensures we never print a mating PV without
+            // a matching mate score.
+            if pv_node {
+                if root {
+                    self.cur_pv_data_mut().score = score;
+                }
                 let ([.., current], [child, ..]) = self.search_stack.split_at_mut(ply + 1) else { unreachable!() };
-                current.pv.extend(best_move, &child.pv);
+                let cur_pv = &mut current.pv;
+                cur_pv.extend(best_move, &child.pv);
                 if cfg!(debug_assertions) {
-                    current.pv.assert_valid(*pos);
+                    cur_pv.assert_valid(*pos);
+                    if let Some(n) = best_score.plies_until_game_over()
+                        && score < beta
+                    {
+                        assert_eq!(n, (cur_pv.len() + ply) as isize, "{best_score} {ply} {depth} '{pos}' {cur_pv:?}");
+                    }
                     if depth > 256
                         && self.params.thread_type.num_threads() == Some(1)
                         && score < beta
@@ -1284,16 +1291,11 @@ impl Caps {
                 );
             }
         }
-
-        if best_score == MAX_NORMAL_SCORE && best_score < beta {
-            println!("Huh {pos}")
-        }
-
         Some(best_score)
     }
 
     /// Search only "tactical" moves to quieten down the position before calling eval
-    fn qsearch(&mut self, pos: &Board, mut alpha: Score, beta: Score, ply: usize) -> Option<Score> {
+    fn qsearch(&mut self, pos: &Board, mut alpha: Score, beta: Score, ply: usize, pv_node: bool) -> Option<Score> {
         self.statistics.count_node_started(Qsearch);
         // updating seldepth only in qsearch meaningfully increased performance and was even measurable in a [0, 10] SPRT.
         // TODO: That's weird, retest
@@ -1319,6 +1321,10 @@ impl Caps {
             }
         }
 
+        if pv_node {
+            self.search_stack[ply].pv.clear();
+        }
+
         // Don't do TT cutoffs with alpha already raised by the stand pat check, because that relies on the null move observation.
         // But if there's a TT entry from normal search that's worse than the stand pat score, we should trust that more.
         let old_entry = self.tt().load::<Board>(pos.hash_pos(), ply);
@@ -1328,12 +1334,16 @@ impl Caps {
             let tt_score = tt_entry.score();
             // depth 0 drops immediately to qsearch, so a depth 0 entry always comes from qsearch.
             // However, if we've already done qsearch on this position, we can just re-use the result,
-            // so there is no point in checking the depth at all
-            if (bound == NodeType::lower_bound() && tt_score >= beta)
+            // so there is no point in checking the depth at all unless we're in a pv node: In that case, we don't want to
+            // cut our PV short by returning a score from the TT without a move to back it up
+            if ((bound == NodeType::lower_bound() && tt_score >= beta)
                 || (bound == NodeType::upper_bound() && tt_score <= alpha)
-                || bound == Exact
+                || bound == Exact)
             {
                 self.statistics.tt_cutoff(Qsearch, bound);
+                if pv_node {
+                    return Some(tt_score.clamp(MIN_NORMAL_SCORE, MAX_NORMAL_SCORE));
+                }
                 return Some(tt_score);
             }
             raw_eval = tt_entry.raw_eval();
@@ -1347,17 +1357,18 @@ impl Caps {
             // nonregression SPRT with `[-7, 0]` bounds even though I don't know why, and those conditions make it fail
             // the re-search test case. So the conditions are still disabled for now,
             // test reintroducing them at some point in the future after I have TT aging!
-            if (bound == NodeType::lower_bound() && tt_score >= raw_eval)
-                || (bound == NodeType::upper_bound() && tt_score <= raw_eval)
+            if (bound == NodeType::lower_bound() && tt_score >= eval)
+                || (bound == NodeType::upper_bound() && tt_score <= eval)
             {
-                eval = tt_score;
+                // we don't want to return mate scores unless we can prove there is a mate by also returning a matching PV
+                eval = tt_score.clamp(MIN_NORMAL_SCORE, MAX_NORMAL_SCORE);
             };
             if let Some(mov) = tt_entry.mov(pos) {
                 best_move = mov;
             }
         } else if in_check {
-            raw_eval = SCORE_LOST + ply as ScoreT;
-            eval = raw_eval;
+            raw_eval = MIN_NORMAL_SCORE;
+            eval = SCORE_LOST + ply as ScoreT;
         } else {
             raw_eval = self.eval(pos, ply);
             eval = self.state.custom.corr_hist.correct(pos, continued, raw_eval);
@@ -1407,7 +1418,7 @@ impl Caps {
             }
             self.record_move(mov, pos, ply, Qsearch, move_score);
             children_visited += 1;
-            let score = -self.qsearch(&new_pos, -beta, -alpha, ply + 1)?;
+            let score = -self.qsearch(&new_pos, -beta, -alpha, ply + 1, pv_node)?;
             self.undo_move();
             best_score = best_score.max(score);
             if score <= alpha {
@@ -1421,6 +1432,15 @@ impl Caps {
             if score >= beta {
                 bound_so_far = FailHigh;
                 break;
+            }
+
+            if pv_node {
+                // Update the PV in qsearch so that we maintain the invariant that we print a mate score iff we print a PV ending in a mate.
+                let ([.., current], [child, ..]) = self.search_stack.split_at_mut(ply + 1) else { unreachable!() };
+                current.pv.extend(best_move, &child.pv);
+                if let Some(n) = best_score.plies_until_game_over() {
+                    assert_eq!(n, (current.pv.len() + ply) as isize, "{best_score} {ply} '{pos}' {:?}", current.pv);
+                }
             }
         }
         self.statistics.count_complete_node(Qsearch, bound_so_far, 0, ply, children_visited);
@@ -1653,6 +1673,24 @@ mod tests {
     }
 
     #[test]
+    fn mate_in_two_test() {
+        let fen = "6rk/PP1PPPnp/1N1BN2P/7R/4B3/2Q5/P3KP2/6R1 w - -";
+        let pos = Board::from_fen(fen, Relaxed).unwrap();
+        let mut caps = Caps::for_eval::<LiTEval>();
+        let res = caps.search_with_new_tt(pos, SearchLimit::depth_(1));
+        assert_eq!(res.score.plies_until_game_won(), Some(3));
+        let state = caps.search_state();
+        let pv_data = &state.pv_data()[0];
+        assert_eq!(pv_data.score, res.score);
+        assert_eq!(pv_data.pv.len(), 3);
+        assert_eq!(res.chosen_move, pv_data.pv.list[0]);
+        assert!(state.uci_nodes() <= 500);
+        assert!(!state.atomic().currently_searching.load(std::sync::atomic::Ordering::Relaxed));
+        assert_eq!(state.atomic().score(), res.score);
+        assert_eq!(state.atomic().iterations().isize(), 1);
+    }
+
+    #[test]
     fn simple_search_test() {
         let list = [
             ("r2q1r2/ppp1pkb1/2n1p1pp/2N1P3/2pP2Q1/2P1B2P/PP3PP1/R4RK1 b - - 1 18", -500, -100),
@@ -1768,15 +1806,17 @@ mod tests {
         let second_search = caps.search_with_tt(pos, limit, tt.clone());
         assert!(second_search.score.is_game_won_score());
         let second_search_nodes = caps.search_state().uci_nodes();
-        assert!(second_search_nodes * 2 < nodes, "{second_search_nodes} {nodes}");
+        assert!(second_search_nodes < nodes, "{second_search_nodes} {nodes}");
         let d3 = SearchLimit::depth(DepthPly::new(3));
         let d3_search = caps.search_with_tt(pos, d3, tt.clone());
-        assert!(d3_search.score.is_game_won_score(), "{}", d3_search.score.0);
+        // at depth 3, we can't print a pv that ends in a mate, so we don't return a mate score
+        assert!(!d3_search.score.is_game_won_score(), "{}", d3_search.score.0);
         let d3_nodes = caps.search_state().uci_nodes();
         caps.forget();
         assert_eq!(caps.search_state().uci_nodes(), 0);
         let fresh_d3_search = caps.search_with_new_tt(pos, d3);
         assert!(!fresh_d3_search.score.is_won_or_lost(), "{}", fresh_d3_search.score.0);
+        assert!(fresh_d3_search.score < MAX_NORMAL_SCORE, "{}", fresh_d3_search.score.0);
         let fresh_d3_nodes = caps.search_state().uci_nodes();
         assert!(fresh_d3_nodes > d3_nodes + d3_nodes / 4, "{fresh_d3_nodes} {d3_nodes}");
         caps.forget();

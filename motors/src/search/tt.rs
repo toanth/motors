@@ -1,4 +1,3 @@
-use crate::search::chess;
 use crate::spsa_params;
 use derive_more::Index;
 use gears::games::PosHash;
@@ -118,6 +117,7 @@ impl<B: BoardTrait> TTEntry<B> {
         let age_and_bound = pack_age_and_bound(age, bound);
         let hash_and_move =
             (mov.to_underlying().into() << (64 - B::Move::num_bits())) | PosHashPart::<B>::new(hash.0).0;
+        debug_assert!(!eval.is_won_or_lost());
         Self {
             score: score.compact(),
             eval: eval.compact(),

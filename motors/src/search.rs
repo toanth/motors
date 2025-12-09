@@ -216,6 +216,7 @@ impl<B: BoardTrait, const LIMIT: usize> Pv<B, LIMIT> {
         self.list.is_empty()
     }
 
+    #[cold]
     pub fn clear(&mut self) {
         self.list.clear();
     }
@@ -1203,6 +1204,7 @@ impl<B: BoardTrait, E: SearchStackEntry<B>, C: CustomInfo<B>> SearchState<B, E, 
         // empty. On the other hand, it can get updated during search.
         let res = self.search_stack.first().and_then(|e| e.pv());
         if res.is_none_or(|pv| pv.is_empty()) {
+            // if we didn't finish looking at the PV, use the PV from the last iteration
             self.multi_pvs[self.current_pv_num].pv.list.as_slice()
         } else {
             res.unwrap()
