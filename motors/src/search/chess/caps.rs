@@ -1336,9 +1336,9 @@ impl Caps {
             // However, if we've already done qsearch on this position, we can just re-use the result,
             // so there is no point in checking the depth at all unless we're in a pv node: In that case, we don't want to
             // cut our PV short by returning a score from the TT without a move to back it up
-            if ((bound == NodeType::lower_bound() && tt_score >= beta)
+            if (bound == NodeType::lower_bound() && tt_score >= beta)
                 || (bound == NodeType::upper_bound() && tt_score <= alpha)
-                || bound == Exact)
+                || bound == Exact
             {
                 self.statistics.tt_cutoff(Qsearch, bound);
                 if pv_node {

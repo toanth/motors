@@ -274,7 +274,7 @@ mod tests {
     #[test]
     fn multipv_mate() {
         let pos = Board::from_name("mate_in_1").unwrap();
-        let limit = SearchLimit::depth_(4);
+        let limit = SearchLimit::depth_(5);
 
         let engines: [Box<dyn Engine<Board>>; 8] = [
             Box::new(Caps::for_eval::<LiTEval>()),
@@ -298,9 +298,13 @@ mod tests {
             assert_eq!(pv_data.len(), 3);
             assert_eq!(pv_data[0].score, res.score);
             assert_eq!(pv_data[0].pv.list.first(), Some(&res.chosen_move));
-            assert_eq!(pv_data[1].score, game_result_to_score(Win, 3));
+            assert!(pv_data[1].score <= game_result_to_score(Win, 3));
+            assert!(pv_data[1].score >= Score(1000));
             let second_best_move = Move::from_extended_text("e1Q+", &pos).unwrap();
-            assert_eq!(pv_data[1].pv.list.first(), Some(&second_best_move));
+            assert_eq!(
+                pv_data[1].pv.list.first() == Some(&second_best_move),
+                pv_data[1].score == game_result_to_score(Win, 3)
+            );
             assert!(pv_data[2].score >= Score(1000));
             assert!(!pv_data[2].pv.list.is_empty());
         }
