@@ -1,4 +1,3 @@
-use crate::search::chess;
 use crate::spsa_params;
 use derive_more::Index;
 use gears::games::PosHash;
@@ -9,6 +8,7 @@ use gears::general::moves::{MoveTrait, UntrustedMove};
 use gears::itertools::Itertools;
 use gears::score::{CompactScoreT, SCORE_WON, Score, ScoreT};
 use gears::search::NodeType;
+use gears::search::NodeType::Exact;
 use rayon::iter::ParallelIterator;
 use rayon::prelude::IntoParallelRefMutIterator;
 #[cfg(all(feature = "unsafe", target_arch = "x86_64", target_feature = "sse"))]
@@ -231,7 +231,8 @@ const _: () = assert!(size_of::<TTEntry<Board>>() == size_of::<AtomicTTEntry>())
 pub const DEFAULT_HASH_SIZE_MB: usize = 16;
 
 spsa_params![ttc,
-age_diff_mult: isize = 4; 0..=128; step=4;
+age_diff_mult: isize = 4; 0..=128; step=2;
+exact_bound_mult: isize = 8; 0..=32; step=1;
 ];
 
 /// Resizing the TT during search will wait until the search is finished (all threads will receive a new arc)
@@ -328,6 +329,7 @@ impl TT {
         } else {
             let age_diff = (to_insert.age().0.wrapping_sub(candidate.age().0).wrapping_add(1 << 6)) & 0b11_1111;
             candidate.depth as isize / 128 - age_diff as isize * ttc::age_diff_mult()
+                + isize::from(candidate.bound() == Exact) * ttc::exact_bound_mult()
         }
     }
 

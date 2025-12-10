@@ -620,7 +620,6 @@ impl Caps {
                         }
                     }
                 }
-                // assert this now because this doesn't hold for incomplete iterations
                 debug_assert!(
                     !pv_score.is_won_or_lost() || pv_score.plies_until_game_over().unwrap() <= 500,
                     "{pv_score}"
