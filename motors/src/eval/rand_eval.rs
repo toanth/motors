@@ -1,4 +1,4 @@
-use gears::general::board::Board;
+use gears::general::board::BoardTrait;
 use gears::rand::{Rng, rng};
 use std::fmt::Display;
 
@@ -40,7 +40,7 @@ impl StaticallyNamedEntity for RandEval {
     }
 }
 
-impl<B: Board> Eval<B> for RandEval {
+impl<B: BoardTrait> Eval<B> for RandEval {
     fn eval(&mut self, pos: &B, _ply: usize, _engine: B::Color) -> Score {
         if self.deterministic {
             // deterministic and faster than seeding a rng while still being good enough

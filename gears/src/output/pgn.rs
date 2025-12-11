@@ -20,12 +20,12 @@
 
 use crate::MatchStatus::*;
 use crate::ProgramStatus::Run;
-use crate::games::{BoardHistory, Color};
+use crate::games::{BoardHistDyn, ColorTrait};
 use crate::general::board::Strictness::Relaxed;
-use crate::general::board::{Board, BoardHelpers, Strictness};
+use crate::general::board::{BoardHelpers, BoardTrait, Strictness};
 use crate::general::common::{Res, parse_bool_from_str, parse_int_from_str};
 use crate::general::moves::ExtendedFormat::Standard;
-use crate::general::moves::Move;
+use crate::general::moves::MoveTrait;
 use crate::output::pgn::RoundNumber::{Custom, Number, Unimportant, Unknown};
 use crate::output::pgn::TagPair::{
     Black, BlackElo, BlackTitle, BlackType, Date, Event, Fen, Other, Result, Round, SetUp, Site, White, WhiteElo,
@@ -39,7 +39,7 @@ use std::iter::Peekable;
 use std::mem::take;
 use std::str::{Chars, FromStr};
 
-pub fn match_to_pgn_string<B: Board>(m: &dyn GameState<B>) -> String {
+pub fn match_to_pgn_string<B: BoardTrait>(m: &dyn GameState<B>) -> String {
     let result = match m.match_status() {
         Over(r) => r.result.to_canonical_string(),
         _ => "*".to_string(),
@@ -81,13 +81,13 @@ pub fn match_to_pgn_string<B: Board>(m: &dyn GameState<B>) -> String {
         fen = m.initial_pos().as_fen(),
         p1 = m.player_name(B::Color::first()).unwrap_or("??".to_string()),
         p2 = m.player_name(B::Color::second()).unwrap_or("??".to_string()),
-        p1_name = B::Color::first().name(&board.settings()).as_ref(),
-        p2_name = B::Color::second().name(&board.settings()).as_ref(),
+        p1_name = B::Color::first().name(board.settings()),
+        p2_name = B::Color::second().name(board.settings()),
     );
     for (ply, mov) in m.move_history().iter().enumerate() {
-        let mov_str = mov.extended_formatter(&board, Standard);
+        let mov_str = mov.extended_formatter(&board, Standard, None);
         if ply % 2 == 0 {
-            res += &format!("\n{}. {mov_str}", (ply + 1) / 2 + 1);
+            res += &format!("\n{}. {mov_str}", ply.div_ceil(2) + 1);
         } else {
             if ply == 0 && !m.initial_pos().active_player().is_first() {
                 res += &format!("\n1... {mov_str}");
@@ -123,7 +123,7 @@ impl Display for RoundNumber {
             Unimportant => "-".to_string(),
             Custom(s) => s.clone(),
         };
-        write!(f, "{}", s)
+        write!(f, "{s}")
     }
 }
 
@@ -221,7 +221,7 @@ impl TagPair {
 }
 
 #[derive(Debug, Default, Clone)]
-pub struct PgnData<B: Board> {
+pub struct PgnData<B: BoardTrait> {
     pub tag_pairs: Vec<TagPair>,
     pub game: UgiPosState<B>,
 }
@@ -375,12 +375,12 @@ impl PgnParserState<'_> {
     }
 }
 
-struct PgnParser<'a, B: Board> {
+struct PgnParser<'a, B: BoardTrait> {
     state: PgnParserState<'a>,
     res: PgnData<B>,
 }
 
-impl<'a, B: Board> PgnParser<'a, B> {
+impl<'a, B: BoardTrait> PgnParser<'a, B> {
     fn new(input: &'a str) -> Self {
         let state = PgnParserState {
             first_in_line: true,
@@ -453,10 +453,10 @@ impl<'a, B: Board> PgnParser<'a, B> {
         self.res.game.board_hist.push(prev_board.hash_pos());
         self.res.game.mov_hist.push(mov);
         self.res.game.board = new_board;
-        if let Some(res) = self.res.game.board.match_result_slow(&self.res.game.board_hist) {
-            if let Run(st) = &mut self.res.game.status {
-                *st = Over(res);
-            }
+        if let Some(res) = self.res.game.board.match_result_slow(&self.res.game.board_hist)
+            && let Run(st) = &mut self.res.game.status
+        {
+            *st = Over(res);
         }
         let remaining_len = remaining.len();
         while self.state.unread().len() != remaining_len {
@@ -481,7 +481,7 @@ impl<'a, B: Board> PgnParser<'a, B> {
 }
 
 #[cold]
-pub fn parse_pgn<B: Board>(pgn: &str, strictness: Strictness, pos: Option<B>) -> Res<PgnData<B>> {
+pub fn parse_pgn<B: BoardTrait>(pgn: &str, strictness: Strictness, pos: Option<B>) -> Res<PgnData<B>> {
     let mut parser: PgnParser<'_, B> = PgnParser::new(pgn);
     if let Some(pos) = pos {
         parser.res.tag_pairs.push(Fen(pos.as_fen()));
@@ -497,7 +497,7 @@ pub fn parse_pgn<B: Board>(pgn: &str, strictness: Strictness, pos: Option<B>) ->
 
 #[cold]
 /// This function is used as a fallback when parsing UGI moves, to enable pgn format after `position <fen> moves`.
-pub fn parse_pgn_moves_format<B: Board>(pgn_moves: &str, pos: &B) -> Res<PgnData<B>> {
+pub fn parse_pgn_moves_format<B: BoardTrait>(pgn_moves: &str, pos: &B) -> Res<PgnData<B>> {
     let mut parser: PgnParser<'_, B> = PgnParser::new(pgn_moves);
     parser.res.game.board = pos.clone();
     parser.parse_all_moves()?;
@@ -507,38 +507,37 @@ pub fn parse_pgn_moves_format<B: Board>(pgn_moves: &str, pos: &B) -> Res<PgnData
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::games::chess::Chessboard;
-    use crate::games::chess::moves::ChessMove;
-    use crate::games::chess::pieces::ChessPieceType::Bishop;
-    use crate::games::chess::squares::ChessSquare;
+    use crate::games::chess::Board;
+    use crate::games::chess::moves::Move;
+    use crate::games::chess::squares::Square;
     use crate::general::board::Strictness::Strict;
     use itertools::Itertools;
 
     #[test]
     fn parse_one_ply_pgn() {
         let pgn = "1. e4";
-        let mut parser: PgnParser<'_, Chessboard> = PgnParser::new(pgn);
+        let mut parser: PgnParser<'_, Board> = PgnParser::new(pgn);
         let data = parser.parse(Relaxed).unwrap();
-        let pos = Chessboard::default();
-        let pos = pos.make_move(ChessMove::from_text("e4", &pos).unwrap()).unwrap();
-        assert_eq!(data.game.pos_before_moves, Chessboard::default());
+        let pos = Board::default();
+        let pos = pos.make_move(Move::from_text("e4", &pos).unwrap()).unwrap();
+        assert_eq!(data.game.pos_before_moves, Board::default());
         assert_eq!(data.game.mov_hist.len(), 1);
         assert_eq!(data.game.board, pos);
-        assert_eq!(data.game.mov_hist[0], ChessMove::from_text("e4", &Chessboard::default()).unwrap());
-        assert_eq!(data.game.board_hist.0[0], Chessboard::default().hash_pos());
+        assert_eq!(data.game.mov_hist[0], Move::from_text("e4", &Board::default()).unwrap());
+        assert_eq!(data.game.board_hist.0[0], Board::default().hash_pos());
     }
 
     #[test]
     fn parse_two_ply_pgn() {
         let pgn = "{this}1e4{is} \n%a\nd5 {test}";
-        let mut parser: PgnParser<'_, Chessboard> = PgnParser::new(pgn);
+        let mut parser: PgnParser<'_, Board> = PgnParser::new(pgn);
 
         let data = parser.parse(Relaxed).unwrap();
-        let pos = Chessboard::default();
-        let pos = pos.make_move(ChessMove::from_text("e4", &pos).unwrap()).unwrap();
-        let pos = pos.make_move(ChessMove::from_text("d5", &pos).unwrap()).unwrap();
+        let pos = Board::default();
+        let pos = pos.make_move(Move::from_text("e4", &pos).unwrap()).unwrap();
+        let pos = pos.make_move(Move::from_text("d5", &pos).unwrap()).unwrap();
         assert_eq!(data.game.mov_hist.len(), 2);
-        assert_eq!(data.game.pos_before_moves, Chessboard::default());
+        assert_eq!(data.game.pos_before_moves, Board::default());
         assert_eq!(data.game.board, pos);
         assert!(data.tag_pairs.is_empty());
     }
@@ -571,7 +570,7 @@ hxg5 29.b3 Ke6 30.a3 Kd6 31.axb4 cxb4 32.Ra5 Nd5 33.f3 Bc8 34.Kf2 Bf5
  %}
 35.Ra7 g6 36.Ra6+ Kc5 37.Ke1{}Nf4 38.g3 Nxh3 39.Kd2 Kb5 40.Rd6 Kc5 41.Ra6
 Nf2 42.g4 Bd3 43.Re6 1/2-1/2"#;
-        let mut parser: PgnParser<'_, Chessboard> = PgnParser::new(pgn);
+        let mut parser: PgnParser<'_, Board> = PgnParser::new(pgn);
         let data = parser.parse(Relaxed).unwrap();
         assert_eq!(data.tag_pairs.len(), 7);
         assert!(matches!(data.tag_pairs[0], Event(_)));
@@ -582,11 +581,10 @@ Nf2 42.g4 Bd3 43.Re6 1/2-1/2"#;
         assert_eq!(data.tag_pairs[4], White("Fischer, Robert J.".into()));
         assert_eq!(data.tag_pairs[5], Black("Spassky, Boris V.".into()));
         assert_eq!(data.tag_pairs[6], Result(GameResult::Draw));
-        assert_eq!(data.game.pos_before_moves, Chessboard::default());
+        assert_eq!(data.game.pos_before_moves, Board::default());
         assert_eq!(data.game.mov_hist.len(), 42 * 2 + 1);
         assert_eq!(data.game.board_hist.len(), data.game.mov_hist.len());
-        assert_eq!(data.game.mov_hist[42].dest_square(), ChessSquare::from_chars('c', '4').unwrap());
-        assert_eq!(data.game.mov_hist[42].piece_type(), Bishop);
+        assert_eq!(data.game.mov_hist[42].dest_square(), Square::from_chars('c', '4').unwrap());
     }
 
     #[test]
@@ -607,12 +605,12 @@ Nf2 42.g4 Bd3 43.Re6 1/2-1/2"#;
 %̷̹̈́̓ ̹̓ ͉̽̈́ ͉̼̰̻̽͂ ̰̓c̹̹ ̴͇̈́̈́|
         1...c6 2. d4 d5 3. Nc3 dxe4 ()4. Nxe4 Nd7 5. Ng5( (a)) Ngf6 6. Bd3 e6 7. N1f3 h6 8. Nxe6 Qe7 9. O-O fxe6 10. Bg6+ Kd8 {Kasparov schüttelt kurz den Kopf} 11. Bf4 b5 12. a4 Bb7 13. Re1 Nd5 14. Bg3 Kc8 15. axb5 cxb5 16. Qd3 Bc6 17. Bf5 exf5 18. Rxe7 Bxe7 19. c4 1-0
         "#;
-        let info = parse_pgn::<Chessboard>(pgn, Relaxed, None).unwrap();
+        let info = parse_pgn::<Board>(pgn, Relaxed, None).unwrap();
         assert_eq!(info.tag_pairs.len(), 11);
-        assert_ne!(info.game.pos_before_moves, Chessboard::default());
+        assert_ne!(info.game.pos_before_moves, Board::default());
         assert_eq!(
             info.game.pos_before_moves,
-            Chessboard::default().make_move(ChessMove::from_text("e4", &Chessboard::default()).unwrap()).unwrap()
+            Board::default().make_move(Move::from_text("e4", &Board::default()).unwrap()).unwrap()
         );
         assert_eq!(info.game.mov_hist.len(), 19 * 2 - 1 - 1);
         assert_eq!(
@@ -625,7 +623,7 @@ Nf2 42.g4 Bd3 43.Re6 1/2-1/2"#;
     #[test]
     fn invalid_pgn_test() {
         let pgn = r#"1.e4 e5 2.Qh5 a6 3. Bc4 b6 4. Qxf7 d6"#;
-        let info = parse_pgn::<Chessboard>(pgn, Relaxed, None);
+        let info = parse_pgn::<Board>(pgn, Relaxed, None);
         assert!(info.is_err());
         assert!(info.err().unwrap().to_string().contains("The game has already ended"));
     }
@@ -639,7 +637,7 @@ Nf2 42.g4 Bd3 43.Re6 1/2-1/2"#;
                 f1=N+ 2. Rxf1+ gxf1=N+ 3. Ngxf1+ Bg5+ 4. Qxg5+ Bg2+ 5. Nf3+ exf3+ 6. Kd3+ Nc5+
 {comment {} 7. Qxc5+ Re3+ 8. Nxe3+ c1=N+ 9. Qxc1+ d1=Q+ 10. Qxd1+ e1=N+ 11. Qxe1+ Bf1+ 12. Nxf1+ f2+
   {\}       13. Ne3+ f1=Q+ 14. Qxf1+ Qxf1+ 15. Nxf1+ Re3+ 16. Nxe3+ b1=Q+ 17. Rxb1+ axb1=Q+ 18. Nc2+ Nf2+ 19. Bxf2+??"#;
-        let data = PgnParser::<'_, Chessboard>::new(pgn).parse(Strict).unwrap();
+        let data = PgnParser::<'_, Board>::new(pgn).parse(Strict).unwrap();
         assert_eq!(data.tag_pairs.len(), 2);
         for (pos, mov) in data.game.seen_so_far().dropping(1) {
             assert!(pos.is_in_check(), "{pos}");

@@ -6,8 +6,8 @@ use crate::load_data::Perspective::SideToMove;
 use derive_more::Display;
 use gears::GameResult;
 use gears::colored::Colorize;
-use gears::games::Color;
-use gears::general::board::Board;
+use gears::games::ColorTrait;
+use gears::general::board::BoardTrait;
 use gears::general::board::Strictness::Relaxed;
 use gears::general::common::anyhow::{anyhow, bail};
 use gears::general::common::{Res, Tokens, parse_fp_from_str, tokens};
@@ -24,7 +24,7 @@ use std::str::FromStr;
 /// A parsed FEN with metadata.
 ///
 /// The weight is inherited from the dataset but can also be changed by the [`Filter`], just like all members.
-pub struct ParseResult<B: Board> {
+pub struct ParseResult<B: BoardTrait> {
     /// The loaded position.
     pub pos: B,
     /// The predicted winrate or WDL result.
@@ -35,7 +35,7 @@ pub struct ParseResult<B: Board> {
 ///
 /// The most basic implementation is [`NoFilter`], which simply accepts every fen.
 /// Another, chess-specific, filter is [`SkipChecks`](super::eval::chess::SkipChecks), which removes positions where the side to move is in check.
-pub trait Filter<B: Board> {
+pub trait Filter<B: BoardTrait> {
     /// Returns an iterator because it's possible for a [`Filter`] to return more than one position per input position.
     /// Filtering could also include running a low-depth search with an engine to relabel the outcome.
     fn filter(pos: ParseResult<B>) -> impl IntoIterator<Item = ParseResult<B>>;
@@ -44,7 +44,7 @@ pub trait Filter<B: Board> {
 /// Doesn't filter any positions, the neutral element of the [`Filter`] monoid.
 pub struct NoFilter {}
 
-impl<B: Board> Filter<B> for NoFilter {
+impl<B: BoardTrait> Filter<B> for NoFilter {
     fn filter(pos: ParseResult<B>) -> impl IntoIterator<Item = ParseResult<B>> {
         [pos]
     }
@@ -75,14 +75,14 @@ pub struct AnnotatedFenFile {
     pub perspective: Perspective,
 }
 
-/// A struct to avoid having to specify the generic [`Board`] and [`Eval`] arguments each time.
+/// A struct to avoid having to specify the generic [`BoardTrait`] and [`Eval`] arguments each time.
 #[derive(Default)]
-pub(super) struct FenReader<B: Board, E: Eval<B>> {
+pub(super) struct FenReader<B: BoardTrait, E: Eval<B>> {
     _phantom_data: PhantomData<B>,
     _phantom_data2: PhantomData<E>,
 }
 
-impl<B: Board, E: Eval<B>> FenReader<B, E> {
+impl<B: BoardTrait, E: Eval<B>> FenReader<B, E> {
     fn parse_wdl(input: &mut Tokens) -> Res<Outcome> {
         const IGNORED: &[char] = &['\"', '\'', '[', ']', '(', ')', '{', '}', ' ', '\t'];
         // This would be a great time to use the `.remainder()` method, but that isn't stable :/
@@ -208,11 +208,11 @@ pub fn list_with_features(batch: Batch, features: Vec<usize>) -> Vec<FeatureAppe
     assert!(features.is_sorted());
     for dp in batch.datapoints.iter() {
         let d = batch.entries_of(dp);
-        debug_assert!(d.into_iter().map(|f| f.idx).is_sorted());
+        debug_assert!(d.iter().map(|f| f.idx).is_sorted());
         for e in d {
             if features.binary_search(&e.idx).is_ok() {
                 let appearance = FeatureAppearance {
-                    entries: d.into_iter().copied().collect_vec(),
+                    entries: d.iter().copied().collect_vec(),
                     weight_idx: e.idx,
                     global_start_idx: dp.start_idx,
                 };

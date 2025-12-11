@@ -12,7 +12,7 @@ use crate::gd::{
 use crate::load_data::Filter;
 use crate::trace::TraceTrait;
 use derive_more::Display;
-use gears::general::board::Board;
+use gears::general::board::BoardTrait;
 use std::fmt;
 use std::fmt::{Display, Formatter};
 
@@ -178,7 +178,7 @@ impl EvalScale {
     /// gets turned to infinity. It's generally better to use a fixed scaling factor, tuning the scaling factor based on the
     /// initial weights is mostly used to import weights that haven't been tuned with this tuner;
     /// as soon as it has been used and resulted in a satisfactory eval scale, you should use that through the `Scale` variant.
-    pub fn to_scaling_factor<B: Board, E: Eval<B>>(self, batch: Batch, eval: &E) -> ScalingFactor {
+    pub fn to_scaling_factor<B: BoardTrait, E: Eval<B>>(self, batch: Batch, eval: &E) -> ScalingFactor {
         match self {
             Scale(scale) => scale,
             InitialWeights(weights) => tune_scaling_factor(&weights, batch, eval),
@@ -280,10 +280,10 @@ pub trait WeightsInterpretation {
 /// Using this tuner means implementing this trait.
 ///
 /// This first means deriving the [`WeightsInterpretation`] trait, an object safe base trait that does not
-/// depend on the [`Board`] type. Implementing the `Eval` requires specifying the
+/// depend on the [`BoardTrait`] type. Implementing the `Eval` requires specifying the
 /// number of weights and features, the type of a single [`Datapoint`] (e.g. [`NonTaperedDatapoint`](gd::NonTaperedDatapoint)),
 /// a [`Filter`] that gets called when loading FENs (e.g. [`NoFilter`](super::load_data::NoFilter)), and implementing the [`feature_trace`][Self::feature_trace] method.
-pub trait Eval<B: Board>: WeightsInterpretation + Default {
+pub trait Eval<B: BoardTrait>: WeightsInterpretation + Default {
     /// Because the eval is assumed to be tapered, this is twice the number of features.
     /// An untapered eval should overwrite this method to return the same value as [`Self::num_features`].
     /// Conceptually, this should be a compile time constant. However, Rust's compile time computation is so limited that it's
@@ -374,7 +374,7 @@ fn grad_for_eval_scale(weights: &Weights, batch: Batch, eval_scale: ScalingFacto
     (dir, loss)
 }
 
-fn tune_scaling_factor<B: Board, E: Eval<B>>(weights: &Weights, batch: Batch, eval: &E) -> ScalingFactor {
+fn tune_scaling_factor<B: BoardTrait, E: Eval<B>>(weights: &Weights, batch: Batch, eval: &E) -> ScalingFactor {
     assert_eq!(E::num_weights(), weights.len(), "The batch doesn't seem to have been created by this eval function");
     assert_eq!(
         weights.len(),
@@ -399,10 +399,13 @@ fn tune_scaling_factor<B: Board, E: Eval<B>>(weights: &Weights, batch: Batch, ev
             eval scale in case this doesn't work, or try again with different datasets"
         );
         let (dir, _loss) = grad_for_eval_scale(weights, batch, scale);
-        if prev_dir.is_none() {
-            prev_dir = Some(dir);
-        } else if prev_dir.unwrap() != dir {
-            break;
+        match prev_dir {
+            None => prev_dir = Some(dir),
+            Some(d) => {
+                if d != dir {
+                    break;
+                }
+            }
         }
         match dir {
             Up => scale *= 2.0,

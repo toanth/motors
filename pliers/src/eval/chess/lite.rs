@@ -9,12 +9,12 @@ use crate::eval::{
 use crate::gd::{Float, Weight, Weights};
 use crate::trace::{FeatureSubSet, SingleFeature, SparseTrace, TraceTrait};
 use gears::games::DimT;
-use gears::games::chess::ChessColor::White;
-use gears::games::chess::pieces::ChessPieceType::*;
-use gears::games::chess::pieces::{ChessPieceType, NUM_CHESS_PIECES};
+use gears::games::chess::Color::White;
+use gears::games::chess::pieces::PieceType::*;
+use gears::games::chess::pieces::{NUM_CHESS_PIECES, PieceType};
 use gears::games::chess::see::SEE_SCORES;
-use gears::games::chess::squares::{ChessSquare, NUM_SQUARES};
-use gears::games::chess::{ChessColor, Chessboard};
+use gears::games::chess::squares::{NUM_SQUARES, Square};
+use gears::games::chess::{Board, Color};
 use gears::general::common::StaticallyNamedEntity;
 use motors::eval::chess::FileOpenness::*;
 use motors::eval::chess::lite::GenericLiTEval;
@@ -209,7 +209,7 @@ impl FeatureSubSet for LiteFeatureSubset {
             Mobility => {
                 writeln!(f, "\npub const MAX_MOBILITY: usize = 7 + 7 + 7 + 6;")?;
                 writeln!(f, "const MOBILITY: [[PhasedScore; MAX_MOBILITY + 1]; NUM_CHESS_PIECES - 1] = [")?;
-                for _piece in ChessPieceType::non_pawn_pieces() {
+                for _piece in PieceType::non_pawn_pieces() {
                     write_range_phased(
                         f,
                         weights,
@@ -296,13 +296,13 @@ impl StaticallyNamedEntity for LiTETrace {
 impl LiteValues for LiTETrace {
     type Score = SparseTrace;
 
-    fn psqt(&self, square: ChessSquare, piece: ChessPieceType, color: ChessColor) -> SingleFeature {
+    fn psqt(&self, square: Square, piece: PieceType, color: Color) -> SingleFeature {
         let square = square.flip_if(color == White);
         let idx = square.bb_idx() + piece as usize * NUM_SQUARES;
         SingleFeature::new(Psqt, idx)
     }
 
-    fn passed_pawn(square: ChessSquare) -> SingleFeature {
+    fn passed_pawn(square: Square) -> SingleFeature {
         let idx = square.bb_idx();
         SingleFeature::new(PassedPawn, idx)
     }
@@ -375,7 +375,7 @@ impl LiteValues for LiTETrace {
         SingleFeature::new(PawnPassiveCenter, config)
     }
 
-    fn pawn_shield(&self, _color: ChessColor, config: usize) -> SingleFeature {
+    fn pawn_shield(&self, _color: Color, config: usize) -> SingleFeature {
         SingleFeature::new(PawnShield, config)
     }
 
@@ -383,11 +383,11 @@ impl LiteValues for LiTETrace {
         SingleFeature::new(PawnlessFlank, 0)
     }
 
-    fn pawn_protection(piece: ChessPieceType) -> SingleFeature {
+    fn pawn_protection(piece: PieceType) -> SingleFeature {
         SingleFeature::new(PawnProtection, piece as usize)
     }
 
-    fn pawn_attack(piece: ChessPieceType) -> SingleFeature {
+    fn pawn_attack(piece: PieceType) -> SingleFeature {
         // For example a pawn attacking another pawn is itself attacked by a pawn, but since a pawn could be attacking
         // two pawns at once this doesn't have to mean that the resulting feature count is zero. So manually exclude this
         // because pawns attacking pawns don't necessarily create an immediate thread like pawns attacking pieces.
@@ -397,38 +397,38 @@ impl LiteValues for LiTETrace {
         SingleFeature::new(PawnAttacks, piece as usize)
     }
 
-    fn pawn_advance_threat(piece: ChessPieceType) -> SingleFeature {
+    fn pawn_advance_threat(piece: PieceType) -> SingleFeature {
         SingleFeature::new(PawnAdvanceThreat, piece as usize)
     }
 
-    fn mobility(piece: ChessPieceType, mobility: usize) -> SingleFeature {
+    fn mobility(piece: PieceType, mobility: usize) -> SingleFeature {
         let idx = (piece as usize - 1) * (MAX_MOBILITY + 1) + mobility;
         SingleFeature::new(Mobility, idx)
     }
 
-    fn threats(attacking: ChessPieceType, targeted: ChessPieceType) -> SingleFeature {
+    fn threats(attacking: PieceType, targeted: PieceType) -> SingleFeature {
         let idx = (attacking as usize - 1) * NUM_CHESS_PIECES + targeted as usize;
         SingleFeature::new(Threat, idx)
     }
 
-    fn defended(protecting: ChessPieceType, target: ChessPieceType) -> SingleFeature {
+    fn defended(protecting: PieceType, target: PieceType) -> SingleFeature {
         let idx = (protecting as usize - 1) * NUM_CHESS_PIECES + target as usize;
         SingleFeature::new(Defense, idx)
     }
 
-    fn king_zone_attack(attacking: ChessPieceType) -> SingleFeature {
+    fn king_zone_attack(attacking: PieceType) -> SingleFeature {
         SingleFeature::new(KingZoneAttack, attacking as usize)
     }
 
-    fn can_give_check(piece: ChessPieceType) -> SingleFeature {
+    fn can_give_check(piece: PieceType) -> SingleFeature {
         SingleFeature::new(CanGiveCheck, piece as usize)
     }
 
-    fn pin(piece: ChessPieceType) -> SingleFeature {
+    fn pin(piece: PieceType) -> SingleFeature {
         SingleFeature::new(Pin, piece as usize)
     }
 
-    fn discovered_check(piece: ChessPieceType) -> SingleFeature {
+    fn discovered_check(piece: PieceType) -> SingleFeature {
         SingleFeature::new(DiscoveredCheck, piece as usize)
     }
 
@@ -475,7 +475,7 @@ impl WeightsInterpretation for TuneLiTEval {
 
     fn initial_weights(&self) -> Option<Weights> {
         let mut weights = vec![Weight(0.0); Self::num_weights()];
-        for piece in ChessPieceType::non_king_pieces() {
+        for piece in PieceType::non_king_pieces() {
             let piece_val = Weight(SEE_SCORES[piece as usize].0 as Float);
             for square in 0..NUM_SQUARES {
                 let i = piece as usize * 64 + square;
@@ -487,14 +487,14 @@ impl WeightsInterpretation for TuneLiTEval {
     }
 }
 
-impl Eval<Chessboard> for TuneLiTEval {
+impl Eval<Board> for TuneLiTEval {
     fn num_features() -> usize {
         LiteFeatureSubset::iter().map(|f| f.num_features()).sum()
     }
 
     type Filter = SkipChecks;
 
-    fn feature_trace(pos: &Chessboard) -> impl TraceTrait {
+    fn feature_trace(pos: &Board) -> impl TraceTrait {
         GenericLiTEval::<LiTETrace>::default().do_eval(pos)
     }
 }

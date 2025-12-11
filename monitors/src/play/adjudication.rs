@@ -1,13 +1,13 @@
 use crate::play::ugi_client::ClientState;
-use gears::games::Color;
-use gears::general::board::Board;
+use gears::games::ColorTrait;
+use gears::general::board::BoardTrait;
 use gears::score::Score;
 use gears::{
-    player_res_to_match_res, AdjudicationReason, GameOver, GameOverReason, GameResult, GameState, MatchResult,
-    PlayerResult,
+    AdjudicationReason, GameOver, GameOverReason, GameResult, GameState, MatchResult, PlayerResult,
+    player_res_to_match_res,
 };
 
-pub trait Adjudication<B: Board> {
+pub trait Adjudication<B: BoardTrait> {
     fn adjudicate(&mut self, state: &ClientState<B>) -> Option<MatchResult>;
 }
 
@@ -36,7 +36,7 @@ impl Adjudicator {
         Self { resign, draw, max_moves_until_draw }
     }
 
-    fn adjudicate_resignation<B: Board>(&mut self, state: &ClientState<B>) -> Option<MatchResult> {
+    fn adjudicate_resignation<B: BoardTrait>(&mut self, state: &ClientState<B>) -> Option<MatchResult> {
         let mut resign = self.resign?;
         if state.ply_count() < resign.start_after {
             return None;
@@ -76,7 +76,7 @@ impl Adjudicator {
         None
     }
 
-    fn adjudicate_draw<B: Board>(&mut self, state: &ClientState<B>) -> Option<MatchResult> {
+    fn adjudicate_draw<B: BoardTrait>(&mut self, state: &ClientState<B>) -> Option<MatchResult> {
         let draw = self.draw?;
         if state.ply_count() < draw.start_after {
             // < instead of <= because start_after == 0 means to start immediately
@@ -105,7 +105,7 @@ impl Adjudicator {
     }
 }
 
-impl<B: Board> Adjudication<B> for Adjudicator {
+impl<B: BoardTrait> Adjudication<B> for Adjudicator {
     fn adjudicate(&mut self, state: &ClientState<B>) -> Option<MatchResult> {
         if state.contains_human() {
             return None;

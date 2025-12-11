@@ -19,8 +19,8 @@ use crate::io::autocomplete::CommandAutocomplete;
 use crate::io::input::InputEnum::{Interactive, NonInteractive};
 use crate::io::{AbstractEngineUgi, AbstractEngineUgiState, EngineUGI};
 use gears::colored::Colorize;
-use gears::games::Color;
-use gears::general::board::Board;
+use gears::games::ColorTrait;
+use gears::general::board::BoardTrait;
 use gears::general::common::Res;
 use gears::general::common::anyhow::{anyhow, bail};
 use gears::output::OutputOpts;
@@ -28,16 +28,16 @@ use inquire::Text;
 use std::io::{IsTerminal, stdin, stdout};
 use std::rc::Rc;
 
-trait GetLine<B: Board> {
+trait GetLine<B: BoardTrait> {
     fn get_line(&mut self, ugi: &mut EngineUGI<B>) -> Res<String>;
 }
 
 #[derive(Debug)]
-struct InteractiveInput<B: Board> {
+struct InteractiveInput<B: BoardTrait> {
     autocompletion: CommandAutocomplete<B>,
 }
 
-impl<B: Board> GetLine<B> for InteractiveInput<B> {
+impl<B: BoardTrait> GetLine<B> for InteractiveInput<B> {
     fn get_line(&mut self, ugi: &mut EngineUGI<B>) -> Res<String> {
         // If reading the input failed, always terminate. This probably means that the pipe is broken or similar,
         // so there's no point in continuing.
@@ -51,9 +51,8 @@ impl<B: Board> GetLine<B> for InteractiveInput<B> {
             ugi.write_ugi(&format_args!(
                 "{}",
                 format!(
-                    "\nIter    Seldepth    Score        Time       Nodes   (New)     NPS  Branch     TT     {pv_spacer}PV"
-                )
-                .bold(),
+                    "\nIter    Depth/Seldepth    Score        Time       Nodes   (New)     NPS  Branch     TT     {pv_spacer}PV"
+                ).bold(),
             ));
             NonInteractiveInput::default().get_line(ugi)
         } else {
@@ -75,7 +74,7 @@ impl<B: Board> GetLine<B> for InteractiveInput<B> {
     }
 }
 
-impl<B: Board> InteractiveInput<B> {
+impl<B: BoardTrait> InteractiveInput<B> {
     fn new(ugi: &mut EngineUGI<B>) -> Self {
         let res = Self { autocompletion: CommandAutocomplete::new(ugi) };
         // technically, we could also use an inquire formatter, but that doesn't seem to handle multi-line messages well
@@ -87,7 +86,7 @@ impl<B: Board> InteractiveInput<B> {
 #[derive(Debug, Default)]
 struct NonInteractiveInput {}
 
-impl<B: Board> GetLine<B> for NonInteractiveInput {
+impl<B: BoardTrait> GetLine<B> for NonInteractiveInput {
     fn get_line(&mut self, _ugi: &mut EngineUGI<B>) -> Res<String> {
         let mut input = String::new();
         let count = stdin().read_line(&mut input)?;
@@ -99,17 +98,18 @@ impl<B: Board> GetLine<B> for NonInteractiveInput {
 }
 
 #[derive(Debug)]
-enum InputEnum<B: Board> {
+#[allow(clippy::large_enum_variant)]
+enum InputEnum<B: BoardTrait> {
     Interactive(InteractiveInput<B>),
     NonInteractive(NonInteractiveInput),
 }
 
 #[derive(Debug)]
-pub struct Input<B: Board> {
+pub struct Input<B: BoardTrait> {
     typ: InputEnum<B>,
 }
 
-impl<B: Board> Input<B> {
+impl<B: BoardTrait> Input<B> {
     pub fn new(mut interactive: bool, ugi: &mut EngineUGI<B>) -> (Self, bool) {
         if !stdout().is_terminal() {
             interactive = false;

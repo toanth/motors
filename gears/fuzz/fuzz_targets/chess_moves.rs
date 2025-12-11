@@ -17,13 +17,13 @@
  */
 #![no_main]
 
-use gears::games::chess::moves::ChessMove;
-use gears::games::chess::Chessboard;
-use gears::general::board::{Board, BoardHelpers};
+use gears::games::chess::Board;
+use gears::games::chess::moves::Move;
+use gears::general::board::BoardTrait;
 use libfuzzer_sys::fuzz_target;
 
-fuzz_target!(|data: ChessMove| {
-    for pos in Chessboard::bench_positions() {
+fuzz_target!(|data: Move| {
+    for pos in Board::bench_positions() {
         let pl = pos.is_move_pseudolegal(data);
         if pl {
             let _ = pos.make_move(data);

@@ -1,14 +1,15 @@
 #[cfg(test)]
 mod tests {
-    use crate::games::Board;
-    use crate::games::chess::Chessboard;
-    use crate::games::chess::moves::ChessMove;
+    use crate::games::BoardTrait;
+    use crate::games::chess::Board;
+    use crate::games::chess::moves::Move;
     use crate::general::board::Strictness::{Relaxed, Strict};
     use crate::general::board::{BoardHelpers, Strictness};
     use crate::general::common::parse_int_from_str;
-    use crate::general::moves::Move;
+    use crate::general::moves::MoveTrait;
+    use crate::general::perft::Bulkness::{Bulk, NoBulk};
     use crate::general::perft::perft;
-    use crate::search::Depth;
+    use crate::search::DepthPly;
     use itertools::Itertools;
     use rand::prelude::SliceRandom;
     use rand::rngs::StdRng;
@@ -21,39 +22,38 @@ mod tests {
 
     #[test]
     fn kiwipete_test() {
-        let board = Chessboard::from_name("kiwipete").unwrap();
-        let res = perft(Depth::new(4), board, false);
+        let board = Board::from_name("kiwipete").unwrap();
+        let res = perft(DepthPly::new(4), board, false, Bulk);
         assert_eq!(res.nodes, 4_085_603);
         // Disabled in debug mode because that would take too long. TODO: Optimize movegen, especially in debug mode.
         if !cfg!(debug_assertions) {
             // kiwipete after white castles (cheaper to run than increasing the depth of kiwipete, and failed perft once)
             let board =
-                Chessboard::from_fen("r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R4RK1 b kq - 1 1", Strict)
-                    .unwrap();
-            let res = perft(Depth::new(4), board, true);
+                Board::from_fen("r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R4RK1 b kq - 1 1", Strict).unwrap();
+            let res = perft(DepthPly::new(4), board, true, Bulk);
             assert_eq!(res.nodes, 4_119_629);
             // kiwipete after white plays a2a3
             let board =
-                Chessboard::from_fen("r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/P1N2Q1p/1PPBBPPP/R3K2R b KQkq - 0 1", Strict)
+                Board::from_fen("r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/P1N2Q1p/1PPBBPPP/R3K2R b KQkq - 0 1", Strict)
                     .unwrap();
-            let res = perft(Depth::new(4), board, false);
+            let res = perft(DepthPly::new(4), board, false, Bulk);
             assert_eq!(res.nodes, 4_627_439);
         }
     }
 
     #[test]
     fn leonids_position_test() {
-        let board = Chessboard::from_fen("q2k2q1/2nqn2b/1n1P1n1b/2rnr2Q/1NQ1QN1Q/3Q3B/2RQR2B/Q2K2Q1 w - - 0 1", Strict)
-            .unwrap();
-        let res = perft(Depth::new(1), board, true);
+        let board =
+            Board::from_fen("q2k2q1/2nqn2b/1n1P1n1b/2rnr2Q/1NQ1QN1Q/3Q3B/2RQR2B/Q2K2Q1 w - - 0 1", Strict).unwrap();
+        let res = perft(DepthPly::new(1), board, true, NoBulk);
         assert_eq!(res.nodes, 99);
         assert!(res.time.as_millis() <= 2);
-        let res = perft(Depth::new(2), board, true);
+        let res = perft(DepthPly::new(2), board, true, NoBulk);
         assert_eq!(res.nodes, 6271);
-        let res = perft(Depth::new(3), board, true);
+        let res = perft(DepthPly::new(3), board, true, NoBulk);
         assert_eq!(res.nodes, 568_299);
         if cfg!(not(debug_assertions)) {
-            let res = perft(Depth::new(4), board, false);
+            let res = perft(DepthPly::new(4), board, false, Bulk);
             assert_eq!(res.nodes, 34_807_627);
         }
     }
@@ -62,8 +62,8 @@ mod tests {
     fn castling_perft_test() {
         // this is not actually a reachable position, but we accept it, so we should handle it
         let fen = "r3k2r/ppp1pp1p/2nqb1Nn/3p4/4P3/2PP4/1PPPNBPP/2NRQK1R w KQkq -";
-        assert!(Chessboard::from_fen(fen, Strict).is_err());
-        let pos = Chessboard::from_fen(fen, Relaxed).unwrap();
+        assert!(Board::from_fen(fen, Strict).is_err());
+        let pos = Board::from_fen(fen, Relaxed).unwrap();
         let expected: &[u64] = &[
             33,
             1328,
@@ -73,15 +73,15 @@ mod tests {
             53117779,
         ];
         for (depth, perft_num) in expected.iter().enumerate() {
-            assert_eq!(perft(Depth::new(depth + 1), pos, false).nodes, *perft_num);
+            assert_eq!(perft(DepthPly::new(depth + 1), pos, false, Bulk).nodes, *perft_num);
         }
     }
 
     #[test]
     fn no_choice_test() {
         let fen = "5b1k/4p1p1/4P1P1/8/8/1p1p4/1P1P4/K1B5 w - - 0 1";
-        let pos = Chessboard::from_fen(fen, Strict).unwrap();
-        let res = perft(Depth::new(1000), pos, false);
+        let pos = Board::from_fen(fen, Strict).unwrap();
+        let res = perft(DepthPly::new(500), pos, false, Bulk);
         assert_eq!(res.nodes, 1);
     }
 
@@ -96,6 +96,9 @@ mod tests {
             ("4k3/8/8/2PpP3/8/8/8/4K3 w - d6 0 1", vec![1, 9, 47, 376]),
             ("4k3/8/8/8/2pPp3/8/8/4K3 b - d3 0 1", vec![1, 9, 47, 376]),
             // EP - pinned diagonal
+            ("8/5k2/8/2Pp4/8/1B6/8/6K1 w - d6 0 1", vec![1, 13, 101]),
+            ("4k3/b7/8/2Pp4/8/4B3/8/6K1 w - d6 0 1", vec![1, 14, 123]),
+            ("4k3/B7/8/2Pp4/8/8/8/6K1 w - d6 0 1", vec![1, 9, 50]),
             ("4k3/b7/8/2Pp4/8/8/8/6K1 w - d6 0 1", vec![1, 5, 45]),
             ("4k3/7b/8/4pP2/8/8/8/1K6 w - e6 0 1", vec![1, 5, 45]),
             ("6k1/8/8/8/2pP4/8/B7/3K4 b - d3 0 1", vec![1, 5, 45]),
@@ -116,32 +119,48 @@ mod tests {
             ("4k3/8/6b1/4pP2/4K3/8/8/8 w - e6 0 1", vec![1, 6, 53]),
             ("4k3/8/3K4/1pP5/8/q7/8/8 w - b6 0 1", vec![1, 5, 114]),
             ("7k/4K3/8/1pP5/8/q7/8/8 w - b6 0 1", vec![1, 8, 171]),
-            // EP - double check
-            ("4k3/2rn4/8/2K1pP2/8/8/8/8 w - e6 0 1", vec![1, 4, 75]),
             // EP - pinned horizontal
             ("4k3/8/8/K2pP2r/8/8/8/8 w - d6 0 1", vec![1, 6, 94]),
             ("4k3/8/8/K2pP2q/8/8/8/8 w - d6 0 1", vec![1, 6, 130]),
+            ("4k3/8/8/r1Pp3K/8/8/8/8 w - d6 0 1", vec![1, 6, 88]),
             ("4k3/8/8/r2pP2K/8/8/8/8 w - d6 0 1", vec![1, 6, 87]),
             ("4k3/8/8/q2pP2K/8/8/8/8 w - d6 0 1", vec![1, 6, 129]),
             ("8/8/8/8/1k1Pp2R/8/8/4K3 b - d3 0 1", vec![1, 8, 125]),
             ("8/8/8/8/1R1Pp2k/8/8/4K3 b - d3 0 1", vec![1, 6, 87]),
+            ("8/8/8/8/1r1Pp2k/8/8/4K3 b - d3 0 1", vec![1, 17, 88]),
+            ("8/8/8/8/1R1PpP1k/8/8/4K3 b - d3 0 1", vec![1, 6, 93]),
+            ("8/8/8/8/1r1PpP1k/8/8/4K3 b - d3 0 1", vec![1, 16, 97]),
+            ("8/8/8/8/1RpPp2k/8/8/4K3 b - d3 0 1", vec![1, 9, 129]),
+            ("8/8/8/8/1rpPp2k/8/8/4K3 b - d3 0 1", vec![1, 17, 88]),
+            ("8/8/8/1k2pPR1/5K2/8/8/8 w - e6 0 1", vec![1, 7, 58]),
             // EP - pinned vertical
             ("k7/8/4r3/3pP3/8/8/8/4K3 w - d6 0 1", vec![1, 5, 70]),
             ("k3K3/8/8/3pP3/8/8/8/4r3 w - d6 0 1", vec![1, 6, 91]),
             // EP - in check
             ("4k3/8/8/4pP2/3K4/8/8/8 w - e6 0 1", vec![1, 9, 49]),
             ("8/8/8/4k3/5Pp1/8/8/3K4 b - f3 0 1", vec![1, 9, 50]),
-            // EP - block check
-            ("4k3/8/K6r/3pP3/8/8/8/8 w - d6 0 1", vec![1, 6, 109]),
-            ("4k3/8/K6q/3pP3/8/8/8/8 w - d6 0 1", vec![1, 6, 151]),
+            ("5r2/8/8/1k2pPR1/5K2/8/8/8 w - - 0 1", vec![1, 6, 112]),
         ];
 
         for (fen, results) in tests {
-            let pos = Chessboard::from_fen(fen, Relaxed).unwrap();
+            let pos = Board::from_fen(fen, Relaxed).unwrap();
             for (idx, &expected) in results.iter().enumerate() {
-                let result = perft(Depth::new(idx), pos, false);
+                let result = perft(DepthPly::new(idx), pos, false, NoBulk);
                 assert_eq!(result.nodes, expected, "depth {idx}: {fen}");
             }
+        }
+    }
+
+    #[test]
+    fn invalid_ep_sq() {
+        let fens = [
+            "4k3/2rn4/8/2K1pP2/8/8/8/8 w - e6 0 1",
+            "4k3/8/K6r/3pP3/8/8/8/8 w - d6 0 1",
+            "4k3/8/K6q/3pP3/8/8/8/8 w - d6 0 1",
+        ];
+        for fen in fens {
+            let parsed = Board::from_fen(fen, Relaxed);
+            assert!(parsed.is_err());
         }
     }
 
@@ -153,9 +172,9 @@ mod tests {
         ];
 
         for (fen, results) in tests {
-            let pos = Chessboard::from_fen(fen, Relaxed).unwrap();
+            let pos = Board::from_fen(fen, Relaxed).unwrap();
             for (idx, &expected) in results.iter().enumerate() {
-                let result = perft(Depth::new(idx), pos, false);
+                let result = perft(DepthPly::new(idx), pos, false, NoBulk);
                 assert_eq!(result.nodes, expected, "depth {idx}: {fen}");
             }
         }
@@ -179,9 +198,9 @@ mod tests {
         ];
 
         for (fen, results) in tests {
-            let pos = Chessboard::from_fen(fen, Relaxed).unwrap();
+            let pos = Board::from_fen(fen, Relaxed).unwrap();
             for (idx, &expected) in results.iter().enumerate() {
-                let result = perft(Depth::new(idx), pos, false);
+                let result = perft(DepthPly::new(idx), pos, false, NoBulk);
                 assert_eq!(result.nodes, expected, "depth {idx}: {fen}");
             }
         }
@@ -200,15 +219,15 @@ mod tests {
             ("4k3/8/8/8/8/8/8/2R1K3 w C - 0 1", [1, 16, 71, 1277]),
             ("2r1k3/8/8/8/8/8/8/4K3 w c - 0 1", [1, 5, 80, 448]),
         ];
-        let pos = Chessboard::from_fen("1r4kr/8/8/8/8/8/2R5/RK6 w Ah - 2 2", Strict).unwrap();
-        let mov = ChessMove::from_text("0-0-0", &pos).unwrap();
+        let pos = Board::from_fen("1r4kr/8/8/8/8/8/2R5/RK6 w Ah - 2 2", Strict).unwrap();
+        let mov = Move::from_text("0-0-0", &pos).unwrap();
         assert!(pos.is_generated_move_pseudolegal(mov));
         assert!(!pos.is_pseudolegal_move_legal(mov));
 
         for (fen, results) in tests {
-            let pos = Chessboard::from_fen(fen, Relaxed).unwrap();
+            let pos = Board::from_fen(fen, Relaxed).unwrap();
             for (idx, &expected) in results.iter().enumerate() {
-                let result = perft(Depth::new(idx), pos, false);
+                let result = perft(DepthPly::new(idx), pos, false, NoBulk);
                 assert_eq!(result.nodes, expected, "depth {idx}: {fen}");
             }
         }
@@ -304,23 +323,26 @@ mod tests {
                 let handle = s.spawn(move || {
                     for testcase in chunk {
                         let expected = ExpectedPerftRes::new(testcase);
-                        let board = Chessboard::from_fen(expected.fen, strictness).unwrap();
+                        let board = Board::from_fen(expected.fen, strictness).unwrap();
                         println!("Thread {1:?}: Running test on fen {0}, board\n{board}", expected.fen, current().id());
                         stdout().flush().unwrap();
                         let fen = board.as_fen();
-                        let board2 = Chessboard::from_fen(&fen, strictness).unwrap();
+                        let board2 = Board::from_fen(&fen, strictness).unwrap();
                         if board != board2 {
-                            eprintln!("boards differ: {board} vs {board2}, fen was {}", expected.fen);
+                            eprintln!(
+                                "boards differ: '{board}' vs '{board2}', fen was '{}'\n{board:?}\n{board2:?}",
+                                expected.fen
+                            );
                             // it's fine for relaxed FENs to contain illegal pseudolegal ep moves
                             assert_eq!(strictness, Relaxed);
-                            assert!(Chessboard::from_fen(expected.fen, Strict).is_err());
+                            assert!(Board::from_fen(expected.fen, Strict).is_err());
                             assert!(board.pseudolegal_moves().iter().any(|m| m.is_ep()));
                             assert!(!board.legal_moves_slow().iter().any(|m| m.is_ep()));
                         }
                         for (depth, expected_count) in
                             expected.res.iter().enumerate().filter(|(_depth, x)| **x != INVALID)
                         {
-                            let res = perft(Depth::new(depth), board, false);
+                            let res = perft(DepthPly::new(depth), board, false, Bulk);
                             assert_eq!(res.depth.get(), depth);
                             assert_eq!(res.nodes, *expected_count, "{depth} {board}");
                             println!(
@@ -489,11 +511,14 @@ mod tests {
         "8/PPPk4/8/8/8/8/4Kppp/8 b - - 0 1 ;D1 18 ;D2 270 ;D3 4699 ;D4 79355 ;D5 1533145 ;D6 28859283",
         "n1n5/PPPk4/8/8/8/8/4Kppp/5N1N b - - 0 1 ;D1 24 ;D2 496 ;D3 9483 ;D4 182838 ;D5 3605103 ;D6 71179139",
         "8/2p5/3p4/KP5r/1R3p1k/8/4P1P1/8 w - - 0 1 ;D4 43238 ;D5 674624 ;D6 11030083",
+        "3b4/2p5/3p4/KP5r/1R3p1k/8/4P1P1/8 w - - 0 1 ;D1 14 ;D2 227 ;D3 3093 ;D4 55801 ;D5 827327 ;D6 16068651", // modified ep test
         "rnbqkb1r/ppppp1pp/7n/4Pp2/8/8/PPPP1PPP/RNBQKBNR w KQkq f6 0 3 ;D5 11139762",
         // positions from https://analog-hors.github.io/webperft/
         "r3k2r/Pppp1ppp/1b3nbN/nP6/BBP1P3/q4N2/Pp1P2PP/R2Q1RK1 w kq - 0 1 ;D1 6 ;D2 264 ;D3 9467 ;D4 422333 ;D5 15833292 ;D6 706045033",
-        "rnbq1k1r/pp1Pbppp/2p5/8/2B5/8/PPP1NnPP/RNBQK2R w KQ - 1 8 ;D1 44 ;D2 1486 ;D3 62379 ;D4 2103487 ;D5 89941194 ;D6 3048196529", // can take a while
+        "rnbq1k1r/pp1Pbppp/2p5/8/2B5/8/PPP1NnPP/RNBQK2R w KQ - 1 8 ;D1 44 ;D2 1486 ;D3 62379 ;D4 2103487 ;D5 89941194 ;D6 3048196529",
         "r4rk1/1pp1qppp/p1np1n2/2b1p1B1/2B1P1b1/P1NP1N2/1PP1QPPP/R4RK1 w - - 0 10 ;D1 46 ;D2 2079 ;D3 89890 ;D4 3894594 ;D5 164075551",
+        // ep with pins and discovered checks
+        "8/8/5p2/1rp1b3/1R1p1pk1/8/2P1P2K/3Q4 w - - 12 34 ;D1 24 ;D2 371 ;D3 9015 ;D4 158476 ;D5 4035728 ;D6 75896728",
         // another pinned pawns test (this time without en passant)
         "4Q3/5p2/6k1/8/4p3/8/2B3K1/8 b - - 0 1 ;D1 7 ;D2 203 ;D3 1250 ;D4 37962 ;D5 227787 ;D6 7036323 ;D7 41501304",
         // yet another pinned pawn test

@@ -11,21 +11,21 @@ use gears::arrayvec::ArrayVec;
 use gears::colored::Color::Red;
 use gears::colored::Colorize;
 use gears::dyn_clone::DynClone;
-use gears::games::{BoardHistory, ZobristHistory};
+use gears::games::{BoardHistDyn, ZobristHistory};
 use gears::general::board::Strictness::Relaxed;
-use gears::general::board::{Board, BoardHelpers};
+use gears::general::board::{BoardHelpers, BoardTrait};
 use gears::general::common::anyhow::bail;
 use gears::general::common::{EntityList, Name, NamedEntity, Res, StaticallyNamedEntity};
-use gears::general::move_list::MoveList;
-use gears::general::moves::Move;
+use gears::general::move_list::MoveListTrait;
+use gears::general::moves::MoveTrait;
 use gears::itertools::Itertools;
 use gears::output::Message;
 use gears::output::Message::Warning;
 use gears::rand::SeedableRng;
 use gears::rand::prelude::StdRng;
 use gears::score::{MAX_BETA, MIN_ALPHA, NO_SCORE_YET, SCORE_WON, Score, ScoreT};
-use gears::search::{Depth, NodeType, NodesLimit, SearchInfo, SearchLimit, SearchResult, TimeControl};
-use gears::ugi::{EngineOption, EngineOptionName, EngineOptionType};
+use gears::search::{Budget, DepthPly, NodeType, NodesLimit, SearchInfo, SearchLimit, SearchResult, TimeControl};
+use gears::ugi::{EngineOption, EngineOptionNameForProto, EngineOptionType};
 use std::collections::HashMap;
 use std::fmt;
 use std::fmt::{Debug, Display, Formatter};
@@ -64,9 +64,9 @@ pub struct EngineInfo {
     engine: Name,
     eval: Option<Name>,
     version: String,
-    default_bench_depth: Depth,
+    default_bench_depth: DepthPly,
     default_bench_nodes: NodesLimit,
-    options: HashMap<EngineOptionName, EngineOptionType>,
+    options: HashMap<EngineOptionNameForProto, EngineOptionType>,
     max_threads: usize,
     pub internal_state_description: Option<String>,
 }
@@ -100,11 +100,11 @@ impl NamedEntity for EngineInfo {
 }
 
 impl EngineInfo {
-    pub fn new<B: Board, E: Engine<B>>(
+    pub fn new<B: BoardTrait, E: Engine<B>>(
         engine: &E,
         eval: &dyn Eval<B>,
         version: &str,
-        default_bench_depth: Depth,
+        default_bench_depth: DepthPly,
         default_bench_nodes: NodesLimit,
         max_threads: Option<usize>,
         options: Vec<EngineOption>,
@@ -132,7 +132,7 @@ impl EngineInfo {
         &self.eval
     }
 
-    pub fn default_bench_depth(&self) -> Depth {
+    pub fn default_bench_depth(&self) -> DepthPly {
         self.default_bench_depth
     }
 
@@ -157,14 +157,14 @@ impl EngineInfo {
 pub struct BenchResult {
     pub nodes: u64,
     pub time: Duration,
-    pub max_depth: Depth,
-    pub depth: Option<Depth>,
+    pub max_iterations: DepthPly,
+    pub depth: Option<DepthPly>,
     pub pv_score_hash: u64,
 }
 
 impl Default for BenchResult {
     fn default() -> Self {
-        Self { nodes: 0, time: Duration::default(), depth: None, max_depth: Depth::new(0), pv_score_hash: 0 }
+        Self { nodes: 0, time: Duration::default(), depth: None, max_iterations: DepthPly::new(0), pv_score_hash: 0 }
     }
 }
 
@@ -174,7 +174,7 @@ impl Display for BenchResult {
         writeln!(
             f,
             "{depth}max depth {0}, time {2} ms, {1} nodes, {3} nps, hash {4:X}",
-            self.max_depth.get(),
+            self.max_iterations.get(),
             Colorize::bold(self.nodes.to_string().as_str()),
             self.time.as_millis().to_string().color(Red),
             (self.nodes as f64 / self.time.as_millis() as f64 * 1000.0).round().to_string().color(Red),
@@ -184,17 +184,17 @@ impl Display for BenchResult {
 }
 
 #[derive(Debug, Clone, Eq, PartialEq)]
-pub struct Pv<B: Board, const LIMIT: usize> {
+pub struct Pv<B: BoardTrait, const LIMIT: usize> {
     list: ArrayVec<B::Move, LIMIT>,
 }
 
-impl<B: Board, const LIMIT: usize> Default for Pv<B, LIMIT> {
+impl<B: BoardTrait, const LIMIT: usize> Default for Pv<B, LIMIT> {
     fn default() -> Self {
         Self { list: ArrayVec::new() }
     }
 }
 
-impl<B: Board, const LIMIT: usize> Pv<B, LIMIT> {
+impl<B: BoardTrait, const LIMIT: usize> Pv<B, LIMIT> {
     pub fn extend(&mut self, mov: B::Move, child_pv: &Pv<B, LIMIT>) {
         self.reset_to_move(mov);
         self.list.try_extend_from_slice(child_pv.list.as_slice()).unwrap();
@@ -216,6 +216,7 @@ impl<B: Board, const LIMIT: usize> Pv<B, LIMIT> {
         self.list.is_empty()
     }
 
+    #[cold]
     pub fn clear(&mut self) {
         self.list.clear();
     }
@@ -235,23 +236,23 @@ impl<B: Board, const LIMIT: usize> Pv<B, LIMIT> {
     }
 }
 
-pub trait AbstractEvalBuilder<B: Board>: NamedEntity + DynClone {
+pub trait AbstractEvalBuilder<B: BoardTrait>: NamedEntity + DynClone {
     fn build(&self) -> Box<dyn Eval<B>>;
 }
 
 #[derive(Debug, Default)]
-pub struct EvalBuilder<B: Board, E: Eval<B> + Default> {
+pub struct EvalBuilder<B: BoardTrait, E: Eval<B> + Default> {
     _phantom_board: PhantomData<B>,
     _phantom_eval: PhantomData<E>,
 }
 
-impl<B: Board, E: Eval<B> + Default> Clone for EvalBuilder<B, E> {
+impl<B: BoardTrait, E: Eval<B> + Default> Clone for EvalBuilder<B, E> {
     fn clone(&self) -> Self {
         Self::default()
     }
 }
 
-impl<B: Board, E: Eval<B> + Default> StaticallyNamedEntity for EvalBuilder<B, E> {
+impl<B: BoardTrait, E: Eval<B> + Default> StaticallyNamedEntity for EvalBuilder<B, E> {
     fn static_short_name() -> impl Display
     where
         Self: Sized,
@@ -274,7 +275,7 @@ impl<B: Board, E: Eval<B> + Default> StaticallyNamedEntity for EvalBuilder<B, E>
     }
 }
 
-impl<B: Board, E: Eval<B> + Default> AbstractEvalBuilder<B> for EvalBuilder<B, E> {
+impl<B: BoardTrait, E: Eval<B> + Default> AbstractEvalBuilder<B> for EvalBuilder<B, E> {
     fn build(&self) -> Box<dyn Eval<B>> {
         Box::new(E::default())
     }
@@ -285,7 +286,7 @@ pub type EvalList<B> = EntityList<Box<dyn AbstractEvalBuilder<B>>>;
 /// A trait because this type erases over the Engine being built.
 /// There are two related concepts: `Engine` and `Searcher`.
 /// A searcher is an algorithm like caps or gaps, an engine is a searcher plus an eval.
-pub trait AbstractSearcherBuilder<B: Board>: NamedEntity + DynClone {
+pub trait AbstractSearcherBuilder<B: BoardTrait>: NamedEntity + DynClone {
     fn build_in_new_thread(&self, eval: Box<dyn Eval<B>>) -> (Sender<EngineReceives<B>>, EngineInfo) {
         let engine = self.build_for_eval(eval);
         let info = engine.engine_info();
@@ -305,36 +306,36 @@ pub trait AbstractSearcherBuilder<B: Board>: NamedEntity + DynClone {
 pub type SearcherList<B> = EntityList<Box<dyn AbstractSearcherBuilder<B>>>;
 
 #[derive(Debug)]
-pub struct SearcherBuilder<B: Board, E: Engine<B>> {
+pub struct SearcherBuilder<B: BoardTrait, E: Engine<B>> {
     _phantom_b: PhantomData<B>,
     _phantom_e: PhantomData<E>,
 }
 
-impl<B: Board, E: Engine<B>> Default for SearcherBuilder<B, E> {
+impl<B: BoardTrait, E: Engine<B>> Default for SearcherBuilder<B, E> {
     fn default() -> Self {
         Self { _phantom_b: PhantomData, _phantom_e: PhantomData }
     }
 }
 
-impl<B: Board, E: Engine<B>> Clone for SearcherBuilder<B, E> {
+impl<B: BoardTrait, E: Engine<B>> Clone for SearcherBuilder<B, E> {
     fn clone(&self) -> Self {
         Self { _phantom_b: PhantomData, _phantom_e: PhantomData }
     }
 }
 
-impl<B: Board, E: Engine<B>> SearcherBuilder<B, E> {
+impl<B: BoardTrait, E: Engine<B>> SearcherBuilder<B, E> {
     pub fn new() -> Self {
         Self::default()
     }
 }
 
-impl<B: Board, E: Engine<B>> AbstractSearcherBuilder<B> for SearcherBuilder<B, E> {
+impl<B: BoardTrait, E: Engine<B>> AbstractSearcherBuilder<B> for SearcherBuilder<B, E> {
     fn build_for_eval(&self, eval: Box<dyn Eval<B>>) -> Box<dyn Engine<B>> {
         Box::new(E::with_eval(eval))
     }
 }
 
-impl<B: Board, E: Engine<B>> StaticallyNamedEntity for SearcherBuilder<B, E> {
+impl<B: BoardTrait, E: Engine<B>> StaticallyNamedEntity for SearcherBuilder<B, E> {
     fn static_short_name() -> impl Display {
         E::static_short_name()
     }
@@ -348,7 +349,7 @@ impl<B: Board, E: Engine<B>> StaticallyNamedEntity for SearcherBuilder<B, E> {
     }
 }
 
-pub trait Engine<B: Board>: StaticallyNamedEntity + Send + 'static {
+pub trait Engine<B: BoardTrait>: StaticallyNamedEntity + Send + 'static {
     type SearchStackEntry: SearchStackEntry<B>
     where
         Self: Sized;
@@ -390,11 +391,11 @@ pub trait Engine<B: Board>: StaticallyNamedEntity + Send + 'static {
         self.engine_info().default_bench_nodes
     }
 
-    fn default_bench_depth(&self) -> Depth {
+    fn default_bench_depth(&self) -> DepthPly {
         self.engine_info().default_bench_depth
     }
 
-    fn max_bench_depth(&self) -> Depth;
+    fn max_bench_depth(&self) -> DepthPly;
 
     fn search_state_dyn(&self) -> &dyn AbstractSearchState<B>;
 
@@ -421,12 +422,17 @@ pub trait Engine<B: Board>: StaticallyNamedEntity + Send + 'static {
 
     /// Returns a [`SearchInfo`] object with information about the search so far.
     /// Can be called during search, only returns the information regarding the current thread.
-    fn search_info(&self) -> SearchInfo<B> {
-        self.search_state_dyn().to_search_info()
+    fn search_info(&self, final_info: bool) -> SearchInfo<'_, B> {
+        self.search_state_dyn().to_search_info(final_info)
     }
 
     /// Sets an option with the name 'option' to the value 'value'.
-    fn set_option(&mut self, option: EngineOptionName, old_value: &mut EngineOptionType, value: String) -> Res<()> {
+    fn set_option(
+        &mut self,
+        option: EngineOptionNameForProto,
+        old_value: &mut EngineOptionType,
+        value: String,
+    ) -> Res<()> {
         bail!(
             "The searcher '{name}' doesn't support setting custom options, including setting '{option}' to '{value}' \
             (Note: Some options, like 'Hash' and 'Threads', may still be supported but aren't handled by the searcher). \
@@ -477,7 +483,7 @@ pub trait Engine<B: Board>: StaticallyNamedEntity + Send + 'static {
 }
 
 /// A proof number search isn't a normal engine, and neither is a random mover
-pub trait NormalEngine<B: Board>: Engine<B> {
+pub trait NormalEngine<B: BoardTrait>: Engine<B> {
     fn search_state(&self) -> &SearchStateFor<B, Self>
     where
         Self: Sized;
@@ -486,8 +492,8 @@ pub trait NormalEngine<B: Board>: Engine<B> {
     where
         Self: Sized;
 
-    fn time_up(&self, tc: TimeControl, hard_limit: Duration, elapsed: Duration) -> bool {
-        elapsed >= hard_limit.min(tc.remaining / 32 + tc.increment / 2)
+    fn time_up(&self, tc: TimeControl, hard_limit: Duration, byoyomi: Duration, elapsed: Duration) -> bool {
+        elapsed >= byoyomi + hard_limit.min(tc.remaining / 32 + tc.increment / 2)
     }
 
     // Sensible default values, but engines may choose to check more/less frequently than every n nodes
@@ -508,7 +514,7 @@ pub trait NormalEngine<B: Board>: Engine<B> {
             return false;
         }
         let elapsed = self.search_state().start_time().elapsed();
-        if self.time_up(limit.tc, limit.fixed_time, elapsed) {
+        if self.time_up(limit.tc, limit.fixed_time, limit.byoyomi, elapsed) {
             self.search_state().stop_search();
             return true;
         }
@@ -520,27 +526,27 @@ pub trait NormalEngine<B: Board>: Engine<B> {
         elapsed: Duration,
         soft_limit: Duration,
         soft_nodes: u64,
-        depth: isize,
-        max_soft_depth: isize,
-        mate_depth: Depth,
+        iter: isize,
+        max_soft_iter: isize,
+        mate_depth: DepthPly,
     ) -> bool
     where
         Self: Sized,
     {
         let state = self.search_state();
-        depth > 1
+        iter > 1
             && (elapsed >= soft_limit
             // even in a multipv search, we stop as soon as a single mate is found
             || state.best_score() >= Score(SCORE_WON.0 - mate_depth.get() as ScoreT))
             || state.uci_nodes() >= soft_nodes
-            || depth > max_soft_depth
+            || iter > max_soft_iter
     }
 }
 
 const DEFAULT_CHECK_TIME_INTERVAL: u64 = 1024;
 
 #[allow(type_alias_bounds)]
-pub type SearchStateFor<B: Board, E: NormalEngine<B>> = SearchState<B, E::SearchStackEntry, E::CustomInfo>;
+pub type SearchStateFor<B: BoardTrait, E: NormalEngine<B>> = SearchState<B, E::SearchStackEntry, E::CustomInfo>;
 
 #[derive(Debug, Default, Eq, PartialEq, Ord, PartialOrd, Copy, Clone, Add, Sub, Neg)]
 #[must_use]
@@ -550,7 +556,7 @@ impl MoveScore {
     const MAX: MoveScore = MoveScore(i16::MAX);
 }
 
-pub trait MoveScorer<B: Board, E: Engine<B>>: Debug {
+pub trait MoveScorer<B: BoardTrait, E: Engine<B>>: Debug {
     /// This gets called when inserting a move into the move list
     fn score_move_eager_part(&self, mov: B::Move, state: &SearchStateFor<B, E>) -> MoveScore;
     /// This gets called upon choosing the next move, and if it returns `false`, the move is deferred until all moves
@@ -569,7 +575,7 @@ pub trait MoveScorer<B: Board, E: Engine<B>>: Debug {
 
 /// A struct bundling parameters that modify the core search.
 #[derive(Debug, Default)]
-pub struct SearchParams<B: Board> {
+pub struct SearchParams<B: BoardTrait> {
     pub pos: B,
     pub limit: SearchLimit,
     pub atomic: Arc<AtomicSearchState<B>>,
@@ -579,9 +585,10 @@ pub struct SearchParams<B: Board> {
     pub restrict_moves: Option<Vec<B::Move>>,
     // may be set to 0 if there are no legal moves
     pub num_multi_pv: usize,
+    pub contempt: Score,
 }
 
-impl<B: Board> SearchParams<B> {
+impl<B: BoardTrait> SearchParams<B> {
     pub fn for_pos(pos: B, limit: SearchLimit) -> Self {
         Self::new_unshared(pos, limit, ZobristHistory::default(), TT::default())
     }
@@ -597,9 +604,10 @@ impl<B: Board> SearchParams<B> {
         tt: TT,
         atomic: Arc<AtomicSearchState<B>>,
     ) -> Self {
-        Self::create(pos, limit, history, tt, None, 0, atomic, Auxiliary)
+        Self::create(pos, limit, history, tt, None, 0, Score(0), atomic, Auxiliary)
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn with_output(
         pos: B,
         limit: SearchLimit,
@@ -612,7 +620,7 @@ impl<B: Board> SearchParams<B> {
     ) -> Self {
         let atomic = Arc::new(AtomicSearchState::default());
         let thread_type = SearchThreadType::new_single_thread(output, info, atomic.clone());
-        Self::create(pos, limit, history, tt, restrict_moves, additional_pvs, atomic, thread_type)
+        Self::create(pos, limit, history, tt, restrict_moves, additional_pvs, Score(0), atomic, thread_type)
     }
 
     #[expect(clippy::too_many_arguments)]
@@ -623,10 +631,21 @@ impl<B: Board> SearchParams<B> {
         tt: TT,
         restrict_moves: Option<Vec<B::Move>>,
         additional_pvs: usize,
+        contempt: Score,
         atomic: Arc<AtomicSearchState<B>>,
         thread_type: SearchThreadType<B>,
     ) -> Self {
-        Self { pos, limit, atomic, history, tt, thread_type, restrict_moves, num_multi_pv: additional_pvs + 1 }
+        Self {
+            pos,
+            limit,
+            atomic,
+            history,
+            tt,
+            thread_type,
+            restrict_moves,
+            num_multi_pv: additional_pvs + 1,
+            contempt,
+        }
     }
 
     pub fn restrict_moves(mut self, moves: Vec<B::Move>) -> Self {
@@ -644,6 +663,11 @@ impl<B: Board> SearchParams<B> {
         self
     }
 
+    pub fn with_contempt(mut self, contempt: Score) -> Self {
+        self.contempt = contempt;
+        self
+    }
+
     pub fn auxiliary(&self, atomic: Arc<AtomicSearchState<B>>) -> Self {
         // allow calling this on an auxiliary thread as well
         //assert!(matches!(self.thread_type, Main(_)));
@@ -656,6 +680,7 @@ impl<B: Board> SearchParams<B> {
             thread_type: Auxiliary,
             restrict_moves: self.restrict_moves.clone(),
             num_multi_pv: self.num_multi_pv,
+            contempt: self.contempt,
         }
     }
 
@@ -704,7 +729,7 @@ impl<B: Board> SearchParams<B> {
     }
 }
 
-pub trait SearchStackEntry<B: Board>: Default + Clone + Debug {
+pub trait SearchStackEntry<B: BoardTrait>: Default + Clone + Debug {
     fn forget(&mut self) {
         self.clone_from(&Self::default());
     }
@@ -715,7 +740,7 @@ pub trait SearchStackEntry<B: Board>: Default + Clone + Debug {
 #[derive(Copy, Clone, Default, Debug)]
 pub struct EmptySearchStackEntry {}
 
-impl<B: Board> SearchStackEntry<B> for EmptySearchStackEntry {
+impl<B: BoardTrait> SearchStackEntry<B> for EmptySearchStackEntry {
     fn pv(&self) -> Option<&[B::Move]> {
         None
     }
@@ -725,7 +750,7 @@ impl<B: Board> SearchStackEntry<B> for EmptySearchStackEntry {
     }
 }
 
-pub trait CustomInfo<B: Board>: Default + Clone + Debug {
+pub trait CustomInfo<B: BoardTrait>: Default + Clone + Debug {
     fn new_search(&mut self) {
         self.hard_forget_except_tt();
     }
@@ -739,12 +764,12 @@ pub trait CustomInfo<B: Board>: Default + Clone + Debug {
 #[derive(Default, Clone, Debug)]
 pub struct NoCustomInfo {}
 
-impl<B: Board> CustomInfo<B> for NoCustomInfo {
+impl<B: BoardTrait> CustomInfo<B> for NoCustomInfo {
     fn hard_forget_except_tt(&mut self) {}
 }
 
 #[derive(Debug, Clone)]
-pub struct PVData<B: Board> {
+pub struct PVData<B: BoardTrait> {
     alpha: Score,
     beta: Score,
     radius: Score,
@@ -753,7 +778,7 @@ pub struct PVData<B: Board> {
     pub bound: Option<NodeType>,
 }
 
-impl<B: Board> Default for PVData<B> {
+impl<B: BoardTrait> Default for PVData<B> {
     fn default() -> Self {
         Self {
             alpha: MIN_ALPHA,
@@ -766,7 +791,7 @@ impl<B: Board> Default for PVData<B> {
     }
 }
 
-impl<B: Board> PVData<B> {
+impl<B: BoardTrait> PVData<B> {
     pub fn reset(&mut self) {
         self.alpha = MIN_ALPHA;
         self.beta = MAX_BETA;
@@ -777,7 +802,7 @@ impl<B: Board> PVData<B> {
     }
 }
 
-pub trait AbstractSearchState<B: Board> {
+pub trait AbstractSearchState<B: BoardTrait> {
     fn forget(&mut self, hard: bool);
     fn new_search(&mut self, params: SearchParams<B>);
     fn end_search(&mut self, res: &SearchResult<B>);
@@ -790,11 +815,14 @@ pub trait AbstractSearchState<B: Board> {
     }
     fn pv_data(&self) -> &[PVData<B>];
     fn to_bench_res(&self) -> BenchResult;
-    fn to_search_info(&self) -> SearchInfo<B>;
+    fn to_search_info(&self, final_info: bool) -> SearchInfo<'_, B>;
     fn aggregated_statistics(&self) -> Statistics;
-    fn send_search_info(&self);
+    fn send_search_info(&self, final_info: bool);
     fn should_show_debug_msg(&self) -> bool {
         self.search_params().thread_type.output().is_some_and(|o| o.show_debug_output)
+    }
+    fn output_minimal(&self) -> bool {
+        self.search_params().thread_type.output().is_some_and(|o| o.minimal)
     }
     fn send_non_ugi(&mut self, typ: Message, message: &fmt::Arguments) {
         if let Some(mut output) = self.search_params().thread_type.output() {
@@ -814,15 +842,16 @@ pub trait AbstractSearchState<B: Board> {
 }
 
 #[derive(Debug)]
-pub struct SearchState<B: Board, E: SearchStackEntry<B>, C: CustomInfo<B>> {
+pub struct SearchState<B: BoardTrait, E: SearchStackEntry<B>, C: CustomInfo<B>> {
     search_stack: Vec<E>,
     params: SearchParams<B>,
     custom: C,
     excluded_moves: Vec<B::Move>,
     multi_pvs: Vec<PVData<B>>,
     current_pv_num: usize,
-    // This is the point at which the search actually started.
-    // The `limit` (part of `params`) has the point when the search was requested
+    // The internal engine depth (if applicable) is represented as `Budget` and can be fractional.
+    // This is different from the UCI "depth", expressed as `DepthPly`, which is the ID loop counter for a/b engines with ID.
+    budget: Budget,
     execution_start_time: Instant,
     last_msg_time: Instant,
     statistics: Statistics,
@@ -830,20 +859,20 @@ pub struct SearchState<B: Board, E: SearchStackEntry<B>, C: CustomInfo<B>> {
     age: Age,
 }
 
-impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo<B>> Deref for SearchState<B, E, C> {
+impl<B: BoardTrait, E: SearchStackEntry<B>, C: CustomInfo<B>> Deref for SearchState<B, E, C> {
     type Target = C;
     fn deref(&self) -> &Self::Target {
         &self.custom
     }
 }
 
-impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo<B>> DerefMut for SearchState<B, E, C> {
+impl<B: BoardTrait, E: SearchStackEntry<B>, C: CustomInfo<B>> DerefMut for SearchState<B, E, C> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.custom
     }
 }
 
-impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo<B>> AbstractSearchState<B> for SearchState<B, E, C> {
+impl<B: BoardTrait, E: SearchStackEntry<B>, C: CustomInfo<B>> AbstractSearchState<B> for SearchState<B, E, C> {
     fn forget(&mut self, hard: bool) {
         self.last_msg_time = Instant::now();
         self.execution_start_time = self.last_msg_time;
@@ -888,10 +917,13 @@ impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo<B>> AbstractSearchState<B> 
         // contains only invalid moves. Search must be able to deal with this, but we still add an empty multipv entry
         self.multi_pvs.resize_with(parameters.num_multi_pv.max(1), PVData::default);
         // If only one move can be played, immediately return it without doing a real search to make the engine appear
-        // smarter, and perform better on lichess when it's up against an opponent with pondering enabled.
+        // smarter, and perform better in cases like lichess when it's up against an opponent with pondering enabled.
         // However, don't do this if the engine is used for analysis.
         if num_moves == 1 && parameters.limit.is_only_time_based() {
-            parameters.limit.depth = Depth::new(1);
+            parameters.limit.depth = DepthPly::new(1);
+        }
+        if let Some(mut output) = self.params.thread_type.output() {
+            output.new_search();
         }
         self.params = parameters;
         // it's possible that a stop command has already been received and handled, which means the stop flag
@@ -951,16 +983,17 @@ impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo<B>> AbstractSearchState<B> 
         BenchResult {
             nodes: self.uci_nodes(),
             time: self.execution_start_time().elapsed(),
-            max_depth: self.depth(),
+            max_iterations: self.iterations(),
             depth: None,
             pv_score_hash: hash,
         }
     }
 
-    fn to_search_info(&self) -> SearchInfo<B> {
+    fn to_search_info(&self, final_info: bool) -> SearchInfo<'_, B> {
         let mut res = SearchInfo {
             best_move_of_all_pvs: self.best_move(),
-            depth: self.depth(),
+            iterations: self.iterations(),
+            budget: self.budget,
             seldepth: self.seldepth(),
             time: self.execution_start_time().elapsed(),
             nodes: NodesLimit::new(self.uci_nodes()).unwrap(),
@@ -973,6 +1006,7 @@ impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo<B>> AbstractSearchState<B> 
             bound: self.cur_pv_data().bound,
             num_threads: 1,
             additional: Self::additional(),
+            final_info,
         };
         if let Main(data) = &self.params.thread_type {
             let shared = data.shared_atomic_state();
@@ -987,9 +1021,9 @@ impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo<B>> AbstractSearchState<B> 
         self.aggregated_statistics.clone()
     }
 
-    fn send_search_info(&self) {
+    fn send_search_info(&self, final_info: bool) {
         if let Some(mut output) = self.search_params().thread_type.output() {
-            output.write_search_info(self.to_search_info());
+            output.write_search_info(self.to_search_info(final_info));
         }
     }
 
@@ -1002,7 +1036,7 @@ impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo<B>> AbstractSearchState<B> 
     }
 }
 
-impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo<B>> SearchState<B, E, C> {
+impl<B: BoardTrait, E: SearchStackEntry<B>, C: CustomInfo<B>> SearchState<B, E, C> {
     /// True if the engine has received a 'stop' command or if a search limit has been reached.
     fn stop_flag(&self) -> bool {
         self.search_params().atomic.stop_flag()
@@ -1012,11 +1046,11 @@ impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo<B>> SearchState<B, E, C> {
         self.tt().estimate_hashfull::<B>(age)
     }
 
-    fn depth(&self) -> Depth {
-        self.search_params().atomic.depth()
+    fn iterations(&self) -> DepthPly {
+        self.search_params().atomic.iterations()
     }
 
-    fn seldepth(&self) -> Depth {
+    fn seldepth(&self) -> DepthPly {
         self.search_params().atomic.seldepth()
     }
 
@@ -1082,8 +1116,8 @@ impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo<B>> SearchState<B, E, C> {
         }
     }
 
-    fn new(max_depth: Depth) -> Self {
-        Self::new_with(vec![E::default(); max_depth.get() + 1], C::default())
+    fn new(max_ply: DepthPly) -> Self {
+        Self::new_with(vec![E::default(); max_ply.get() + 1], C::default())
     }
 
     fn new_with(search_stack: Vec<E>, custom: C) -> Self {
@@ -1099,6 +1133,7 @@ impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo<B>> SearchState<B, E, C> {
             params,
             excluded_moves: vec![],
             current_pv_num: 0,
+            budget: Budget::new(0),
             execution_start_time: now,
             last_msg_time: now,
             age: Age::default(),
@@ -1169,6 +1204,7 @@ impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo<B>> SearchState<B, E, C> {
         // empty. On the other hand, it can get updated during search.
         let res = self.search_stack.first().and_then(|e| e.pv());
         if res.is_none_or(|pv| pv.is_empty()) {
+            // if we didn't finish looking at the PV, use the PV from the last iteration
             self.multi_pvs[self.current_pv_num].pv.list.as_slice()
         } else {
             res.unwrap()
@@ -1177,13 +1213,13 @@ impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo<B>> SearchState<B, E, C> {
 }
 
 // TODO: Necessary?
-pub fn run_bench<B: Board>(engine: &mut dyn Engine<B>, with_nodes: bool, positions: &[B]) -> BenchResult {
+pub fn run_bench<B: BoardTrait>(engine: &mut dyn Engine<B>, with_nodes: bool, positions: &[B]) -> BenchResult {
     let nodes = if with_nodes { Some(SearchLimit::nodes(engine.default_bench_nodes())) } else { None };
     let depth = SearchLimit::depth(engine.default_bench_depth());
     run_bench_with(engine, depth, nodes, positions, None)
 }
 
-pub fn run_bench_with<B: Board>(
+pub fn run_bench_with<B: BoardTrait>(
     engine: &mut dyn Engine<B>,
     limit: SearchLimit,
     second_limit: Option<SearchLimit>,
@@ -1212,7 +1248,7 @@ pub fn run_bench_with<B: Board>(
     total
 }
 
-fn single_bench<B: Board>(
+fn single_bench<B: BoardTrait>(
     pos: &B,
     engine: &mut dyn Engine<B>,
     limit: SearchLimit,
@@ -1230,23 +1266,21 @@ fn single_bench<B: Board>(
     let res = engine.bench(pos.clone(), limit, tt, additional_pvs);
     total.nodes += res.nodes;
     total.time += res.time;
-    total.max_depth = total.max_depth.max(res.max_depth);
+    total.max_iterations = total.max_iterations.max(res.max_iterations);
     res.pv_score_hash.hash(hasher);
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use gears::general::board::BoardHelpers;
-    use gears::general::moves::Move;
+    use gears::general::moves::MoveTrait;
 
     // A testcase that any engine should pass
-    pub fn generic_engine_test<B: Board, E: Engine<B>>(mut engine: E) {
+    pub fn generic_engine_test<B: BoardTrait, E: Engine<B>>(mut engine: E) {
         let tt = TT::default();
         for p in B::bench_positions() {
             let res = engine.bench(p.clone(), SearchLimit::nodes_(1), tt.clone(), 0);
             assert!(res.depth.is_none(), "{res}");
-            assert!(res.max_depth.get() <= 1 + 1, "{res}"); // possible extensions
             assert!(res.nodes <= 100, "{res}"); // TODO: Assert exactly 1
             let params =
                 SearchParams::new_unshared(p.clone(), SearchLimit::depth_(1), ZobristHistory::default(), tt.clone());
@@ -1278,7 +1312,7 @@ mod tests {
         determinism_test(&mut engine);
     }
 
-    fn determinism_test<B: Board>(engine: &mut dyn Engine<B>) {
+    fn determinism_test<B: BoardTrait>(engine: &mut dyn Engine<B>) {
         engine.forget();
         let limit = SearchLimit::nodes_(1234);
         for p in B::bench_positions().into_iter().take(10) {

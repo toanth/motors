@@ -5,6 +5,7 @@ authors = ["ToTheAnd"]
 edition = "2024"
 license = "GPL-3"
 description = "A collection of several games and engines"
+build = "../build.rs"
 
 [[bench]]
 name = "bench_caps_bench"
@@ -12,6 +13,7 @@ harness = false
 
 [dev-dependencies]
 criterion = "0.5.1"
+proptest = "1.6.0"
 
 [dependencies]
 gears = { path = "../gears", default-features = false }

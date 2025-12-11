@@ -23,14 +23,14 @@ use crate::search::{
     NoCustomInfo, PVData, SearchParams,
 };
 use gears::PlayerResult;
-use gears::games::{BoardHistory, Color, PosHash, ZobristHistory2Fold};
-use gears::general::board::{Board, BoardHelpers};
+use gears::games::{BoardHistDyn, ColorTrait, PosHash, ZobristHistory2Fold};
+use gears::general::board::{BoardHelpers, BoardTrait};
 use gears::general::common::StaticallyNamedEntity;
-use gears::general::move_list::MoveList;
+use gears::general::move_list::MoveListTrait;
 use gears::itertools::Itertools;
 use gears::score::{SCORE_LOST, SCORE_WON, Score};
 use gears::search::NodeType::Exact;
-use gears::search::{Depth, NodesLimit, SearchInfo, SearchResult};
+use gears::search::{Budget, DepthPly, NodesLimit, SearchInfo, SearchResult};
 use std::cmp::min;
 use std::fmt::Display;
 use std::time::Instant;
@@ -60,7 +60,7 @@ struct DeltaPhi {
 }
 
 #[derive(Debug)]
-pub struct ProofNumberSearcher<B: Board> {
+pub struct ProofNumberSearcher<B: BoardTrait> {
     tt: Vec<Node>,
     root_player: B::Color,
     params: SearchParams<B>,
@@ -68,7 +68,7 @@ pub struct ProofNumberSearcher<B: Board> {
     history: ZobristHistory2Fold,
 }
 
-impl<B: Board> ProofNumberSearcher<B> {
+impl<B: BoardTrait> ProofNumberSearcher<B> {
     pub fn new(num_tt_entries: usize) -> Self {
         Self {
             tt: vec![Node::default(); num_tt_entries],
@@ -81,7 +81,7 @@ impl<B: Board> ProofNumberSearcher<B> {
     }
 }
 
-impl<B: Board> ProofNumberSearcher<B> {
+impl<B: BoardTrait> ProofNumberSearcher<B> {
     pub fn df_pn(&mut self, pos: B) -> Option<bool> {
         self.root_player = pos.active_player();
         self.start_time = Instant::now();
@@ -112,7 +112,7 @@ impl<B: Board> ProofNumberSearcher<B> {
         // TODO: Collect into arrayvec or similar instead, or better use the smallvec crate, also for some movelists
         let nodes = self.params.atomic.count_node();
         if nodes >= self.limit().nodes.get()
-            || (nodes % DEFAULT_CHECK_TIME_INTERVAL == 0
+            || (nodes.is_multiple_of(DEFAULT_CHECK_TIME_INTERVAL)
                 && (self.start_time.elapsed() >= self.params.limit.fixed_time || self.params.atomic.stop_flag()))
         {
             return None;
@@ -256,7 +256,7 @@ impl<B: Board> ProofNumberSearcher<B> {
     }
 }
 
-impl<B: Board> StaticallyNamedEntity for ProofNumberSearcher<B> {
+impl<B: BoardTrait> StaticallyNamedEntity for ProofNumberSearcher<B> {
     fn static_short_name() -> impl Display {
         "proof"
     }
@@ -270,7 +270,7 @@ impl<B: Board> StaticallyNamedEntity for ProofNumberSearcher<B> {
     }
 }
 
-impl<B: Board> AbstractSearchState<B> for ProofNumberSearcher<B> {
+impl<B: BoardTrait> AbstractSearchState<B> for ProofNumberSearcher<B> {
     fn forget(&mut self, hard: bool) {
         if hard {
             for entry in &mut self.tt {
@@ -302,15 +302,15 @@ impl<B: Board> AbstractSearchState<B> for ProofNumberSearcher<B> {
         BenchResult::default()
     }
 
-    fn to_search_info(&self) -> SearchInfo<B> {
-        SearchInfo::default()
+    fn to_search_info(&self, final_info: bool) -> SearchInfo<'_, B> {
+        SearchInfo { final_info, ..Default::default() }
     }
 
     fn aggregated_statistics(&self) -> Statistics {
         Statistics::default()
     }
 
-    fn send_search_info(&self) {
+    fn send_search_info(&self, _final_info: bool) {
         // do nothing
     }
 
@@ -319,7 +319,7 @@ impl<B: Board> AbstractSearchState<B> for ProofNumberSearcher<B> {
     }
 }
 
-impl<B: Board> Engine<B> for ProofNumberSearcher<B> {
+impl<B: BoardTrait> Engine<B> for ProofNumberSearcher<B> {
     type SearchStackEntry = EmptySearchStackEntry;
     type CustomInfo = NoCustomInfo;
 
@@ -336,8 +336,8 @@ impl<B: Board> Engine<B> for ProofNumberSearcher<B> {
         Score(0)
     }
 
-    fn max_bench_depth(&self) -> Depth {
-        Depth::new(1)
+    fn max_bench_depth(&self) -> DepthPly {
+        DepthPly::new(1)
     }
 
     fn search_state_dyn(&self) -> &dyn AbstractSearchState<B> {
@@ -349,7 +349,7 @@ impl<B: Board> Engine<B> for ProofNumberSearcher<B> {
     }
 
     fn engine_info(&self) -> EngineInfo {
-        EngineInfo::new(self, &RandEval::default(), "0.1", Depth::new(1), NodesLimit::new(1).unwrap(), None, vec![])
+        EngineInfo::new(self, &RandEval::default(), "0.1", DepthPly::new(1), NodesLimit::new(1).unwrap(), None, vec![])
     }
 
     fn set_eval(&mut self, _eval: Box<dyn Eval<B>>) {
@@ -373,8 +373,9 @@ impl<B: Board> Engine<B> for ProofNumberSearcher<B> {
             if let Some(mut o) = self.params.thread_type.output() {
                 let info = SearchInfo {
                     best_move_of_all_pvs: mov,
-                    depth: Depth::new(1),
-                    seldepth: Depth::new(1),
+                    iterations: DepthPly::new(1),
+                    budget: Budget::new(1),
+                    seldepth: DepthPly::new(1),
                     time: self.start_time.elapsed(),
                     nodes: NodesLimit::new(self.params.atomic.nodes()).unwrap(),
                     pv_num: 0,
@@ -386,6 +387,7 @@ impl<B: Board> Engine<B> for ProofNumberSearcher<B> {
                     bound: Some(Exact),
                     num_threads: 1,
                     additional: None,
+                    final_info: true,
                 };
                 o.write_search_info(info);
             }
@@ -401,56 +403,56 @@ impl<B: Board> Engine<B> for ProofNumberSearcher<B> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use gears::games::chess::Chessboard;
-    use gears::games::chess::moves::ChessMove;
+    use gears::games::chess::Board;
+    use gears::games::chess::moves::Move;
     use gears::general::board::Strictness::Strict;
-    use gears::general::moves::Move;
+    use gears::general::moves::MoveTrait;
 
     #[test]
     fn simple_dfpn_chess_test() {
-        let pos = Chessboard::from_name("mate_in_1").unwrap();
+        let pos = Board::from_name("mate_in_1").unwrap();
         let mut searcher = ProofNumberSearcher::new(1024 * 1024);
         let res = searcher.try_find_move(pos);
         // Rh6 leads to a variation where every move of the opponent is forced, so it's considered equally expensive as a mate in 1
         // (Rh4 would too, but that would result in a repeated position)
-        let acceptable = [ChessMove::from_text("Ra7#", &pos).unwrap(), ChessMove::from_text("Rh6", &pos).unwrap()];
+        let acceptable = [Move::from_text("Ra7#", &pos).unwrap(), Move::from_text("Rh6", &pos).unwrap()];
         assert!(matches!(res, Some((true, _))), "{res:?}");
         assert!(acceptable.contains(&res.unwrap().1), "{}", res.unwrap().1.compact_formatter(&pos));
         let pos = pos.make_nullmove().unwrap();
         let res = searcher.try_find_move(pos);
         assert!(matches!(res, Some((false, _))));
-        let pos = Chessboard::from_name("draw_in_1").unwrap();
+        let pos = Board::from_name("draw_in_1").unwrap();
         let res = searcher.df_pn(pos);
         assert_eq!(res, Some(false));
-        let pos = Chessboard::from_fen("8/8/8/1r2p3/8/1k6/8/K7 b - - 0 1", Strict).unwrap();
+        let pos = Board::from_fen("8/8/8/1r2p3/8/1k6/8/K7 b - - 0 1", Strict).unwrap();
         let res = searcher.try_find_move(pos);
         assert!(matches!(res, Some((true, _))));
-        let pos = Chessboard::from_fen("8/8/8/1r2p3/8/1k6/8/K7 w - - 0 1", Strict).unwrap();
+        let pos = Board::from_fen("8/8/8/1r2p3/8/1k6/8/K7 w - - 0 1", Strict).unwrap();
         let res = searcher.try_find_move(pos);
-        assert_eq!(res, Some((false, ChessMove::from_text("Kb1", &pos).unwrap())));
-        let pos = Chessboard::from_fen("8/8/8/8/3p4/1k6/8/K7 b - - 0 1", Strict).unwrap();
+        assert_eq!(res, Some((false, Move::from_text("Kb1", &pos).unwrap())));
+        let pos = Board::from_fen("8/8/8/8/3p4/1k6/8/K7 b - - 0 1", Strict).unwrap();
         let res = searcher.try_find_move(pos);
-        assert_eq!(res, Some((true, ChessMove::from_text("d3", &pos).unwrap())));
-        let pos = Chessboard::from_fen("r2q3r/pppb3p/2n2bp1/8/3P3k/6NP/PP3PP1/R1B1R1K1 w - - 0 20", Strict).unwrap();
+        assert_eq!(res, Some((true, Move::from_text("d3", &pos).unwrap())));
+        let pos = Board::from_fen("r2q3r/pppb3p/2n2bp1/8/3P3k/6NP/PP3PP1/R1B1R1K1 w - - 0 20", Strict).unwrap();
         let res = searcher.try_find_move(pos);
-        assert_eq!(res, Some((true, ChessMove::from_text("Re4+", &pos).unwrap())));
-        let pos = Chessboard::from_fen("rk6/p1rBK1p1/P6p/4B3/8/8/1p6/8 w - - 0 4", Strict).unwrap();
+        assert_eq!(res, Some((true, Move::from_text("Re4+", &pos).unwrap())));
+        let pos = Board::from_fen("rk6/p1rBK1p1/P6p/4B3/8/8/1p6/8 w - - 0 4", Strict).unwrap();
         let res = searcher.try_find_move(pos);
-        assert_eq!(res, Some((true, ChessMove::from_text("Kd8", &pos).unwrap())));
-        let pos = Chessboard::from_fen("rk6/p1rB1Kp1/P6p/4B3/8/1p6/8/8 w - - 0 3", Strict).unwrap();
+        assert_eq!(res, Some((true, Move::from_text("Kd8", &pos).unwrap())));
+        let pos = Board::from_fen("rk6/p1rB1Kp1/P6p/4B3/8/1p6/8/8 w - - 0 3", Strict).unwrap();
         let res = searcher.df_pn(pos);
         assert_eq!(res, Some(true));
-        let pos = Chessboard::from_name("puzzle").unwrap();
+        let pos = Board::from_name("puzzle").unwrap();
         let res = searcher.try_find_move(pos);
-        assert_eq!(res, Some((true, ChessMove::from_text("Bd7", &pos).unwrap())));
+        assert_eq!(res, Some((true, Move::from_text("Bd7", &pos).unwrap())));
     }
 
     #[test]
     fn tt_size_1_test() {
-        let pos = Chessboard::from_name("mate_in_1").unwrap();
+        let pos = Board::from_name("mate_in_1").unwrap();
         let mut searcher = ProofNumberSearcher::new(1);
         let res = searcher.try_find_move(pos);
-        let acceptable = [ChessMove::from_text("Ra7#", &pos).unwrap(), ChessMove::from_text("Rh6", &pos).unwrap()];
+        let acceptable = [Move::from_text("Ra7#", &pos).unwrap(), Move::from_text("Rh6", &pos).unwrap()];
         assert!(matches!(res, Some((true, _))));
         assert!(acceptable.contains(&res.unwrap().1), "{}", res.unwrap().1.compact_formatter(&pos));
         let pos = pos.make_nullmove().unwrap();

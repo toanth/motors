@@ -15,26 +15,28 @@
  *  You should have received a copy of the GNU General Public License
  *  along with Gears. If not, see <https://www.gnu.org/licenses/>.
  */
-use crate::games::uttt::ColoredUtttPieceType::{OStone, XStone};
-use crate::games::uttt::UtttColor::*;
-use crate::games::uttt::uttt_square::UtttSquare;
-use crate::games::uttt::{UnverifiedUtttBoard, UtttBoard, UtttMove, UtttSubSquare};
+use crate::games::NoHistory;
+use crate::games::uttt::Color::*;
+use crate::games::uttt::ColoredPieceType::{OStone, XStone};
+use crate::games::uttt::uttt_square::Square;
+use crate::games::uttt::{Board, Move, SubSquare, UnverifiedBoard};
 use crate::general::board::Strictness::Strict;
-use crate::general::board::{Board, BoardHelpers, UnverifiedBoard};
+use crate::general::board::{BoardHelpers, BoardTrait, UnverifiedBoardTrait};
+use crate::general::perft::Bulkness::Bulk;
 use crate::general::perft::perft;
-use crate::search::Depth;
+use crate::search::DepthPly;
 use rand::SeedableRng;
 use rand::rngs::StdRng;
 
 #[test]
 fn perft_tests() {
     let seed = 42;
-    for (fen, perft_res) in UtttBoard::perft_test_positions() {
-        let pos = UtttBoard::from_alternative_fen(fen, Strict).unwrap();
+    for (fen, perft_res) in Board::perft_test_positions() {
+        let pos = Board::from_alternative_fen(fen, Strict).unwrap();
         println!("{pos}");
         let n = if cfg!(debug_assertions) { 7 } else { 100 };
         for (depth, nodes) in perft_res.iter().enumerate().take(n) {
-            let res = perft(Depth::new(depth), pos, false);
+            let res = perft(DepthPly::new(depth), pos, false, Bulk);
             assert_eq!(res.nodes, *nodes, "{fen}, depth {depth}: {0} should be {1}", res.nodes, *nodes);
         }
         let mut rng = StdRng::seed_from_u64(seed);
@@ -52,10 +54,10 @@ fn perft_tests() {
 
 #[test]
 fn alternative_fen_test() {
-    for pos in UtttBoard::bench_positions() {
+    for pos in Board::bench_positions() {
         // the ply isn't part of the alternative fen description
         let pos = pos.set_ply_since_start(0).unwrap().verify(Strict).unwrap();
-        let roundtrip = UtttBoard::from_alternative_fen(&pos.to_alternative_fen(), Strict).unwrap();
+        let roundtrip = Board::from_alternative_fen(&pos.to_alternative_fen(), Strict).unwrap();
         if !pos.cannot_call_movegen() {
             assert_eq!(roundtrip.legal_moves_slow(), pos.legal_moves_slow());
         }
@@ -66,25 +68,24 @@ fn alternative_fen_test() {
 
 #[test]
 fn sub_board_won_test() {
-    let mut pos = UnverifiedUtttBoard::new(UtttBoard::default());
-    let sub_board = UtttSubSquare::from_bb_idx(0);
-    pos.place_piece(UtttSquare::new(sub_board, UtttSubSquare::unchecked(0)), XStone);
-    pos.place_piece(UtttSquare::new(sub_board, UtttSubSquare::unchecked(1)), OStone);
-    pos.place_piece(UtttSquare::new(sub_board, UtttSubSquare::unchecked(3)), XStone);
-    pos.place_piece(UtttSquare::new(sub_board, UtttSubSquare::unchecked(2)), OStone);
+    let mut pos = UnverifiedBoard::new(Board::default());
+    let sub_board = SubSquare::from_bb_idx(0);
+    pos.place_piece(Square::new(sub_board, SubSquare::unchecked(0)), XStone);
+    pos.place_piece(Square::new(sub_board, SubSquare::unchecked(1)), OStone);
+    pos.place_piece(Square::new(sub_board, SubSquare::unchecked(3)), XStone);
+    pos.place_piece(Square::new(sub_board, SubSquare::unchecked(2)), OStone);
     assert!(!pos.verify(Strict).unwrap().is_sub_board_won(X, sub_board));
     assert!(!pos.verify(Strict).unwrap().is_sub_board_won(O, sub_board));
-    pos.place_piece(UtttSquare::new(sub_board, UtttSubSquare::unchecked(6)), XStone);
+    pos.place_piece(Square::new(sub_board, SubSquare::unchecked(6)), XStone);
     let pos = pos.verify(Strict).unwrap();
     assert!(pos.is_sub_board_won(X, sub_board));
     assert!(!pos.is_sub_board_won(O, sub_board));
     assert!(!pos.is_sub_board_open(sub_board));
-    assert!(pos.is_sub_board_open(UtttSubSquare::unchecked(1)));
-    assert!(!pos.is_game_lost_slow());
+    assert!(pos.is_sub_board_open(SubSquare::unchecked(1)));
+    assert!(!pos.is_game_lost_slow(&NoHistory::default()));
     assert_eq!(pos.active, X); // the active player doesn't get updated through place_piece
-    assert_eq!(pos.last_move, UtttMove::NULL);
-    let pos =
-        pos.remove_piece(UtttSquare::new(sub_board, UtttSubSquare::unchecked(3))).unwrap().verify(Strict).unwrap();
+    assert_eq!(pos.last_move, Move::NULL);
+    let pos = pos.remove_piece(Square::new(sub_board, SubSquare::unchecked(3))).unwrap().verify(Strict).unwrap();
     assert!(!pos.is_sub_board_won(X, sub_board));
     assert!(pos.is_sub_board_open(sub_board));
 }

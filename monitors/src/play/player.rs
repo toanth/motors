@@ -13,12 +13,12 @@ use std::sync::{Arc, Mutex, MutexGuard};
 use std::thread::{Builder, sleep};
 use std::time::{Duration, Instant};
 
-use gears::games::chess::Chessboard;
-use gears::general::board::{Board, BoardHelpers};
+use gears::games::chess::Board;
+use gears::general::board::{BoardHelpers, BoardTrait};
 use gears::general::common::Res;
 use gears::general::common::anyhow::bail;
 use gears::output::Message::*;
-use gears::search::{Depth, MAX_DEPTH, NodesLimit, SearchLimit, TimeControl};
+use gears::search::{DepthPly, MAX_DEPTH, NodesLimit, SearchLimit, TimeControl};
 use gears::ugi::EngineOption;
 use lazy_static::lazy_static;
 use whoami::realname;
@@ -81,7 +81,7 @@ pub enum Protocol {
 // thread listening for input from the child's stdout
 #[derive(Debug)]
 #[must_use]
-pub struct EnginePlayer<B: Board> {
+pub struct EnginePlayer<B: BoardTrait> {
     /// Only used by the `write_ugi_impl` method
     child_stdin: ChildStdin,
     /// Only used by `drop`
@@ -99,7 +99,7 @@ pub struct EnginePlayer<B: Board> {
     pub current_match: Option<CurrentMatch<B>>,
 }
 
-impl<B: Board> Drop for EnginePlayer<B> {
+impl<B: BoardTrait> Drop for EnginePlayer<B> {
     fn drop(&mut self) {
         _ = self.write_ugi_impl("quit");
         let start = Instant::now();
@@ -116,7 +116,7 @@ impl<B: Board> Drop for EnginePlayer<B> {
     }
 }
 
-impl<B: Board> EnginePlayer<B> {
+impl<B: BoardTrait> EnginePlayer<B> {
     pub fn new(
         proto: Protocol,
         default_limit: SearchLimit,
@@ -163,7 +163,11 @@ impl<B: Board> EnginePlayer<B> {
     }
 }
 
-fn send_initial_ugi_impl<B: Board>(client: Arc<Mutex<Client<B>>>, id: PlayerId, retry_on_failure: bool) -> Res<()> {
+fn send_initial_ugi_impl<B: BoardTrait>(
+    client: Arc<Mutex<Client<B>>>,
+    id: PlayerId,
+    retry_on_failure: bool,
+) -> Res<()> {
     let proto = client.lock().unwrap().state.get_engine_from_id(id).proto;
     let msg = match proto {
         Ugi => "ugi",
@@ -194,7 +198,7 @@ fn send_initial_ugi_impl<B: Board>(client: Arc<Mutex<Client<B>>>, id: PlayerId, 
     Ok(())
 }
 
-fn send_initial_ugi<B: Board>(
+fn send_initial_ugi<B: BoardTrait>(
     client: Arc<Mutex<Client<B>>>,
     id: PlayerId,
     init_string: Option<String>,
@@ -272,18 +276,18 @@ impl PlayerBuilder {
         Self { args }
     }
 
-    pub fn build<B: Board>(self, client: Arc<Mutex<Client<B>>>) -> Res<PlayerId> {
+    pub fn build<B: BoardTrait>(self, client: Arc<Mutex<Client<B>>>) -> Res<PlayerId> {
         self.replace(client, None)
     }
 
-    pub fn replace<B: Board>(self, client: Arc<Mutex<Client<B>>>, player: Option<PlayerId>) -> Res<PlayerId> {
+    pub fn replace<B: BoardTrait>(self, client: Arc<Mutex<Client<B>>>, player: Option<PlayerId>) -> Res<PlayerId> {
         match self.args {
             PlayerArgs::Engine(ref args) => self.clone().build_engine(args.clone(), client, player),
             PlayerArgs::Human(_) => self.clone().build_human(&mut client.lock().unwrap(), player),
         }
     }
 
-    pub fn build_human<B: Board>(
+    pub fn build_human<B: BoardTrait>(
         self,
         ugi_client: &mut MutexGuard<Client<B>>,
         replace: Option<PlayerId>,
@@ -338,7 +342,7 @@ impl PlayerBuilder {
         Ok(path)
     }
 
-    fn build_engine<B: Board>(
+    fn build_engine<B: BoardTrait>(
         self,
         mut args: ClientEngineCliArgs,
         client: Arc<Mutex<Client<B>>>,
@@ -379,15 +383,16 @@ impl PlayerBuilder {
             moves_to_go: None,
         });
         let fixed_time = args.move_time.unwrap_or(Duration::MAX);
-        let depth = args.depth.unwrap_or(Depth::MAX);
-        let mate = args.mate.unwrap_or(Depth::MAX);
+        let byoyomi = Duration::ZERO; // not currently supported
+        let depth = args.depth.unwrap_or(DepthPly::MAX);
+        let mate = args.mate.unwrap_or(DepthPly::MAX);
         let nodes = args.nodes.unwrap_or(NodesLimit::MAX);
         let soft_nodes = NodesLimit::MAX;
-        let default_limit = SearchLimit { tc, fixed_time, depth, nodes, soft_nodes, mate, start_time: Instant::now() };
+        let default_limit =
+            SearchLimit { tc, fixed_time, byoyomi, depth, nodes, soft_nodes, mate, start_time: Instant::now() };
 
         // try to set uci/ugi mode based on the game, but possibly change that according to how the engine responds
-        let proto =
-            args.proto.unwrap_or_else(|| if TypeId::of::<B>() == TypeId::of::<Chessboard>() { Uci } else { Ugi });
+        let proto = args.proto.unwrap_or_else(|| if TypeId::of::<B>() == TypeId::of::<Board>() { Uci } else { Ugi });
 
         let engine = EnginePlayer::new(
             proto,
@@ -427,13 +432,13 @@ pub enum PlayerLimit {
 
 #[derive(Debug)]
 #[expect(clippy::large_enum_variant)]
-pub enum Player<B: Board> {
+pub enum Player<B: BoardTrait> {
     /// The usize is te index into the vec of engines stored in the match.
     Engine(EnginePlayer<B>),
     Human(HumanPlayer),
 }
 
-impl<B: Board> Player<B> {
+impl<B: BoardTrait> Player<B> {
     pub fn reset(&mut self) {
         match self {
             Engine(e) => {

@@ -16,9 +16,9 @@ use crate::ui::text_input::DefaultPlayer::{Active, Inactive, NoPlayer};
 use crate::ui::{Input, InputBuilder};
 use gears::MatchStatus::{Ongoing, Over};
 use gears::colored::Colorize;
-use gears::games::Color;
+use gears::games::ColorTrait;
 use gears::general::board::Strictness::Relaxed;
-use gears::general::board::{Board, BoardHelpers};
+use gears::general::board::{BoardHelpers, BoardTrait};
 use gears::general::common::Description::{NoDescription, WithDescription};
 use gears::general::common::anyhow::{anyhow, bail};
 use gears::general::common::{
@@ -26,7 +26,7 @@ use gears::general::common::{
     to_name_and_optional_description, tokens,
 };
 use gears::general::moves::ExtendedFormat::Alternative;
-use gears::general::moves::Move;
+use gears::general::moves::MoveTrait;
 use gears::output::Message::{Info, Warning};
 use gears::output::OutputOpts;
 use gears::search::TimeControl;
@@ -77,11 +77,11 @@ enum DefaultPlayer {
 
 type Command<B> = TextSelection<for<'a> fn(MutexGuard<Client<B>>, &'a mut Tokens) -> Res<()>>;
 
-pub(super) struct TextInputThread<B: Board> {
+pub(super) struct TextInputThread<B: BoardTrait> {
     commands: Vec<Command<B>>,
 }
 
-impl<B: Board> TextInputThread<B> {
+impl<B: BoardTrait> TextInputThread<B> {
     pub fn input_loop(ugi_client: Weak<Mutex<Client<B>>>) {
         let input_thread = Self {
             // created here so that this isn't done each time the user inputs something (which probably wouldn't matter
@@ -246,9 +246,7 @@ impl<B: Board> TextInputThread<B> {
                     return Ok(true);
                 }
                 Err(err) => {
-                    let func = select_name_static(command, self.commands.iter(), "command", &B::game_name(), NoDescription)
-                        .map_err(|msg| anyhow!("'{command}' is not a legal move: {err}.\nIt's also not a command: {msg}\nType 'help' for more information."))?
-                        .func;
+                    let func = select_name_static(command, self.commands.iter(), "command", &B::game_name(), NoDescription).map_err(|msg| anyhow!("'{command}' is not a legal move: {err}.\nIt's also not a command: {msg}\nType 'help' for more information."))?.func;
                     func(client, &mut words)?;
                 }
             }
@@ -342,7 +340,7 @@ impl<B: Board> TextInputThread<B> {
         if !client.state.get_player(side).is_engine() {
             bail!(
                 "The {} player is a human and not an engine, so they can't be stopped",
-                side.name(&client.match_state().board.settings()).as_ref()
+                side.name(client.match_state().board.settings())
             )
         }
         match client.active_player() {
@@ -352,10 +350,7 @@ impl<B: Board> TextInputThread<B> {
                     client.stop_thinking(side, Play);
                     Ok(())
                 } else {
-                    bail!(
-                        "The {} player is not currently thinking",
-                        p.name(&client.match_state().board.settings()).as_ref()
-                    )
+                    bail!("The {} player is not currently thinking", p.name(client.match_state().board.settings()))
                 }
             }
         }
@@ -450,7 +445,7 @@ impl<B: Board> TextInputThread<B> {
                     .iter()
                     .map(|o| to_name_and_optional_description(o.as_ref(), WithDescription))
                     .join(",");
-                client.show_message(Info, &format_args!("{}", infos));
+                client.show_message(Info, &format_args!("{infos}"));
             }
             Some(mut name) => {
                 let mut replace = true;
@@ -528,7 +523,7 @@ impl<B: Board> TextInputThread<B> {
         if !client.state.get_player_mut(player).is_engine() {
             bail!(
                 "The {} player is not an engine and can't receive UGI commands",
-                player.name(&client.match_state().board.settings()).as_ref()
+                player.name(client.match_state().board.settings())
             )
         }
         client.send_ugi_message(player, words.join(" ").as_str().trim());
@@ -555,7 +550,7 @@ impl StaticallyNamedEntity for TextInput {
     }
 }
 
-impl<B: Board> Input<B> for TextInput {
+impl<B: BoardTrait> Input<B> for TextInput {
     fn assume_control(&mut self, ugi_client: Arc<Mutex<Client<B>>>) {
         self.handle = Some(
             Builder::new()
@@ -589,7 +584,7 @@ impl NamedEntity for TextInputBuilder {
     }
 }
 
-impl<B: Board> InputBuilder<B> for TextInputBuilder {
+impl<B: BoardTrait> InputBuilder<B> for TextInputBuilder {
     fn build(&self) -> Box<dyn Input<B>> {
         Box::new(TextInput::default())
     }

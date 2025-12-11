@@ -17,8 +17,9 @@
  */
 
 use crate::eval::Eval;
-use gears::games::ataxx::{AtaxxBoard, AtaxxColor};
-use gears::general::bitboards::RawBitboard;
+use gears::games::ataxx::{Board, Color};
+use gears::general::bitboards::RawBitboardTrait;
+use gears::general::board::BitboardBoard;
 use gears::general::common::StaticallyNamedEntity;
 use gears::score::{Score, ScoreT};
 use std::fmt::Display;
@@ -50,9 +51,9 @@ impl StaticallyNamedEntity for Bate {
     }
 }
 
-impl Eval<AtaxxBoard> for Bate {
-    fn eval(&mut self, pos: &AtaxxBoard, _ply: usize, _engine: AtaxxColor) -> Score {
-        let diff = pos.active_bb().num_ones() as ScoreT - pos.inactive_bb().num_ones() as ScoreT;
+impl Eval<Board> for Bate {
+    fn eval(&mut self, pos: &Board, _ply: usize, _engine: Color) -> Score {
+        let diff = pos.active_player_bb().num_ones() as ScoreT - pos.inactive_player_bb().num_ones() as ScoreT;
         // multiply by 10 so that scores are somewhat more spread out, similar to scores in other games
         Score(diff * 10)
     }

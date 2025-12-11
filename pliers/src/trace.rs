@@ -29,7 +29,7 @@
 
 use crate::gd::{Entry, FeatureT, Float, Weights};
 use core::fmt;
-use gears::games::Color;
+use gears::games::ColorTrait;
 use gears::score::PhaseType;
 use motors::eval::ScoreType;
 use std::collections::{HashMap, hash_map};
@@ -247,7 +247,7 @@ impl ScoreType for SparseTrace {
     type Finalized = Self;
     type SingleFeatureScore = SingleFeature;
 
-    fn finalize<C: Color>(
+    fn finalize<C: ColorTrait>(
         mut self,
         phase: PhaseType,
         max_phase: PhaseType,
@@ -336,12 +336,12 @@ pub trait TraceTrait: Debug {
 /// because [`SimpleTrace`] and [`TraceNFeatures`] already do.
 pub trait BasicTrace: TraceTrait {
     /// Increment a given feature by one for the given player.
-    fn increment<C: Color>(&mut self, idx: usize, color: C) {
+    fn increment<C: ColorTrait>(&mut self, idx: usize, color: C) {
         self.increment_by(idx, color, 1);
     }
 
     /// Increment a given feature by a given amount for the given player.
-    fn increment_by<C: Color>(&mut self, idx: usize, color: C, amount: isize);
+    fn increment_by<C: ColorTrait>(&mut self, idx: usize, color: C, amount: isize);
 }
 
 /// The most basic trace, useful by itself or as a building block of custom traces, but [`TraceNFeatures`]
@@ -414,7 +414,7 @@ impl TraceTrait for SimpleTrace {
 }
 
 impl BasicTrace for SimpleTrace {
-    fn increment_by<C: Color>(&mut self, idx: usize, color: C, amount: isize) {
+    fn increment_by<C: ColorTrait>(&mut self, idx: usize, color: C, amount: isize) {
         if color.is_first() {
             self.p1[idx] += amount
         } else {
@@ -452,7 +452,7 @@ impl<const N: usize> TraceTrait for TraceNFeatures<N> {
 }
 
 impl<const N: usize> BasicTrace for TraceNFeatures<N> {
-    fn increment_by<C: Color>(&mut self, idx: usize, color: C, amount: isize) {
+    fn increment_by<C: ColorTrait>(&mut self, idx: usize, color: C, amount: isize) {
         self.0.increment_by(idx, color, amount);
     }
 }

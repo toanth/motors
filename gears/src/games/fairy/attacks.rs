@@ -17,58 +17,62 @@
  */
 
 use crate::games::fairy::Side::{Kingside, Queenside};
-use crate::games::fairy::attacks::AttackBitboardFilter::{EmptySquares, NotUs};
-use crate::games::fairy::attacks::AttackKind::Normal;
 use crate::games::fairy::attacks::AttackTypes::{Leaping, Rider};
+use crate::games::fairy::attacks::GenAttackKind::Normal;
 use crate::games::fairy::attacks::GenAttacksCondition::Always;
-use crate::games::fairy::moves::FairyMove;
-use crate::games::fairy::pieces::ColoredPieceId;
-use crate::games::fairy::rules::CheckRules;
+use crate::games::fairy::moves::Move;
+use crate::games::fairy::pieces::{ColoredPieceId, GenPromoMoves};
+use crate::games::fairy::rules::SquareFilter::{EmptySquares, NotUs};
+use crate::games::fairy::rules::{CheckCount, CheckingAttack, SquareFilter};
 use crate::games::fairy::{
-    CastlingMoveInfo, FairyBitboard, FairyBoard, FairyCastleInfo, FairyColor, FairyPiece, FairySize, FairySquare,
-    RawFairyBitboard, Side, UnverifiedFairyBoard,
+    Bitboard, Board, CastlingMoveInfo, Color, FairyCastleInfo, Piece, RawBitboard, Side, Size, Square, UnverifiedBoard,
 };
-use crate::games::{Color, ColoredPiece, ColoredPieceType, DimT, Size, char_to_file};
-use crate::general::bitboards::{Bitboard, RawBitboard};
-use crate::general::board::{BitboardBoard, Board, BoardHelpers, PieceTypeOf, Strictness, UnverifiedBoard};
+use crate::games::{
+    AbstractPieceType, ColorTrait, ColoredPieceTrait, ColoredPieceTypeTrait, CoordinatesTrait, DimT, SizeTrait,
+    char_to_file,
+};
+use crate::general::bitboards::{BitboardTrait, RawBitboardTrait};
+use crate::general::board::{BitboardBoard, BoardHelpers, BoardTrait, PieceTypeOf, Strictness, UnverifiedBoardTrait};
 use crate::general::common::{Res, Tokens};
 use crate::general::hq::BitReverseSliderGenerator;
-use crate::general::move_list::MoveList;
+use crate::general::move_list::MoveListTrait;
 use crate::general::squares::{CompactSquare, RectangularCoordinates, RectangularSize};
 use crate::{precompute_leaper_attacks, shift_left};
-use anyhow::{bail, ensure};
+use anyhow::{anyhow, bail, ensure};
 use arbitrary::Arbitrary;
 use arrayvec::ArrayVec;
-use crossterm::style::Stylize;
+use colored::Colorize;
 use std::str::FromStr;
+use std::sync::Arc;
 
-type SliderGen<'a> = BitReverseSliderGenerator<'a, FairySquare, FairyBitboard>;
+type SliderGen<'a> = BitReverseSliderGenerator<'a, Square, Bitboard>;
 
 /// The general organization of movegen is that of a pipeline, where a stage communicates with the next through enums,
-/// which usually need the global `rules()` to be interpreted correctly
+/// which usually need the `rules()` to be interpreted correctly
 #[derive(Debug, Clone, Arbitrary)]
 pub enum SliderDirections {
+    Forward,
     Vertical,
     Rook,
     Bishop,
     Queen,
-    Rider { precomputed: Box<[RawFairyBitboard]> },
+    Rider { precomputed: Arc<[RawBitboard]> },
 }
 
-// not const, which allows using ranges and for loops
+// not `const`, which allows using ranges and for loops
 pub fn leaper_attack_range<Iter1: Iterator<Item = isize>, Iter2: Iterator<Item = isize> + Clone>(
     horizontal_range: Iter1,
     vertical_range: Iter2,
-    square: FairySquare,
-    size: FairySize,
-) -> RawFairyBitboard {
-    let mut res = RawFairyBitboard::default();
+    square: Square,
+    size: Size,
+) -> RawBitboard {
+    let mut res = RawBitboard::default();
     let width = size.width().val() as isize;
     let internal_width = size.internal_width() as isize;
     for dx in horizontal_range {
         for dy in vertical_range.clone() {
             let shift = dx + dy * internal_width;
-            let bb = FairyBitboard::single_piece_for(square, size);
+            let bb = Bitboard::single_piece_for(square, size);
             if square.file() as isize >= -dx && square.file() as isize + dx < width {
                 res |= shift_left!(bb.raw(), shift);
             }
@@ -77,47 +81,61 @@ pub fn leaper_attack_range<Iter1: Iterator<Item = isize>, Iter2: Iterator<Item =
     res
 }
 
-#[derive(Debug, Arbitrary)]
-pub struct LeapingBitboards(Box<[RawFairyBitboard]>);
+#[derive(Debug, Clone, Arbitrary)]
+/// Logically, this type should store a `Box`, but since some games like shogi have different pieces with the same attacks,
+/// we deduplicate the attack bitboards as an optimization.
+pub struct LeapingBitboards(Arc<[RawBitboard]>);
 
-fn leaper(n: usize, m: usize, rider: bool, size: FairySize) -> Box<[RawFairyBitboard]> {
-    let mut res = vec![RawFairyBitboard::default(); size.num_squares()].into_boxed_slice();
+fn leaper(n: usize, m: usize, rider: bool, size: Size) -> Arc<[RawBitboard]> {
+    let mut res = vec![RawBitboard::default(); size.num_squares()];
     let (n, m) = (n.min(m), n.max(m));
-    for idx in 0..size.num_squares() {
+    for (idx, elem) in res.iter_mut().enumerate() {
         let bb = precompute_leaper_attacks!(idx, n, m, rider, size.width.val(), u128);
-        res[idx] = bb;
+        *elem = bb;
     }
-    res
+    Arc::from(res)
 }
 
 impl LeapingBitboards {
-    pub(super) fn fixed(n: usize, m: usize, size: FairySize) -> Self {
+    pub(super) fn fixed(n: usize, m: usize, size: Size) -> Self {
         Self(leaper(n, m, false, size))
     }
 
-    pub(super) fn range<Iter1: Iterator<Item = isize> + Clone, Iter2: Iterator<Item = isize> + Clone>(
+    pub(super) fn range_hv<Iter1: Iterator<Item = isize> + Clone, Iter2: Iterator<Item = isize> + Clone>(
         horizontal_range: Iter1,
         vertical_range: Iter2,
-        size: FairySize,
+        size: Size,
     ) -> Self {
-        let mut res = vec![RawFairyBitboard::default(); size.num_squares()].into_boxed_slice();
-        for idx in 0..size.num_squares() {
+        let mut res = vec![RawBitboard::default(); size.num_squares()];
+        for (idx, elem) in res.iter_mut().enumerate() {
             let sq = size.idx_to_coordinates(idx as DimT);
             let bb = leaper_attack_range(horizontal_range.clone(), vertical_range.clone(), sq, size);
-            res[idx] = bb;
+            *elem = bb;
         }
-        LeapingBitboards(res)
+        LeapingBitboards(Arc::from(res))
     }
 
     pub(super) fn combine(mut self, other: LeapingBitboards) -> Self {
         assert_eq!(self.0.len(), other.0.len());
-        self.0.iter_mut().zip(other.0.iter()).for_each(|(a, b)| *a |= b);
+        Arc::make_mut(&mut self.0).iter_mut().zip(other.0.iter()).for_each(|(a, b)| *a |= b);
         self
     }
+
     pub(super) fn remove(mut self, other: LeapingBitboards) -> Self {
         assert_eq!(self.0.len(), other.0.len());
-        self.0.iter_mut().zip(other.0.iter()).for_each(|(a, b)| *a &= !b);
+        Arc::make_mut(&mut self.0).iter_mut().zip(other.0.iter()).for_each(|(a, b)| *a &= !b);
         self
+    }
+
+    pub(super) fn flip(&self, size: Size) -> Self {
+        let mut res = self.clone();
+        let res_mut = Arc::make_mut(&mut res.0);
+        for i in 0..size.num_squares() {
+            let sq = size.idx_to_coordinates(i as DimT);
+            let flipped_i = size.internal_key(sq.flip_up_down(size));
+            res_mut[flipped_i] = Bitboard::new(self.0[i], size).flip_up_down().raw();
+        }
+        res
     }
 }
 
@@ -135,7 +153,7 @@ impl AttackMode {
 }
 
 #[must_use]
-#[derive(Debug, Arbitrary)]
+#[derive(Debug, Clone, Arbitrary)]
 pub enum AttackTypes {
     // Leaping pieces, like knights and kings, only care about blockers on the square they're leaping to
     Leaping(LeapingBitboards),
@@ -151,10 +169,11 @@ pub enum AttackTypes {
 }
 
 impl AttackTypes {
-    pub fn leaping(n: usize, m: usize, size: FairySize) -> Self {
+    pub fn leaping(n: usize, m: usize, size: Size) -> Self {
         Leaping(LeapingBitboards::fixed(n, m, size))
     }
-    pub fn rider(n: usize, m: usize, size: FairySize) -> Self {
+
+    pub fn rider(n: usize, m: usize, size: Size) -> Self {
         let bbs = leaper(n, m, true, size);
         Rider(SliderDirections::Rider { precomputed: bbs })
     }
@@ -162,7 +181,7 @@ impl AttackTypes {
 
 #[derive(Debug, Default, Copy, Clone, Eq, PartialEq, Hash, Arbitrary)]
 #[must_use]
-pub enum AttackKind {
+pub enum GenAttackKind {
     #[default]
     Normal,
     DoublePawnPush,
@@ -170,13 +189,13 @@ pub enum AttackKind {
     Drop,
 }
 
-impl AttackKind {
+impl GenAttackKind {
     pub fn to_move_kind(self, piece: ColoredPieceId) -> MoveKind {
         match self {
             Self::Normal => MoveKind::Normal,
             Self::DoublePawnPush => MoveKind::DoublePawnPush,
             Self::Castle(side) => MoveKind::Castle(side),
-            AttackKind::Drop => MoveKind::Drop(piece.as_u8()),
+            GenAttackKind::Drop => MoveKind::Drop(piece.to_uncolored_idx() as u8),
         }
     }
 }
@@ -193,8 +212,8 @@ pub enum RequiredForAttack {
 /// Attacks are about bitboards for performance reasons, but there are also moves that aren't fully represented with bitboards.
 /// This struct is only about attacks, so there are move types that are generated separately
 #[must_use]
-#[derive(Debug, Arbitrary)]
-pub struct GenPieceAttackKind {
+#[derive(Debug, Clone, Arbitrary)]
+pub struct AttackKind {
     // first, we distinguish between moving attacks (e.g. chess moves) and drops (e.g. mnk games)
     pub required: RequiredForAttack,
     // then, the condition is checked (e.g., pawns can only double push on their start rank)
@@ -206,14 +225,14 @@ pub struct GenPieceAttackKind {
     // it is then filtered (e.g., that's how pawn captures of opponent pieces and ep squares are done,
     // and also how double pawn pushes are generated: They're vertical sliders).
     // A square needs to pass all the filters, that is, the filters get combined using a `bitwise and`.
-    pub bitboard_filter: Vec<AttackBitboardFilter>,
+    pub bitboard_filter: Vec<SquareFilter>,
     // this is annotated with the move kind (e.g. castling)
-    pub kind: AttackKind,
+    pub kind: GenAttackKind,
     // this is used to decide if a move is a capture
     pub capture_condition: CaptureCondition,
 }
 
-impl GenPieceAttackKind {
+impl AttackKind {
     pub fn simple(typ: AttackTypes) -> Self {
         Self {
             required: RequiredForAttack::PieceOnBoard,
@@ -225,6 +244,24 @@ impl GenPieceAttackKind {
             capture_condition: CaptureCondition::DestOccupied,
         }
     }
+
+    pub fn simple_side_relative(leaping: LeapingBitboards, size: Size) -> Vec<Self> {
+        let flipped_leaper = leaping.flip(size);
+        let leaping = Self {
+            required: RequiredForAttack::PieceOnBoard,
+            typ: Leaping(leaping),
+            condition: GenAttacksCondition::Player(Color::first()),
+            bitboard_filter: vec![NotUs],
+            kind: Normal,
+            attack_mode: AttackMode::All,
+            capture_condition: CaptureCondition::DestOccupied,
+        };
+        let mut flipped = leaping.clone();
+        flipped.typ = Leaping(flipped_leaper);
+        flipped.condition = GenAttacksCondition::Player(Color::second());
+        vec![leaping, flipped]
+    }
+
     pub fn pawn_noncapture(typ: AttackTypes, condition: GenAttacksCondition) -> Self {
         Self {
             required: RequiredForAttack::PieceOnBoard,
@@ -236,7 +273,7 @@ impl GenPieceAttackKind {
             capture_condition: CaptureCondition::Never,
         }
     }
-    pub fn pawn_capture(typ: AttackTypes, condition: GenAttacksCondition, bb_filter: AttackBitboardFilter) -> Self {
+    pub fn pawn_capture(typ: AttackTypes, condition: GenAttacksCondition, bb_filter: SquareFilter) -> Self {
         Self {
             required: RequiredForAttack::PieceOnBoard,
             typ,
@@ -247,33 +284,33 @@ impl GenPieceAttackKind {
             capture_condition: CaptureCondition::Always,
         }
     }
-    pub fn piece_drop(filter: AttackBitboardFilter) -> Self {
+    pub fn drop(filter: Vec<SquareFilter>) -> Self {
         Self {
             required: RequiredForAttack::PieceInHand,
             condition: Always,
             attack_mode: AttackMode::NoCaptures,
             typ: AttackTypes::Drop,
-            bitboard_filter: vec![filter],
-            kind: AttackKind::Drop,
+            bitboard_filter: filter,
+            kind: GenAttackKind::Drop,
             capture_condition: CaptureCondition::Never,
         }
     }
 
-    pub fn bb_filter(&self, us: FairyColor, pos: &FairyBoard) -> RawFairyBitboard {
-        let mut res = !RawFairyBitboard::default();
+    pub fn bb_filter(&self, us: Color, pos: &Board) -> RawBitboard {
+        let mut res = pos.mask_bb();
         for filter in &self.bitboard_filter {
             res &= filter.bb(us, pos);
         }
-        res
+        res.raw()
     }
 
     pub fn attacks_for_blockers(
         &self,
-        piece: FairyPiece,
-        blockers: FairyBitboard,
-        filter_bb: RawFairyBitboard,
-        squares_mask: RawFairyBitboard,
-        pos: &FairyBoard,
+        piece: Piece,
+        blockers: Bitboard,
+        filter_bb: RawBitboard,
+        squares_mask: RawBitboard,
+        pos: &Board,
     ) -> PieceAttackBB {
         let piece_id = piece.symbol;
         let piece = piece.coordinates;
@@ -289,17 +326,20 @@ impl GenPieceAttackKind {
                 // TODO: Keep `gen` alive across calls by making it a parameter
                 let generator = SliderGen::new(blockers, None);
                 let res = match sliding {
+                    SliderDirections::Forward => {
+                        generator.forward_attacks(piece, !piece_id.color().unwrap_or_default().is_first())
+                    }
                     SliderDirections::Vertical => generator.vertical_attacks(piece),
                     SliderDirections::Rook => generator.rook_attacks(piece),
                     SliderDirections::Bishop => generator.bishop_attacks(piece),
                     SliderDirections::Queen => generator.queen_attacks(piece),
                     SliderDirections::Rider { precomputed } => {
-                        let ray = FairyBitboard::new(precomputed[size.internal_key(piece)], size);
+                        let ray = Bitboard::new(precomputed[size.internal_key(piece)], size);
                         // TODO: Also use gen, remove the fallback
-                        FairyBitboard::hyperbola_quintessence_fallback(
+                        Bitboard::hyperbola_quintessence_fallback(
                             size.internal_key(piece),
                             blockers,
-                            FairyBitboard::flip_up_down,
+                            Bitboard::flip_up_down,
                             ray,
                         )
                         // FairyBitboard::hyperbola_quintessence_non_horizontal(piece, blockers, ray)
@@ -307,21 +347,14 @@ impl GenPieceAttackKind {
                 };
                 res.raw()
             }
-            // &AttackTypes::HardCoded { source, target } => {
-            //     if source == piece {
-            //         FairyBitboard::single_piece_for(target, size).raw()
-            //     } else {
-            //         RawFairyBitboard::default()
-            //     }
-            // }
             &AttackTypes::Castling(side) => {
                 if let Some(sq) = pos.0.castling_info.player(piece_id.color().unwrap()).king_dest_sq(side) {
-                    FairyBitboard::single_piece_for(sq, size).raw()
+                    Bitboard::single_piece_for(sq, size).raw()
                 } else {
-                    RawFairyBitboard::default()
+                    RawBitboard::default()
                 }
             }
-            &AttackTypes::Drop => pos.empty_bb().raw(),
+            &AttackTypes::Drop => pos.mask_bb,
         };
         PieceAttackBB {
             all_attacks: res & squares_mask,
@@ -332,7 +365,7 @@ impl GenPieceAttackKind {
         }
     }
 
-    fn check_conditions(&self, piece: FairyPiece, pos: &FairyBoard, mode: AttackMode) -> bool {
+    fn check_conditions(&self, piece: Piece, pos: &Board, mode: AttackMode) -> bool {
         if !self.attack_mode.generate_for_mode(mode) {
             return false;
         }
@@ -346,7 +379,7 @@ impl GenPieceAttackKind {
         }
     }
 
-    pub fn attacks(&self, piece: FairyPiece, pos: &FairyBoard, mode: AttackMode) -> Option<PieceAttackBB> {
+    pub fn attacks(&self, piece: Piece, pos: &Board, mode: AttackMode) -> Option<PieceAttackBB> {
         if !self.check_conditions(piece, pos, mode) {
             return None;
         }
@@ -366,36 +399,41 @@ pub enum CaptureCondition {
 
 #[must_use]
 pub struct PieceAttackBB {
-    pub all_attacks: RawFairyBitboard,
-    pub filter_bb: RawFairyBitboard,
-    pub kind: AttackKind,
+    pub all_attacks: RawBitboard,
+    pub filter_bb: RawBitboard,
+    pub kind: GenAttackKind,
     pub piece: ColoredPieceId,
     pub capture_condition: CaptureCondition,
 }
 
 impl PieceAttackBB {
-    pub fn bb(&self) -> RawFairyBitboard {
+    pub fn bb(&self) -> RawBitboard {
         self.all_attacks & self.filter_bb
     }
-    fn is_capture(&self, to: FairySquare, pos: &FairyBoard) -> bool {
+    fn is_capture(&self, to: Square, pos: &Board) -> bool {
         match self.capture_condition {
             CaptureCondition::DestOccupied => pos.is_occupied(to),
             CaptureCondition::Always => true,
             CaptureCondition::Never => false,
         }
     }
-    pub fn insert_moves<L: MoveList<FairyBoard>>(&self, list: &mut L, pos: &FairyBoard, piece: FairyPiece) {
-        let bb = FairyBitboard::new(self.bb(), pos.size());
-        let from = piece.coordinates;
+    pub fn insert_moves<L: MoveListTrait<Board>>(&self, list: &mut L, pos: &Board, piece: Piece) {
+        let bb = Bitboard::new(self.bb(), pos.size());
+        let from = piece.coordinates; // can be invalid in case of a drop
         for to in bb.ones() {
             let mut move_kinds = ArrayVec::new();
-            MoveKind::insert(&mut move_kinds, self, to, pos);
+            MoveKind::insert(&mut move_kinds, self, from, to, pos);
             for kind in move_kinds {
+                debug_assert_eq!(
+                    matches!(kind, MoveKind::Drop(_)),
+                    from == Square::no_coordinates(),
+                    "{pos} {kind:?} {from:?} {to:?} {bb:?}"
+                );
                 let is_capture = self.is_capture(to, pos);
-                let mov = FairyMove {
+                let mov = Move {
                     from: CompactSquare::new(from, pos.size()),
                     to: CompactSquare::new(to, pos.size()),
-                    packed: FairyMove::pack(kind, is_capture),
+                    packed: Move::pack(kind, is_capture),
                 };
                 list.add_move(mov);
             }
@@ -403,50 +441,56 @@ impl PieceAttackBB {
     }
 }
 
-// no pont in making this a trait as I don't want it to be extensible like at compile time
-// restriction: don't use traits or Box<dyn Fn> for "extensibility", just use enums.
-/// Bitand the generated attack bitboard with a bitboard given by this enum
-#[derive(Debug, Copy, Clone, Arbitrary)]
-#[must_use]
-pub enum AttackBitboardFilter {
-    EmptySquares,
-    Them,
-    // Us,
-    NotUs,
-    // NotThem,
-    Rank(DimT),
-    // File(DimT),
-    PawnCapture, // Them | {ep_square}
-                 // Custom(RawFairyBitboard),
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Arbitrary)]
+pub enum Dir {
+    North,
+    South,
+    East,
+    West,
+    Horizontal,
+    Vertical,
+    Diagonal,
+    AntiDiagonal,
+    Up(Color),
+    Down(Color),
 }
 
-impl AttackBitboardFilter {
-    pub fn bb(self, us: FairyColor, pos: &FairyBoard) -> RawFairyBitboard {
-        let bb = match self {
-            AttackBitboardFilter::EmptySquares => pos.empty_bb(),
-            AttackBitboardFilter::Them => pos.player_bb(!us),
-            // AttackBitboardFilter::Us => pos.player_bb(us),
-            NotUs => !pos.player_bb(us),
-            // AttackBitboardFilter::NotThem => !pos.player_bb(!us),
-            AttackBitboardFilter::Rank(rank) => FairyBitboard::rank_for(rank, pos.size()),
-            // AttackBitboardFilter::File(file) => FairyBitboard::file_for(file, pos.size()),
-            AttackBitboardFilter::PawnCapture => {
-                let ep_bb =
-                    pos.0.ep.map(|sq| FairyBitboard::single_piece_for(sq, pos.size()).raw()).unwrap_or_default();
-                return ep_bb | pos.player_bb(!us).raw();
-            } // AttackBitboardFilter::Custom(bb) => return bb,
-        };
-        bb.raw()
+impl Dir {
+    pub fn shift(self, bb: Bitboard) -> Bitboard {
+        match self {
+            Dir::North => bb.north(),
+            Dir::South => bb.south(),
+            Dir::East => bb.east(),
+            Dir::West => bb.west(),
+            Dir::Horizontal => bb.east() | bb.west(),
+            Dir::Vertical => bb.north() | bb.south(),
+            Dir::Diagonal => bb.north_east() | bb.south_west(),
+            Dir::AntiDiagonal => bb.south_east() | bb.north_west(),
+            Dir::Up(color) => {
+                if color.is_first() {
+                    bb.north()
+                } else {
+                    bb.south()
+                }
+            }
+            Dir::Down(color) => {
+                if color.is_first() {
+                    bb.south()
+                } else {
+                    bb.north()
+                }
+            }
+        }
     }
 }
 
 #[must_use]
-#[derive(Debug, Arbitrary)]
+#[derive(Debug, Clone, Arbitrary)]
 pub enum GenAttacksCondition {
     Always,
-    Player(FairyColor),
+    Player(Color),
     CanCastle(Side),
-    OnRank(DimT, FairyColor),
+    OnRank(DimT, Color),
 }
 
 #[derive(Debug, Default, Copy, Clone, Eq, PartialEq, Hash, Arbitrary)]
@@ -454,13 +498,13 @@ pub enum GenAttacksCondition {
 pub enum MoveKind {
     #[default]
     Normal,
+    // special because it sets the ep square
     DoublePawnPush,
     // the given piece appears at the target square, like in m,n,k games or ataxx clones
     Drop(u8),
-    // like Drop, but the piece on the source square disappears. Used for chess promotions
-    ChangePiece(u8),
+    // like Drop, but the piece on the source square disappears
+    Promotion(u8),
     Castle(Side),
-    Conversion,
 }
 
 // this is also an upper bound of the number of pieces a pawn can promote to
@@ -470,16 +514,19 @@ impl MoveKind {
     fn insert(
         list: &mut ArrayVec<MoveKind, MAX_MOVE_KINDS_PER_ATTACK>,
         attack: &PieceAttackBB,
-        target: FairySquare,
-        pos: &FairyBoard,
+        source: Square,
+        target: Square,
+        pos: &Board,
     ) {
-        let promos = &pos.rules().pieces[attack.piece.uncolor().val()].promotions;
-        if !promos.squares.is_bit_set_at(pos.size().internal_key(target)) {
+        let promo = &pos.rules().pieces[attack.piece.uncolor().val()].promotions;
+        let gen_promo = promo.gen_promo(source, target, pos);
+        if gen_promo != GenPromoMoves::ForcedPromo {
             list.push(attack.kind.to_move_kind(attack.piece));
-        } else {
-            for &piece in &promos.pieces {
+        }
+        if gen_promo != GenPromoMoves::NoPromo {
+            for &piece in &promo.pieces {
                 let id = ColoredPieceId::new(pos.active_player(), piece);
-                list.push(MoveKind::ChangePiece(id.as_u8()));
+                list.push(MoveKind::Promotion(id.as_u8()));
             }
         }
     }
@@ -490,7 +537,7 @@ impl MoveKind {
 pub struct EffectRules {
     pub reset_draw_counter_on_capture: bool,
     pub conversion_radius: usize,
-    // pub explosion_radius: usize, // TODO: Atomic chess
+    // pub explosion_radius: usize, // TODO: Remove?
 }
 
 impl Default for EffectRules {
@@ -503,29 +550,33 @@ impl Default for EffectRules {
     }
 }
 
-impl UnverifiedFairyBoard {
-    pub(super) fn zero_bitboard(&self) -> FairyBitboard {
-        FairyBitboard::new(RawFairyBitboard::default(), self.size)
+impl UnverifiedBoard {
+    pub(super) fn zero_bitboard(&self) -> Bitboard {
+        Bitboard::new(RawBitboard::default(), self.size())
     }
 
-    pub(super) fn blocker_bb(&self) -> FairyBitboard {
+    pub(super) fn blocker_bb(&self) -> Bitboard {
         // TODO: Some games and piece types can modify this
         self.occupied_bb()
     }
 
-    pub(super) fn piece_bb(&self, piece: PieceTypeOf<FairyBoard>) -> FairyBitboard {
-        FairyBitboard::new(self.piece_bitboards[piece.val()], self.size)
+    pub(super) fn piece_bb(&self, piece: PieceTypeOf<Board>) -> Bitboard {
+        Bitboard::new(self.piece_bitboards[piece.val()], self.size())
     }
 
-    pub(super) fn player_bb(&self, color: FairyColor) -> FairyBitboard {
-        FairyBitboard::new(self.color_bitboards[color.idx()], self.size())
+    pub(super) fn player_bb(&self, color: Color) -> Bitboard {
+        Bitboard::new(self.color_bitboards[color], self.size())
     }
 
-    pub(super) fn mask_bb(&self) -> FairyBitboard {
-        FairyBitboard::new(self.mask_bb, self.size())
+    pub(super) fn neutral_bb(&self) -> Bitboard {
+        Bitboard::new(self.neutral_bb, self.size())
     }
 
-    pub fn royal_bb(&self) -> FairyBitboard {
+    pub(super) fn mask_bb(&self) -> Bitboard {
+        Bitboard::new(self.mask_bb, self.size())
+    }
+
+    pub fn royal_bb(&self) -> Bitboard {
         let mut res = self.zero_bitboard();
         for piece in self.rules().royals() {
             res |= self.piece_bb(piece)
@@ -533,60 +584,78 @@ impl UnverifiedFairyBoard {
         res
     }
 
-    pub fn royal_bb_for(&self, color: FairyColor) -> FairyBitboard {
+    pub fn royal_bb_for(&self, color: Color) -> Bitboard {
         self.royal_bb() & self.player_bb(color)
     }
 
+    pub fn king_square(&self, color: Color) -> Option<Square> {
+        self.royal_bb_for(color).to_square()
+    }
+
     /// In normal chess, this is the king bitboard, but not the rook bitboard
-    pub fn castling_bb(&self) -> FairyBitboard {
+    pub fn castling_bb(&self) -> Bitboard {
         let mut res = self.zero_bitboard();
         for piece in self.rules().castling() {
             res |= self.piece_bb(piece)
         }
         res
     }
-    pub fn castling_bb_for(&self, color: FairyColor) -> FairyBitboard {
+    pub fn castling_bb_for(&self, color: Color) -> Bitboard {
         self.castling_bb() & self.player_bb(color)
     }
 }
 
-impl FairyBoard {
-    // only includes capturing attacks, so no pawn pushes
-    pub fn capturing_attack_bb_of(&self, color: FairyColor) -> FairyBitboard {
-        let mut res = RawFairyBitboard::default();
-        let f = |_piece: FairyPiece, bb: &PieceAttackBB| res |= bb.all_attacks;
-        self.gen_attacks_impl(f, color, AttackMode::Captures);
-        FairyBitboard::new(res, self.size())
+impl Board {
+    /// Only includes capturing attacks, so no pawn pushes.
+    /// All attack bitboards are based on pseudolegality, so they can't be used to determine if a move is legal,
+    /// and (depending on the variant) also not easily for testing if a player is in check.
+    /// This method is public mostly because it's often useful to have a rough approximation, e.g. for eval functions.
+    pub fn capturing_attack_bb_of(&self, color: Color) -> Bitboard {
+        self.capturing_attack_bb_of_if(color, |_, _, _| true)
     }
 
-    pub(super) fn gen_pseudolegal_impl<T: MoveList<Self>>(&self, moves: &mut T) {
-        let f = |piece: FairyPiece, bb: &PieceAttackBB| {
-            bb.insert_moves(moves, self, piece);
+    pub fn capturing_attack_bb_of_if<F: FnMut(Piece, &PieceAttackBB, &Board) -> bool>(
+        &self,
+        color: Color,
+        mut cond: F,
+    ) -> Bitboard {
+        let mut res = RawBitboard::default();
+        let f = |piece: Piece, bb: &PieceAttackBB, pos: &Board| {
+            if cond(piece, bb, pos) {
+                res |= bb.all_attacks
+            }
+        };
+        self.gen_attacks_impl(f, color, AttackMode::Captures);
+        Bitboard::new(res, self.size())
+    }
+
+    pub(super) fn gen_pseudolegal_impl<T: MoveListTrait<Self>>(&self, moves: &mut T) {
+        let f = |piece: Piece, bb: &PieceAttackBB, pos: &Board| {
+            bb.insert_moves(moves, pos, piece);
         };
         self.gen_attacks_impl(f, self.active_player(), AttackMode::All);
+        self.rules().moves_filter.apply(moves, self);
     }
 
-    fn gen_attacks_impl<F: FnMut(FairyPiece, &PieceAttackBB)>(&self, mut f: F, color: FairyColor, mode: AttackMode) {
+    fn gen_attacks_impl<F: FnMut(Piece, &PieceAttackBB, &Board)>(&self, mut f: F, color: Color, mode: AttackMode) {
         for (id, piece_type) in self.rules().pieces() {
             for attack_kind in &piece_type.attacks {
                 match attack_kind.required {
                     RequiredForAttack::PieceOnBoard => {
                         let bb = self.col_piece_bb(color, id);
                         for start in bb.ones() {
-                            let piece = FairyPiece { symbol: ColoredPieceId::new(color, id), coordinates: start };
+                            let piece = Piece { symbol: ColoredPieceId::new(color, id), coordinates: start };
                             if let Some(bb) = attack_kind.attacks(piece, self, mode) {
-                                f(piece, &bb);
+                                f(piece, &bb, self);
                             }
                         }
                     }
                     RequiredForAttack::PieceInHand => {
-                        if self.0.in_hand[id.val()] > 0 {
-                            let piece = FairyPiece {
-                                symbol: ColoredPieceId::new(color, id),
-                                coordinates: FairySquare::no_coordinates(),
-                            };
+                        if self.0.in_hand[color][id.val()] > 0 {
+                            let piece =
+                                Piece { symbol: ColoredPieceId::new(color, id), coordinates: Square::no_coordinates() };
                             if let Some(bb) = attack_kind.attacks(piece, self, mode) {
-                                f(piece, &bb);
+                                f(piece, &bb, self);
                             }
                         }
                     }
@@ -595,36 +664,56 @@ impl FairyBoard {
         }
     }
 
-    // Returns a bitboard of all royal pieces that are in check.
-    // Technically, we should generate all moves and see if one of them removes a royal piece from the board.
-    // However, games where attack bitboards aren't sufficient, like atomic chess, generally don't have forced check-evasion rules
-    // that depend on those effects.
-    // For most games, a superpiece method could work, but that's an optimization for later. For now, just computing all the attacks is simpler,
+    /// Returns a bitboard of all royal pieces that are in check.
+    // For most games, a superpiece method could work, but that's an optimization for later.
+    // For now, just computing all the attacks is simpler,
     // more robust, and good enough
-    pub fn in_check_bb(&self, color: FairyColor) -> FairyBitboard {
-        let royals = self.royal_bb_for(color);
-        let their_attacks = self.capturing_attack_bb_of(color.other());
-        royals & their_attacks
+    pub fn in_check_bb(&self, color: Color) -> Bitboard {
+        let them = color.other();
+        let royals = self.royal_bb();
+        let our_royals = royals & self.player_bb(color);
+        let cond = self.rules().check_rules.attack_condition;
+        let their_attacks = match cond {
+            CheckingAttack::None => return self.zero_bitboard(),
+            CheckingAttack::Capture => self.capturing_attack_bb_of(them),
+            CheckingAttack::NoRoyalAdjacent => {
+                let their_royals = royals & self.player_bb(them);
+                if (their_royals & our_royals.moore_inclusive()).has_any() {
+                    return self.zero_bitboard();
+                }
+                self.capturing_attack_bb_of(them)
+            }
+        };
+        our_royals & their_attacks
     }
 
-    pub fn is_player_in_check(&self, color: FairyColor) -> bool {
+    pub(super) fn compute_is_in_check(&self, color: Color) -> bool {
         let rule = self.rules().check_rules;
         let in_check = self.in_check_bb(color);
-        match rule {
-            CheckRules::AllRoyals => in_check == self.royal_bb_for(color),
-            CheckRules::AnyRoyal => in_check.has_set_bit(),
+        match rule.count {
+            CheckCount::AllRoyals => in_check == self.royal_bb_for(color),
+            CheckCount::AnyRoyal => in_check.has_any(),
         }
+    }
+
+    pub fn is_player_in_check(&self, color: Color) -> bool {
+        self.in_check[color]
     }
 
     pub fn is_in_check(&self) -> bool {
         self.is_player_in_check(self.active_player())
     }
 
+    pub fn gives_check_slow(&self, mov: Move) -> bool {
+        debug_assert!(self.is_move_pseudolegal(mov));
+        self.clone().make_move(mov).is_some_and(|new_pos| new_pos.is_in_check())
+    }
+
     // precondition: there must be a piece of `color` on `sq`
-    pub(super) fn k_in_row_at(&self, k: usize, sq: FairySquare, color: FairyColor) -> bool {
+    pub(super) fn k_in_row_at(&self, k: usize, sq: Square, color: Color) -> bool {
         debug_assert!(self.player_bb(color).is_bit_set_at(self.size().internal_key(sq)));
         let blockers = !self.player_bb(color);
-        debug_assert!((blockers.raw() & RawFairyBitboard::single_piece_at(self.size().internal_key(sq))).is_zero());
+        debug_assert!((blockers.raw() & RawBitboard::single_piece_at(self.size().internal_key(sq))).is_zero());
 
         let generator = SliderGen::new(blockers, None);
 
@@ -635,10 +724,39 @@ impl FairyBoard {
     }
 }
 
-impl UnverifiedFairyBoard {
+impl UnverifiedBoard {
+    fn find_x_fen_rook_file(&self, side: char, color: Color, king_sq: Square) -> Res<DimT> {
+        let has_rook = |file: DimT| {
+            let sq = Square::from_rank_file(king_sq.rank(), file);
+            let piece = self.piece_on(sq);
+            // `contains` because e.g. 'rook (promoted)' should also match, and there aren't really any piece names that
+            // "accidentally" contain 'rook'.
+            piece.color() == Some(color) && piece.uncolored().get(self.rules()).unwrap().name.contains("rook")
+        };
+        if side == 'q' {
+            for file in 0..king_sq.file() {
+                if has_rook(file) {
+                    return Ok(file);
+                }
+            }
+        } else {
+            for file in ((king_sq.file() + 1)..self.size().width.get()).rev() {
+                if has_rook(file) {
+                    return Ok(file);
+                }
+            }
+        }
+        let side = if side == 'q' { "queen" } else { "king" };
+        bail!(
+            "No rook found for {0} to castle {1}side: When using X-FEN castling rights (i.e., 'kqKQ' letters), \
+            the rook piece must be named exactly 'rook'. Use the file letter instead to allow castling with other pieces",
+            color.name(self.rules()).bold(),
+            side.bold()
+        )
+    }
+
     fn parse_castling_info(&self, castling_word: &str) -> Res<FairyCastleInfo> {
-        let size = self.size;
-        let mut info = FairyCastleInfo::new(size);
+        let mut info = FairyCastleInfo::new(self.size());
 
         if castling_word == "-" {
             return Ok(info);
@@ -652,27 +770,36 @@ impl UnverifiedFairyBoard {
                 castling_word.red()
             );
 
-            let color = if c.is_ascii_uppercase() { FairyColor::first() } else { FairyColor::second() };
+            let color = if c.is_ascii_uppercase() { Color::first() } else { Color::second() };
             let king_bb = self.castling_bb_for(color);
-            ensure!(
-                king_bb.is_single_piece(),
-                "Castling is only legal when there is a single royal piece, but the {0} player has {1}",
-                self.rules().colors[color.idx()].name,
-                king_bb.num_ones()
-            );
+            let Some(king_sq) = king_bb.to_square() else {
+                bail!(
+                    "Castling is only legal when there is a single royal piece, but the {0} player has {1}",
+                    self.rules().colors[color].name,
+                    king_bb.num_ones()
+                )
+            };
 
             let lowercase_c = c.to_ascii_lowercase();
-            let file = if (lowercase_c == 'k' || lowercase_c == 'q') && size.width.val() == 8 {
-                if lowercase_c == 'k' { 7 } else { 0 }
+            // X-FEN requires finding a rook, which we test for by literally searching for "rook" in the piece name.
+            // For Shredder FEN, we instead use the given square, which enables castling with other pieces.
+            let file = if lowercase_c == 'k' || lowercase_c == 'q' {
+                self.find_x_fen_rook_file(lowercase_c, color, king_sq)?
             } else {
                 char_to_file(lowercase_c)
             };
-            let king_sq = king_bb.ones().next().unwrap();
             let side = if file > king_sq.file() { Kingside } else { Queenside };
             let king_dest_file = if side == Kingside { b'g' - b'a' } else { b'c' - b'a' };
             let rook_dest_file = if side == Kingside { king_dest_file - 1 } else { king_dest_file + 1 };
             let move_info = CastlingMoveInfo { rook_file: file, king_dest_file, rook_dest_file, fen_char: c as u8 };
-            info.players[color.idx()].sides[side as usize] = Some(move_info);
+            let entry = &mut info.players[color].sides[side as usize];
+            ensure!(
+                entry.is_none(),
+                "Attempting to set the same castle right twice for player {0} and file '{1}' ({side})",
+                color.name(self.settings()),
+                b'a' + file
+            );
+            info.players[color].sides[side as usize] = Some(move_info);
         }
         Ok(info)
     }
@@ -686,7 +813,19 @@ impl UnverifiedFairyBoard {
         }
         if self.rules().has_ep {
             let Some(ep_square) = words.next() else { bail!("FEN ends before en passant square") };
-            self.ep = if ep_square == "-" { None } else { Some(FairySquare::from_str(ep_square)?) };
+            self.ep = if ep_square == "-" {
+                None
+            } else {
+                let ep = Square::from_str(ep_square)
+                    .map_err(|err| anyhow!("Failed to read the ep square ('{}'): {err}", ep_square.red()))?;
+                ensure!(self.is_empty(ep), "The en passant square ('{ep}') must be empty");
+                Some(ep)
+            };
+        } else if words.peek().copied() == Some("-") {
+            _ = words.next(); // Some GUIs always send castling and ep as '-' even if the variant doesn't support them
+            if words.peek().copied() == Some("-") && !self.rules().has_castling {
+                _ = words.next();
+            }
         }
         Ok(())
     }

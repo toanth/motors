@@ -2,7 +2,7 @@ use gears::itertools::Itertools;
 use std::fmt::{Debug, Display, Formatter};
 use std::time::Duration;
 
-use gears::general::board::Board;
+use gears::general::board::BoardTrait;
 use gears::rand::{Rng, RngCore, SeedableRng, rng};
 
 use crate::eval::Eval;
@@ -11,26 +11,26 @@ use crate::search::{AbstractSearchState, EmptySearchStackEntry, Engine, EngineIn
 use gears::general::common::StaticallyNamedEntity;
 use gears::score::Score;
 use gears::search::NodeType::Exact;
-use gears::search::{Depth, NodesLimit, SearchInfo, SearchResult};
+use gears::search::{Budget, DepthPly, NodesLimit, SearchInfo, SearchResult};
 
 pub trait SeedRng: Rng + SeedableRng {}
 
 impl<T> SeedRng for T where T: Rng + SeedableRng {}
 
-pub struct RandomMover<B: Board, R: SeedRng> {
+pub struct RandomMover<B: BoardTrait, R: SeedRng> {
     pub rng: R,
     state: SearchState<B, EmptySearchStackEntry, NoCustomInfo>,
 }
 
-impl<B: Board, R: SeedRng> Debug for RandomMover<B, R> {
+impl<B: BoardTrait, R: SeedRng> Debug for RandomMover<B, R> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         f.write_str("random mover")
     }
 }
 
-impl<B: Board, R: SeedRng> Default for RandomMover<B, R> {
+impl<B: BoardTrait, R: SeedRng> Default for RandomMover<B, R> {
     fn default() -> Self {
-        Self { rng: R::seed_from_u64(rng().next_u64()), state: SearchState::new(Depth::new(1)) }
+        Self { rng: R::seed_from_u64(rng().next_u64()), state: SearchState::new(DepthPly::new(1)) }
     }
 }
 
@@ -44,7 +44,7 @@ impl<B: Board, R: SeedRng> Default for RandomMover<B, R> {
 //     }
 // }
 
-impl<B: Board, R: SeedRng + 'static> StaticallyNamedEntity for RandomMover<B, R> {
+impl<B: BoardTrait, R: SeedRng + 'static> StaticallyNamedEntity for RandomMover<B, R> {
     fn static_short_name() -> impl Display
     where
         Self: Sized,
@@ -67,12 +67,12 @@ impl<B: Board, R: SeedRng + 'static> StaticallyNamedEntity for RandomMover<B, R>
     }
 }
 
-impl<B: Board, R: SeedRng + Clone + Send + 'static> Engine<B> for RandomMover<B, R> {
+impl<B: BoardTrait, R: SeedRng + Clone + Send + 'static> Engine<B> for RandomMover<B, R> {
     type SearchStackEntry = EmptySearchStackEntry;
     type CustomInfo = NoCustomInfo;
 
-    fn max_bench_depth(&self) -> Depth {
-        Depth::new(1)
+    fn max_bench_depth(&self) -> DepthPly {
+        DepthPly::new(1)
     }
 
     fn engine_info(&self) -> EngineInfo {
@@ -80,7 +80,7 @@ impl<B: Board, R: SeedRng + Clone + Send + 'static> Engine<B> for RandomMover<B,
             self,
             &RandEval::default(),
             "0.1.0",
-            Depth::new(1),
+            DepthPly::new(1),
             NodesLimit::new(1).unwrap(),
             Some(1),
             vec![],
@@ -113,11 +113,12 @@ impl<B: Board, R: SeedRng + Clone + Send + 'static> Engine<B> for RandomMover<B,
         Score(0)
     }
 
-    fn search_info(&self) -> SearchInfo<B> {
+    fn search_info(&self, _final_info: bool) -> SearchInfo<'_, B> {
         SearchInfo {
             best_move_of_all_pvs: self.state.best_move(),
-            depth: Depth::new(0),
-            seldepth: Depth::new(0),
+            iterations: DepthPly::new(0),
+            budget: Budget::new(0),
+            seldepth: DepthPly::new(0),
             time: Duration::default(),
             nodes: NodesLimit::new(1).unwrap(),
             pv_num: 1,
@@ -129,6 +130,7 @@ impl<B: Board, R: SeedRng + Clone + Send + 'static> Engine<B> for RandomMover<B,
             bound: Some(Exact),
             num_threads: 1,
             additional: None,
+            final_info: true,
         }
     }
 

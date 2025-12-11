@@ -3,7 +3,7 @@ use std::fmt::Display;
 use std::str::SplitWhitespace;
 
 use crate::GameState;
-use crate::general::board::Board;
+use crate::general::board::BoardTrait;
 use crate::general::common::{NamedEntity, Res, StaticallyNamedEntity, Tokens, TokensToString};
 use crate::output::text_output::DisplayType::Fen;
 use crate::output::text_output::{BoardToText, TextStream};
@@ -66,8 +66,8 @@ impl AbstractOutput for Logger {
         let time_stamp = chrono::Utc::now().to_rfc3339();
         let message = format!("[{time_stamp}] {}", message.string());
         match player {
-            None => self.stream.write(">", &format_args!("{}", message)),
-            Some(name) => self.stream.write(&format!("({name})>"), &format_args!("{}", message)),
+            None => self.stream.write(">", &format_args!("{message}")),
+            Some(name) => self.stream.write(&format!("({name})>"), &format_args!("{message}")),
         }
     }
 
@@ -76,7 +76,7 @@ impl AbstractOutput for Logger {
     }
 }
 
-impl<B: Board> Output<B> for Logger {
+impl<B: BoardTrait> Output<B> for Logger {
     fn show(&mut self, m: &dyn GameState<B>, opts: OutputOpts) {
         let msg = self.as_string(m, opts);
         self.stream.write("Board:\n", &format_args!("{msg}"));
@@ -111,7 +111,7 @@ impl LoggerBuilder {
         Self::new(&words.string())
     }
 
-    pub fn build<B: Board>(&self, name: &str) -> Res<OutputBox<B>> {
+    pub fn build<B: BoardTrait>(&self, name: &str) -> Res<OutputBox<B>> {
         let fallback_name = format!("debug_output_{name}.log");
         Ok(Box::new(Logger::from_words(self.stream_name.split_whitespace(), &fallback_name).unwrap_or_else(|err| {
             eprintln!("Error while setting log stream, falling back to default: {err}'");
@@ -134,7 +134,7 @@ impl StaticallyNamedEntity for LoggerBuilder {
     }
 }
 
-impl<B: Board> OutputBuilder<B> for LoggerBuilder {
+impl<B: BoardTrait> OutputBuilder<B> for LoggerBuilder {
     fn for_engine(&mut self, state: &dyn GameState<B>) -> Res<OutputBox<B>> {
         // Use the (hopefully unique) name to ensure that engines or the GUI don't try to write to the same file if they both have
         // debug logging enabled, which happens if the --debug flag is passed to the GUI with two built-in engines.

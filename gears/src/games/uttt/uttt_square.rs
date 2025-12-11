@@ -16,8 +16,8 @@
  *  along with Gears. If not, see <https://www.gnu.org/licenses/>.
  */
 
-use crate::games::uttt::UtttSubSquare;
-use crate::games::{Coordinates, DimT, Height, Size, Width};
+use crate::games::uttt::SubSquare;
+use crate::games::{CoordinatesTrait, DimT, Height, SizeTrait, Width};
 use crate::general::squares::{RectangularCoordinates, RectangularSize, SmallGridSize, SmallGridSquare};
 use arbitrary::Arbitrary;
 use itertools::Itertools;
@@ -28,38 +28,38 @@ use std::str::FromStr;
 /// the more generic `SmallGridSize` type.
 #[derive(Debug, Default, Copy, Clone, Eq, PartialEq, Hash, Arbitrary)]
 #[must_use]
-pub struct UtttSize {}
+pub struct Size {}
 
-impl Display for UtttSize {
+impl Display for Size {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         SmallGridSize::<9, 9>::default().fmt(f)
     }
 }
 
-impl Size<UtttSquare> for UtttSize {
+impl SizeTrait<Square> for Size {
     fn num_squares(self) -> usize {
         9 * 9
     }
 
-    fn internal_key(self, coordinates: UtttSquare) -> usize {
+    fn internal_key(self, coordinates: Square) -> usize {
         coordinates.bb_idx()
     }
 
-    fn to_coordinates_unchecked(self, internal_key: usize) -> UtttSquare {
-        UtttSquare::from_bb_idx(internal_key)
+    fn to_coordinates_unchecked(self, internal_key: usize) -> Square {
+        Square::from_bb_idx(internal_key)
     }
 
-    fn valid_coordinates(self) -> impl Iterator<Item = UtttSquare> {
-        UtttSquare::iter()
+    fn valid_coordinates(self) -> impl Iterator<Item = Square> {
+        Square::iter()
     }
 
-    fn coordinates_valid(self, coordinates: UtttSquare) -> bool {
+    fn coordinates_valid(self, coordinates: Square) -> bool {
         let size = SmallGridSize::<3, 3>::default();
         size.coordinates_valid(coordinates.sub_board) && size.coordinates_valid(coordinates.sub_square)
     }
 }
 
-impl RectangularSize<UtttSquare> for UtttSize {
+impl RectangularSize<Square> for Size {
     fn height(self) -> Height {
         Height(9)
     }
@@ -71,12 +71,12 @@ impl RectangularSize<UtttSquare> for UtttSize {
 
 #[derive(Debug, Default, Copy, Clone, Eq, PartialEq, Hash, Arbitrary)]
 #[must_use]
-pub struct UtttSquare {
-    sub_board: UtttSubSquare,
-    sub_square: UtttSubSquare,
+pub struct Square {
+    sub_board: SubSquare,
+    sub_square: SubSquare,
 }
 
-impl Display for UtttSquare {
+impl Display for Square {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         // use `unchecked` because this function can be called to print invalid coordinates.
         // Convert to usize first because the multiplication can overflow for invalid values otherwise
@@ -84,7 +84,7 @@ impl Display for UtttSquare {
     }
 }
 
-impl FromStr for UtttSquare {
+impl FromStr for Square {
     type Err = anyhow::Error;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
@@ -92,8 +92,8 @@ impl FromStr for UtttSquare {
     }
 }
 
-impl Coordinates for UtttSquare {
-    type Size = UtttSize;
+impl CoordinatesTrait for Square {
+    type Size = Size;
 
     fn flip_up_down(self, _size: Self::Size) -> Self {
         let size = SmallGridSize::default();
@@ -110,7 +110,7 @@ impl Coordinates for UtttSquare {
     }
 }
 
-impl RectangularCoordinates for UtttSquare {
+impl RectangularCoordinates for Square {
     fn from_rank_file(row: DimT, column: DimT) -> Self {
         let sub_board = SmallGridSquare::from_rank_file(row / 3, column / 3);
         let sub_square = SmallGridSquare::from_rank_file(row % 3, column % 3);
@@ -126,8 +126,8 @@ impl RectangularCoordinates for UtttSquare {
     }
 }
 
-impl UtttSquare {
-    pub fn new(sub_board: UtttSubSquare, sub_square: UtttSubSquare) -> Self {
+impl Square {
+    pub fn new(sub_board: SubSquare, sub_square: SubSquare) -> Self {
         Self { sub_board, sub_square }
     }
 
@@ -169,11 +169,11 @@ impl UtttSquare {
         })
     }
 
-    pub fn sub_board(self) -> UtttSubSquare {
+    pub fn sub_board(self) -> SubSquare {
         self.sub_board
     }
 
-    pub fn sub_square(self) -> UtttSubSquare {
+    pub fn sub_square(self) -> SubSquare {
         self.sub_square
     }
 

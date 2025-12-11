@@ -1,12 +1,12 @@
-use crate::general::board::Board;
+use crate::general::board::BoardTrait;
 use crate::general::common::{Res, parse_fp_from_str};
-use crate::general::moves::Move;
+use crate::general::moves::MoveTrait;
 use crate::score::Score;
 use crate::search::MpvType::{MainOfMultiple, OnlyLine, SecondaryLine};
 use NodeType::*;
 use anyhow::{anyhow, bail};
 use colored::{ColoredString, Colorize};
-use derive_more::{Add, AddAssign, SubAssign};
+use derive_more::{Add, AddAssign, Sub, SubAssign};
 use itertools::Itertools;
 use std::fmt::{Display, Formatter};
 use std::num::NonZeroU64;
@@ -15,11 +15,13 @@ use std::str::FromStr;
 use std::time::{Duration, Instant};
 use strum_macros::FromRepr;
 
-pub const MAX_DEPTH: Depth = Depth(10_000);
+pub const MAX_DEPTH: DepthPly = DepthPly(10_000);
+
+pub const MAX_BUDGET: Budget = Budget(1 << 20);
 
 #[derive(Eq, PartialEq, Debug, Default, Copy, Clone)]
 #[must_use]
-pub struct SearchResult<B: Board> {
+pub struct SearchResult<B: BoardTrait> {
     pub chosen_move: B::Move,
     pub score: Score,
     // TODO: NodeType to represent UCI upper bound and lower bound scores
@@ -27,7 +29,7 @@ pub struct SearchResult<B: Board> {
     pub pos: B,
 }
 
-impl<B: Board> SearchResult<B> {
+impl<B: BoardTrait> SearchResult<B> {
     pub fn move_only(chosen_move: B::Move, pos: B) -> Self {
         debug_assert!(chosen_move.is_null() || pos.is_move_legal(chosen_move));
         Self { chosen_move, pos, ..Default::default() }
@@ -61,7 +63,7 @@ impl<B: Board> SearchResult<B> {
     }
 }
 
-impl<B: Board> Display for SearchResult<B> {
+impl<B: BoardTrait> Display for SearchResult<B> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "bestmove {}", self.chosen_move.compact_formatter(&self.pos))?;
         if let Some(ponder) = self.ponder_move() {
@@ -133,10 +135,11 @@ impl NodeType {
 
 #[derive(Debug)]
 #[must_use]
-pub struct SearchInfo<'a, B: Board> {
+pub struct SearchInfo<'a, B: BoardTrait> {
     pub best_move_of_all_pvs: B::Move,
-    pub depth: Depth,
-    pub seldepth: Depth,
+    pub iterations: DepthPly,
+    pub budget: Budget,
+    pub seldepth: DepthPly,
     pub time: Duration,
     pub nodes: NodesLimit,
     pub pv_num: usize,
@@ -148,14 +151,16 @@ pub struct SearchInfo<'a, B: Board> {
     pub bound: Option<NodeType>,
     pub num_threads: usize,
     pub additional: Option<String>,
+    pub final_info: bool,
 }
 
-impl<B: Board> Default for SearchInfo<'_, B> {
+impl<B: BoardTrait> Default for SearchInfo<'_, B> {
     fn default() -> Self {
         Self {
             best_move_of_all_pvs: B::Move::default(),
-            depth: Depth::default(),
-            seldepth: Depth::default(),
+            budget: Budget::default(),
+            iterations: DepthPly::default(),
+            seldepth: DepthPly::default(),
             time: Duration::default(),
             nodes: NodesLimit::MAX,
             pv_num: 1,
@@ -167,11 +172,12 @@ impl<B: Board> Default for SearchInfo<'_, B> {
             bound: None,
             num_threads: 1,
             additional: None,
+            final_info: false,
         }
     }
 }
 
-impl<B: Board> SearchInfo<'_, B> {
+impl<B: BoardTrait> SearchInfo<'_, B> {
     pub fn nps(&self) -> usize {
         let micros = self.time.as_micros() as f64;
         if micros == 0.0 { 0 } else { ((self.nodes.get() as f64 * 1_000_000.0) / micros) as usize }
@@ -188,17 +194,18 @@ impl<B: Board> SearchInfo<'_, B> {
     }
 }
 
-impl<B: Board> Display for SearchInfo<'_, B> {
+impl<B: BoardTrait> Display for SearchInfo<'_, B> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         let bound = match self.bound.unwrap_or(Exact) {
             FailHigh => " lowerbound",
             Exact => "",
             FailLow => " upperbound",
         };
+        // we write the number of iterations as the depth, because this is what `go depth` does and because it's what users would expect
         write!(
             f,
-            "info depth {depth} seldepth {seldepth} multipv {multipv} score {score}{bound} time {time} nodes {nodes} nps {nps} hashfull {hashfull} pv",
-            depth = self.depth.get(),
+            "info depth {iterations} seldepth {seldepth} multipv {multipv} score {score}{bound} time {time} nodes {nodes} nps {nps} hashfull {hashfull} pv",
+            iterations = self.iterations,
             score = self.score,
             time = self.time.as_millis(),
             nodes = self.nodes.get(),
@@ -315,13 +322,52 @@ impl TimeControl {
 }
 
 #[derive(
+    Debug, Default, Copy, Clone, Ord, PartialOrd, Eq, PartialEq, Add, AddAssign, Sub, SubAssign, derive_more::Display,
+)]
+#[must_use]
+/// Can be fractional, unlike [`DepthPly`].
+pub struct Budget(usize);
+
+impl Budget {
+    pub const MIN: Self = Budget(0);
+    pub const MAX: Self = MAX_BUDGET;
+
+    pub const fn get(self) -> usize {
+        self.0
+    }
+
+    pub const fn isize(self) -> isize {
+        self.0 as isize
+    }
+
+    pub const fn new(val: usize) -> Self {
+        assert!(val <= Self::MAX.get());
+        Self(val)
+    }
+
+    pub fn try_new(val: isize) -> Res<Self> {
+        if val < 0 {
+            bail!("Budget must not be negative, but it is {val}")
+        } else if val > Self::MAX.get() as isize {
+            bail!("Budget must be at most {}, not {val}", Self::MAX.get())
+        } else {
+            Ok(Self(val as usize))
+        }
+    }
+}
+
+#[derive(
     Debug, Default, Copy, Clone, Ord, PartialOrd, Eq, PartialEq, Add, AddAssign, SubAssign, derive_more::Display,
 )]
 #[must_use]
-pub struct Depth(usize);
+/// Depth expressed in ply. This is in contrast to [`Budget`], which can be fractional.
+///
+/// The UCI term "depth" is taken to mean iterations and usually expressed in [`DepthPly`].
+/// Within a searcher, the current (possibly fractional) depth (if applicable) is represented as [`Budget`].
+pub struct DepthPly(usize);
 
-impl Depth {
-    pub const MIN: Self = Depth(0);
+impl DepthPly {
+    pub const MIN: Self = DepthPly(0);
     pub const MAX: Self = MAX_DEPTH;
 
     pub const fn get(self) -> usize {
@@ -348,13 +394,13 @@ impl Depth {
     }
 }
 
-impl AddAssign<usize> for Depth {
+impl AddAssign<usize> for DepthPly {
     fn add_assign(&mut self, rhs: usize) {
         self.0 += rhs;
     }
 }
 
-impl Add<usize> for Depth {
+impl Add<usize> for DepthPly {
     type Output = Self;
 
     fn add(mut self, rhs: usize) -> Self::Output {
@@ -363,13 +409,13 @@ impl Add<usize> for Depth {
     }
 }
 
-impl SubAssign<usize> for Depth {
+impl SubAssign<usize> for DepthPly {
     fn sub_assign(&mut self, rhs: usize) {
         self.0 -= rhs;
     }
 }
 
-impl Sub<usize> for Depth {
+impl Sub<usize> for DepthPly {
     type Output = Self;
 
     fn sub(mut self, rhs: usize) -> Self::Output {
@@ -388,10 +434,11 @@ pub type NodesLimit = NonZeroU64;
 pub struct SearchLimit {
     pub tc: TimeControl,
     pub fixed_time: Duration,
-    pub depth: Depth,
+    pub byoyomi: Duration,
+    pub depth: DepthPly,
     pub nodes: NodesLimit,
     pub soft_nodes: NodesLimit,
-    pub mate: Depth,
+    pub mate: DepthPly,
     pub start_time: Instant,
 }
 
@@ -400,10 +447,11 @@ impl Default for SearchLimit {
         SearchLimit {
             tc: TimeControl::default(),
             fixed_time: Duration::MAX,
+            byoyomi: Duration::ZERO,
             depth: MAX_DEPTH,
             nodes: NodesLimit::new(u64::MAX).unwrap(),
             soft_nodes: NodesLimit::new(u64::MAX).unwrap(),
-            mate: Depth::new(0), // only finding a mate in 0 would stop the search
+            mate: DepthPly::new(0), // only finding a mate in 0 would stop the search
             start_time: Instant::now(),
         }
     }
@@ -430,7 +478,7 @@ impl Display for SearchLimit {
         if self.soft_nodes.get() != u64::MAX {
             limits.push(format!("{} soft nodes", self.soft_nodes.get()));
         }
-        if self.mate != Depth::new(0) {
+        if self.mate != DepthPly::new(0) {
             limits.push(format!("mate in {} plies", self.mate.get()));
         }
         if limits.len() == 1 { write!(f, "{}", limits[0]) } else { write!(f, "[{}]", limits.iter().format(",")) }
@@ -450,20 +498,20 @@ impl SearchLimit {
         Self { fixed_time, ..Self::infinite() }
     }
 
-    pub fn depth(depth: Depth) -> Self {
+    pub fn depth(depth: DepthPly) -> Self {
         Self { depth, ..Self::infinite() }
     }
 
     pub fn depth_(depth: usize) -> Self {
-        Self::depth(Depth::new(depth))
+        Self::depth(DepthPly::new(depth))
     }
 
-    pub fn mate(depth: Depth) -> Self {
+    pub fn mate(depth: DepthPly) -> Self {
         Self { mate: depth, ..Self::infinite() }
     }
 
     pub fn mate_in_moves(num_moves: usize) -> Self {
-        Self::mate(Depth::new(num_moves * 2))
+        Self::mate(DepthPly::new(num_moves * 2))
     }
 
     pub fn nodes(nodes: NodesLimit) -> Self {
@@ -486,6 +534,7 @@ impl SearchLimit {
         Self {
             tc: self.tc.combine(other.tc),
             fixed_time: self.fixed_time.min(other.fixed_time),
+            byoyomi: self.byoyomi.max(other.byoyomi),
             depth: self.depth.min(other.depth),
             nodes: self.nodes.min(other.nodes),
             soft_nodes: self.soft_nodes.min(other.soft_nodes),

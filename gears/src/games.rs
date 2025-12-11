@@ -1,5 +1,5 @@
 use crate::games::CharType::{Ascii, Unicode};
-use crate::general::board::Board;
+use crate::general::board::{BoardHelpers, BoardTrait};
 use crate::general::common::{EntityList, Res, Tokens};
 use crate::output::OutputBuilder;
 use anyhow::bail;
@@ -10,7 +10,7 @@ use std::cmp::min;
 use std::fmt;
 use std::fmt::{Debug, Display, Formatter};
 use std::hash::Hash;
-use std::ops::Not;
+use std::ops::{Index, IndexMut, Not};
 use std::str::FromStr;
 use strum_macros::EnumIter;
 
@@ -34,10 +34,25 @@ pub enum CharType {
     Unicode,
 }
 
+impl<T> Index<CharType> for [T; 2] {
+    type Output = T;
+    fn index(&self, index: CharType) -> &Self::Output {
+        &self[index as usize]
+    }
+}
+
+impl<T> IndexMut<CharType> for [T; 2] {
+    fn index_mut(&mut self, index: CharType) -> &mut Self::Output {
+        &mut self[index as usize]
+    }
+}
+
+pub const NUM_CHAR_TYPES: usize = 2;
+
 pub const NUM_COLORS: usize = 2;
 
-pub trait Color: Debug + Default + Copy + Clone + PartialEq + Eq + Send + Hash + Not {
-    type Board: Board<Color = Self>;
+pub trait ColorTrait: Debug + Default + Copy + Clone + PartialEq + Eq + Send + Hash + Not<Output = Self> {
+    type Board: BoardTrait<Color = Self>;
 
     #[must_use]
     fn other(self) -> Self {
@@ -54,12 +69,12 @@ pub trait Color: Debug + Default + Copy + Clone + PartialEq + Eq + Send + Hash +
         self == Self::first()
     }
 
-    fn iter() -> impl Iterator<Item = Self> {
+    fn iter() -> impl DoubleEndedIterator<Item = Self> {
         [Self::first(), Self::second()].into_iter()
     }
 
     /// Takes a board parameter because the `FairyBoard` color can change based on the rules
-    fn from_char(color: char, settings: &<Self::Board as Board>::Settings) -> Option<Self> {
+    fn from_char(color: char, settings: &<Self::Board as BoardTrait>::Settings) -> Option<Self> {
         if Self::first().to_char(settings).eq_ignore_ascii_case(&color) {
             Some(Self::first())
         } else if Self::second().to_char(settings).eq_ignore_ascii_case(&color) {
@@ -69,34 +84,34 @@ pub trait Color: Debug + Default + Copy + Clone + PartialEq + Eq + Send + Hash +
         }
     }
 
-    fn from_name(name: &str, settings: &<Self::Board as Board>::Settings) -> Option<Self> {
-        if Self::first().name(settings).as_ref().eq_ignore_ascii_case(name) {
+    fn from_name(name: &str, settings: &<Self::Board as BoardTrait>::Settings) -> Option<Self> {
+        if Self::first().name(settings).eq_ignore_ascii_case(name) {
             Some(Self::first())
-        } else if Self::second().name(settings).as_ref().eq_ignore_ascii_case(name) {
+        } else if Self::second().name(settings).eq_ignore_ascii_case(name) {
             Some(Self::second())
         } else {
             let mut chars = name.chars();
-            if let Some(c) = chars.next() {
-                if chars.next().is_none() {
-                    if c.eq_ignore_ascii_case(&Self::first().to_char(settings)) {
-                        return Some(Self::first());
-                    } else if c.eq_ignore_ascii_case(&Self::second().to_char(settings)) {
-                        return Some(Self::second());
-                    }
+            if let Some(c) = chars.next()
+                && chars.next().is_none()
+            {
+                if c.eq_ignore_ascii_case(&Self::first().to_char(settings)) {
+                    return Some(Self::first());
+                } else if c.eq_ignore_ascii_case(&Self::second().to_char(settings)) {
+                    return Some(Self::second());
                 }
             }
             None
         }
     }
 
-    fn to_char(self, _settings: &<Self::Board as Board>::Settings) -> char;
+    fn to_char(self, _settings: &<Self::Board as BoardTrait>::Settings) -> char;
 
-    fn name(self, _settings: &<Self::Board as Board>::Settings) -> impl AsRef<str>;
+    fn name(self, _settings: &<Self::Board as BoardTrait>::Settings) -> &str;
 }
 
 /// Common parts of colored and uncolored piece types
 // TODO: Remove default?
-pub trait AbstractPieceType<B: Board>: Eq + Copy + Debug + Default {
+pub trait AbstractPieceType<B: BoardTrait>: Eq + Copy + Debug + Default {
     fn empty() -> Self;
 
     fn non_empty(_settings: &B::Settings) -> impl Iterator<Item = Self>;
@@ -115,6 +130,26 @@ pub trait AbstractPieceType<B: Board>: Eq + Copy + Debug + Default {
     /// Takes a board parameter because the `FairyBoard` pieces can change based on the rules
     fn from_char(c: char, _settings: &B::Settings) -> Option<Self>;
 
+    fn max_num_chars(_settings: &B::Settings) -> usize {
+        1
+    }
+
+    /// Usually, this simply writes the ascii char, but some variants require additional chars to
+    /// express piece modifiers
+    fn write_as_str(
+        self,
+        settings: &B::Settings,
+        char_type: CharType,
+        display_pretty: bool,
+        f: &mut Formatter<'_>,
+    ) -> fmt::Result {
+        if display_pretty {
+            write!(f, "{}", self.to_display_char(char_type, settings))
+        } else {
+            write!(f, "{}", self.to_char(char_type, settings))
+        }
+    }
+
     /// Names for colored pieces don't have to (but can) include the color, i.e. `x` and `o` could be named `"x"` and `"o"` but
     /// white and black pawn could both be named `"pawn"`, but also `"white pawn"` and `"black pawn"`.
     fn name(&self, _settings: &B::Settings) -> impl AsRef<str>;
@@ -126,13 +161,13 @@ pub trait AbstractPieceType<B: Board>: Eq + Copy + Debug + Default {
             }
         }
         let mut chars = name.chars();
-        if let Some(c) = chars.next() {
-            if chars.next().is_none() {
-                for piece in Self::non_empty(settings) {
-                    // don't ignore case because that's often used to distinguish between colors
-                    if piece.to_char(Ascii, settings) == c || piece.to_char(Unicode, settings) == c {
-                        return Some(piece);
-                    }
+        if let Some(c) = chars.next()
+            && chars.next().is_none()
+        {
+            for piece in Self::non_empty(settings) {
+                // don't ignore case because that's often used to distinguish between colors
+                if piece.to_char(Ascii, settings) == c || piece.to_char(Unicode, settings) == c {
+                    return Some(piece);
                 }
             }
         }
@@ -140,16 +175,31 @@ pub trait AbstractPieceType<B: Board>: Eq + Copy + Debug + Default {
     }
 
     fn to_uncolored_idx(self) -> usize;
+
+    /// This method is used when parsing FENs and only does something in some fairy variants.
+    fn make_promoted(&mut self, rules: &B::Settings) -> Res<()> {
+        bail!(
+            "There is no special meaning for a promoted {0} in {1}",
+            self.name(rules).as_ref().bold(),
+            B::game_name().bold()
+        )
+    }
 }
 
-pub trait PieceType<B: Board>: AbstractPieceType<B> {
-    type Colored: ColoredPieceType<B>;
+pub trait PieceTypeTrait<B: BoardTrait>: AbstractPieceType<B> {
+    type Colored: ColoredPieceTypeTrait<B>;
 
     fn from_idx(idx: usize) -> Self;
+
+    /// Like [`Self::make_promoted`], this method is used to for FENs.
+    /// For example, in crazyhouse, a promoted piece is suffixed with a '~'.
+    fn promoted_from(&self, _rules: &B::Settings) -> Option<Self> {
+        None
+    }
 }
 
-pub trait ColoredPieceType<B: Board>: AbstractPieceType<B> {
-    type Uncolored: PieceType<B>;
+pub trait ColoredPieceTypeTrait<B: BoardTrait>: AbstractPieceType<B> {
+    type Uncolored: PieceTypeTrait<B>;
 
     fn new(color: B::Color, uncolored: Self::Uncolored) -> Self;
 
@@ -162,10 +212,10 @@ pub trait ColoredPieceType<B: Board>: AbstractPieceType<B> {
         let copied = words.clone();
         let second_word = words.next().unwrap_or_default();
 
-        if let Some(color) = B::Color::from_name(piece, settings) {
-            if let Some(piece) = Self::Uncolored::from_name(second_word, settings) {
-                return Ok(Self::new(color, piece));
-            }
+        if let Some(color) = B::Color::from_name(piece, settings)
+            && let Some(piece) = Self::Uncolored::from_name(second_word, settings)
+        {
+            return Ok(Self::new(color, piece));
         }
         // There are no pieces with more than 2 words
         let full_name = format!("{second_word} {}", words.peek().copied().unwrap_or_default());
@@ -189,20 +239,47 @@ pub trait ColoredPieceType<B: Board>: AbstractPieceType<B> {
     }
 
     fn to_colored_idx(self) -> usize;
+
+    fn flip_color(self) -> Self {
+        if let Some(color) = self.color() { Self::new(!color, self.uncolor()) } else { self }
+    }
+
+    fn str_formatter(
+        self,
+        settings: &B::Settings,
+        char_type: CharType,
+        display_pretty: bool,
+    ) -> ColPieceTypeFormatter<'_, B, Self> {
+        ColPieceTypeFormatter { piece: self, char_type, display_pretty, settings }
+    }
+}
+
+#[derive(Debug)]
+pub struct ColPieceTypeFormatter<'a, B: BoardTrait, T: ColoredPieceTypeTrait<B>> {
+    piece: T,
+    settings: &'a B::Settings,
+    char_type: CharType,
+    display_pretty: bool,
+}
+
+impl<B: BoardTrait, T: ColoredPieceTypeTrait<B>> Display for ColPieceTypeFormatter<'_, B, T> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        self.piece.write_as_str(self.settings, self.char_type, self.display_pretty, f)
+    }
 }
 
 // TODO: Don't save coordinates in colored piece
-pub trait ColoredPiece<B: Board>: Eq + Copy + Debug + Default
+pub trait ColoredPieceTrait<B: BoardTrait>: Eq + Copy + Debug + Default
 where
-    B: Board<Piece = Self>,
+    B: BoardTrait<Piece = Self>,
 {
-    type ColoredPieceType: ColoredPieceType<B>;
+    type ColoredPieceType: ColoredPieceTypeTrait<B>;
 
     fn new(typ: Self::ColoredPieceType, square: B::Coordinates) -> Self;
 
     fn coordinates(self) -> B::Coordinates;
 
-    fn uncolored(self) -> <Self::ColoredPieceType as ColoredPieceType<B>>::Uncolored {
+    fn uncolored(self) -> <Self::ColoredPieceType as ColoredPieceTypeTrait<B>>::Uncolored {
         self.colored_piece_type().uncolor()
     }
 
@@ -227,14 +304,14 @@ where
 
 #[derive(Eq, PartialEq, Default, Debug, Clone)]
 #[must_use]
-pub struct GenericPiece<B: Board, ColType: ColoredPieceType<B>> {
+pub struct GenericPiece<B: BoardTrait, ColType: ColoredPieceTypeTrait<B>> {
     symbol: ColType,
     coordinates: B::Coordinates,
 }
 
-impl<B: Board, ColType: ColoredPieceType<B>> Copy for GenericPiece<B, ColType> {}
+impl<B: BoardTrait, ColType: ColoredPieceTypeTrait<B>> Copy for GenericPiece<B, ColType> {}
 
-impl<B: Board<Piece = Self>, ColType: ColoredPieceType<B>> ColoredPiece<B> for GenericPiece<B, ColType> {
+impl<B: BoardTrait<Piece = Self>, ColType: ColoredPieceTypeTrait<B>> ColoredPieceTrait<B> for GenericPiece<B, ColType> {
     type ColoredPieceType = ColType;
 
     fn new(typ: ColType, coordinates: B::Coordinates) -> Self {
@@ -250,13 +327,13 @@ impl<B: Board<Piece = Self>, ColType: ColoredPieceType<B>> ColoredPiece<B> for G
     }
 }
 
-impl<B: Board, ColType: ColoredPieceType<B> + Display> Display for GenericPiece<B, ColType> {
+impl<B: BoardTrait, ColType: ColoredPieceTypeTrait<B> + Display> Display for GenericPiece<B, ColType> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         Display::fmt(&self.symbol, f)
     }
 }
 
-impl<B: Board, ColType: ColoredPieceType<B>> GenericPiece<B, ColType> {
+impl<B: BoardTrait, ColType: ColoredPieceTypeTrait<B>> GenericPiece<B, ColType> {
     pub fn new(symbol: ColType, coordinates: B::Coordinates) -> Self {
         Self { symbol, coordinates }
     }
@@ -277,10 +354,10 @@ pub fn char_to_file(file: char) -> DimT {
 
 /// On a rectangular board, coordinates are called `squares`.
 #[must_use]
-pub trait Coordinates:
+pub trait CoordinatesTrait:
     Eq + Copy + Debug + Default + FromStr<Err = anyhow::Error> + Display + for<'a> Arbitrary<'a>
 {
-    type Size: Size<Self>;
+    type Size: SizeTrait<Self>;
 
     /// mirrors the coordinates vertically
     fn flip_up_down(self, size: Self::Size) -> Self;
@@ -331,7 +408,9 @@ impl Width {
 }
 
 #[must_use]
-pub trait Size<C: Coordinates>: Eq + PartialEq + Copy + Clone + Display + Debug + for<'a> Arbitrary<'a> {
+pub trait SizeTrait<C: CoordinatesTrait>:
+    Eq + PartialEq + Copy + Clone + Display + Debug + for<'a> Arbitrary<'a>
+{
     fn num_squares(self) -> usize;
 
     /// Converts coordinates into an internal key. This function is injective, but **no further guarantees** are
@@ -359,7 +438,7 @@ pub trait Size<C: Coordinates>: Eq + PartialEq + Copy + Clone + Display + Debug 
     }
 }
 
-pub trait KnownSize<C: Coordinates>: Size<C> + Default {
+pub trait KnownSize<C: CoordinatesTrait>: SizeTrait<C> + Default {
     #[inline]
     fn num_squares() -> usize {
         Self::default().num_squares()
@@ -403,18 +482,19 @@ impl Display for PosHash {
     }
 }
 
-pub trait Settings: Eq + Debug + Default {
+pub trait SettingsTrait: Debug {
     fn text(&self) -> Option<String> {
         None
     }
 }
 
-pub trait BoardHistory: Default + Debug + Clone + 'static {
+pub trait BoardHistDyn {
     fn len(&self) -> usize;
     fn is_empty(&self) -> bool {
         self.len() == 0
     }
     fn is_repetition(&self, hash: PosHash, plies_ago: usize) -> bool;
+    fn num_repetitions(&self, hash: PosHash) -> usize;
     fn push(&mut self, hash: PosHash);
     fn pop(&mut self);
     fn clear(&mut self);
@@ -423,16 +503,24 @@ pub trait BoardHistory: Default + Debug + Clone + 'static {
     }
 }
 
+pub trait BoardHistory: Default + Debug + Clone + 'static + BoardHistDyn {}
+
+impl<B: BoardHistDyn + Default + Debug + Clone + 'static> BoardHistory for B {}
+
 #[derive(Copy, Clone, Eq, PartialEq, Debug, Default)]
 pub struct NoHistory {}
 
-impl BoardHistory for NoHistory {
+impl BoardHistDyn for NoHistory {
     fn len(&self) -> usize {
         0
     }
 
     fn is_repetition(&self, _hash: PosHash, _plies_ago: usize) -> bool {
         false
+    }
+
+    fn num_repetitions(&self, _hash: PosHash) -> usize {
+        0
     }
 
     fn push(&mut self, _hash: PosHash) {}
@@ -452,13 +540,17 @@ impl ZobristHistory {
     }
 }
 
-impl BoardHistory for ZobristHistory {
+impl BoardHistDyn for ZobristHistory {
     fn len(&self) -> usize {
         self.0.len()
     }
 
     fn is_repetition(&self, hash: PosHash, plies_ago: usize) -> bool {
         hash == self.0[self.0.len() - plies_ago]
+    }
+
+    fn num_repetitions(&self, hash: PosHash) -> usize {
+        self.0.iter().filter(|&&h| hash == h).count()
     }
 
     fn push(&mut self, hash: PosHash) {
@@ -477,13 +569,17 @@ impl BoardHistory for ZobristHistory {
 #[must_use]
 pub struct ZobristHistory2Fold(pub ZobristHistory);
 
-impl BoardHistory for ZobristHistory2Fold {
+impl BoardHistDyn for ZobristHistory2Fold {
     fn len(&self) -> usize {
         self.0.len()
     }
 
     fn is_repetition(&self, hash: PosHash, plies_ago: usize) -> bool {
         self.0.is_repetition(hash, plies_ago)
+    }
+
+    fn num_repetitions(&self, hash: PosHash) -> usize {
+        self.0.num_repetitions(hash)
     }
 
     fn push(&mut self, hash: PosHash) {
@@ -523,39 +619,36 @@ pub fn n_fold_repetition<H: BoardHistory>(mut count: usize, history: &H, hash: P
 
 #[cfg(test)]
 mod tests {
-    use crate::games::ataxx::AtaxxBoard;
-    use crate::games::chess::Chessboard;
     use crate::games::generic_tests::GenericTests;
-    use crate::games::mnk::MNKBoard;
-    use crate::games::uttt::UtttBoard;
+    use crate::games::{ataxx, chess, fairy, mnk, uttt};
 
     #[cfg(feature = "chess")]
     #[test]
     fn generic_chess_test() {
-        GenericTests::<Chessboard>::all_tests();
+        GenericTests::<chess::Board>::all_tests();
     }
 
     #[cfg(feature = "mnk")]
     #[test]
     fn generic_mnk_test() {
-        GenericTests::<MNKBoard>::all_tests();
+        GenericTests::<mnk::Board>::all_tests();
     }
 
     #[cfg(feature = "ataxx")]
     #[test]
     fn generic_ataxx_test() {
-        GenericTests::<AtaxxBoard>::all_tests();
+        GenericTests::<ataxx::Board>::all_tests();
     }
 
     #[cfg(feature = "uttt")]
     #[test]
     fn generic_uttt_test() {
-        GenericTests::<UtttBoard>::all_tests();
+        GenericTests::<uttt::Board>::all_tests();
     }
 
     #[cfg(feature = "fairy")]
     #[test]
     fn generic_fairy_test() {
-        GenericTests::<UtttBoard>::all_tests();
+        GenericTests::<fairy::Board>::all_tests();
     }
 }
