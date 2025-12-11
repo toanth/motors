@@ -817,7 +817,7 @@ impl Caps {
             }
         } else if in_singular_search {
             eval = self.search_stack[ply].eval;
-            raw_eval = eval;
+            raw_eval = eval.clamp(MIN_NORMAL_SCORE, MAX_NORMAL_SCORE);
         } else {
             self.state.statistics.tt_miss(MainSearch);
             raw_eval = self.eval(pos, ply);
@@ -1074,7 +1074,7 @@ impl Caps {
                 let mut first_child_depth = child_depth - cc::first_child_reduction();
                 if mov == best_move
                     && tt_bound != Some(FailLow)
-                    && depth >= 8
+                    && depth >= 8 * 128
                     && old_entry.unwrap().depth as isize >= depth - 3 * 128
                     && !old_entry.unwrap().score().is_won_or_lost()
                     && !in_singular_search
@@ -1084,7 +1084,7 @@ impl Caps {
                     self.params.history.pop();
                     let reduced_depth = (first_child_depth / 128 / 2) * 128;
                     let singular_beta =
-                        (old_entry.unwrap().score() - Score(2 * depth as ScoreT / 128)).max(MIN_NORMAL_SCORE);
+                        (old_entry.unwrap().score() - Score(3 * depth as ScoreT / 128)).max(MIN_NORMAL_SCORE);
                     let singular_score = self.negamax(
                         pos,
                         ply,
