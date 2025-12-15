@@ -395,11 +395,11 @@ impl TT {
     /// This function is still useful for printing (debug) information and used when formatting TT entries.
     pub fn extract_pv<B: BoardTrait>(&self, mut pos: B) -> TTPv<B> {
         let mut legals = vec![];
-        let mut seen = vec![pos.hash_pos()];
+        let mut seen = vec![pos.tt_hash()];
         let mut ply = 0;
-        let mut final_entry = self.load(pos.hash_pos(), ply).unwrap_or_default();
+        let mut final_entry = self.load(pos.tt_hash(), ply).unwrap_or_default();
         loop {
-            let Some(entry) = self.load(pos.hash_pos(), ply) else {
+            let Some(entry) = self.load(pos.tt_hash(), ply) else {
                 return TTPv { legals, end: EndTTPvMove::NoEntry, final_entry };
             };
             final_entry = entry.clone();
@@ -412,12 +412,12 @@ impl TT {
             };
             pos = pos.make_move(best_move).unwrap();
             ply += 1;
-            if seen.contains(&pos.hash_pos()) {
+            if seen.contains(&pos.tt_hash()) {
                 // found a loop, so we stop after this move
                 return TTPv { legals, end: EndTTPvMove::Repeating(best_move), final_entry };
             }
             legals.push(best_move);
-            seen.push(pos.hash_pos());
+            seen.push(pos.tt_hash());
         }
     }
 }
@@ -458,7 +458,7 @@ mod test {
         let mut i = 1;
         for mov in board.pseudolegal_moves() {
             let entry: TTEntry<Board> = TTEntry::new(
-                board.hash_pos(),
+                board.tt_hash(),
                 Score(i * i * (i % 2 * 2 - 1)),
                 Score((i % -3) * (i % 5 + i)),
                 mov,
@@ -487,7 +487,7 @@ mod test {
                 let bound = NodeType::from_repr(rng().sample(Uniform::new(0, 3).unwrap()) + 1).unwrap();
                 let age = rng().sample(Uniform::new(1, 100).unwrap());
                 let age_and_bound = pack_age_and_bound(Age(age), bound);
-                let hash = pos.hash_pos();
+                let hash = pos.tt_hash();
                 let hash_and_move =
                     PosHashPart::<Board>::new(hash.0).0 | (u64::from(mov.to_underlying()) << (64 - Move::num_bits()));
                 let entry: TTEntry<Board> = TTEntry {
@@ -598,13 +598,13 @@ mod test {
         let mut engine = Caps::default();
         let bad_move = Move::from_compact_text("a2a3", &pos).unwrap();
         let age = Age(42);
-        let hash = pos.hash_pos();
+        let hash = pos.tt_hash();
         let entry: TTEntry<Board> = TTEntry::new(hash, MAX_NORMAL_SCORE, MIN_NORMAL_SCORE, bad_move, 123, Exact, age);
         tt.store(entry, hash, 0);
         let next_pos = pos.make_move(bad_move).unwrap();
         let next_entry: TTEntry<Board> =
-            TTEntry::new(next_pos.hash_pos(), MIN_NORMAL_SCORE, MAX_NORMAL_SCORE, Move::NULL, 122, Exact, age);
-        tt.store(next_entry, next_pos.hash_pos(), 1);
+            TTEntry::new(next_pos.tt_hash(), MIN_NORMAL_SCORE, MAX_NORMAL_SCORE, Move::NULL, 122, Exact, age);
+        tt.store(next_entry, next_pos.tt_hash(), 1);
         let mov = engine.search_with_tt(pos, SearchLimit::depth(DepthPly::new(1)), tt.clone()).chosen_move;
         assert_eq!(mov, bad_move);
         let limit = SearchLimit::depth(DepthPly::new(3));
@@ -614,7 +614,7 @@ mod test {
         engine2.forget();
         tt.age.increment();
         let _ = engine.search_with_tt(pos, SearchLimit::depth(DepthPly::new(5)), tt.clone());
-        let entry = tt.load::<Board>(pos.hash_pos(), 0);
+        let entry = tt.load::<Board>(pos.tt_hash(), 0);
         assert!(entry.is_some());
         // assert_eq!(entry.unwrap().depth, 5);
         _ = engine2.search_with_tt(pos, limit, tt.clone());
@@ -659,10 +659,11 @@ mod test {
         assert!(hashfull > 0, "{hashfull}");
         let hashfull = tt.estimate_hashfull::<Board>(Age(0));
         assert_eq!(hashfull, 0, "{hashfull}");
-        let entry = tt.load::<Board>(pos.hash_pos(), 0).unwrap();
-        let entry2 = tt.load::<Board>(pos2.hash_pos(), 0).unwrap();
+        let entry = tt.load::<Board>(pos.tt_hash(), 0).unwrap();
+        let entry2 = tt.load::<Board>(pos2.tt_hash(), 0).unwrap();
         assert!(entry.hash_part().equals(pos.hash_pos()));
-        assert!(entry2.hash_part().equals(pos2.hash_pos()));
+        assert!(entry.hash_part().equals(pos.tt_hash()));
+        assert!(entry2.hash_part().equals(pos2.tt_hash()));
         assert_ne!(entry.age(), Age(0));
         assert!(pos.is_move_legal(mov));
         assert!(pos2.is_move_legal(mov));

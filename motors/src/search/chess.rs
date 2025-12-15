@@ -26,13 +26,14 @@ mod tests {
     use gears::games::{BoardHistDyn, ZobristHistory, n_fold_repetition};
     use gears::general::board::Strictness::{Relaxed, Strict};
     use gears::general::board::{BoardHelpers, BoardTrait, UnverifiedBoardTrait};
-    use gears::general::common::NamedEntity;
+    use gears::general::common::{NamedEntity, tokens};
     use gears::general::moves::MoveTrait;
     use gears::output::pgn::parse_pgn;
+    use gears::parse_ugi_pos_and_hist;
     use gears::rand::rngs::StdRng;
     use gears::score::{NO_SCORE_YET, SCORE_LOST, SCORE_WON, Score, game_result_to_score};
     use gears::search::{DepthPly, NodesLimit, SearchLimit};
-    use gears::ugi::load_ugi_pos_simple;
+    use gears::ugi::{load_ugi_pos_simple, parse_ugi_position_and_moves};
     use std::str::FromStr;
     use std::sync::Arc;
     use std::sync::atomic::Ordering::SeqCst;
@@ -236,7 +237,7 @@ mod tests {
         assert!(new_board.is_in_check());
         assert!(new_board.is_3fold_repetition(&hist));
         assert!(new_board.player_result_slow(&hist).is_some_and(|r| r == Draw));
-        assert!(n_fold_repetition(2, &hist, new_board.hash_pos(), new_board.ply_draw_clock(),));
+        assert!(n_fold_repetition(2, &hist, new_board.hash_pos(), new_board.ply_draw_clock()));
         hist.pop();
         let mut engine = Caps::for_eval::<MaterialOnlyEval>();
         for depth in 1..10 {
@@ -249,6 +250,21 @@ mod tests {
             assert_eq!(res.chosen_move, mov);
             assert_eq!(res.score, Score(0));
         }
+        let state = parse_ugi_pos_and_hist::<Board>(
+            "pos fen 1k6/8/2K5/Q7/8/8/8/8 w - - 0 1 moves a5d8 b8a7 d8a5 a7b8 a5d8 b8a7 d8a5 a7b8",
+            Strict,
+        )
+        .unwrap();
+        let hist = state.board_hist.clone();
+        let res = engine.search(SearchParams::new_unshared(
+            state.board,
+            SearchLimit::nodes_(12_345),
+            hist.clone(),
+            TT::default(),
+        ));
+        assert_eq!(state.board.player_result_slow(&hist), Some(Draw));
+        assert_eq!(res.score.plies_until_game_won(), Some(3));
+        assert_eq!(res.chosen_move, Move::from_text("Qc7+", &state.board).unwrap());
     }
 
     #[test]
@@ -386,7 +402,7 @@ mod tests {
         let pos1 = Board::from_fen(pos1, Strict).unwrap();
         let pos2 = "1K1NQ3/q2RqR2/3rp3/Qr3rn1/1Q1bB3/1Q1b1PN1/pRp3P1/k1q1Bn1q w - - 0 1";
         let pos2 = Board::from_fen(pos2, Strict).unwrap();
-        assert_eq!(pos1.hash_pos(), pos2.hash_pos());
+        assert_eq!(pos1.tt_hash(), pos2.tt_hash());
         let limit = SearchLimit::nodes_(2222);
         let tt = TT::default();
         let mut engine = Caps::for_eval::<LiTEval>();
@@ -396,9 +412,9 @@ mod tests {
         let res2 = engine.search_with_tt(pos2, limit, tt.clone());
         assert_ne!(res2.chosen_move, res1.chosen_move);
         assert!(pos2.is_move_legal(res2.chosen_move));
-        let entry = tt.load::<Board>(pos2.hash_pos(), 0).unwrap();
+        let entry = tt.load::<Board>(pos2.tt_hash(), 0).unwrap();
         assert_eq!(entry.move_untrusted().trust_unchecked(), res2.chosen_move);
-        let entry1 = tt.load(pos1.hash_pos(), 0).unwrap();
+        let entry1 = tt.load(pos1.tt_hash(), 0).unwrap();
         assert_eq!(entry1, entry);
         let res1 = engine.search_with_tt(pos1, SearchLimit::depth_(3), tt.clone());
         assert_ne!(res1.chosen_move, res2.chosen_move);

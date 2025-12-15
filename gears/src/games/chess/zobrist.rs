@@ -10,12 +10,14 @@ use crate::general::squares::RectangularCoordinates;
 // also includes the empty piece to avoid special casing that
 pub const NUM_PIECE_SQUARE_ENTRIES: usize = NUM_SQUARES * (NUM_CHESS_PIECES + 1);
 const NUM_COLORED_PIECE_SQUARE_ENTRIES: usize = NUM_PIECE_SQUARE_ENTRIES * 2;
+const NUM_PLYCTR_BUCKETS: usize = 7;
 
 pub struct PrecomputedZobristKeys {
     pub piece_square_keys: [PosHash; NUM_COLORED_PIECE_SQUARE_ENTRIES],
     pub castle_keys: [PosHash; 1 << (2 * 2)],
     pub ep_file_keys: [PosHash; NUM_COLUMNS],
     pub side_to_move_key: PosHash,
+    pub plyctr_buckets: [PosHash; NUM_PLYCTR_BUCKETS],
 }
 
 impl PrecomputedZobristKeys {
@@ -54,6 +56,7 @@ pub static ZOBRIST_KEYS: PrecomputedZobristKeys = {
             castle_keys: [PosHash(0); 1 << (2 * 2)],
             ep_file_keys: [PosHash(0); NUM_COLUMNS],
             side_to_move_key: PosHash(0),
+            plyctr_buckets: [PosHash(0); NUM_PLYCTR_BUCKETS],
         }
     };
     let mut generator = PcgXslRr128_64Oneseq::new(0x42);
@@ -77,6 +80,12 @@ pub static ZOBRIST_KEYS: PrecomputedZobristKeys = {
         i += 1;
     }
     res.side_to_move_key = generator.generate();
+    let mut i = 0;
+    // the last bucket is ignored so that hash_pos() and tt_hash() are the same for positions where the ply counter isn't too large
+    while i + 1 < NUM_PLYCTR_BUCKETS {
+        res.plyctr_buckets[i] = generator.generate();
+        i += 1;
+    }
     res
 };
 
@@ -148,6 +157,7 @@ mod tests {
         assert_ne!(a1 ^ a2, b1 ^ b2); // used to be bugged
         let position = Board::from_name("kiwipete").unwrap();
         let hash = position.hash_pos();
+        assert_eq!(hash, position.tt_hash());
         let mut hashes = HashMap::new();
         let mut collisions = HashMap::new();
         for mov in position.legal_moves_slow() {

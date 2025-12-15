@@ -21,6 +21,7 @@ use gears::PlayerResult::{Lose, Win};
 use gears::arrayvec::ArrayVec;
 use gears::games::chess::bitbase::{Bitbase, PAWN_V_KING_TABLE};
 use gears::games::chess::moves::Move;
+use gears::games::chess::pieces::PieceType;
 use gears::games::chess::pieces::PieceType::Pawn;
 use gears::games::chess::see::SeeScore;
 use gears::games::chess::squares::NUM_SQUARES;
@@ -280,7 +281,7 @@ impl Engine<Board> for Caps {
         let move_score = scorer.complete_move_score(mov, &self.state);
         let move_type = if self
             .tt()
-            .load::<Board>(pos.hash_pos(), 0)
+            .load::<Board>(pos.tt_hash(), 0)
             .is_some_and(|e| e.move_untrusted() == UntrustedMove::from_move(mov))
         {
             "TT move"
@@ -754,12 +755,12 @@ impl Caps {
         let mut eval;
         // the TT entry at the root is useless when doing an actual multipv search
         let ignore_tt_entry = root && self.multi_pvs.len() > 1;
-        let old_entry = self.tt().load::<Board>(pos.hash_pos(), ply);
+        let old_entry = self.tt().load::<Board>(pos.tt_hash(), ply);
         if let Some(tt_entry) = old_entry
             && !ignore_tt_entry
         {
             let tt_bound = tt_entry.bound();
-            debug_assert!(tt_entry.hash_part().equals(pos.hash_pos()));
+            debug_assert!(tt_entry.hash_part().equals(pos.tt_hash()));
 
             if let Some(tt_move) = tt_entry.mov(pos) {
                 best_move = tt_move;
@@ -801,7 +802,7 @@ impl Caps {
                 }
             }
             raw_eval = tt_entry.raw_eval();
-            eval = self.state.custom.corr_hist.correct(pos, continued, raw_eval);
+            eval = self.correct(pos, continued, raw_eval);
             // The TT score is backed by a search, so it should be more trustworthy than a simple call to static eval.
             // Note that the TT score may be a mate score, so `eval` can also be a mate score. This doesn't currently
             // create any problems, but should be kept in mind.
@@ -814,7 +815,7 @@ impl Caps {
         } else {
             self.state.statistics.tt_miss(MainSearch);
             raw_eval = self.eval(pos, ply);
-            eval = self.state.custom.corr_hist.correct(pos, continued, raw_eval);
+            eval = self.correct(pos, continued, raw_eval);
         };
 
         self.record_pos(pos, eval, ply);
@@ -904,7 +905,7 @@ impl Caps {
                 && !*self.nmp_disabled_for(us)
                 && has_nonpawns
             {
-                self.tt().prefetch(pos.hash_pos() ^ ZOBRIST_KEYS.side_to_move_key);
+                self.tt().prefetch(pos.tt_hash() ^ ZOBRIST_KEYS.side_to_move_key);
                 // `make_nullmove` resets the 50mr counter, so we don't consider positions after a nullmove as repetitions,
                 // but we can still get TT cutoffs
                 self.params.history.push(pos.hash_pos());
@@ -1222,7 +1223,7 @@ impl Caps {
                         && score < beta
                         && !score.is_won_lost_or_draw_score()
                     {
-                        let bound = self.tt().load::<Board>(new_pos.hash_pos(), ply + 1).unwrap().bound();
+                        let bound = self.tt().load::<Board>(new_pos.tt_hash(), ply + 1).unwrap().bound();
                         debug_assert_eq!(bound, Exact);
                     }
                 }
@@ -1263,12 +1264,12 @@ impl Caps {
         }
 
         let tt_entry: TTEntry<Board> =
-            TTEntry::new(pos.hash_pos(), best_score, raw_eval, best_move, depth, bound_so_far, self.age());
+            TTEntry::new(pos.tt_hash(), best_score, raw_eval, best_move, depth, bound_so_far, self.age());
 
         // Store the results in the TT, always replacing the previous entry. Note that the TT move is only overwritten
         // if this node was an exact or fail high node or if there was a collision.
         if !(root && self.current_pv_num > 0) {
-            self.tt_mut().store(tt_entry, pos.hash_pos(), ply);
+            self.tt_mut().store(tt_entry, pos.tt_hash(), ply);
         }
 
         // Corrhist updates
@@ -1327,9 +1328,9 @@ impl Caps {
 
         // Don't do TT cutoffs with alpha already raised by the stand pat check, because that relies on the null move observation.
         // But if there's a TT entry from normal search that's worse than the stand pat score, we should trust that more.
-        let old_entry = self.tt().load::<Board>(pos.hash_pos(), ply);
+        let old_entry = self.tt().load::<Board>(pos.tt_hash(), ply);
         if let Some(tt_entry) = old_entry {
-            debug_assert!(tt_entry.hash_part().equals(pos.hash_pos()));
+            debug_assert!(tt_entry.hash_part().equals(pos.tt_hash()));
             let bound = tt_entry.bound();
             let tt_score = tt_entry.score();
             // depth 0 drops immediately to qsearch, so a depth 0 entry always comes from qsearch.
@@ -1347,7 +1348,7 @@ impl Caps {
                 return Some(tt_score);
             }
             raw_eval = tt_entry.raw_eval();
-            eval = self.state.custom.corr_hist.correct(pos, continued, raw_eval);
+            eval = self.correct(pos, continued, raw_eval);
 
             // even though qsearch never checks for game over conditions, it's still possible for it to load a checkmate score
             // and propagate that up to a qsearch parent node, where it gets saved with a depth of 0, so game over scores
@@ -1371,7 +1372,7 @@ impl Caps {
             eval = SCORE_LOST + ply as ScoreT;
         } else {
             raw_eval = self.eval(pos, ply);
-            eval = self.state.custom.corr_hist.correct(pos, continued, raw_eval);
+            eval = self.correct(pos, continued, raw_eval);
         }
         let mut best_score = eval;
         // Saving to the TT is probably unnecessary since the score is either from the TT or just the static eval,
@@ -1446,8 +1447,8 @@ impl Caps {
         self.statistics.count_complete_node(Qsearch, bound_so_far, 0, ply, children_visited);
 
         let tt_entry: TTEntry<Board> =
-            TTEntry::new(pos.hash_pos(), best_score, raw_eval, best_move, 0, bound_so_far, self.age());
-        self.tt_mut().store(tt_entry, pos.hash_pos(), ply);
+            TTEntry::new(pos.tt_hash(), best_score, raw_eval, best_move, 0, bound_so_far, self.age());
+        self.tt_mut().store(tt_entry, pos.tt_hash(), ply);
         Some(best_score)
     }
 
@@ -1483,6 +1484,16 @@ impl Caps {
             };
         }
         score.clamp(MIN_NORMAL_SCORE, MAX_NORMAL_SCORE)
+    }
+
+    fn correct(&self, pos: &Board, continued: Option<(Move, PieceType)>, raw: Score) -> Score {
+        if raw.is_won_or_lost() {
+            return raw;
+        }
+        const MAX_BUCKET: ScoreT = 100_i32.ilog2() as ScoreT;
+        let bucket = (100 - pos.ply_draw_clock().min(98)).ilog2() as ScoreT;
+        let eval = self.state.corr_hist.correct(pos, continued, raw);
+        eval * bucket / MAX_BUCKET
     }
 
     fn update_continuation_hist(
@@ -1758,7 +1769,7 @@ mod tests {
             }
             let mut root_entry = TTEntry::<Board>::default();
             if let Some(tt) = tt.clone() {
-                root_entry = tt.load(pos.hash_pos(), 0).unwrap();
+                root_entry = tt.load(pos.tt_hash(), 0).unwrap();
                 assert!(root_entry.depth <= 2 * DEPTH_INCREMENT as u16); // possible extensions
                 assert_eq!(root_entry.bound(), Exact);
                 assert!(root_entry.mov(&pos).is_some());
@@ -1770,7 +1781,7 @@ mod tests {
             if let Some(tt) = tt.clone() {
                 for m in moves {
                     let new_pos = pos.make_move(m).unwrap();
-                    let entry = tt.load::<Board>(new_pos.hash_pos(), 1);
+                    let entry = tt.load::<Board>(new_pos.tt_hash(), 1);
                     let Some(entry) = entry else {
                         continue; // it's possible that a position is not in the TT because qsearch didn't save it
                     };

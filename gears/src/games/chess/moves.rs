@@ -454,7 +454,12 @@ impl Board {
         let us = self.active;
         let delta = Self::zobrist_delta(us, mov.piece_type(self), mov.src_square(), mov.dest_square());
         let delta = delta ^ ZOBRIST_KEYS.piece_key(self.piece_type_on(mov.dest_square()), !us, mov.dest_square());
-        self.hash_pos() ^ delta ^ ZOBRIST_KEYS.side_to_move_key
+        let hash = if self.piece_type_on(mov.dest_square()) == Empty || mov.piece_type(self) == Pawn {
+            self.tt_hash()
+        } else {
+            self.hash_pos()
+        };
+        hash ^ delta ^ ZOBRIST_KEYS.side_to_move_key
     }
 
     /// Is only ever called on a copy of the board, so no need to undo the changes when a move gets aborted due to pseudo-legality.

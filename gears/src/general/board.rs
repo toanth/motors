@@ -632,6 +632,11 @@ pub trait BoardTrait:
     /// The hash of this position. E.g. for chess, this is the zobrist hash.
     fn hash_pos(&self) -> PosHash;
 
+    /// Sometimes it makes sense to use a different hash for the TT, for example to put positions into buckets based on their ply counter.
+    fn tt_hash(&self) -> PosHash {
+        self.hash_pos()
+    }
+
     /// Like [`Self::from_fen`], but changes the `input` argument to contain the remaining input instead of panicking when there's
     /// any remaining input after reading the fen.
     fn read_fen_and_advance_input(input: &mut Tokens, strictness: Strictness) -> Res<Self> {

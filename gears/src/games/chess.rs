@@ -725,6 +725,11 @@ impl BoardTrait for Board {
         self.hashes.total
     }
 
+    fn tt_hash(&self) -> PosHash {
+        let plyclock_bucket = (100 - self.ply_draw_clock().min(99)).ilog2() as usize;
+        self.hash_pos() ^ ZOBRIST_KEYS.plyctr_buckets[plyclock_bucket]
+    }
+
     fn read_fen_and_advance_input_for(words: &mut Tokens, strictness: Strictness, settings: Settings) -> Res<Self> {
         let mut board = Board::empty_for_settings(settings);
         if strictness == Strict && words.peek().copied().unwrap_or_default().contains(|c: char| !c.is_ascii()) {

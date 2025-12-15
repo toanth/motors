@@ -544,7 +544,7 @@ impl<B: BoardTrait> EngineWrapper<B> {
     }
 
     pub fn tt_entry(&mut self, pos: &B) -> Option<TTEntry<B>> {
-        self.tt_for_next_search.load(pos.hash_pos(), 0)
+        self.tt_for_next_search.load(pos.tt_hash(), 0)
     }
 
     pub fn tt(&mut self) -> TT {

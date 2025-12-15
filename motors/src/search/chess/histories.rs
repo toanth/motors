@@ -226,10 +226,8 @@ impl CorrHist {
         }
     }
 
-    pub(super) fn correct(&mut self, pos: &Board, continued: Option<(Move, PieceType)>, raw: Score) -> Score {
-        if raw.is_won_or_lost() {
-            return raw;
-        }
+    pub(super) fn correct(&self, pos: &Board, continued: Option<(Move, PieceType)>, raw: Score) -> Score {
+        debug_assert!(!raw.is_won_or_lost());
         let color = pos.active_player();
         let pawn_idx = pos.pawn_key().0 as usize % CORRHIST_SIZE;
         let mut correction = self.pawns[color][pawn_idx] as isize;
