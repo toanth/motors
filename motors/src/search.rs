@@ -735,6 +735,7 @@ pub trait SearchStackEntry<B: BoardTrait>: Default + Clone + Debug {
     }
     fn pv(&self) -> Option<&[B::Move]>;
     fn last_played_move(&self) -> Option<B::Move>;
+    fn hash(&self, hasher: &mut impl Hasher);
 }
 
 #[derive(Copy, Clone, Default, Debug)]
@@ -748,6 +749,8 @@ impl<B: BoardTrait> SearchStackEntry<B> for EmptySearchStackEntry {
     fn last_played_move(&self) -> Option<B::Move> {
         None
     }
+
+    fn hash(&self, _hasher: &mut impl Hasher) {}
 }
 
 pub trait CustomInfo<B: BoardTrait>: Default + Clone + Debug {
@@ -972,6 +975,9 @@ impl<B: BoardTrait, E: SearchStackEntry<B>, C: CustomInfo<B>> AbstractSearchStat
             for mov in pv {
                 mov.hash(&mut hasher);
             }
+        }
+        for entry in &self.search_stack {
+            entry.hash(&mut hasher);
         }
         // the score can differ even if the pv is the same, so make sure to include that in the hash
         self.best_score().hash(&mut hasher);
@@ -1263,11 +1269,12 @@ fn single_bench<B: BoardTrait>(
         limit.fixed_time = limit.fixed_time.min(Duration::from_millis(20));
         limit
     };
-    let res = engine.bench(pos.clone(), limit, tt, additional_pvs);
+    let res = engine.bench(pos.clone(), limit, tt.clone(), additional_pvs);
     total.nodes += res.nodes;
     total.time += res.time;
     total.max_iterations = total.max_iterations.max(res.max_iterations);
     res.pv_score_hash.hash(hasher);
+    tt.hash_first_1k_entries(hasher);
 }
 
 #[cfg(test)]

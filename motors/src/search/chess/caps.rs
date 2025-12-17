@@ -169,6 +169,14 @@ impl SearchStackEntry<Board> for CapsSearchStackEntry {
     fn last_played_move(&self) -> Option<Move> {
         self.tried_moves.last().copied()
     }
+
+    fn hash(&self, hasher: &mut impl Hasher) {
+        self.killer.hash(hasher);
+        self.tried_moves.hash(hasher);
+        self.move_score.0.hash(hasher);
+        self.eval.hash(hasher);
+        self.pos.hash_pos().0.hash(hasher);
+    }
 }
 
 impl CapsSearchStackEntry {

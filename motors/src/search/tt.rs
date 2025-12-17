@@ -13,6 +13,7 @@ use rayon::prelude::IntoParallelRefMutIterator;
 #[cfg(all(feature = "unsafe", target_arch = "x86_64", target_feature = "sse"))]
 use std::arch::x86_64::{_MM_HINT_T1, _mm_prefetch};
 use std::fmt::{Display, Formatter};
+use std::hash::{Hash, Hasher};
 use std::marker::PhantomData;
 use std::mem::size_of;
 #[cfg(feature = "unsafe")]
@@ -314,6 +315,14 @@ impl TT {
             .filter(|e: &&AtomicTTEntry| TTEntry::<B>::is_atomic_entry_from_current_search(e, age))
             .count();
         if num_entries < 1000 { (num_used as f64 * 1000.0 / num_entries as f64).round() as usize } else { num_used }
+    }
+
+    pub fn hash_first_1k_entries(&self, hasher: &mut impl Hasher) {
+        let num_buckets = (1000 / NUM_ENTRIES_IN_BUCKET).min(self.size_in_buckets());
+        for e in self.tt.iter().take(num_buckets).flat_map(|bucket| bucket.0.iter()) {
+            e.hash_and_move.load(Relaxed).hash(hasher);
+            e.rest.load(Relaxed).hash(hasher);
+        }
     }
 
     fn bucket_index_of(&self, hash: PosHash) -> usize {

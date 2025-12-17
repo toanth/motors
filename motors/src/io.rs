@@ -210,7 +210,7 @@ impl<B: BoardTrait> GameState<B> for EngineGameState<B> {
 
     // The reason for doing this weird loop instead of just letting the engine thread print
     // the engine state is that printing multiple lines while waiting for input
-    // from enquire (used in the interactive ui) causes weird formatting issues
+    // from inquire (used in the interactive ui) causes weird formatting issues
     fn print_engine_state(&self) -> Res<String> {
         self.engine.get_engine_info().internal_state_description = None;
         self.engine.send_print(self.go_state.pos.clone())?;
@@ -876,7 +876,7 @@ impl<B: BoardTrait> EngineUGI<B> {
                     let diagram = show_eval_pos(&state.board, state.last_move(), eval);
                     diagram
                         + &format!(
-                            "Eval Score: {}\n",
+                            "Raw Eval Score: {}\n",
                             pretty_score(eval_score, None, None, &score_gradient(), true, false)
                         )
                 } else {

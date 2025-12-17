@@ -699,20 +699,20 @@ impl BoardTrait for Board {
         if self.player_bb(player).is_single_piece() {
             return false; // we only have our king left
         }
-        // return true if the opponent has pawns because that can create possibilities to force them
-        // to restrict the king's mobility
         if (self.piece_bb(Pawn) | self.col_piece_bb(player, Rook) | self.col_piece_bb(player, Queen)).has_any()
             || self.col_piece_bb(player.other(), King).intersects(CORNER_SQUARES)
         {
+            // return true if the opponent has pawns because that can create possibilities to force them
+            // to restrict the king's mobility
             return true;
         }
+        let bishops = self.col_piece_bb(player, Bishop);
         // we have at most two knights and no other pieces
-        if self.col_piece_bb(player, Bishop).is_zero() && self.col_piece_bb(player, Knight).num_ones() <= 2 {
+        if bishops.is_zero() && self.col_piece_bb(player, Knight).num_ones() <= 2 {
             // this can very rarely be incorrect because a mate with a knight is possible even without pawns
             // and even if the king is not in the corner, but those cases are extremely rare
             return false;
         }
-        let bishops = self.col_piece_bb(player, Bishop);
         if self.col_piece_bb(player, Knight).is_zero()
             && ((bishops & white_squares()).is_zero() || (bishops & black_squares()).is_zero())
         {
