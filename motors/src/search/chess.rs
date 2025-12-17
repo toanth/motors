@@ -29,6 +29,7 @@ mod tests {
     use gears::general::common::NamedEntity;
     use gears::general::moves::MoveTrait;
     use gears::output::pgn::parse_pgn;
+    use gears::parse_ugi_pos_and_hist;
     use gears::rand::rngs::StdRng;
     use gears::score::{NO_SCORE_YET, SCORE_LOST, SCORE_WON, Score, game_result_to_score};
     use gears::search::{DepthPly, NodesLimit, SearchLimit};
@@ -249,6 +250,21 @@ mod tests {
             assert_eq!(res.chosen_move, mov);
             assert_eq!(res.score, Score(0));
         }
+        let state = parse_ugi_pos_and_hist::<Board>(
+            "pos fen 1k6/8/2K5/Q7/8/8/8/8 w - - 0 1 moves a5d8 b8a7 d8a5 a7b8 a5d8 b8a7 d8a5 a7b8",
+            Strict,
+        )
+        .unwrap();
+        let hist = state.board_hist.clone();
+        let res = engine.search(SearchParams::new_unshared(
+            state.board,
+            SearchLimit::nodes_(12_345),
+            hist.clone(),
+            TT::default(),
+        ));
+        assert_eq!(state.board.player_result_slow(&hist), Some(Draw));
+        assert_eq!(res.score.plies_until_game_won(), Some(3));
+        assert_eq!(res.chosen_move, Move::from_text("Qc7+", &state.board).unwrap());
     }
 
     #[test]

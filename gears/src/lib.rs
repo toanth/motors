@@ -13,7 +13,7 @@ use crate::games::{BoardHistDyn, ZobristHistory};
 use crate::games::{ColorTrait, NoHistory};
 use crate::general::board::{BoardHelpers, BoardTrait, Strictness};
 use crate::general::common::Description::WithDescription;
-use crate::general::common::{Res, Tokens, select_name_dyn};
+use crate::general::common::{Res, Tokens, select_name_dyn, tokens};
 use crate::general::moves::MoveTrait;
 use crate::output::OutputBuilder;
 use crate::search::TimeControl;
@@ -596,4 +596,13 @@ impl<B: BoardTrait> ParseUgiPosState<B> for ParseUgiMatchState<'_, B> {
     fn make_move(&mut self, mov: B::Move) -> Res<()> {
         self.match_state.make_move(mov, self.check_game_over)
     }
+}
+
+pub fn parse_ugi_pos_and_hist<B: BoardTrait>(input: &str, strictness: Strictness) -> Res<MatchState<B>> {
+    let mut res = MatchState::default();
+    let mut tokens = tokens(input);
+    let first = tokens.next().unwrap_or_default();
+    let mut parse_state = ParseUgiMatchState { match_state: &mut res, check_game_over: true, keep_hist: true };
+    parse_ugi_position_and_moves(first, &mut tokens, true, strictness, &mut parse_state)?;
+    Ok(res)
 }
