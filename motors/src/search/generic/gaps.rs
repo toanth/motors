@@ -128,11 +128,11 @@ impl<B: BoardTrait> Engine<B> for Gaps<B> {
                 self.state.atomic().set_iteration(depth as usize);
                 self.state.atomic().update_seldepth(depth as usize);
                 let iteration_score = self.negamax(pos.clone(), 0, depth, SCORE_LOST, SCORE_WON);
-                self.state.cur_pv_data_mut().score = iteration_score;
                 if self.state.stop_flag() {
                     self.state.cur_pv_data_mut().bound = None;
                     break 'id;
                 }
+                self.state.cur_pv_data_mut().score = iteration_score;
                 self.state.cur_pv_data_mut().bound = Some(Exact);
                 // only set now so that incomplete iterations are discarded
                 let best_mpv_move = self.state.cur_pv_data().pv.get(0).unwrap_or_default();

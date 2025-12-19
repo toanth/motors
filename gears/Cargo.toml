@@ -18,28 +18,27 @@ proptest = "1.6.0"
 
 
 [dependencies]
-num = "0.4.1"
-rand = "0.9"
+num = { workspace = true }
+rand = { workspace = true }
 # bitintr is bugged and unmaintained
 # Technically, crossterm already provides coloring functionality.
 # However, colored simply does this a lot better.
-colored = "3.0.0"
-strum = "0.27"
-strum_macros = "0.27"
-derive_more = { version = "2.0", features = ["full"] }
-itertools = "0.14.0"
-chrono = "0.4.39"
-dyn-clone = "1.0.18"
-arrayvec = "0.7.6"
+colored = { workspace = true }
+strum = { workspace = true }
+strum_macros = { workspace = true }
+derive_more = { workspace = true }
+itertools = { workspace = true }
+chrono = { workspace = true }
+dyn-clone = { workspace = true }
+arrayvec = { workspace = true }
 smallvec = "2.0.0-alpha.10"
 edit-distance = "2.1.3"
-arbitrary = { version = "1.4.1", features = ["derive"] }
-thiserror = "2.0.9"
+arbitrary = { version = "1.4.2", features = ["derive"] }
 # don't use the backtrace feature because that makes creating errors much slower
-anyhow = { version = "1.0.96", default-features = false, features = ["std"] }
-crossterm = "0.28.1"
+anyhow = { workspace = true }
+crossterm = { workspace = true }
 colorgrad = "0.7.0"
-rayon = "1.10.0"
+rayon = { workspace = true }
 # removing the regex dependency by replacing the single instance of using a regex improved compile times from ~30 to ~20 seconds
 
 [features]

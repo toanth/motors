@@ -454,6 +454,7 @@ impl Caps {
             if iter >= max_iter {
                 break;
             }
+            self.atomic().set_iteration(iter + 1);
             self.statistics.next_id_iteration();
             self.budget = Budget::new(budget);
             for pv_num in 0..multi_pv {
@@ -561,7 +562,6 @@ impl Caps {
                 return (false, false, None);
             }
             send_debug_msg!(self, "Starting new aspiration window search after {} microseconds", elapsed.as_micros());
-            self.atomic().set_iteration(iter + 1); // set the iteration now so that an immediate stop doesn't increment the depth
 
             let asp_start_time = Instant::now();
             let Some(pv_score) = self.negamax(pos, 0, aw_budget, alpha, beta, Exact) else {

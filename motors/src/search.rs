@@ -464,12 +464,13 @@ pub trait Engine<B: BoardTrait>: StaticallyNamedEntity + Send + 'static {
     fn search(&mut self, search_params: SearchParams<B>) -> SearchResult<B> {
         let before = Instant::now();
         self.search_state_mut_dyn().new_search(search_params);
-        let after = Instant::now();
-        let total_elapsed = after.duration_since(self.search_state_dyn().search_params().limit.start_time).as_micros();
+        let after_setup = Instant::now();
+        let total_elapsed =
+            after_setup.duration_since(self.search_state_dyn().search_params().limit.start_time).as_micros();
         send_debug_msg!(
             self.search_state_mut_dyn(),
             "Preparing the search state for a new search took {0} microseconds, {1} have elapsed since the search request",
-            after.duration_since(before).as_micros(),
+            after_setup.duration_since(before).as_micros(),
             total_elapsed
         );
         let res = self.do_search();
@@ -928,6 +929,7 @@ impl<B: BoardTrait, E: SearchStackEntry<B>, C: CustomInfo<B>> AbstractSearchStat
         if let Some(mut output) = self.params.thread_type.output() {
             output.new_search();
         }
+        parameters.limit.soft_nodes = parameters.limit.soft_nodes.min(parameters.limit.nodes);
         self.params = parameters;
         // it's possible that a stop command has already been received and handled, which means the stop flag
         // can already be set
@@ -1218,13 +1220,6 @@ impl<B: BoardTrait, E: SearchStackEntry<B>, C: CustomInfo<B>> SearchState<B, E, 
     }
 }
 
-// TODO: Necessary?
-pub fn run_bench<B: BoardTrait>(engine: &mut dyn Engine<B>, with_nodes: bool, positions: &[B]) -> BenchResult {
-    let nodes = if with_nodes { Some(SearchLimit::nodes(engine.default_bench_nodes())) } else { None };
-    let depth = SearchLimit::depth(engine.default_bench_depth());
-    run_bench_with(engine, depth, nodes, positions, None)
-}
-
 pub fn run_bench_with<B: BoardTrait>(
     engine: &mut dyn Engine<B>,
     limit: SearchLimit,
@@ -1236,7 +1231,7 @@ pub fn run_bench_with<B: BoardTrait>(
     let mut total = BenchResult::default();
     let mut tt = tt.unwrap_or_default();
     for position in bench_positions {
-        // don't reset the engine state between searches to make `bench` reflect how aging etc affect search.
+        // don't reset the engine state between searches to make `bench` reflect how aging etc. affect search.
         tt.age.increment();
         single_bench(position, engine, limit, tt.clone(), 0, &mut total, &mut hasher);
         if let Some(limit) = second_limit {
@@ -1275,6 +1270,39 @@ fn single_bench<B: BoardTrait>(
     total.max_iterations = total.max_iterations.max(res.max_iterations);
     res.pv_score_hash.hash(hasher);
     tt.hash_first_1k_entries(hasher);
+}
+
+/// Runs bench with the given limit, then clears the engine state and runs everything again,
+/// this time with the nodes of the first run as limit. Panics if anything doesn't match.
+pub fn test_reproducible<B: BoardTrait>(
+    positions: &[B],
+    engine: &mut dyn Engine<B>,
+    limit: SearchLimit,
+    tt_size_mib: usize,
+) {
+    let old_tt = TT::new_with_mib(tt_size_mib);
+    engine.forget();
+    let mut results = vec![];
+    for p in positions {
+        let res = engine.bench(p.clone(), limit, old_tt.clone(), 1);
+        results.push(res);
+    }
+
+    engine.forget();
+    let new_tt = TT::new_with_mib(tt_size_mib);
+    for (pos, r) in positions.iter().zip_eq(results.iter()) {
+        let limit = SearchLimit::nodes_(r.nodes);
+        let res = engine.bench(pos.clone(), limit, new_tt.clone(), 1);
+        assert_eq!(res.max_iterations, r.max_iterations, "{} {pos}", r.nodes);
+        assert_eq!(res.depth, r.depth, "{} {pos}", r.nodes);
+        assert_eq!(res.nodes, r.nodes, "{pos}");
+        assert_eq!(res.pv_score_hash, r.pv_score_hash, "{} {pos}", r.nodes)
+    }
+    assert_eq!(old_tt.age, new_tt.age);
+    let entries = old_tt.all_entries::<B>().zip_eq(new_tt.all_entries());
+    for (i, (a, b)) in entries.enumerate() {
+        assert_eq!(a, b, "{i}");
+    }
 }
 
 #[cfg(test)]
@@ -1321,9 +1349,9 @@ mod tests {
 
     fn determinism_test<B: BoardTrait>(engine: &mut dyn Engine<B>) {
         engine.forget();
-        let limit = SearchLimit::nodes_(1234);
         for p in B::bench_positions().into_iter().take(10) {
             engine.forget();
+            let limit = SearchLimit::nodes_(1234);
             let params = SearchParams::for_pos(p.clone(), limit);
             let res = engine.search(params);
             engine.forget();
@@ -1346,5 +1374,7 @@ mod tests {
             assert_eq!(nodes, nodes2, "{p}");
             assert_eq!(res, res2, "{p}");
         }
+        let limit = SearchLimit::soft_nodes_(2000).and(SearchLimit::nodes_(4000));
+        test_reproducible(&B::bench_positions().into_iter().collect_vec(), engine, limit, 1);
     }
 }

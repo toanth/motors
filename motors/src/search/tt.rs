@@ -429,6 +429,10 @@ impl TT {
             seen.push(pos.hash_pos());
         }
     }
+
+    pub fn all_entries<B: BoardTrait>(&self) -> impl Iterator<Item = TTEntry<B>> {
+        self.tt.iter().flat_map(|bucket| bucket.0.iter().map(|e| TTEntry::unpack(e)))
+    }
 }
 
 pub struct TTPv<B: BoardTrait> {
