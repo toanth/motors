@@ -154,16 +154,16 @@ fn print_help() {
     \n--{bench}, --{perft} and --{splitperft} are useful for testing the engine and move generation speed,\
     `bench` is also useful to get a \"hash\" of the search tree explored by the engine.\
     Typing '{help}' while the program is running will also show help messages",
-             game = "game".bold(),
-             engine = "engine".bold(),
-             debug = "debug".bold(),
-             add_outputs = "additional-outputs".bold(),
-             bench = "bench".bold(),
-             perft = "perft".bold(),
-             splitperft = "splitperft".bold(),
-             help = "help".bold(),
-             ni = "non-interactive".bold(),
-             position = "position".bold(),
-             command = "command".bold(),
+             game = "game".underline().bold(),
+             engine = "engine".underline().bold(),
+             debug = "debug".underline().bold(),
+             add_outputs = "additional-outputs".underline().bold(),
+             bench = "bench".underline().bold(),
+             perft = "perft".underline().bold(),
+             splitperft = "splitperft".underline().bold(),
+             help = "help".underline().bold(),
+             ni = "non-interactive".underline().bold(),
+             position = "position".underline().bold(),
+             command = "command".underline().bold(),
     )
 }

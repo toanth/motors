@@ -72,7 +72,7 @@ impl AbstractOutput for Logger {
     }
 
     fn display_message(&mut self, typ: Message, message: &fmt::Arguments) {
-        self.stream.write(typ.message_prefix(), message);
+        self.stream.write(&typ.message_prefix(), message);
     }
 }
 
@@ -90,7 +90,7 @@ impl<B: BoardTrait> Output<B> for Logger {
         self.display_message(typ, message);
         if typ != Message::Info {
             let str = self.as_string(m, OutputOpts::default());
-            self.stream.write(typ.message_prefix(), &format_args!("{str}"));
+            self.stream.write(&typ.message_prefix(), &format_args!("{str}"));
         }
     }
 }

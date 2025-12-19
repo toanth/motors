@@ -58,7 +58,7 @@ pub type CommandList = Vec<Command>;
 
 fn display_cmd(f: &mut Formatter<'_>, cmd: &Command) -> fmt::Result {
     if let Some(desc) = cmd.description() {
-        write!(f, "{}: {desc}.", cmd.short_name().bold())
+        write!(f, "{}: {desc}.", cmd.short_name().bold().underline())
     } else {
         write!(f, "{}", cmd.short_name().bold())
     }

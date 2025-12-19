@@ -1,8 +1,8 @@
-use std::fmt;
-use std::fmt::Debug;
-
+use colored::{ColoredString, Colorize};
 use dyn_clone::DynClone;
 use itertools::Itertools;
+use std::fmt;
+use std::fmt::Debug;
 use strum::IntoEnumIterator;
 use strum_macros::Display;
 
@@ -34,12 +34,12 @@ pub enum Message {
 }
 
 impl Message {
-    fn message_prefix(self) -> &'static str {
+    fn message_prefix(self) -> ColoredString {
         match self {
-            Message::Info => "",
-            Message::Warning => "Warning:",
-            Message::Error => "Error:",
-            Message::Debug => "Debug:",
+            Message::Info => ColoredString::default(),
+            Message::Warning => "Warning:".red(),
+            Message::Error => "Error:".bold().red(),
+            Message::Debug => "Debug:".bright_yellow(),
         }
     }
 }

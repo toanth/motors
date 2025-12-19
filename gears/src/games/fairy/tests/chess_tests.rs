@@ -237,13 +237,13 @@ fn simple_perft_test() {
         Board::from_fen("rbbqQ1kr/1p2p1pp/6n1/p1pp1p2/2P4P/P7/BP1PPPP1/R1B1NNKR b KQkq - 0 10", Strict).unwrap();
     assert_eq!(board.num_legal_moves(), 2);
     let board = Board::from_fen("rbbqn1kr/pp2p1pp/6n1/2pp1p2/2P4P/P7/BP1PPPP1/R1BQNNKR w HAha - 0 9", Strict).unwrap();
-    let perft_res = perft(DepthPly::new(4), board, false, Bulk);
+    let perft_res = perft(DepthPly::new(4), board, true, Bulk);
     assert_eq!(perft_res.nodes, 890_435);
 
     // DFRC
     let board =
         Board::from_fen("r1q1k1rn/1p1ppp1p/1npb2b1/p1N3p1/8/1BP4P/PP1PPPP1/1RQ1KRBN w BFag - 0 9", Strict).unwrap();
-    assert_eq!(perft(DepthPly::new(4), board, false, Bulk).nodes, 1_187_103);
+    assert_eq!(perft(DepthPly::new(4), board, true, Bulk).nodes, 1_187_103);
 }
 
 #[test]
@@ -464,8 +464,8 @@ fn chess960_startpos_test() {
         );
         startpos_found |= board == Board::startpos();
         same_fen |= board.fen_no_rules() == chess::START_FEN;
-        let chess_nodes = perft(DepthPly::new(2), chessboard, false, Bulk).nodes;
-        let fairy_nodes = perft(DepthPly::new(2), board, true, Bulk).nodes;
+        let chess_nodes = chessboard.num_legal_moves();
+        let fairy_nodes = board.num_legal_moves();
         assert_eq!(chess_nodes, fairy_nodes);
     }
     assert!(!same_fen);

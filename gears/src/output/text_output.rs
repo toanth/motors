@@ -91,7 +91,7 @@ pub struct TextWriter {
 impl TextWriter {
     pub fn display_message(&mut self, typ: Message, message: &fmt::Arguments) {
         if self.accepted.contains(&typ) {
-            self.stream.write(typ.message_prefix(), message);
+            self.stream.write(&typ.message_prefix().to_string(), message);
         }
     }
 

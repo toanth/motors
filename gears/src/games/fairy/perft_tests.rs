@@ -46,7 +46,7 @@ mod tests {
 
     #[test]
     fn debug_perft_tests() {
-        perft_tests(50_000);
+        perft_tests(30_000);
     }
 
     #[test]

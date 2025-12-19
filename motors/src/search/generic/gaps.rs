@@ -11,6 +11,7 @@ use crate::search::{
     SearchStateFor,
 };
 use gears::general::common::StaticallyNamedEntity;
+use gears::general::move_list::MoveListTrait;
 use gears::num::traits::WrappingAdd;
 use gears::score::{
     MAX_NORMAL_SCORE, MIN_NORMAL_SCORE, SCORE_LOST, SCORE_TIME_UP, SCORE_WON, Score, game_result_to_score,
@@ -258,17 +259,34 @@ mod tests {
     use crate::eval::ataxx::bate::Bate;
     use crate::eval::chess::lite::LiTEval;
     use crate::eval::mnk::base::BasicMnkEval;
+    use crate::eval::uttt::lute::Lute;
     use crate::search::tests::generic_engine_test;
-    use gears::games::ataxx;
     use gears::games::chess;
     use gears::games::fairy;
-    use gears::games::mnk::Board;
+    use gears::games::{ataxx, mnk, uttt};
 
     #[test]
-    fn generic_test() {
+    fn generic_chess_test() {
         generic_engine_test::<chess::Board, Gaps<chess::Board>>(Gaps::for_eval::<LiTEval>());
-        generic_engine_test::<Board, Gaps<Board>>(Gaps::for_eval::<BasicMnkEval>());
+    }
+
+    #[test]
+    fn generic_mnk_test() {
+        generic_engine_test::<mnk::Board, Gaps<mnk::Board>>(Gaps::for_eval::<BasicMnkEval>());
+    }
+
+    #[test]
+    fn generic_ataxx_test() {
         generic_engine_test::<ataxx::Board, Gaps<ataxx::Board>>(Gaps::for_eval::<Bate>());
+    }
+
+    #[test]
+    fn generic_uttt_test() {
+        generic_engine_test::<uttt::Board, Gaps<uttt::Board>>(Gaps::for_eval::<Lute>());
+    }
+
+    #[test]
+    fn generic_fairy_test() {
         generic_engine_test::<fairy::Board, Gaps<fairy::Board>>(Gaps::for_eval::<RandEval>())
     }
 }

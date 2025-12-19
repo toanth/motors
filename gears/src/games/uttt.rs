@@ -791,9 +791,7 @@ impl BoardTrait for Board {
         self.last_move_won_game()
     }
 
-    // TODO: Testcase that it's impossible to load a FEN where a player won the game
     fn gen_pseudolegal(&self, mut callback: impl FnMut(Move)) {
-        debug_assert!(!self.last_move_won_game(), "{self}");
         if self.last_move != Move::NULL {
             let sub_board = self.last_move.dest_square().sub_square();
             if self.is_sub_board_open(sub_board) {
@@ -803,6 +801,8 @@ impl BoardTrait for Board {
                     let square = Square::new(sub_board, SubSquare::from_bb_idx(idx));
                     callback(Move::new(square));
                 }
+                return;
+            } else if self.last_move_won_game() {
                 return;
             }
         }

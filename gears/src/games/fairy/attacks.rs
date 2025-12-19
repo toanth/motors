@@ -304,27 +304,20 @@ impl AttackKind {
         res.raw()
     }
 
-    pub fn attacks_for_blockers(
+    pub fn attacks_impl(
         &self,
         piece: Piece,
-        blockers: Bitboard,
         filter_bb: RawBitboard,
         squares_mask: RawBitboard,
         pos: &Board,
+        generator: &SliderGen,
     ) -> PieceAttackBB {
         let piece_id = piece.symbol;
         let piece = piece.coordinates;
-        let size = blockers.size();
+        let size = pos.size();
         let res = match &self.typ {
             Leaping(precomputed) => precomputed.0[size.internal_key(piece)],
             Rider(sliding) => {
-                // let blockers = FairyBitboard::new(
-                //     // TODO: Remove the &! after switching to `WithRev` impl
-                //     blockers.raw() & !RawFairyBitboard::single_piece_at(size.internal_key(piece)),
-                //     size,
-                // );
-                // TODO: Keep `gen` alive across calls by making it a parameter
-                let generator = SliderGen::new(blockers, None);
                 let res = match sliding {
                     SliderDirections::Forward => {
                         generator.forward_attacks(piece, !piece_id.color().unwrap_or_default().is_first())
@@ -338,11 +331,10 @@ impl AttackKind {
                         // TODO: Also use gen, remove the fallback
                         Bitboard::hyperbola_quintessence_fallback(
                             size.internal_key(piece),
-                            blockers,
+                            pos.blocker_bb(),
                             Bitboard::flip_up_down,
                             ray,
                         )
-                        // FairyBitboard::hyperbola_quintessence_non_horizontal(piece, blockers, ray)
                     }
                 };
                 res.raw()
@@ -379,13 +371,12 @@ impl AttackKind {
         }
     }
 
-    pub fn attacks(&self, piece: Piece, pos: &Board, mode: AttackMode) -> Option<PieceAttackBB> {
+    pub fn attacks(&self, piece: Piece, pos: &Board, mode: AttackMode, generator: &SliderGen) -> Option<PieceAttackBB> {
         if !self.check_conditions(piece, pos, mode) {
             return None;
         }
         let filter = self.bb_filter(piece.color().unwrap(), pos);
-        let blockers = pos.blocker_bb();
-        Some(self.attacks_for_blockers(piece, blockers, filter, pos.0.mask_bb, pos))
+        Some(self.attacks_impl(piece, filter, pos.0.mask_bb, pos, generator))
     }
 }
 
@@ -410,6 +401,7 @@ impl PieceAttackBB {
     pub fn bb(&self) -> RawBitboard {
         self.all_attacks & self.filter_bb
     }
+
     fn is_capture(&self, to: Square, pos: &Board) -> bool {
         match self.capture_condition {
             CaptureCondition::DestOccupied => pos.is_occupied(to),
@@ -417,6 +409,7 @@ impl PieceAttackBB {
             CaptureCondition::Never => false,
         }
     }
+
     pub fn insert_moves<L: MoveListTrait<Board>>(&self, list: &mut L, pos: &Board, piece: Piece) {
         let bb = Bitboard::new(self.bb(), pos.size());
         let from = piece.coordinates; // can be invalid in case of a drop
@@ -638,6 +631,8 @@ impl Board {
     }
 
     fn gen_attacks_impl<F: FnMut(Piece, &PieceAttackBB, &Board)>(&self, mut f: F, color: Color, mode: AttackMode) {
+        // TODO: Precomputed rays
+        let generator = SliderGen::new(self.blocker_bb(), None);
         for (id, piece_type) in self.rules().pieces() {
             for attack_kind in &piece_type.attacks {
                 match attack_kind.required {
@@ -645,7 +640,7 @@ impl Board {
                         let bb = self.col_piece_bb(color, id);
                         for start in bb.ones() {
                             let piece = Piece { symbol: ColoredPieceId::new(color, id), coordinates: start };
-                            if let Some(bb) = attack_kind.attacks(piece, self, mode) {
+                            if let Some(bb) = attack_kind.attacks(piece, self, mode, &generator) {
                                 f(piece, &bb, self);
                             }
                         }
@@ -654,7 +649,7 @@ impl Board {
                         if self.0.in_hand[color][id.val()] > 0 {
                             let piece =
                                 Piece { symbol: ColoredPieceId::new(color, id), coordinates: Square::no_coordinates() };
-                            if let Some(bb) = attack_kind.attacks(piece, self, mode) {
+                            if let Some(bb) = attack_kind.attacks(piece, self, mode, &generator) {
                                 f(piece, &bb, self);
                             }
                         }
