@@ -468,6 +468,7 @@ pub fn ugi_commands() -> CommandList {
 /// The purpose of this trait is to type erase the Board
 pub trait AbstractGoState: Debug {
     fn set_searchmoves(&mut self, words: &mut Tokens) -> Res<()>;
+    fn set_excludemoves(&mut self, words: &mut Tokens) -> Res<()>;
     fn set_time(&mut self, words: &mut Tokens, first: bool, inc: bool, name: &str) -> Res<()>;
     fn override_hash(&mut self, words: &mut Tokens) -> Res<()>;
     fn limit_mut(&mut self) -> &mut SearchLimit;
@@ -478,17 +479,30 @@ pub trait AbstractGoState: Debug {
     fn is_first_player_active(&self) -> bool;
 }
 
+fn set_sm_or_em<B: BoardTrait>(pos: &B, words: &mut Tokens, name: &str) -> Res<Vec<B::Move>> {
+    let mut moves = vec![];
+    while let Some(mov) = words.peek().and_then(|m| B::Move::from_text(m, &pos).ok()) {
+        _ = words.next().unwrap();
+        moves.push(mov);
+    }
+    if moves.is_empty() {
+        let additional = words.peek().map(|w| format!(" (the next word is '{}')", w.red())).unwrap_or_default();
+        bail!("No valid moves after '{}' command{additional}", name.bold());
+    }
+    Ok(moves)
+}
+
 impl<B: BoardTrait> AbstractGoState for GoState<B> {
     fn set_searchmoves(&mut self, words: &mut Tokens) -> Res<()> {
-        let mut search_moves = vec![];
-        while let Some(mov) = words.peek().and_then(|m| B::Move::from_text(m, &self.pos).ok()) {
-            _ = words.next().unwrap();
-            search_moves.push(mov);
-        }
-        if search_moves.is_empty() {
-            bail!("No valid moves after 'searchmoves' command");
-        }
-        self.search_moves = Some(search_moves);
+        self.search_moves = Some(set_sm_or_em(&self.pos, words, "searchmoves")?);
+        Ok(())
+    }
+
+    fn set_excludemoves(&mut self, words: &mut Tokens) -> Res<()> {
+        let excluded = set_sm_or_em(&self.pos, words, "excludemoves")?;
+        let mut sm = self.search_moves.clone().unwrap_or_else(|| self.pos.legal_moves_slow().into_iter().collect_vec());
+        sm.retain(|m| !excluded.contains(m));
+        self.search_moves = Some(sm);
         Ok(())
     }
 
@@ -810,6 +824,13 @@ pub(super) fn go_options_impl(
                 |state, words, _| state.go_state_mut().set_searchmoves(words),
                 --> |state| state.moves_subcmds(false, false),
                 recurse = true
+            ),
+            command!(excludemoves | em | ignoremoves,
+            Custom,
+            "Don't search the specified moves; the dual of 'searchmoves'",
+            |state, words, _| state.go_state_mut().set_excludemoves(words),
+            --> |state| state.moves_subcmds(false, false),
+            recurse = true
             ),
             command!(
                 multipv | mpv,
