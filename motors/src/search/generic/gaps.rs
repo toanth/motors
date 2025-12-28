@@ -11,7 +11,6 @@ use crate::search::{
     SearchStateFor,
 };
 use gears::general::common::StaticallyNamedEntity;
-use gears::general::move_list::MoveListTrait;
 use gears::num::traits::WrappingAdd;
 use gears::score::{
     MAX_NORMAL_SCORE, MIN_NORMAL_SCORE, SCORE_LOST, SCORE_TIME_UP, SCORE_WON, Score, game_result_to_score,

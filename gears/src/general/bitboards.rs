@@ -1319,10 +1319,10 @@ pub mod chessboard {
         res
     };
 
-    pub const fn white_squares() -> Bitboard {
+    pub const fn light_squares() -> Bitboard {
         COLORED_SQUARES[0]
     }
-    pub const fn black_squares() -> Bitboard {
+    pub const fn dark_squares() -> Bitboard {
         COLORED_SQUARES[1]
     }
 

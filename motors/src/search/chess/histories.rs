@@ -116,26 +116,26 @@ impl Default for CaptHist {
 pub(super) struct ContHist(Vec<HistScoreT>); // Can't store this on the stack because it's too large.
 
 impl ContHist {
-    fn idx(mov: Move, pos: &Board, prev_move: Move, prev_pos: &Board) -> usize {
+    fn idx(mov: Move, pos: &Board, prev_move: Move, prev_piece: PieceType) -> usize {
         let color = pos.active_player();
         debug_assert!(mov.dest_square().bb_idx() < 64);
         debug_assert!((mov.piece_type(pos) as usize) < 6);
         debug_assert!(prev_move.dest_square().bb_idx() < 64);
-        debug_assert!((prev_move.piece_type(prev_pos) as usize) < 6);
+        debug_assert!((prev_piece as usize) < 6);
         (mov.piece_type(pos) as usize * 64 + mov.dest_square().bb_idx())
-            + (prev_move.piece_type(prev_pos) as usize * 64 + prev_move.dest_square().bb_idx()) * 64 * 6
+            + (prev_piece as usize * 64 + prev_move.dest_square().bb_idx()) * 64 * 6
             + color as usize * 64 * 6 * 64 * 6
     }
-    pub(super) fn update(&mut self, mov: Move, pos: &Board, prev_mov: Move, prev_pos: &Board, bonus: HistScoreT) {
-        let entry = &mut self[Self::idx(mov, pos, prev_mov, prev_pos)];
+    pub(super) fn update(&mut self, mov: Move, pos: &Board, prev_mov: Move, prev_piece: PieceType, bonus: HistScoreT) {
+        let entry = &mut self[Self::idx(mov, pos, prev_mov, prev_piece)];
         update_history_score(entry, bonus);
     }
 
-    pub(super) fn score(&self, mov: Move, pos: &Board, prev_move: Move, prev_pos: &Board) -> isize {
+    pub(super) fn score(&self, mov: Move, pos: &Board, prev_move: Move, prev_piece: PieceType) -> isize {
         if prev_move.is_null() {
             return 0;
         }
-        self[Self::idx(mov, pos, prev_move, prev_pos)] as isize
+        self[Self::idx(mov, pos, prev_move, prev_piece)] as isize
     }
 }
 

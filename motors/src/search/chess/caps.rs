@@ -21,6 +21,7 @@ use gears::PlayerResult::{Lose, Win};
 use gears::arrayvec::ArrayVec;
 use gears::games::chess::bitbase::{Bitbase, PAWN_V_KING_TABLE};
 use gears::games::chess::moves::Move;
+use gears::games::chess::pieces::PieceType;
 use gears::games::chess::pieces::PieceType::Pawn;
 use gears::games::chess::see::SeeScore;
 use gears::games::chess::squares::NUM_SQUARES;
@@ -146,9 +147,8 @@ impl CustomInfo<Board> for CapsCustomInfo {
 pub struct CapsSearchStackEntry {
     killer: Move,
     pv: Pv<Board, SEARCH_STACK_LEN>,
-    tried_moves: ArrayVec<Move, MAX_CHESS_MOVES_IN_POS>,
+    tried_moves: ArrayVec<(Move, PieceType), MAX_CHESS_MOVES_IN_POS>,
     move_score: MoveScore,
-    pos: Board,
     eval: Score,
 }
 
@@ -158,7 +158,6 @@ impl SearchStackEntry<Board> for CapsSearchStackEntry {
         self.pv.list.clear();
         self.tried_moves.clear();
         self.move_score = MoveScore(0);
-        self.pos = Board::default();
         self.eval = Score::default();
     }
 
@@ -167,7 +166,7 @@ impl SearchStackEntry<Board> for CapsSearchStackEntry {
     }
 
     fn last_played_move(&self) -> Option<Move> {
-        self.tried_moves.last().copied()
+        self.tried_moves.last().map(|e| e.0)
     }
 
     fn hash(&self, hasher: &mut impl Hasher) {
@@ -175,13 +174,12 @@ impl SearchStackEntry<Board> for CapsSearchStackEntry {
         self.tried_moves.hash(hasher);
         self.move_score.0.hash(hasher);
         self.eval.hash(hasher);
-        self.pos.hash_pos().0.hash(hasher);
     }
 }
 
 impl CapsSearchStackEntry {
     /// If this entry has a lower ply number than the current node, this is the tree edge that leads towards the current node.
-    fn last_tried_move(&self) -> Move {
+    fn last_tried_move(&self) -> (Move, PieceType) {
         *self.tried_moves.last().unwrap()
     }
 }
@@ -564,7 +562,7 @@ impl Caps {
             send_debug_msg!(self, "Starting new aspiration window search after {} microseconds", elapsed.as_micros());
 
             let asp_start_time = Instant::now();
-            let Some(pv_score) = self.negamax(pos, 0, aw_budget, alpha, beta, Exact) else {
+            let Some(pv_score) = self.negamax(pos, None, 0, aw_budget, alpha, beta, Exact) else {
                 send_debug_msg!(
                     self.state,
                     "Exiting aw window after reaching a stop condition in negamax, after {} microseconds",
@@ -664,6 +662,7 @@ impl Caps {
     fn negamax(
         &mut self,
         pos: &Board,
+        old_pos: Option<&Board>,
         ply: usize,
         mut depth: isize,
         mut alpha: Score,
@@ -690,6 +689,7 @@ impl Caps {
         if pv_node {
             self.search_stack[ply].pv.clear();
         }
+        self.search_stack[ply].tried_moves.clear();
 
         let mut best_score = NO_SCORE_YET;
 
@@ -733,7 +733,7 @@ impl Caps {
         }
         // limit.mate() is the min of the original limit.mate and DEPTH_HARD_LIMIT
         if depth <= 0 || ply >= self.ply_hard_limit {
-            return self.qsearch(pos, alpha, beta, ply, pv_node);
+            return self.qsearch(pos, old_pos.unwrap(), alpha, beta, ply, pv_node);
         }
 
         let can_prune = !pv_node && !in_check;
@@ -743,9 +743,8 @@ impl Caps {
         let mut continued = None;
         if ply >= 2 {
             let entry = &self.state.search_stack[ply - 2];
-            let mov = entry.last_tried_move();
+            let (mov, piece) = entry.last_tried_move();
             if !mov.is_null() {
-                let piece = mov.piece_type(&entry.pos);
                 continued = Some((mov, piece));
             }
         }
@@ -783,12 +782,9 @@ impl Caps {
                 {
                     self.statistics.tt_cutoff(MainSearch, tt_bound);
                     // Idea from stormphrax
-                    if tt_score >= beta
-                        && !best_move.is_tactical(pos)
-                        && self.search_stack[ply].pos.is_generated_move_pseudolegal(best_move)
-                    {
+                    if tt_score >= beta && !best_move.is_tactical(pos) && pos.is_generated_move_pseudolegal(best_move) {
                         self.search_stack[ply].killer = best_move;
-                        self.update_histories(best_move, depth, ply, tt_score - beta);
+                        self.update_histories(&pos, best_move, depth, ply, tt_score - beta);
                     }
                     return Some(tt_score);
                 } else if depth <= cc::low_depth_tt_extension_depth() {
@@ -821,11 +817,11 @@ impl Caps {
             }
         } else {
             self.state.statistics.tt_miss(MainSearch);
-            raw_eval = self.eval(pos, ply);
+            raw_eval = self.eval(pos, old_pos, ply);
             eval = self.state.custom.corr_hist.correct(pos, continued, raw_eval);
         };
 
-        self.record_pos(pos, eval, ply);
+        self.search_stack[ply].eval = eval;
 
         // If the current position is noisy, we want to be more conservative with margins.
         // However, captures and promos are generally good moves, so if our eval is the static eval instead of adjusted from the TT,
@@ -885,7 +881,7 @@ impl Caps {
                 && eval + Score((cc::razor_depth_mult() * depth / 1024) as ScoreT) < alpha
                 && !eval.is_game_lost_score()
             {
-                let qsearch_score = self.qsearch(pos, alpha, beta, ply, false)?;
+                let qsearch_score = self.qsearch(pos, old_pos.unwrap(), alpha, beta, ply, false)?;
                 if qsearch_score <= alpha {
                     return Some(qsearch_score);
                 }
@@ -918,13 +914,13 @@ impl Caps {
                 self.params.history.push(pos.hash_pos());
                 let new_pos = pos.make_nullmove().unwrap();
                 // necessary to recognize the null move and to make `last_tried_move()` not panic
-                self.search_stack[ply].tried_moves.push(Move::default());
+                self.search_stack[ply].tried_moves.push((Move::default(), PieceType::Empty));
                 // TODO: Change order of multiplication and division (changes bench), use * 1024 instead of * 128 for depth div
                 let reduction = cc::nmp_base()
                     + depth / cc::nmp_depth_div() * 128
                     + isize::from(they_blundered) * cc::nmp_blunder();
                 // the child node is expected to fail low, leading to a fail high in this node
-                let nmp_res = self.negamax(&new_pos, ply + 1, depth - reduction, -beta, -beta + 1, FailLow);
+                let nmp_res = self.negamax(&new_pos, Some(&pos), ply + 1, depth - reduction, -beta, -beta + 1, FailLow);
                 _ = self.search_stack[ply].tried_moves.pop();
                 self.params.history.pop();
                 let score = -nmp_res?;
@@ -938,7 +934,7 @@ impl Caps {
                     }
                     *self.nmp_disabled_for(us) = true;
                     // even though we don't do a null move, we still use the same reduction
-                    nmp_verif_score = self.negamax(pos, ply, depth - reduction, beta - 1, beta, FailHigh);
+                    nmp_verif_score = self.negamax(pos, old_pos, ply, depth - reduction, beta - 1, beta, FailHigh);
                     self.search_stack[ply].tried_moves.clear();
                     *self.nmp_disabled_for(us) = false;
                     // The verification score is more trustworthy than the nmp score.
@@ -957,7 +953,7 @@ impl Caps {
             && eval >= beta + Score(32 * (depth / 128) as ScoreT) && !in_check && !root && nmp_verif_score.is_none()
         {
             let reduction = (depth / 128) / 2 * 128; // TODO: Turn into multiplcation with constant (changes bench)
-            let score = self.negamax(pos, ply, depth - 128 - reduction, beta - 1, beta, FailHigh)?;
+            let score = self.negamax(pos, old_pos, ply, depth - 128 - reduction, beta - 1, beta, FailHigh)?;
             if score >= beta {
                 depth -= cc::rfr_reduction();
             }
@@ -973,7 +969,7 @@ impl Caps {
             depth -= cc::iir_reduction();
         }
 
-        self.maybe_send_currline(pos, alpha, beta, ply, None);
+        self.maybe_send_currline(pos, old_pos, alpha, beta, ply, None);
 
         // An uninteresting move is a quiet move or bad capture unless it's the TT or killer move
         // (i.e. it's every move that gets ordered after the killer). The name is a bit dramatic, the first few of those
@@ -1053,7 +1049,7 @@ impl Caps {
             if root && depth >= 1024 && self.limit().start_time.elapsed().as_millis() >= 3000 {
                 let move_num = self.search_stack[0].tried_moves.len();
                 // `qsearch` would give better results, but would make bench be nondeterministic
-                let score = -self.eval(&new_pos, 0);
+                let score = -self.eval(&new_pos, Some(&pos), 1);
                 self.send_currmove(mov, move_num, score, alpha, beta);
             }
             if move_score < KILLER_SCORE {
@@ -1073,6 +1069,7 @@ impl Caps {
                 let child_node_type = expected_node_type.inverse();
                 score = -self.negamax(
                     &new_pos,
+                    Some(&pos),
                     ply + 1,
                     child_depth - cc::first_child_reduction(),
                     child_alpha,
@@ -1137,7 +1134,15 @@ impl Caps {
                 // this ensures that check extensions prevent going into qsearch while in check
                 reduction = reduction.min(child_depth).max(0);
 
-                score = -self.negamax(&new_pos, ply + 1, child_depth - reduction, child_alpha, child_beta, FailHigh)?;
+                score = -self.negamax(
+                    &new_pos,
+                    Some(&pos),
+                    ply + 1,
+                    child_depth - reduction,
+                    child_alpha,
+                    child_beta,
+                    FailHigh,
+                )?;
                 // If the score turned out to be better than expected (at least `alpha`), this might just be because
                 // of the reduced depth. So do a full-depth search first, but don't use the full window quite yet.
                 if alpha < score && reduction >= cc::min_reduction_research() {
@@ -1151,7 +1156,8 @@ impl Caps {
                     }
                     self.statistics.lmr_first_retry();
                     // we still expect the child to fail high here
-                    score = -self.negamax(&new_pos, ply + 1, retry_depth, child_alpha, child_beta, FailHigh)?;
+                    score =
+                        -self.negamax(&new_pos, Some(&pos), ply + 1, retry_depth, child_alpha, child_beta, FailHigh)?;
                 }
 
                 // If the full-depth null-window search performed better than expected, do a full-depth search with the
@@ -1163,6 +1169,7 @@ impl Caps {
                     self.statistics.lmr_second_retry();
                     score = -self.negamax(
                         &new_pos,
+                        Some(&pos),
                         ply + 1,
                         child_depth - cc::third_search_reduction(),
                         -beta,
@@ -1248,7 +1255,7 @@ impl Caps {
             }
             // Beta cutoff. Update history and killer for quiet moves, then break out of the move loop.
             bound_so_far = FailHigh;
-            self.update_histories(mov, depth, ply, score - beta);
+            self.update_histories(&pos, mov, depth, ply, score - beta);
             break;
         }
 
@@ -1287,11 +1294,14 @@ impl Caps {
         {
             self.state.custom.corr_hist.update(pos, continued, depth, eval, best_score);
         }
-        if ply > 0 && bound_so_far == FailLow {
+        if let Some(old_pos) = old_pos
+            && bound_so_far == FailLow
+        {
             // give a smaller bonus to the parent's move if we fail low. This rewards PVS researches that don't cause a fail high in the parent.
-            let parent_move = self.search_stack[ply - 1].last_tried_move();
+            let (parent_move, _piece) = self.search_stack[ply - 1].last_tried_move();
             if !parent_move.is_null() {
                 self.update_histories(
+                    old_pos,
                     parent_move,
                     (depth / 128) / 2 * 128, // TODO: Constant (changes bench)
                     ply - 1,
@@ -1303,7 +1313,15 @@ impl Caps {
     }
 
     /// Search only "tactical" moves to quieten down the position before calling eval
-    fn qsearch(&mut self, pos: &Board, mut alpha: Score, beta: Score, ply: usize, pv_node: bool) -> Option<Score> {
+    fn qsearch(
+        &mut self,
+        pos: &Board,
+        old_pos: &Board,
+        mut alpha: Score,
+        beta: Score,
+        ply: usize,
+        pv_node: bool,
+    ) -> Option<Score> {
         self.statistics.count_node_started(Qsearch);
         // updating seldepth only in qsearch meaningfully increased performance and was even measurable in a [0, 10] SPRT.
         // TODO: That's weird, retest
@@ -1322,9 +1340,8 @@ impl Caps {
         let mut continued = None;
         if ply >= 2 {
             let entry = &self.state.search_stack[ply - 2];
-            let mov = entry.last_tried_move();
+            let (mov, piece) = entry.last_tried_move();
             if !mov.is_null() {
-                let piece = mov.piece_type(&entry.pos);
                 continued = Some((mov, piece));
             }
         }
@@ -1332,6 +1349,7 @@ impl Caps {
         if pv_node {
             self.search_stack[ply].pv.clear();
         }
+        self.search_stack[ply].tried_moves.clear();
 
         // Don't do TT cutoffs with alpha already raised by the stand pat check, because that relies on the null move observation.
         // But if there's a TT entry from normal search that's worse than the stand pat score, we should trust that more.
@@ -1378,7 +1396,7 @@ impl Caps {
             raw_eval = MIN_NORMAL_SCORE;
             eval = SCORE_LOST + ply as ScoreT;
         } else {
-            raw_eval = self.eval(pos, ply);
+            raw_eval = self.eval(pos, Some(old_pos), ply);
             eval = self.state.custom.corr_hist.correct(pos, continued, raw_eval);
         }
         let mut best_score = eval;
@@ -1394,9 +1412,9 @@ impl Caps {
             bound_so_far = Exact;
             alpha = best_score;
         }
-        self.record_pos(pos, best_score, ply);
+        self.search_stack[ply].eval = best_score;
 
-        self.maybe_send_currline(pos, alpha, beta, ply, Some(best_score));
+        self.maybe_send_currline(pos, Some(old_pos), alpha, beta, ply, Some(best_score));
 
         let mut move_picker: MovePicker<Board, MAX_CHESS_MOVES_IN_POS> = MovePicker::new(pos, best_move, !in_check);
         let move_scorer = CapsMoveScorer { pos, ply };
@@ -1426,7 +1444,7 @@ impl Caps {
             }
             self.record_move(mov, pos, ply, Qsearch, move_score);
             children_visited += 1;
-            let score = -self.qsearch(&new_pos, -beta, -alpha, ply + 1, pv_node)?;
+            let score = -self.qsearch(&new_pos, &pos, -beta, -alpha, ply + 1, pv_node)?;
             self.undo_move();
             best_score = best_score.max(score);
             if score <= alpha {
@@ -1459,16 +1477,16 @@ impl Caps {
         Some(best_score)
     }
 
-    fn eval(&mut self, pos: &Board, ply: usize) -> Score {
+    fn eval(&mut self, pos: &Board, old_pos: Option<&Board>, ply: usize) -> Score {
+        debug_assert_eq!(ply == 0, old_pos.is_none());
         let us = self.params.pos.active_player();
-        let mut score = if ply == 0 {
-            self.eval.eval(pos, 0, us)
-        } else {
-            let old_pos = &self.state.search_stack[ply - 1].pos;
-            let mov = self.search_stack[ply - 1].last_tried_move();
+        let mut score = if let Some(old_pos) = old_pos {
+            let (mov, _piece) = self.search_stack[ply - 1].last_tried_move();
             let res = self.eval.eval_incremental(old_pos, mov, pos, ply, us);
             debug_assert_eq!(res, self.eval.eval(pos, ply, us), "{pos} {mov:?} {old_pos} {ply}");
             res
+        } else {
+            self.eval.eval(pos, 0, us)
         };
         // the score must not be in the mate score range unless the position includes too many pieces
         debug_assert!(
@@ -1496,80 +1514,67 @@ impl Caps {
     fn update_continuation_hist(
         mov: Move,
         prev_move: Move,
+        prev_piece: PieceType,
         bonus: HistScoreT,
         malus: HistScoreT,
         pos: &Board,
-        prev_pos: &Board,
         hist: &mut ContHist,
-        failed: &[Move],
+        failed: &[(Move, PieceType)],
     ) {
         if prev_move == Move::default() {
             return; // Ignore NMP null moves
         }
-        hist.update(mov, pos, prev_move, prev_pos, bonus);
-        for disappointing in failed.iter().dropping_back(1).filter(|m| !m.is_tactical(pos)) {
-            hist.update(*disappointing, pos, prev_move, prev_pos, malus);
+        hist.update(mov, pos, prev_move, prev_piece, bonus);
+        for disappointing in failed.iter().dropping_back(1).filter(|m| !m.0.is_tactical(pos)) {
+            debug_assert_eq!(disappointing.1, disappointing.0.piece_type(pos));
+            hist.update(disappointing.0, pos, prev_move, prev_piece, malus);
         }
     }
 
-    fn update_histories(&mut self, mov: Move, depth: isize, ply: usize, score_diff: Score) {
+    fn update_histories(&mut self, pos: &Board, mov: Move, depth: isize, ply: usize, score_diff: Score) {
         debug_assert!(score_diff >= Score(0));
         let (before, [entry, ..]) = self.state.search_stack.split_at_mut(ply) else { unreachable!() };
         let bonus = (depth * cc::hist_depth_bonus() / 1024 + cc::hist_bonus_offset()) as HistScoreT
             + ((score_diff.0 + 1).ilog2() * cc::hist_bonus_eval_diff()) as HistScoreT;
         let malus = (-depth * cc::hist_depth_malus() / 1024 - cc::hist_malus_offset()) as HistScoreT
             - ((score_diff.0 + 1).ilog2() * cc::hist_malus_eval_diff()) as HistScoreT;
-        let pos = &entry.pos;
         let threats = pos.threats();
         if mov.is_tactical(pos) {
-            for disappointing in entry.tried_moves.iter().dropping_back(1).filter(|m| m.is_tactical(pos)) {
+            for (disappointing, _) in entry.tried_moves.iter().dropping_back(1).filter(|(m, _)| m.is_tactical(pos)) {
                 self.state.custom.capt_hist.update(*disappointing, pos, malus);
             }
             self.state.custom.capt_hist.update(mov, pos, bonus);
             return;
         }
-        for disappointing in entry.tried_moves.iter().dropping_back(1).filter(|m| !m.is_tactical(pos)) {
+        for (disappointing, _) in entry.tried_moves.iter().dropping_back(1).filter(|(m, _)| !m.is_tactical(pos)) {
             self.state.custom.history.update(*disappointing, threats, malus);
         }
         self.state.custom.history.update(mov, threats, bonus);
         if ply > 0 {
             let parent = before.last_mut().unwrap();
+            let (prev_move, prev_piece) = parent.last_tried_move();
             Self::update_continuation_hist(
                 mov,
-                parent.last_tried_move(),
+                prev_move,
+                prev_piece,
                 bonus,
                 malus,
                 pos,
-                &parent.pos,
                 &mut self.state.custom.countermove_hist,
                 &entry.tried_moves,
             );
             if ply > 1 {
                 let grandparent = &mut before[before.len() - 2];
                 let fmh = &mut self.state.custom.follow_up_move_hist;
-                Self::update_continuation_hist(
-                    mov,
-                    grandparent.last_tried_move(),
-                    bonus,
-                    malus,
-                    pos,
-                    &grandparent.pos,
-                    fmh,
-                    &entry.tried_moves,
-                );
+                let (prev_move, prev_piece) = grandparent.last_tried_move();
+                Self::update_continuation_hist(mov, prev_move, prev_piece, bonus, malus, pos, fmh, &entry.tried_moves);
             }
         }
     }
 
-    fn record_pos(&mut self, pos: &Board, eval: Score, ply: usize) {
-        self.search_stack[ply].pos = *pos;
-        self.search_stack[ply].eval = eval;
-        self.search_stack[ply].tried_moves.clear();
-    }
-
     fn record_move(&mut self, mov: Move, old_pos: &Board, ply: usize, typ: SearchType, move_score: MoveScore) {
         self.params.history.push(old_pos.hash_pos());
-        self.search_stack[ply].tried_moves.push(mov);
+        self.search_stack[ply].tried_moves.push((mov, mov.piece_type(old_pos)));
         self.search_stack[ply].move_score = move_score;
         self.statistics.count_legal_make_move(typ);
     }
@@ -1580,14 +1585,22 @@ impl Caps {
     }
 
     #[inline]
-    fn maybe_send_currline(&mut self, pos: &Board, alpha: Score, beta: Score, ply: usize, score: Option<Score>) {
+    fn maybe_send_currline(
+        &mut self,
+        pos: &Board,
+        old_pos: Option<&Board>,
+        alpha: Score,
+        beta: Score,
+        ply: usize,
+        score: Option<Score>,
+    ) {
         if self.uci_nodes() % DEFAULT_CHECK_TIME_INTERVAL == 0
             && ply > 0
             && self.last_msg_time.elapsed().as_millis() >= 1000
         {
             // calling qsearch instead of eval would give better results, but it would also mean that benches are no longer
             // deterministic
-            let score = score.unwrap_or_else(|| self.eval(pos, ply));
+            let score = score.unwrap_or_else(|| self.eval(pos, old_pos, ply));
             let flip = pos.active_player() != self.params.pos.active_player();
             let score = score.flip_if(flip);
             let alpha = alpha.flip_if(flip);
@@ -1620,14 +1633,14 @@ impl MoveScorer<Board, Caps> for CapsMoveScorer<'_> {
             KILLER_SCORE
         } else {
             let countermove_score = if self.ply > 0 {
-                let prev_move = state.search_stack[self.ply - 1].last_tried_move();
-                state.countermove_hist.score(mov, self.pos, prev_move, &state.search_stack[self.ply - 1].pos)
+                let (prev_move, prev_piece) = state.search_stack[self.ply - 1].last_tried_move();
+                state.countermove_hist.score(mov, self.pos, prev_move, prev_piece)
             } else {
                 0
             };
             let follow_up_score = if self.ply > 1 {
-                let prev_move = state.search_stack[self.ply - 2].last_tried_move();
-                state.follow_up_move_hist.score(mov, self.pos, prev_move, &state.search_stack[self.ply - 2].pos)
+                let (old_move, old_piece) = state.search_stack[self.ply - 2].last_tried_move();
+                state.follow_up_move_hist.score(mov, self.pos, old_move, old_piece)
             } else {
                 0
             };

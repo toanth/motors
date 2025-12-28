@@ -494,7 +494,7 @@ static BIT_REVERSE_HQ_DATA: [[U128BitReverseHq; 128]; MAX_WIDTH] = {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::general::bitboards::chessboard::white_squares;
+    use crate::general::bitboards::chessboard::light_squares;
     use crate::general::bitboards::{DynamicallySizedBitboard, KnownSizeBitboard};
     use crate::general::squares::{GridCoordinates, GridSize};
     use std::str::FromStr;
@@ -514,7 +514,7 @@ mod tests {
 
     #[test]
     fn chess_test() {
-        let blockers = white_squares();
+        let blockers = light_squares();
         let generator = ChessSliderGenerator::new(blockers);
         let attacks_bishop_a1 = generator.bishop_attacks(Square::from_bb_idx(0));
         assert_eq!(attacks_bishop_a1, Bitboard::diagonal(Square::from_bb_idx(0)) & !Bitboard::new(1));

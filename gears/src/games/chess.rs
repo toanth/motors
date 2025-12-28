@@ -16,7 +16,7 @@ use crate::games::{
     AbstractPieceType, BoardHistory, BoardTrait, CharType, ColorTrait, ColoredPieceTrait, ColoredPieceTypeTrait, DimT,
     NUM_COLORS, PosHash, SettingsTrait, n_fold_repetition,
 };
-use crate::general::bitboards::chessboard::{Bitboard, KINGS, black_squares, white_squares};
+use crate::general::bitboards::chessboard::{Bitboard, KINGS, dark_squares, light_squares};
 use crate::general::bitboards::{BitboardTrait, KnownSizeBitboard, RawBitboardTrait, RawStandardBitboard};
 use crate::general::board::SelfChecks::CheckFen;
 use crate::general::board::Strictness::{Relaxed, Strict};
@@ -714,7 +714,7 @@ impl BoardTrait for Board {
             return false;
         }
         if self.col_piece_bb(player, Knight).is_zero()
-            && ((bishops & white_squares()).is_zero() || (bishops & black_squares()).is_zero())
+            && ((bishops & light_squares()).is_zero() || (bishops & dark_squares()).is_zero())
         {
             return false;
         }
@@ -882,17 +882,14 @@ impl Board {
             return false;
         }
         let bishops = self.piece_bb(Bishop);
-        if bishops.intersects(black_squares()) && bishops.intersects(white_squares()) {
+        if bishops.intersects(dark_squares()) && bishops.intersects(light_squares()) {
             return false; // opposite-colored bishops (even if they belong to different players)
         }
         if bishops.has_any() && self.piece_bb(Knight).has_any() {
             return false; // knight and bishop, or knight vs bishop
         }
-        // a knight and any additional uncolored piece can create a mate (non-knight pieces have already been ruled out)
-        if self.piece_bb(Knight).num_ones() >= 2 {
-            return false;
-        }
-        true
+        // non-knight pieces have already been ruled out; at least 2 knights are sufficient to deliver checkmate
+        self.piece_bb(Knight).num_ones() < 2
     }
 
     pub fn ep_square(&self) -> Option<Square> {

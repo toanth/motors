@@ -230,8 +230,6 @@ impl CastlingFlags {
     pub(super) fn write_castle_rights(self, f: &mut Formatter, pos: &Board) -> fmt::Result {
         let mut has_castling_rights = false;
         let settings = pos.settings;
-        // Always output chess960 castling rights. FEN output isn't necessary for UCI
-        // and almost all tools support chess960 FEN notation.
         for color in Color::iter() {
             for side in CastleRight::iter().rev() {
                 if self.can_castle(color, side) {
