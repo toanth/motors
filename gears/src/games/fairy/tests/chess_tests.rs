@@ -24,9 +24,12 @@ use crate::games::chess::squares::{F_FILE_NUM, G_FILE_NUM};
 use crate::games::fairy::Side::{Kingside, Queenside};
 use crate::games::fairy::attacks::MoveKind;
 use crate::games::fairy::moves::FairyMove;
-use crate::games::fairy::rules::{Rules, RulesRef};
+use crate::games::fairy::rules::{RulesBuilder, RulesRef};
 use crate::games::fairy::{FairyBitboard, FairyBoard, FairyColor, FairySquare, Side, UnverifiedFairyBoard};
-use crate::games::{AbstractPieceType, Color, ColoredPiece, Coordinates, NoHistory, Size, ZobristHistory, chess, n_fold_repetition, BoardHistDyn};
+use crate::games::{
+    AbstractPieceType, BoardHistDyn, Color, ColoredPiece, Coordinates, NoHistory, Size, ZobristHistory, chess,
+    n_fold_repetition,
+};
 use crate::general::bitboards::{Bitboard, RawBitboard};
 use crate::general::board::Strictness::{Relaxed, Strict};
 use crate::general::board::{Board, BoardHelpers, UnverifiedBoard};
@@ -55,7 +58,7 @@ fn chess_invariants(board: &UnverifiedFairyBoard) {
 #[test]
 fn empty_test() {
     let board = FairyBoard::empty();
-    let b2 = FairyBoard::empty_for_settings(RulesRef::new(Rules::chess()));
+    let b2 = FairyBoard::empty_for_settings(RulesRef::new(RulesBuilder::chess().build()));
     assert_eq!(board, b2);
     chess_invariants(&board);
     assert_eq!(board.draw_counter, 0);

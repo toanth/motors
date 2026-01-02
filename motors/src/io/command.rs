@@ -386,7 +386,7 @@ pub fn ugi_commands() -> CommandList {
         command!(
             place | place_piece | put,
             Custom,
-            "Places a piece of the given color on the given square, e.g. 'place white pawn e4",
+            "Places a piece of the given color on the given square, e.g. 'place white pawn e4'",
             |ugi, words, _| ugi.handle_place_piece(words),
             --> |state| state.piece_subcmds()
         ),

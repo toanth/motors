@@ -965,6 +965,11 @@ impl Board for UtttBoard {
         pos.verify_with_level(CheckFen, strictness)
     }
 
+    /// Some games have alternative FEN
+    fn as_alternative_fen(&self) -> Option<String> {
+        Some(self.to_alternative_fen())
+    }
+
     fn as_diagram(&self, typ: CharType, flip: bool, mark_active: bool) -> String {
         board_to_string(self, UtttPiece::to_char, typ, flip, mark_active)
     }

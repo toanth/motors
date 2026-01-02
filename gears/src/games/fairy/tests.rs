@@ -31,7 +31,7 @@ mod general {
     use crate::games::fairy::pieces::ColoredPieceId;
     use crate::games::fairy::{FairyBoard, FairyCastleInfo, FairyColor, FairyPiece, FairySquare};
     use crate::games::mnk::MNKBoard;
-    use crate::games::{AbstractPieceType, Color, Height, NoHistory, Width, ZobristHistory, chess, BoardHistDyn};
+    use crate::games::{AbstractPieceType, BoardHistDyn, Color, Height, NoHistory, Width, ZobristHistory, chess};
     use crate::general::bitboards::{Bitboard, RawBitboard};
     use crate::general::board::Strictness::{Relaxed, Strict};
     use crate::general::board::{BitboardBoard, Board, BoardHelpers, UnverifiedBoard};
@@ -413,6 +413,11 @@ mod general {
         assert!(pos.clone().make_move_from_str("R@i2").is_ok());
         let pos = pos.make_nullmove().unwrap();
         let pos = pos.make_move_from_str("P@i2").unwrap();
+        assert!(pos.is_in_check());
+        for m in pos.legal_moves_slow() {
+            print!("{} ", m.compact_formatter(&pos));
+        }
+        println!("\n{pos}");
         assert_eq!(pos.num_legal_moves(), 1);
         let pos = FairyBoard::from_fen_for("shogi", "4k4/9/4P4/9/9/9/9/4L4/4K4 b - 1", Strict).unwrap();
         let pos = pos.make_move_from_str("5c5b+").unwrap();
@@ -432,6 +437,16 @@ mod general {
             assert_eq!(fairy_pos.empty_bb().num_ones(), pos.empty_bb().num_ones());
             assert_eq!(fairy_pos.active_player_bb().num_ones(), pos.active_player_bb().num_ones());
             assert_eq!(fairy_pos.active_player_bb().num_ones(), pos.active_player_bb().num_ones());
+            println!("{:?}", fairy_pos.pseudolegal_moves().iter().collect_vec());
+            for m in fairy_pos.pseudolegal_moves() {
+                print!(" {}", m.compact_formatter(&fairy_pos));
+            }
+            println!();
+            println!("{:?}", pos.pseudolegal_moves().iter().collect_vec());
+            for m in pos.pseudolegal_moves() {
+                print!(" {}", m.compact_formatter(&pos));
+            }
+            println!();
             assert_eq!(fairy_pos.num_legal_moves(), pos.num_legal_moves());
             for i in 1..=3 {
                 let perft_res = perft(DepthPly::new(i), pos, false);

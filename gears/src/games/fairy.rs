@@ -30,7 +30,7 @@ use crate::PlayerResult;
 use crate::games::CharType::Ascii;
 use crate::games::fairy::moves::FairyMove;
 use crate::games::fairy::pieces::{ColoredPieceId, PieceId};
-use crate::games::fairy::rules::{FenHandInfo, MoveNumFmt};
+use crate::games::fairy::rules::{FenHandInfo, MoveNumFmt, RulesBuilder};
 use crate::games::fairy::rules::{GameEndEager, NumRoyals, Rules, RulesRef};
 use crate::games::{
     AbstractPieceType, BoardHistory, CharType, Color, ColoredPiece, ColoredPieceType, DimT, GenericPiece, NUM_COLORS,
@@ -38,7 +38,7 @@ use crate::games::{
 };
 use crate::general::bitboards::{Bitboard, DynamicallySizedBitboard, ExtendedRawBitboard, RawBitboard};
 use crate::general::board::SelfChecks::CheckFen;
-use crate::general::board::Strictness::Strict;
+use crate::general::board::Strictness::{Relaxed, Strict};
 use crate::general::board::{
     AxesFormat, BitboardBoard, Board, BoardHelpers, BoardSize, ColPieceTypeOf, NameToPos, PieceTypeOf, SelfChecks,
     Strictness, Symmetry, UnverifiedBoard, position_fen_part, read_common_fen_part, read_halfmove_clock,
@@ -988,6 +988,12 @@ impl Board for FairyBoard {
         // TODO: Maybe have a member in settings for turning that on
         square.square_color()
     }
+
+    fn as_alternative_fen(&self) -> Option<String> {
+        let alternative = self.settings().fallback.clone()?;
+        let pos = UnverifiedFairyBoard { rules: RulesRef::from_arc(alternative), ..self.0 };
+        Some(pos.verify(Relaxed).ok()?.to_string())
+    }
 }
 
 impl BitboardBoard for FairyBoard {
@@ -1023,29 +1029,41 @@ impl Deref for FairyBoard {
 impl FairyBoard {
     fn variants_for(protocol: Protocol) -> EntityList<NameToVariant> {
         vec![
-            GenericSelect { name: "chess", val: Box::new(|| RulesRef::new(Rules::chess())) },
-            GenericSelect { name: "atomic", val: Box::new(|| RulesRef::new(Rules::atomic())) },
-            GenericSelect { name: "kingofthehill", val: Box::new(|| RulesRef::new(Rules::king_of_the_hill())) },
-            GenericSelect { name: "horde", val: Box::new(|| RulesRef::new(Rules::horde())) },
+            GenericSelect { name: "chess", val: Box::new(|| RulesRef::new(RulesBuilder::chess().build())) },
+            GenericSelect { name: "atomic", val: Box::new(|| RulesRef::new(RulesBuilder::atomic().build())) },
+            GenericSelect {
+                name: "kingofthehill",
+                val: Box::new(|| RulesRef::new(RulesBuilder::king_of_the_hill().build())),
+            },
+            GenericSelect { name: "horde", val: Box::new(|| RulesRef::new(RulesBuilder::horde().build())) },
             GenericSelect {
                 name: "racingkings",
-                val: Box::new(|| RulesRef::new(Rules::racing_kings(FairySize::chess()))),
+                val: Box::new(|| RulesRef::new(RulesBuilder::racing_kings(FairySize::chess()).build())),
             },
-            GenericSelect { name: "crazyhouse", val: Box::new(|| RulesRef::new(Rules::crazyhouse())) },
-            GenericSelect { name: "3check", val: Box::new(|| RulesRef::new(Rules::n_check(3))) },
-            GenericSelect { name: "5check", val: Box::new(|| RulesRef::new(Rules::n_check(5))) },
-            GenericSelect { name: "antichess", val: Box::new(|| RulesRef::new(Rules::antichess())) },
-            GenericSelect { name: "shatranj", val: Box::new(|| RulesRef::new(Rules::shatranj())) },
-            GenericSelect { name: "makruk", val: Box::new(|| RulesRef::new(Rules::makruk())) },
+            GenericSelect { name: "crazyhouse", val: Box::new(|| RulesRef::new(RulesBuilder::crazyhouse().build())) },
+            GenericSelect { name: "3check", val: Box::new(|| RulesRef::new(RulesBuilder::n_check(3).build())) },
+            GenericSelect { name: "5check", val: Box::new(|| RulesRef::new(RulesBuilder::n_check(5).build())) },
+            GenericSelect { name: "antichess", val: Box::new(|| RulesRef::new(RulesBuilder::antichess().build())) },
+            GenericSelect { name: "shatranj", val: Box::new(|| RulesRef::new(RulesBuilder::shatranj().build())) },
+            GenericSelect { name: "makruk", val: Box::new(|| RulesRef::new(RulesBuilder::makruk().build())) },
             GenericSelect {
                 name: "shogi",
-                val: Box::new(move || RulesRef::new(Rules::shogi(protocol == Protocol::USI))),
+                val: Box::new(move || RulesRef::new(RulesBuilder::shogi(protocol == Protocol::USI).build())),
             },
-            GenericSelect { name: "ataxx", val: Box::new(|| RulesRef::new(Rules::ataxx())) },
-            GenericSelect { name: "droptaxx", val: Box::new(|| RulesRef::new(Rules::droptaxx(FairySize::ataxx()))) },
-            GenericSelect { name: "tictactoe", val: Box::new(|| RulesRef::new(Rules::tictactoe())) },
-            GenericSelect { name: "mnk", val: Box::new(|| RulesRef::new(Rules::mnk(GridSize::connect4(), 4))) },
-            GenericSelect { name: "cfour", val: Box::new(|| RulesRef::new(Rules::cfour(GridSize::connect4(), 4))) },
+            GenericSelect { name: "ataxx", val: Box::new(|| RulesRef::new(RulesBuilder::ataxx().build())) },
+            GenericSelect {
+                name: "droptaxx",
+                val: Box::new(|| RulesRef::new(RulesBuilder::droptaxx(FairySize::ataxx()).build())),
+            },
+            GenericSelect { name: "tictactoe", val: Box::new(|| RulesRef::new(RulesBuilder::tictactoe().build())) },
+            GenericSelect {
+                name: "mnk",
+                val: Box::new(|| RulesRef::new(RulesBuilder::mnk(GridSize::connect4(), 4).build())),
+            },
+            GenericSelect {
+                name: "cfour",
+                val: Box::new(|| RulesRef::new(RulesBuilder::cfour(GridSize::connect4(), 4).build())),
+            },
         ]
     }
 

@@ -1557,7 +1557,7 @@ impl<B: Board> AbstractEngineUgiState for EngineUGI<B> {
         let Some(coords) = words.next() else { bail!("Missing square from which to remove a piece") };
         let coords = B::Coordinates::from_str(coords)?;
         let piece = B::Piece::new(piece, coords);
-        let pos = self.state.pos().clone().place_piece(piece)?;
+        let pos = self.state.pos().clone().replace_piece(piece)?;
         let pos = pos.verify(self.strictness)?;
         self.state.set_new_pos_state(UgiPosState::new(pos), true);
         self.print_board(OutputOpts::default());
@@ -1980,9 +1980,20 @@ fn compare_splitperft<B: Board>(ugi: &mut EngineUGI<B>, perft_res: SplitPerftRes
     ugi.write_message(Info, &format_args!("Received input: '{compare_text}'"));
     let mut seen = HashSet::default();
     let mut errors = vec![];
-    for line in compare_text.lines().filter(|l| !l.trim().is_empty()) {
+    let lines = compare_text.lines().filter(|l| !l.trim().is_empty());
+    for line in lines.clone() {
         if let Err(err) = splitperft_line(line, &perft_res, &mut seen) {
             errors.push(err.to_string());
+        }
+    }
+    // for splitperft depth 1, we also accept a list of moves without node counts, optionally all on the same line
+    if perft_res.perft_res.depth.get() == 1 && errors.len() == lines.count() {
+        errors.clear();
+        let text = tokens(&compare_text).join(" 1\n") + " 1\n";
+        for line in text.lines() {
+            if let Err(err) = splitperft_line(line, &perft_res, &mut seen) {
+                errors.push(err.to_string());
+            }
         }
     }
     for (unseen, nodes) in perft_res.children.iter().filter(|(m, _n)| !seen.contains(m)) {

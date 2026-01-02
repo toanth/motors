@@ -404,6 +404,7 @@ trait AbstractPrettyBoardPrinter {
     }
     fn max_piece_width(&self) -> usize;
     fn fen(&self) -> String;
+    fn alternative_fen(&self) -> Option<String>;
     fn side_to_move(&self) -> String;
     fn is_first_active(&self) -> bool;
     fn settings_text(&self) -> Option<String>;
@@ -461,6 +462,10 @@ impl<'a, B: RectangularBoard> AbstractPrettyBoardPrinter for PrettyBoardPrinter<
 
     fn settings_text(&self) -> Option<String> {
         self.board.settings().text()
+    }
+
+    fn alternative_fen(&self) -> Option<String> {
+        self.board.as_alternative_fen()
     }
 
     fn formatter(&self) -> &dyn AbstractBoardFormatter {
@@ -732,6 +737,9 @@ fn display_board_pretty_impl(printer: &dyn AbstractPrettyBoardPrinter, flip: boo
     }
     if let Some(text) = printer.settings_text() {
         res.insert(0, text);
+    }
+    if let Some(fen) = printer.alternative_fen() {
+        res.insert(0, format!("(Alternative format: '{fen}')").dimmed().to_string());
     }
     res.insert(
         0,

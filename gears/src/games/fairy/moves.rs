@@ -552,6 +552,7 @@ impl FairyBoard {
         }
         self.adjust_castling_rights();
         for c in FairyColor::iter() {
+            // TODO: Compute and store attack bitboard together with checkers bitboard
             self.0.in_check[c] = self.compute_is_in_check(c);
             if self.in_check[c] {
                 self.emit(InCheck { color: c, last_move: mov })?;
