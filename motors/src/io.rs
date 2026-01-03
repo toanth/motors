@@ -2024,8 +2024,22 @@ fn compare_splitperft<B: BoardTrait>(ugi: &mut EngineUGI<B>, perft_res: SplitPer
     let mut seen = HashSet::default();
     let mut errors = vec![];
     let lines = compare_text.lines().filter(|l| !l.trim().is_empty());
+    let move_strings = perft_res
+        .children
+        .iter()
+        .map(|(m, _n)| {
+            (
+                *m,
+                [
+                    m.compact_formatter(&perft_res.pos).to_string(),
+                    m.to_extended_text(&perft_res.pos, Standard),
+                    m.to_extended_text(&perft_res.pos, Alternative),
+                ],
+            )
+        })
+        .collect_vec();
     for line in lines.clone() {
-        if let Err(err) = splitperft_line(line, &perft_res, &mut seen) {
+        if let Err(err) = splitperft_line(line, &perft_res, &mut seen, &move_strings) {
             errors.push(err.to_string());
         }
     }
@@ -2034,7 +2048,7 @@ fn compare_splitperft<B: BoardTrait>(ugi: &mut EngineUGI<B>, perft_res: SplitPer
         errors.clear();
         let text = tokens(&compare_text).join(" 1\n") + " 1\n";
         for line in text.lines() {
-            if let Err(err) = splitperft_line(line, &perft_res, &mut seen) {
+            if let Err(err) = splitperft_line(line, &perft_res, &mut seen, &move_strings) {
                 errors.push(err.to_string());
             }
         }
@@ -2058,7 +2072,12 @@ fn compare_splitperft<B: BoardTrait>(ugi: &mut EngineUGI<B>, perft_res: SplitPer
     Ok(())
 }
 
-fn splitperft_line<B: BoardTrait>(line: &str, perft_res: &SplitPerftRes<B>, seen: &mut HashSet<B::Move>) -> Res<()> {
+fn splitperft_line<B: BoardTrait>(
+    line: &str,
+    perft_res: &SplitPerftRes<B>,
+    seen: &mut HashSet<B::Move>,
+    move_strings: &[(B::Move, [String; 3])],
+) -> Res<()> {
     let mut words = tokens(line).map(|w| w.to_ascii_lowercase());
     let mov = words.next().unwrap();
     let mov = mov.trim_end_matches(':');
@@ -2072,13 +2091,8 @@ fn splitperft_line<B: BoardTrait>(line: &str, perft_res: &SplitPerftRes<B>, seen
     let mov = match B::Move::from_text(mov, &perft_res.pos) {
         Ok(m) => m,
         Err(_) => {
-            let mut matching = perft_res.children.iter().filter_map(|(m, _n)| {
-                let strings = [
-                    m.compact_formatter(&perft_res.pos).to_string(),
-                    m.to_extended_text(&perft_res.pos, Standard),
-                    m.to_extended_text(&perft_res.pos, Alternative),
-                ];
-                if strings.iter().any(|s| s.eq_ignore_ascii_case(mov)) { Some(*m) } else { None }
+            let mut matching = move_strings.iter().filter_map(|(mv, strings)| {
+                if strings.iter().any(|s| s.eq_ignore_ascii_case(mov)) { Some(*mv) } else { None }
             });
             let Some(m) = matching.next() else {
                 bail!("Invalid move '{0}' ({1} nodes)", mov.red(), nodes.to_string().bold())
