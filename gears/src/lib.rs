@@ -10,11 +10,11 @@ use crate::MatchStatus::{NotStarted, Ongoing, Over};
 use crate::PlayerResult::{Draw, Lose, Win};
 use crate::ProgramStatus::Run;
 use crate::games::{BoardHistDyn, ZobristHistory};
-use crate::games::{Color, NoHistory};
-use crate::general::board::{Board, BoardHelpers, Strictness};
+use crate::games::{ColorTrait, NoHistory};
+use crate::general::board::{BoardHelpers, BoardTrait, Strictness};
 use crate::general::common::Description::WithDescription;
-use crate::general::common::{Res, Tokens, select_name_dyn};
-use crate::general::moves::Move;
+use crate::general::common::{Res, Tokens, select_name_dyn, tokens};
+use crate::general::moves::MoveTrait;
 use crate::output::OutputBuilder;
 use crate::search::TimeControl;
 use crate::ugi::{ParseUgiPosState, Protocol, parse_ugi_position_and_moves};
@@ -223,7 +223,7 @@ pub enum GameOverReason {
 impl Display for GameOverReason {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
-            GameOverReason::Normal => write!(f, "The game ended normally"),
+            GameOverReason::Normal => write!(f, "The game ended in a normal way"),
             GameOverReason::Adjudication(a) => write!(f, "{a}"),
         }
     }
@@ -237,7 +237,7 @@ pub struct MatchResult {
     pub reason: GameOverReason,
 }
 
-pub fn player_res_to_match_res<C: Color>(game_over: GameOver, color: C) -> MatchResult {
+pub fn player_res_to_match_res<C: ColorTrait>(game_over: GameOver, color: C) -> MatchResult {
     let result = match game_over.result {
         PlayerResult::Draw => GameResult::Draw,
         res => {
@@ -304,7 +304,7 @@ pub trait AbstractRun: Debug {
 pub type AnyRunnable = Box<dyn AbstractRun>;
 
 /// The current state of the match.
-pub trait GameState<B: Board> {
+pub trait GameState<B: BoardTrait> {
     fn initial_pos(&self) -> &B;
     fn get_board(&self) -> &B;
     fn game_name(&self) -> &str;
@@ -333,14 +333,14 @@ pub trait GameState<B: Board> {
     fn print_engine_state_for_move(&self, pos: &B, mov: B::Move) -> Res<String>;
 }
 
-pub fn output_builder_from_str<B: Board>(
+pub fn output_builder_from_str<B: BoardTrait>(
     name: &str,
     list: &[Box<dyn OutputBuilder<B>>],
 ) -> Res<Box<dyn OutputBuilder<B>>> {
     Ok(dyn_clone::clone_box(select_name_dyn(name, list, "output", &B::game_name(), WithDescription)?))
 }
 
-pub fn create_selected_output_builders<B: Board>(
+pub fn create_selected_output_builders<B: BoardTrait>(
     outputs: &[OutputArgs],
     list: &[Box<dyn OutputBuilder<B>>],
 ) -> Res<Vec<Box<dyn OutputBuilder<B>>>> {
@@ -350,7 +350,7 @@ pub fn create_selected_output_builders<B: Board>(
 /// The relevant data in a UGI `position` command or a PGN, i.e. position and moves, as well as some metadata
 #[derive(Debug, Default, Clone)]
 #[must_use]
-pub struct UgiPosState<B: Board> {
+pub struct UgiPosState<B: BoardTrait> {
     pub board: B,
     pub status: ProgramStatus,
     pub mov_hist: Vec<B::Move>,
@@ -368,7 +368,7 @@ pub trait AbstractUgiPosState {
     fn player_result(&self) -> Option<PlayerResult>;
 }
 
-impl<B: Board> AbstractUgiPosState for UgiPosState<B> {
+impl<B: BoardTrait> AbstractUgiPosState for UgiPosState<B> {
     fn undo_moves(&mut self, count: usize) -> Res<usize> {
         let mut pos = self.pos_before_moves.clone();
         assert_eq!(self.mov_hist.len(), self.board_hist.len());
@@ -414,7 +414,7 @@ impl<B: Board> AbstractUgiPosState for UgiPosState<B> {
     }
 }
 
-impl<B: Board> UgiPosState<B> {
+impl<B: BoardTrait> UgiPosState<B> {
     pub fn new(pos: B) -> Self {
         let status =
             if let Some(res) = pos.match_result_slow(&NoHistory::default()) { Run(Over(res)) } else { Run(NotStarted) };
@@ -447,10 +447,8 @@ impl<B: Board> UgiPosState<B> {
                 self.board
             )
         })?;
-        if check_game_over {
-            if let Some(res) = self.board.match_result_slow(&self.board_hist) {
-                self.status = Run(Over(res));
-            }
+        if check_game_over && let Some(res) = self.board.match_result_slow(&self.board_hist) {
+            self.status = Run(Over(res));
         }
         Ok(())
     }
@@ -470,12 +468,12 @@ impl<B: Board> UgiPosState<B> {
 /// Can be used to represent everything that gets set through a ugi `position` command, or the data inside a PGN.
 #[derive(Debug, Default, Clone)]
 #[must_use]
-pub struct MatchState<B: Board> {
+pub struct MatchState<B: BoardTrait> {
     state_hist: Vec<UgiPosState<B>>,
     current: UgiPosState<B>,
 }
 
-impl<B: Board> Deref for MatchState<B> {
+impl<B: BoardTrait> Deref for MatchState<B> {
     type Target = UgiPosState<B>;
 
     fn deref(&self) -> &Self::Target {
@@ -483,7 +481,7 @@ impl<B: Board> Deref for MatchState<B> {
     }
 }
 
-impl<B: Board> MatchState<B> {
+impl<B: BoardTrait> MatchState<B> {
     pub fn new(pos: B) -> Self {
         let state_hist = Vec::with_capacity(256);
         let pos_state = UgiPosState::new(pos);
@@ -570,13 +568,13 @@ impl<B: Board> MatchState<B> {
     }
 }
 
-struct ParseUgiMatchState<'a, B: Board> {
+struct ParseUgiMatchState<'a, B: BoardTrait> {
     match_state: &'a mut MatchState<B>,
     check_game_over: bool,
     keep_hist: bool,
 }
 
-impl<B: Board> ParseUgiPosState<B> for ParseUgiMatchState<'_, B> {
+impl<B: BoardTrait> ParseUgiPosState<B> for ParseUgiMatchState<'_, B> {
     fn pos(&mut self) -> &mut B {
         &mut self.match_state.current.board
     }
@@ -598,4 +596,13 @@ impl<B: Board> ParseUgiPosState<B> for ParseUgiMatchState<'_, B> {
     fn make_move(&mut self, mov: B::Move) -> Res<()> {
         self.match_state.make_move(mov, self.check_game_over)
     }
+}
+
+pub fn parse_ugi_pos_and_hist<B: BoardTrait>(input: &str, strictness: Strictness) -> Res<MatchState<B>> {
+    let mut res = MatchState::default();
+    let mut tokens = tokens(input);
+    let first = tokens.next().unwrap_or_default();
+    let mut parse_state = ParseUgiMatchState { match_state: &mut res, check_game_over: true, keep_hist: true };
+    parse_ugi_position_and_moves(first, &mut tokens, true, strictness, &mut parse_state)?;
+    Ok(res)
 }

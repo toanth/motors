@@ -1,6 +1,6 @@
 #[cfg(feature = "chess")]
-use crate::games::chess::ChessColor;
-use crate::games::{Coordinates, DimT, Height, KnownSize, Size, Width, char_to_file, file_to_char};
+use crate::games::chess::Color;
+use crate::games::{CoordinatesTrait, DimT, Height, KnownSize, SizeTrait, Width, char_to_file, file_to_char};
 use crate::general::bitboards::{KnownSizeBitboard, SmallGridBitboard};
 use crate::general::common::{Res, parse_int_from_str};
 use crate::general::squares::SquareColor::{Black, White};
@@ -9,10 +9,12 @@ use arbitrary::Arbitrary;
 use colored::Colorize;
 use std::cmp::max;
 use std::fmt;
-use std::fmt::{Display, Formatter};
+use std::fmt::{Debug, Display, Formatter};
+use std::iter::FusedIterator;
+use std::ops::{BitXor, BitXorAssign, Index, IndexMut};
 use std::str::FromStr;
 
-pub trait RectangularCoordinates: Coordinates<Size: RectangularSize<Self>> {
+pub trait RectangularCoordinates: CoordinatesTrait<Size: RectangularSize<Self>> {
     fn from_rank_file(row: DimT, column: DimT) -> Self;
     fn row(self) -> DimT;
     fn column(self) -> DimT;
@@ -22,8 +24,13 @@ pub trait RectangularCoordinates: Coordinates<Size: RectangularSize<Self>> {
     fn file(self) -> DimT {
         self.column()
     }
+    fn flip_diagonally(self) -> Self {
+        let rank = self.rank();
+        let file = self.file();
+        Self::from_rank_file(file, rank)
+    }
     fn square_color(self) -> SquareColor {
-        if (self.row() as usize + self.column() as usize) % 2 == 0 { Black } else { White }
+        if (self.row() as usize + self.column() as usize).is_multiple_of(2) { Black } else { White }
     }
 }
 
@@ -44,7 +51,7 @@ pub struct GridCoordinates {
     pub column: DimT,
 }
 
-impl Coordinates for GridCoordinates {
+impl CoordinatesTrait for GridCoordinates {
     type Size = GridSize;
 
     fn flip_up_down(self, size: Self::Size) -> Self {
@@ -141,7 +148,7 @@ impl CompactSquare {
     }
 }
 
-pub trait RectangularSize<C: RectangularCoordinates>: Size<C> {
+pub trait RectangularSize<C: RectangularCoordinates>: SizeTrait<C> {
     fn height(self) -> Height;
     fn width(self) -> Width;
     fn internal_width(self) -> usize {
@@ -197,7 +204,7 @@ impl GridSize {
     }
 }
 
-impl Size<GridCoordinates> for GridSize {
+impl SizeTrait<GridCoordinates> for GridSize {
     fn num_squares(self) -> usize {
         self.height.val() * self.width.val()
     }
@@ -242,13 +249,15 @@ impl<const H: usize, const W: usize> Display for SmallGridSize<H, W> {
     }
 }
 
-impl<const H: usize, const W: usize, const INTERNAL_WIDTH: usize> Size<SmallGridSquare<H, W, INTERNAL_WIDTH>>
+impl<const H: usize, const W: usize, const INTERNAL_WIDTH: usize> SizeTrait<SmallGridSquare<H, W, INTERNAL_WIDTH>>
     for SmallGridSize<H, W>
 {
+    #[inline(always)]
     fn num_squares(self) -> usize {
         H * W
     }
 
+    #[inline(always)]
     fn internal_key(self, coordinates: SmallGridSquare<H, W, INTERNAL_WIDTH>) -> usize {
         coordinates.bb_idx()
     }
@@ -258,7 +267,7 @@ impl<const H: usize, const W: usize, const INTERNAL_WIDTH: usize> Size<SmallGrid
     }
 
     fn valid_coordinates(self) -> impl Iterator<Item = SmallGridSquare<H, W, INTERNAL_WIDTH>> {
-        SmallGridSquare::iter()
+        (0..H).flat_map(|i| (INTERNAL_WIDTH * i)..(INTERNAL_WIDTH * i + W)).map(SmallGridSquare::from_bb_idx)
     }
 
     fn coordinates_valid(self, coordinates: SmallGridSquare<H, W, INTERNAL_WIDTH>) -> bool {
@@ -305,10 +314,16 @@ pub enum SquareColor {
 // Ideally, there would be an alias setting `INTERNAL_WIDTH` or a default parameter for `INTERNAL_WIDTH` to `max(8, W)`,
 // but both of those things aren't possible in stable Rust.
 /// A square of a board with at most 255 squares, and some reasonable restrictions on side length (e.g. not 255x1)  .
-#[derive(Default, Debug, Eq, PartialEq, Copy, Clone, Hash, Arbitrary)]
+#[derive(Default, Eq, PartialEq, Copy, Clone, Hash, Arbitrary)]
 #[must_use]
 pub struct SmallGridSquare<const H: usize, const W: usize, const INTERNAL_WIDTH: usize> {
     idx: u8,
+}
+
+impl<const H: usize, const W: usize, const INTERNAL_WIDTH: usize> Debug for SmallGridSquare<H, W, INTERNAL_WIDTH> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        write!(f, "SmallGridSquare<{H},{W},{INTERNAL_WIDTH}>({})", self.to_grid_coordinates())
+    }
 }
 
 impl<const H: usize, const W: usize, const INTERNAL_WIDTH: usize> FromStr for SmallGridSquare<H, W, INTERNAL_WIDTH> {
@@ -366,15 +381,18 @@ impl<const H: usize, const W: usize, const INTERNAL_WIDTH: usize> SmallGridSquar
         GridCoordinates { row: self.row(), column: self.column() }
     }
 
+    #[inline(always)]
     pub const fn to_u8(self) -> u8 {
         self.idx
     }
 
     /// Note that this isn't necessarily consecutive because the bitboard assumes a width of at least 8 for efficiency reasons.
+    #[inline(always)]
     pub const fn bb_idx(self) -> usize {
         self.idx as usize
     }
 
+    #[inline]
     pub fn flip(self) -> Self {
         self.flip_up_down(SmallGridSize::default())
     }
@@ -408,10 +426,10 @@ impl<const H: usize, const W: usize, const INTERNAL_WIDTH: usize> SmallGridSquar
     }
 
     #[cfg(feature = "chess")]
-    pub fn pawn_advance_unchecked(self, color: ChessColor) -> Self {
+    pub fn pawn_advance_unchecked(self, color: Color) -> Self {
         match color {
-            ChessColor::White => self.north_unchecked(),
-            ChessColor::Black => self.south_unchecked(),
+            Color::White => self.north_unchecked(),
+            Color::Black => self.south_unchecked(),
         }
     }
 
@@ -425,13 +443,20 @@ impl<const H: usize, const W: usize, const INTERNAL_WIDTH: usize> SmallGridSquar
         rank == 1 || rank == H as DimT - 2
     }
 
-    pub fn iter() -> impl Iterator<Item = Self> {
-        (0..H).flat_map(|i| (INTERNAL_WIDTH * i)..(INTERNAL_WIDTH * i + W)).map(Self::from_bb_idx)
-    }
-
     // Ideally, no_coordinates shouldn't be necessary, but sadly there's no `NonMaxU8` (except for a crate that xors U8::MAX on every access)
     pub const fn no_coordinates_const() -> Self {
         Self::unchecked(H * INTERNAL_WIDTH)
+    }
+}
+
+impl<const H: usize, const W: usize> SmallGridSquare<H, W, W> {
+    pub fn iter() -> impl DoubleEndedIterator<Item = Self> + ExactSizeIterator + FusedIterator {
+        (0..(H * W)).map(Self::from_bb_idx)
+    }
+
+    pub fn set_to_next(&mut self) {
+        debug_assert!((self.idx as usize) < H * W);
+        self.idx += 1;
     }
 }
 
@@ -443,15 +468,32 @@ impl<const H: usize, const W: usize> SmallGridSquare<H, W, 8> {
 
 impl<const H: usize, const W: usize, const INTERNAL_WIDTH: usize> Display for SmallGridSquare<H, W, INTERNAL_WIDTH> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        self.to_grid_coordinates().fmt(f)
+        write!(f, "{}", self.to_grid_coordinates())
     }
 }
 
-impl<const H: usize, const W: usize, const INTERNAL_WIDTH: usize> Coordinates
+impl<const H: usize, const W: usize, const INTERNAL_WIDTH: usize> BitXor for SmallGridSquare<H, W, INTERNAL_WIDTH> {
+    type Output = Self;
+
+    fn bitxor(self, rhs: Self) -> Self {
+        Self { idx: self.idx ^ rhs.idx }
+    }
+}
+
+impl<const H: usize, const W: usize, const INTERNAL_WIDTH: usize> BitXorAssign
+    for SmallGridSquare<H, W, INTERNAL_WIDTH>
+{
+    fn bitxor_assign(&mut self, rhs: Self) {
+        self.idx ^= rhs.idx;
+    }
+}
+
+impl<const H: usize, const W: usize, const INTERNAL_WIDTH: usize> CoordinatesTrait
     for SmallGridSquare<H, W, INTERNAL_WIDTH>
 {
     type Size = SmallGridSize<H, W>;
 
+    #[inline]
     fn flip_up_down(self, _: Self::Size) -> Self {
         // hopefully, this `if` and the constant will be evaluated at compile time
         if H.is_power_of_two() && INTERNAL_WIDTH.is_power_of_two() {
@@ -461,6 +503,7 @@ impl<const H: usize, const W: usize, const INTERNAL_WIDTH: usize> Coordinates
         }
     }
 
+    #[inline]
     fn flip_left_right(self, _: Self::Size) -> Self {
         if W.is_power_of_two() {
             Self { idx: self.idx ^ Self::LEFT_RIGHT_MASK }
@@ -477,6 +520,15 @@ impl<const H: usize, const W: usize, const INTERNAL_WIDTH: usize> Coordinates
 impl<const H: usize, const W: usize, const INTERNAL_WIDTH: usize> RectangularCoordinates
     for SmallGridSquare<H, W, INTERNAL_WIDTH>
 {
+    #[inline]
+    fn flip_diagonally(self) -> Self {
+        if H == 8 && W == 8 && INTERNAL_WIDTH == 8 {
+            let idx = ((self.idx << 3) & 0b111_111) | self.idx >> 3;
+            Self { idx }
+        } else {
+            RectangularCoordinates::flip_diagonally(self)
+        }
+    }
     fn from_rank_file(row: DimT, column: DimT) -> Self {
         Self::from_rank_file(row, column)
     }
@@ -487,5 +539,19 @@ impl<const H: usize, const W: usize, const INTERNAL_WIDTH: usize> RectangularCoo
 
     fn column(self) -> DimT {
         self.idx % INTERNAL_WIDTH as DimT
+    }
+}
+
+impl<T> Index<SmallGridSquare<8, 8, 8>> for [T; 64] {
+    type Output = T;
+
+    fn index(&self, index: SmallGridSquare<8, 8, 8>) -> &Self::Output {
+        &self[index.bb_idx()]
+    }
+}
+
+impl<T> IndexMut<SmallGridSquare<8, 8, 8>> for [T; 64] {
+    fn index_mut(&mut self, index: SmallGridSquare<8, 8, 8>) -> &mut Self::Output {
+        &mut self[index.bb_idx()]
     }
 }

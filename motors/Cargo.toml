@@ -5,6 +5,7 @@ authors = ["ToTheAnd"]
 edition = "2024"
 license = "GPL-3"
 description = "A collection of several games and engines"
+build = "../build.rs"
 
 [[bench]]
 name = "bench_caps_bench"
@@ -12,19 +13,20 @@ harness = false
 
 [dev-dependencies]
 criterion = "0.5.1"
+proptest = "1.6.0"
 
 [dependencies]
 gears = { path = "../gears", default-features = false }
-strum = "0.27"
-strum_macros = "0.27"
-derive_more = { version = "2.0", features = ["full"] }
+strum = { workspace = true }
+strum_macros = { workspace = true }
+derive_more = { workspace = true }
 # TODO: Remove crossbeam?
-crossbeam-channel = "0.5.14"
-rayon = "1.10.0"
-inquire = { version = "0.7.5", features = ["editor"] }
+crossbeam-channel = "0.5.15"
+rayon = { workspace = true }
+inquire = { version = "0.9.1", features = ["editor"] }
 # TODO: Should probably move autocompletion to gears? Then this dependency would be unnecessary
-edit-distance = "2.1.3"
-indicatif = "0.17.11"
+edit-distance = "2.2.2"
+indicatif = "0.18.3"
 
 
 [features]

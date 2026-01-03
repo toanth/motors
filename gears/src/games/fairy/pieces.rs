@@ -16,13 +16,15 @@
  *  along with Gears. If not, see <https://www.gnu.org/licenses/>.
  */
 use crate::games::fairy::attacks::{AttackKind, MoveKind};
-use crate::games::fairy::moves::FairyMove;
+use crate::games::fairy::moves::Move;
 use crate::games::fairy::rules::SquareFilter::NoSquares;
 use crate::games::fairy::rules::{PromoFenModifier, Rules, SquareFilter};
-use crate::games::fairy::{FairyBitboard, FairyBoard, FairyColor, FairySquare};
-use crate::games::{AbstractPieceType, CharType, Color, ColoredPieceType, NUM_CHAR_TYPES, NUM_COLORS, PieceType};
-use crate::general::bitboards::Bitboard;
-use crate::general::board::Board;
+use crate::games::fairy::{Bitboard, Board, Color, Square};
+use crate::games::{
+    AbstractPieceType, CharType, ColorTrait, ColoredPieceTypeTrait, NUM_CHAR_TYPES, NUM_COLORS, PieceTypeTrait,
+};
+use crate::general::bitboards::BitboardTrait;
+use crate::general::board::BoardTrait;
 use crate::general::common::Res;
 use anyhow::bail;
 use arbitrary::Arbitrary;
@@ -49,7 +51,7 @@ impl PieceId {
     }
 }
 
-impl AbstractPieceType<FairyBoard> for PieceId {
+impl AbstractPieceType<Board> for PieceId {
     fn empty() -> Self {
         Self(u8::MAX)
     }
@@ -118,7 +120,7 @@ impl AbstractPieceType<FairyBoard> for PieceId {
     }
 }
 
-impl PieceType<FairyBoard> for PieceId {
+impl PieceTypeTrait<Board> for PieceId {
     type Colored = ColoredPieceId;
 
     fn from_idx(idx: usize) -> Self {
@@ -134,12 +136,12 @@ impl PieceType<FairyBoard> for PieceId {
 #[must_use]
 pub struct ColoredPieceId {
     id: PieceId,
-    color: Option<FairyColor>,
+    color: Option<Color>,
 }
 
 impl ColoredPieceId {
     pub fn as_u8(&self) -> u8 {
-        self.id.0 * 3 + self.color.map_or(0, |c| c.idx() as u8 + 1)
+        self.id.0 * 3 + self.color.map_or(0, |c| c.0 as u8 + 1)
     }
     pub fn val(self) -> usize {
         self.as_u8() as usize
@@ -148,16 +150,16 @@ impl ColoredPieceId {
         let id = PieceId(val / 3);
         let color = match val % 3 {
             0 => None,
-            c => Some(FairyColor::from_idx(c as usize - 1)),
+            c => Some(Color::from_idx(c as usize - 1)),
         };
         ColoredPieceId { id, color }
     }
-    pub fn create(piece: PieceId, color: Option<FairyColor>) -> Self {
+    pub fn create(piece: PieceId, color: Option<Color>) -> Self {
         ColoredPieceId { id: piece, color }
     }
 }
 
-impl AbstractPieceType<FairyBoard> for ColoredPieceId {
+impl AbstractPieceType<Board> for ColoredPieceId {
     fn empty() -> Self {
         Self { id: PieceId::empty(), color: None }
     }
@@ -173,8 +175,8 @@ impl AbstractPieceType<FairyBoard> for ColoredPieceId {
                     [Some(Self { id: PieceId::new(idx), color: None }), None].into_iter()
                 } else {
                     [
-                        Some(Self { id: PieceId::new(idx), color: Some(FairyColor::first()) }),
-                        Some(Self { id: PieceId::new(idx), color: Some(FairyColor::second()) }),
+                        Some(Self { id: PieceId::new(idx), color: Some(Color::first()) }),
+                        Some(Self { id: PieceId::new(idx), color: Some(Color::second()) }),
                     ]
                     .into_iter()
                 }
@@ -185,7 +187,7 @@ impl AbstractPieceType<FairyBoard> for ColoredPieceId {
     fn to_char(self, typ: CharType, rules: &Rules) -> char {
         let Some(piece) = self.id.get(rules) else { return '.' };
         if let Some(color) = self.color {
-            piece.player_symbol[color.idx()][typ as usize]
+            piece.player_symbol[color][typ as usize]
         } else {
             piece.uncolored_symbol[typ as usize]
         }
@@ -195,9 +197,9 @@ impl AbstractPieceType<FairyBoard> for ColoredPieceId {
         let found = rules.pieces().find(|(_id, p)| p.player_symbol.iter().any(|s| s.contains(&c)));
         if let Some((id, p)) = found {
             if p.player_symbol[CharType::Ascii].contains(&c) {
-                Some(Self { id, color: Some(FairyColor::first()) })
+                Some(Self { id, color: Some(Color::first()) })
             } else {
-                Some(Self { id, color: Some(FairyColor::second()) })
+                Some(Self { id, color: Some(Color::second()) })
             }
         } else {
             rules.matching_piece_ids(|p| p.uncolored_symbol.contains(&c)).next().map(|id| Self { id, color: None })
@@ -248,14 +250,14 @@ impl AbstractPieceType<FairyBoard> for ColoredPieceId {
     }
 }
 
-impl ColoredPieceType<FairyBoard> for ColoredPieceId {
+impl ColoredPieceTypeTrait<Board> for ColoredPieceId {
     type Uncolored = PieceId;
 
-    fn new(color: FairyColor, uncolored: Self::Uncolored) -> Self {
+    fn new(color: Color, uncolored: Self::Uncolored) -> Self {
         Self { id: uncolored, color: Some(color) }
     }
 
-    fn color(self) -> Option<FairyColor> {
+    fn color(self) -> Option<Color> {
         self.color
     }
 
@@ -311,7 +313,7 @@ impl Promo {
         }
     }
 
-    fn gen_promo_impl<F: Fn(FairyBitboard) -> bool>(&self, contained: F, pos: &FairyBoard) -> GenPromoMoves {
+    fn gen_promo_impl<F: Fn(Bitboard) -> bool>(&self, contained: F, pos: &Board) -> GenPromoMoves {
         if contained(self.forced_promo_zone.bb(pos.active_player(), pos)) {
             GenPromoMoves::ForcedPromo
         } else if contained(self.optional_promo_zone.bb(pos.active_player(), pos)) {
@@ -321,14 +323,12 @@ impl Promo {
         }
     }
 
-    pub fn gen_promo(&self, source: FairySquare, dest: FairySquare, pos: &FairyBoard) -> GenPromoMoves {
+    pub fn gen_promo(&self, source: Square, dest: Square, pos: &Board) -> GenPromoMoves {
         match self.condition {
             PromoCondition::Never => GenPromoMoves::NoPromo,
-            PromoCondition::TargetSquare => self.gen_promo_impl(|bb| bb.is_bit_set(dest), pos),
+            PromoCondition::TargetSquare => self.gen_promo_impl(|bb| bb.has(dest), pos),
             PromoCondition::SourceOrTargetNoDrop => {
-                let promo = |bb: FairyBitboard| {
-                    source != FairySquare::no_coordinates() && (bb.is_bit_set(dest) || bb.is_bit_set(source))
-                };
+                let promo = |bb: Bitboard| source != Square::no_coordinates() && (bb.has(dest) || bb.has(source));
                 self.gen_promo_impl(promo, pos)
             }
         }
@@ -343,7 +343,7 @@ pub enum DrawCtrReset {
 }
 
 impl DrawCtrReset {
-    pub fn reset(&self, mov: FairyMove) -> bool {
+    pub fn reset(&self, mov: Move) -> bool {
         match self {
             DrawCtrReset::Always => true,
             DrawCtrReset::Never => false,

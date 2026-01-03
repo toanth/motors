@@ -1,7 +1,7 @@
 use std::fmt::Display;
 
 use gears::games::BoardHistDyn;
-use gears::general::board::{Board, BoardHelpers};
+use gears::general::board::BoardTrait;
 
 use crate::eval::Eval;
 use crate::eval::rand_eval::RandEval;
@@ -11,6 +11,7 @@ use crate::search::{
     SearchStateFor,
 };
 use gears::general::common::StaticallyNamedEntity;
+use gears::general::move_list::MoveListTrait;
 use gears::num::traits::WrappingAdd;
 use gears::score::{
     MAX_NORMAL_SCORE, MIN_NORMAL_SCORE, SCORE_LOST, SCORE_TIME_UP, SCORE_WON, Score, game_result_to_score,
@@ -23,18 +24,18 @@ const MAX_DEPTH: DepthPly = DepthPly::new(100);
 type DefaultEval = RandEval;
 
 #[derive(Debug)]
-pub struct Gaps<B: Board> {
+pub struct Gaps<B: BoardTrait> {
     state: SearchState<B, EmptySearchStackEntry, NoCustomInfo>,
     eval: Box<dyn Eval<B>>,
 }
 
-impl<B: Board> Default for Gaps<B> {
+impl<B: BoardTrait> Default for Gaps<B> {
     fn default() -> Self {
         Self::with_eval(Box::new(DefaultEval::default()))
     }
 }
 
-impl<B: Board> StaticallyNamedEntity for Gaps<B> {
+impl<B: BoardTrait> StaticallyNamedEntity for Gaps<B> {
     fn static_short_name() -> impl Display
     where
         Self: Sized,
@@ -54,7 +55,7 @@ impl<B: Board> StaticallyNamedEntity for Gaps<B> {
     }
 }
 
-impl<B: Board> Engine<B> for Gaps<B> {
+impl<B: BoardTrait> Engine<B> for Gaps<B> {
     type SearchStackEntry = EmptySearchStackEntry;
     type CustomInfo = NoCustomInfo;
 
@@ -128,11 +129,11 @@ impl<B: Board> Engine<B> for Gaps<B> {
                 self.state.atomic().set_iteration(depth as usize);
                 self.state.atomic().update_seldepth(depth as usize);
                 let iteration_score = self.negamax(pos.clone(), 0, depth, SCORE_LOST, SCORE_WON);
-                self.state.cur_pv_data_mut().score = iteration_score;
                 if self.state.stop_flag() {
                     self.state.cur_pv_data_mut().bound = None;
                     break 'id;
                 }
+                self.state.cur_pv_data_mut().score = iteration_score;
                 self.state.cur_pv_data_mut().bound = Some(Exact);
                 // only set now so that incomplete iterations are discarded
                 let best_mpv_move = self.state.cur_pv_data().pv.get(0).unwrap_or_default();
@@ -158,7 +159,7 @@ impl<B: Board> Engine<B> for Gaps<B> {
     }
 }
 
-impl<B: Board> NormalEngine<B> for Gaps<B> {
+impl<B: BoardTrait> NormalEngine<B> for Gaps<B> {
     fn search_state(&self) -> &SearchStateFor<B, Self> {
         &self.state
     }
@@ -168,7 +169,7 @@ impl<B: Board> NormalEngine<B> for Gaps<B> {
     }
 }
 
-impl<B: Board> Gaps<B> {
+impl<B: BoardTrait> Gaps<B> {
     fn eval(&mut self, pos: &B, ply: usize) -> Score {
         let us = self.state.params.pos.active_player();
         let res = self.static_eval(pos, ply);
@@ -258,17 +259,34 @@ mod tests {
     use crate::eval::ataxx::bate::Bate;
     use crate::eval::chess::lite::LiTEval;
     use crate::eval::mnk::base::BasicMnkEval;
+    use crate::eval::uttt::lute::Lute;
     use crate::search::tests::generic_engine_test;
-    use gears::games::ataxx::AtaxxBoard;
-    use gears::games::chess::Chessboard;
-    use gears::games::fairy::FairyBoard;
-    use gears::games::mnk::MNKBoard;
+    use gears::games::chess;
+    use gears::games::fairy;
+    use gears::games::{ataxx, mnk, uttt};
 
     #[test]
-    fn generic_test() {
-        generic_engine_test::<Chessboard, Gaps<Chessboard>>(Gaps::for_eval::<LiTEval>());
-        generic_engine_test::<MNKBoard, Gaps<MNKBoard>>(Gaps::for_eval::<BasicMnkEval>());
-        generic_engine_test::<AtaxxBoard, Gaps<AtaxxBoard>>(Gaps::for_eval::<Bate>());
-        generic_engine_test::<FairyBoard, Gaps<FairyBoard>>(Gaps::for_eval::<RandEval>())
+    fn generic_chess_test() {
+        generic_engine_test::<chess::Board, Gaps<chess::Board>>(Gaps::for_eval::<LiTEval>());
+    }
+
+    #[test]
+    fn generic_mnk_test() {
+        generic_engine_test::<mnk::Board, Gaps<mnk::Board>>(Gaps::for_eval::<BasicMnkEval>());
+    }
+
+    #[test]
+    fn generic_ataxx_test() {
+        generic_engine_test::<ataxx::Board, Gaps<ataxx::Board>>(Gaps::for_eval::<Bate>());
+    }
+
+    #[test]
+    fn generic_uttt_test() {
+        generic_engine_test::<uttt::Board, Gaps<uttt::Board>>(Gaps::for_eval::<Lute>());
+    }
+
+    #[test]
+    fn generic_fairy_test() {
+        generic_engine_test::<fairy::Board, Gaps<fairy::Board>>(Gaps::for_eval::<RandEval>())
     }
 }

@@ -35,8 +35,8 @@ use crate::games::fairy::pieces::{DrawCtrReset, Piece, PieceId, Promo, PromoCond
 use crate::games::fairy::rules::PlayerCond::Inactive;
 use crate::games::fairy::rules::SquareFilter::{EmptySquares, InDirectionOf, NoSquares, Not, NotUs, RanksRelative};
 use crate::games::fairy::rules::{PieceCond, PlayerCond, SquareFilter};
-use crate::games::fairy::{FairyColor, FairySize, Side};
-use crate::games::{Color, NUM_CHAR_TYPES, NUM_COLORS};
+use crate::games::fairy::{Color, Side, Size};
+use crate::games::{ColorTrait, NUM_CHAR_TYPES, NUM_COLORS};
 use arbitrary::Arbitrary;
 use itertools::Itertools;
 use std::cmp::max;
@@ -91,7 +91,7 @@ pub(super) struct AttackKindBuilder {
 }
 
 impl AttackKindBuilder {
-    pub fn build(&self, size: FairySize) -> AttackKind {
+    pub fn build(&self, size: Size) -> AttackKind {
         let typ = match &self.typ {
             &Leaping { n, m } => AttackTypes::leaping_cylinder(n, m, size, self.cylinder),
             &Rider { n, m } => AttackTypes::rider(n, m, size, self.cylinder),
@@ -216,21 +216,8 @@ pub(super) struct PieceBuilder {
     pub(super) can_castle: bool,
 }
 
-// TODO: Remove?
-// pub(super) const PAWN_IDX: usize = 0;
-// #[allow(unused)]
-// pub(super) const CHESS_KNIGHT_IDX: usize = 1;
-// #[allow(unused)]
-// pub(super) const CHESS_BISHOP_IDX: usize = 2;
-// #[allow(unused)]
-// pub(super) const CHESS_ROOK_IDX: usize = 3;
-// #[allow(unused)]
-// pub(super) const CHESS_QUEEN_IDX: usize = 4;
-// #[allow(unused)]
-// pub(super) const CHESS_KING_IDX: usize = 5;
-
 impl PieceBuilder {
-    pub fn build(&self, size: FairySize) -> Piece {
+    pub fn build(&self, size: Size) -> Piece {
         let attacks = self.attacks.iter().map(|a| a.build(size)).collect_vec();
         Piece {
             name: self.name.clone(),
@@ -249,14 +236,14 @@ impl PieceBuilder {
 
     pub fn set_unicode_symbol(&mut self, symbol: char) {
         self.uncolored_symbol[Unicode] = symbol;
-        self.player_symbol[FairyColor::first()][Unicode] = symbol;
-        self.player_symbol[FairyColor::second()][Unicode] = symbol;
+        self.player_symbol[Color::first()][Unicode] = symbol;
+        self.player_symbol[Color::second()][Unicode] = symbol;
     }
 
     pub fn set_ascii_symbol(&mut self, symbol: char) {
         self.uncolored_symbol[Ascii] = symbol;
-        self.player_symbol[FairyColor::first()][Ascii] = symbol.to_ascii_uppercase();
-        self.player_symbol[FairyColor::second()][Ascii] = symbol.to_ascii_lowercase();
+        self.player_symbol[Color::first()][Ascii] = symbol.to_ascii_uppercase();
+        self.player_symbol[Color::second()][Ascii] = symbol.to_ascii_lowercase();
     }
 
     pub fn add_attack(mut self, attack: AttackKindBuilder) -> Self {
@@ -305,12 +292,12 @@ impl PieceBuilder {
     fn chess_pawn_no_promo() -> Self {
         let single_push = AttackKindBuilder::pawn_noncapture(AttackBuilder::range_hv(&[0], &[1]));
         // let normal_black =
-        //     AttackKindBuilder::pawn_noncapture(AttackBuilder::range_hv(&[0], &[-1]), Player(FairyColor::second()));
+        //     AttackKindBuilder::pawn_noncapture(AttackBuilder::range_hv(&[0], &[-1]), Player(Color::second()));
         let capture =
             AttackKindBuilder::pawn_capture(AttackBuilder::range_hv(&[-1, 1], &[1]), SquareFilter::PawnCapture);
         // let black_capture = AttackKindBuilder::pawn_capture(
         //     AttackBuilder::range_hv(&[-1, 1], &[-1]),
-        //     Player(FairyColor::second()),
+        //     Player(Color::second()),
         //     SquareFilter::PawnCapture,
         // );
         // promotions are handled as effects instead of duplicating all normal and capture moves
@@ -319,7 +306,7 @@ impl PieceBuilder {
             build_col_relative: false,
             required: RequiredForAttack::PieceOnBoard,
             typ: Slider(Vertical),
-            condition: OnRelativeRank(1, FairyColor::first()),
+            condition: OnRelativeRank(1, Color::first()),
             bitboard_filter: vec![EmptySquares, SquareFilter::Rank(3)],
             kind: DoublePawnPush,
             attack_mode: AttackMode::NoCaptures,
@@ -330,7 +317,7 @@ impl PieceBuilder {
             build_col_relative: false,
             required: RequiredForAttack::PieceOnBoard,
             typ: Slider(Vertical),
-            condition: OnRelativeRank(1, FairyColor::second()),
+            condition: OnRelativeRank(1, Color::second()),
             bitboard_filter: vec![EmptySquares, RanksRelative(vec![3], PlayerCond::Second)],
             kind: DoublePawnPush,
             attack_mode: AttackMode::NoCaptures,
@@ -352,7 +339,7 @@ impl PieceBuilder {
             AttackKindBuilder::pawn_capture(AttackBuilder::range_hv(&[-1, 1], &[1]), SquareFilter::Them);
         // let black_capture = AttackKindBuilder::pawn_capture(
         //     AttackBuilder::range_hv(&[-1, 1], &[-1]),
-        //     Player(FairyColor::second()),
+        //     Player(Color::second()),
         //     SquareFilter::Them,
         // );
         Self {
@@ -446,7 +433,7 @@ impl PieceBuilder {
             Self::ferz(),
             Self::leaper("dabbaba", 0, 2, None, None),
             Self::knight(),
-            Self::leaper("alfil", 2, 2, None, Some(['\u{1FA55}', '\u{1FA57}', '\u{1FA55}'])),
+            Self::leaper("alfil", 2, 2, Some('b'), Some(['\u{1FA55}', '\u{1FA57}', '\u{1FA55}'])),
             Self::leaper("threeleaper", 0, 3, Some('h'), None),
             Self::leaper("camel", 1, 3, None, Some(['🨢', '🨨', '🨮'])),
             Self::leaper("zebra", 2, 3, None, None),
@@ -515,7 +502,7 @@ impl PieceBuilder {
                     build_col_relative: false,
                     required: RequiredForAttack::PieceOnBoard,
                     typ: Slider(Vertical),
-                    condition: OnRelativeRank(0, FairyColor::first()),
+                    condition: OnRelativeRank(0, Color::first()),
                     bitboard_filter: vec![EmptySquares, SquareFilter::Rank(2)],
                     kind: Normal,
                     attack_mode: AttackMode::NoCaptures,
@@ -526,7 +513,7 @@ impl PieceBuilder {
                     build_col_relative: false,
                     required: RequiredForAttack::PieceOnBoard,
                     typ: Slider(Vertical),
-                    condition: OnRelativeRank(0, FairyColor::second()),
+                    condition: OnRelativeRank(0, Color::second()),
                     bitboard_filter: vec![EmptySquares, RanksRelative(vec![2], PlayerCond::Second)],
                     kind: Normal,
                     attack_mode: AttackMode::NoCaptures,
@@ -587,13 +574,13 @@ impl PieceBuilder {
                 let mut shogi_pawn = Self::pawn_shatranj_no_promo();
                 shogi_pawn.name = "pawn (shogi)".to_string();
                 shogi_pawn.uncolored_symbol[Unicode] = '歩';
-                shogi_pawn.player_symbol[FairyColor::first()][Unicode] = '歩';
-                shogi_pawn.player_symbol[FairyColor::second()][Unicode] = '歩';
+                shogi_pawn.player_symbol[Color::first()][Unicode] = '歩';
+                shogi_pawn.player_symbol[Color::second()][Unicode] = '歩';
                 let white_attacks = AttackBuilder::range_hv(&[0], &[1]);
                 // let black_attacks = AttackBuilder::range_hv(&[0], &[-1]);
                 shogi_pawn.attacks = vec![
                     AttackKindBuilder::simple(white_attacks),
-                    // AttackKindBuilder::simple(black_attacks).with_cond(Player(FairyColor::second())),
+                    // AttackKindBuilder::simple(black_attacks).with_cond(Player(Color::second())),
                     AttackKindBuilder::drop(vec![
                         EmptySquares,
                         Not(Box::new(RanksRelative(vec![0], Inactive))), // TODO: This can be converted into a bitboard when building the board

@@ -1,5 +1,5 @@
 use crate::GameState;
-use crate::games::{CharType, Color, ColoredPiece};
+use crate::games::{CharType, ColorTrait, ColoredPieceTrait};
 use crate::general::board::RectangularBoard;
 use crate::general::common::{NamedEntity, Res, StaticallyNamedEntity};
 use crate::general::squares::{RectangularCoordinates, SquareColor};

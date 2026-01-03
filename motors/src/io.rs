@@ -31,9 +31,11 @@ use crate::io::command::{
     AbstractGoState, CommandList, GoState, accept_depth, go_options, query_options, ugi_commands,
 };
 use crate::io::input::Input;
-use crate::io::ugi_output::{AbstractUgiOutput, UgiOutput, color_for_score, pretty_score, score_gradient, suffix_for};
+use crate::io::ugi_output::{
+    AbstractUgiOutput, UgiOutput, color_for_score, pretty_score, pretty_variation_simple, score_gradient, suffix_for,
+};
 use crate::search::multithreading::EngineWrapper;
-use crate::search::tt::{DEFAULT_HASH_SIZE_MB, TT, TTEntry};
+use crate::search::tt::{DEFAULT_HASH_SIZE_MB, EndTTPvMove, TT, TTEntry};
 use crate::search::{EvalList, SearchParams, SearcherList, run_bench_with};
 use crate::{create_engine_box_from_str, create_engine_from_str, create_eval_from_str, create_match};
 use gears::MatchStatus::*;
@@ -44,9 +46,9 @@ use gears::colored::Color::Red;
 use gears::colored::Colorize;
 use gears::games::CharType::Ascii;
 use gears::games::chess::UCI_CHESS960;
-use gears::games::{AbstractPieceType, BoardHistDyn, Color, ColoredPiece, ColoredPieceType, OutputList};
+use gears::games::{AbstractPieceType, BoardHistDyn, ColorTrait, ColoredPieceTrait, ColoredPieceTypeTrait, OutputList};
 use gears::general::board::Strictness::{Relaxed, Strict};
-use gears::general::board::{Board, BoardHelpers, ColPieceTypeOf, Strictness, Symmetry, UnverifiedBoard};
+use gears::general::board::{BoardHelpers, BoardTrait, ColPieceTypeOf, Strictness, Symmetry, UnverifiedBoardTrait};
 use gears::general::common::Description::{NoDescription, WithDescription};
 use gears::general::common::anyhow::{anyhow, bail, ensure};
 use gears::general::common::{
@@ -55,7 +57,8 @@ use gears::general::common::{
 };
 use gears::general::common::{Res, Tokens};
 use gears::general::moves::ExtendedFormat::{Alternative, Standard};
-use gears::general::moves::Move;
+use gears::general::moves::MoveTrait;
+use gears::general::perft::Bulkness::{Bulk, NoBulk};
 use gears::general::perft::{SplitPerftRes, num_unique_positions_up_to, perft_for, split_perft};
 use gears::itertools::Itertools;
 use gears::output::Message::*;
@@ -95,7 +98,7 @@ const DEFAULT_MOVE_OVERHEAD_MS: u64 = 50;
 const MIN_CONTEMPT: i64 = -1000;
 const MAX_CONTEMPT: i64 = 1000;
 
-// TODO: Ensure this conforms to <https://expositor.dev/uci/doc/uci-draft-1.pdf>
+// TODO: Ensure this conforms to <https://expositor.dev/uci/doc/draft-1.pdf>
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 #[must_use]
@@ -126,7 +129,7 @@ impl Display for SearchType {
 }
 
 #[derive(Debug)]
-struct EngineGameState<B: Board> {
+struct EngineGameState<B: BoardTrait> {
     match_state: MatchState<B>,
     go_state: GoState<B>,
     game_name: String,
@@ -144,14 +147,14 @@ struct EngineGameState<B: Board> {
     opponent_name: Option<String>,
 }
 
-impl<B: Board> EngineGameState<B> {
+impl<B: BoardTrait> EngineGameState<B> {
     fn is_currently_searching(&self) -> bool {
         self.engine.main_atomic_search_data().currently_searching()
             || self.temp_engine.as_ref().is_some_and(|e| e.main_atomic_search_data().currently_searching())
     }
 }
 
-impl<B: Board> GameState<B> for EngineGameState<B> {
+impl<B: BoardTrait> GameState<B> for EngineGameState<B> {
     fn initial_pos(&self) -> &B {
         &self.match_state.pos_before_moves
     }
@@ -207,7 +210,7 @@ impl<B: Board> GameState<B> for EngineGameState<B> {
 
     // The reason for doing this weird loop instead of just letting the engine thread print
     // the engine state is that printing multiple lines while waiting for input
-    // from enquire (used in the interactive ui) causes weird formatting issues
+    // from inquire (used in the interactive ui) causes weird formatting issues
     fn print_engine_state(&self) -> Res<String> {
         self.engine.get_engine_info().internal_state_description = None;
         self.engine.send_print(self.go_state.pos.clone())?;
@@ -243,7 +246,7 @@ impl<B: Board> GameState<B> for EngineGameState<B> {
     }
 }
 
-impl<B: Board> Deref for EngineGameState<B> {
+impl<B: BoardTrait> Deref for EngineGameState<B> {
     type Target = MatchState<B>;
 
     fn deref(&self) -> &Self::Target {
@@ -251,7 +254,7 @@ impl<B: Board> Deref for EngineGameState<B> {
     }
 }
 
-impl<B: Board> DerefMut for EngineGameState<B> {
+impl<B: BoardTrait> DerefMut for EngineGameState<B> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.match_state
     }
@@ -269,7 +272,7 @@ struct AllCommands {
 
 /// Implements both UGI and UCI.
 #[derive(Debug)]
-pub struct EngineUGI<B: Board> {
+pub struct EngineUGI<B: BoardTrait> {
     state: EngineGameState<B>,
     commands: AllCommands,
     output: Arc<Mutex<UgiOutput<B>>>,
@@ -285,7 +288,7 @@ pub struct EngineUGI<B: Board> {
     failed_cmd: Option<String>,
 }
 
-impl<B: Board> AbstractRun for EngineUGI<B> {
+impl<B: BoardTrait> AbstractRun for EngineUGI<B> {
     fn run(&mut self) -> Quitting {
         // this can happen if the user ran a command via cli argument before starting the uci loop
         if let Quit(quitting) = &self.state.status {
@@ -353,7 +356,7 @@ fn handle_ugi_input(ugi: &mut dyn AbstractEngineUgi, mut words: Tokens, game_nam
     Ok(())
 }
 
-impl<B: Board> EngineUGI<B> {
+impl<B: BoardTrait> EngineUGI<B> {
     pub fn create(
         opts: EngineOpts,
         mut selected_output_builders: OutputList<B>,
@@ -713,24 +716,28 @@ impl<B: Board> EngineUGI<B> {
                 return self.play_engine_move(Some(params));
             }
             Bench => {
-                let bench_positions: Vec<B> = if opts.complete { B::bench_positions() } else { vec![board] };
+                let bench_positions: Vec<B> =
+                    if opts.complete { B::bench_positions().into_iter().collect() } else { vec![board] };
                 return self.bench(limit, &bench_positions);
             }
             Perft => {
-                let positions = if opts.complete { B::bench_positions() } else { vec![board.clone()] };
+                let positions =
+                    if opts.complete { B::bench_positions().into_iter().collect() } else { vec![board.clone()] };
                 let threads = opts.threads.unwrap_or(0);
                 if threads > 1 {
                     bail!("For 'perft' runs, the 'Threads' options can only be used to set threads to 1")
                 }
+                if limit.depth > B::max_perft_depth() {
+                    bail!("Depth {0} is larger than the maximum perft depth of {1}", limit.depth, B::max_perft_depth());
+                }
+                let pseudo_bulk = if opts.no_bulk { NoBulk } else { Bulk };
                 for i in 1..=limit.depth.get() {
                     if opts.unique {
-                        self.output().write_ugi(&format_args!(
-                            "# unique positions at depth {i}: {}",
-                            num_unique_positions_up_to(DepthPly::new(i), board.clone()).to_string().bold()
-                        ))
+                        let num_unique = num_unique_positions_up_to(DepthPly::new(i), board.clone()).to_string().bold();
+                        self.output().write_ugi(&format_args!("# unique positions at depth {i}: {num_unique}",))
                     } else {
-                        self.output()
-                            .write_ugi(&format_args!("{}", perft_for(DepthPly::new(i), &positions, threads != 1)))
+                        let perft_res = perft_for(DepthPly::new(i), &positions, threads != 1, pseudo_bulk);
+                        self.output().write_ugi(&format_args!("{perft_res}"))
                     }
                 }
             }
@@ -742,7 +749,11 @@ impl<B: Board> EngineUGI<B> {
                 if threads > 1 {
                     bail!("For 'splitperft' runs, the 'Threads' options can only be used to set threads to 1")
                 }
-                let res = split_perft(limit.depth, board, threads != 1);
+                if limit.depth > B::max_perft_depth() {
+                    bail!("Depth {0} is too large; maximum splitperft depth: {1}", limit.depth, B::max_perft_depth());
+                }
+                let pseudo_bulk = if opts.no_bulk { NoBulk } else { Bulk };
+                let res = split_perft(limit.depth, board, threads != 1, pseudo_bulk);
                 self.write_ugi(&format_args!("{res}"));
                 if self.go_state_mut().get_mut().compare {
                     compare_splitperft(self, res)?;
@@ -762,7 +773,7 @@ impl<B: Board> EngineUGI<B> {
             self.write_message(
                 Warning,
                 &format_args!(
-                    "Starting a {3} search in position '{2}', but the game is already over. {0}, reason: {1}.",
+                    "Starting a {3} search in position '{2}', but the game is already over. {0} ({1}).",
                     res.result,
                     res.reason,
                     pos.as_fen().bold(),
@@ -865,7 +876,7 @@ impl<B: Board> EngineUGI<B> {
                     let diagram = show_eval_pos(&state.board, state.last_move(), eval);
                     diagram
                         + &format!(
-                            "Eval Score: {}\n",
+                            "Raw Eval Score: {}\n",
                             pretty_score(eval_score, None, None, &score_gradient(), true, false)
                         )
                 } else {
@@ -875,7 +886,7 @@ impl<B: Board> EngineUGI<B> {
                 format!("The engine '{}' doesn't have an eval function", info.short_name().bold())
             }
         } else if let Some(entry) = self.state.engine.tt_entry(&state.board) {
-            format_tt_entry(state, entry)
+            format_tt_entry(state, entry, self.state.engine.tt())
         } else {
             "There is no TT entry for this position".bold().to_string()
         };
@@ -996,6 +1007,7 @@ impl<B: Board> EngineUGI<B> {
                 self.handle_output(&mut tokens("debug"))?;
                 self.handle_output(&mut tokens("info"))?;
                 self.output().set_debug(true);
+                self.print_board(OutputOpts::default());
                 self.write_message(Debug, &format_args!("Debug mode enabled"));
                 // don't change the log stream if it's already set
                 if self.output().additional_outputs.iter().any(|o| o.is_logger()) {
@@ -1300,7 +1312,7 @@ trait AbstractEngineUgiState: Debug {
     fn handle_quit(&mut self, typ: Quitting) -> Res<()>;
 }
 
-impl<B: Board> AbstractEngineUgiState for EngineUGI<B> {
+impl<B: BoardTrait> AbstractEngineUgiState for EngineUGI<B> {
     fn options_text(&self, words: &mut Tokens) -> Res<String> {
         write_options_impl(
             self.get_options(),
@@ -1677,7 +1689,7 @@ trait AbstractEngineUgi: AbstractEngineUgiState {
     fn handle_move_fen_or_pgn(&mut self, first_word: &str, rest: &mut Tokens) -> Res<bool>;
 }
 
-impl<B: Board> AbstractEngineUgi for EngineUGI<B> {
+impl<B: BoardTrait> AbstractEngineUgi for EngineUGI<B> {
     fn abstract_ugi_pos_state(&self) -> &dyn AbstractUgiPosState {
         self.state.abstract_pos_state()
     }
@@ -1844,9 +1856,9 @@ fn invalid_command_msg(interactive: bool, first_word: &str, rest: &mut Tokens, e
     format!("{error_msg}, ignoring the entire command:\n{err_msg}\n{suggest_help}")
 }
 
-// take a BoardGameState instead of a board to correctly handle displaying the last move
+/// take a [`MatchState`] instead of a board to correctly handle displaying the last move
 #[cold]
-fn format_tt_entry<B: Board>(state: MatchState<B>, entry: TTEntry<B>) -> String {
+fn format_tt_entry<B: BoardTrait>(state: MatchState<B>, entry: TTEntry<B>, tt: TT) -> String {
     let pos = state.board.clone();
     let pos2 = pos.clone();
     let formatter = pos.pretty_formatter(None, state.last_move(), OutputOpts::default());
@@ -1854,10 +1866,10 @@ fn format_tt_entry<B: Board>(state: MatchState<B>, entry: TTEntry<B>) -> String 
     let mut formatter = AdaptFormatter {
         underlying: formatter,
         color_frame: Box::new(move |coords, color| {
-            if let Some(mov) = mov {
-                if Some(coords) == mov.src_square_in(&pos) || coords == mov.dest_square_in(&pos) {
-                    return Some(Red);
-                }
+            if let Some(mov) = mov
+                && (Some(coords) == mov.src_square_in(&pos) || coords == mov.dest_square_in(&pos))
+            {
+                return Some(Red);
             };
             color
         }),
@@ -1883,21 +1895,52 @@ fn format_tt_entry<B: Board>(state: MatchState<B>, entry: TTEntry<B>) -> String 
     let score = Score::from_compact(entry.score);
     write!(
         &mut res,
-        "\nHash: {6}\nScore: {bound_str}{0} ({1}), Raw Eval: {2}, Depth: {3}, Age Ctr: {4}, Best Move: {5}",
+        "\nHash: {6}\nScore: {bound_str}{0} ({1}), Raw Eval: {2}, Depth: {3}, Age Ctr: {4}, Best Move: {5}\nExtracted PV: {7}",
         pretty_score(score, None, None, &score_gradient(), true, false),
         entry.bound(),
         pretty_score(entry.raw_eval(), None, None, &score_gradient(), true, false),
         entry.depth.to_string().bold(),
         entry.age(),
         move_string,
-        pos.hash_pos()
+        pos.hash_pos(),
+        format_tt_pv(tt, state.board.clone())
     )
     .unwrap();
     res
 }
 
+fn format_tt_pv<B: BoardTrait>(tt: TT, pos: B) -> String {
+    let pv = tt.extract_pv(pos.clone());
+    let (mut res, pos) = pretty_variation_simple(&pv.legals, pos);
+    let end = match pv.end {
+        EndTTPvMove::Repeating(mov) => format!(
+            "{} '{}' {} '{}' repeats a position",
+            "Move".dimmed(),
+            mov.extended_formatter(&pos, Standard, None).to_string().bold(),
+            "in".dimmed(),
+            pos.to_string().dimmed(),
+        ),
+        EndTTPvMove::Illegal(mov) => {
+            // This is not necessarily a bug because of hash collisions, but those are very unlikely
+            format!(
+                "Illegal move '{}' in '{}' (Likely a bug!)",
+                format!("{}", mov.to_underlying().into()).red(),
+                pos.to_string().bold()
+            )
+        }
+        EndTTPvMove::NoMove => format!("No move stored in '{pos}'").dimmed().to_string(),
+        EndTTPvMove::NoEntry => format!("{0}{pos}{1}'", "No TT entry for '".dimmed(), "'".dimmed()),
+    };
+    res += ". ";
+    res += &end;
+    let entry = pv.final_entry;
+    let score = pretty_score(entry.score(), Some(entry.bound()), None, &score_gradient(), true, false);
+    write!(res, ". Score {}", score).unwrap();
+    res
+}
+
 #[cold]
-fn show_eval_pos<B: Board>(pos: &B, last: Option<B::Move>, eval: Box<dyn Eval<B>>) -> String {
+fn show_eval_pos<B: BoardTrait>(pos: &B, last: Option<B::Move>, eval: Box<dyn Eval<B>>) -> String {
     let eval = RefCell::new(eval);
     let formatter = pos.pretty_formatter(None, last, OutputOpts::default());
     let eval_pos = eval.borrow_mut().eval(pos, 0, pos.active_player());
@@ -1973,7 +2016,7 @@ fn handle_play_impl(ugi: &mut dyn AbstractEngineUgi, words: &mut Tokens) -> Res<
 }
 
 #[cold]
-fn compare_splitperft<B: Board>(ugi: &mut EngineUGI<B>, perft_res: SplitPerftRes<B>) -> Res<()> {
+fn compare_splitperft<B: BoardTrait>(ugi: &mut EngineUGI<B>, perft_res: SplitPerftRes<B>) -> Res<()> {
     let compare_text =
         inquire::Editor::new("Press 'e' to open an editor and enter your splitperft results, then press enter")
             .prompt()?;
@@ -2015,7 +2058,7 @@ fn compare_splitperft<B: Board>(ugi: &mut EngineUGI<B>, perft_res: SplitPerftRes
     Ok(())
 }
 
-fn splitperft_line<B: Board>(line: &str, perft_res: &SplitPerftRes<B>, seen: &mut HashSet<B::Move>) -> Res<()> {
+fn splitperft_line<B: BoardTrait>(line: &str, perft_res: &SplitPerftRes<B>, seen: &mut HashSet<B::Move>) -> Res<()> {
     let mut words = tokens(line).map(|w| w.to_ascii_lowercase());
     let mov = words.next().unwrap();
     let mov = mov.trim_end_matches(':');
@@ -2077,13 +2120,13 @@ mod tests {
     use crate::{list_chess_evals, list_chess_outputs, list_chess_searchers};
     use gears::cli::Game::Chess;
     use gears::create_selected_output_builders;
-    use gears::games::chess::ChessColor::Black;
-    use gears::games::chess::Chessboard;
+    use gears::games::chess::Board;
+    use gears::games::chess::Color::Black;
     use gears::rand::prelude::SliceRandom;
     use gears::rand::rngs::StdRng;
     use gears::rand::{Rng, SeedableRng};
 
-    fn create_chess_game() -> Box<EngineUGI<Chessboard>> {
+    fn create_chess_game() -> Box<EngineUGI<Board>> {
         let outputs = list_chess_outputs();
         let searchers = list_chess_searchers();
         let evals = list_chess_evals();
@@ -2105,14 +2148,15 @@ mod tests {
     fn chess_test() {
         let mut ugi = create_chess_game();
         ugi.handle_input("idk").unwrap();
+        ugi.handle_input("idk off").unwrap();
         let state = ugi.state.match_state.clone();
-        assert_eq!(state.pos_before_moves, Chessboard::default());
+        assert_eq!(state.pos_before_moves, Board::default());
         assert_eq!(state.pos().active_player(), Black);
         assert_eq!(state.mov_hist.len(), 1);
         assert_eq!(state.board_hist.len(), 1);
         assert_eq!(state.status, Run(NotStarted));
         ugi.handle_input("undo").unwrap();
-        assert_eq!(*ugi.state.pos(), Chessboard::default());
+        assert_eq!(*ugi.state.pos(), Board::default());
         assert_eq!(ugi.state.mov_hist.len(), 0);
         ugi.handle_input("position startpos e2e4").unwrap();
         ugi.handle_input("randomize").unwrap();
@@ -2135,10 +2179,12 @@ mod tests {
             "eval",
         ];
         let seed = rng().random::<u64>();
+        // let seed = 1880428284001215887;
         eprintln!("Seed: {seed}");
         let mut rng = StdRng::seed_from_u64(seed);
         cmds.shuffle(&mut rng);
         for c in cmds {
+            eprintln!("<EXECUTING> {c}");
             ugi.handle_input(c).unwrap();
         }
         sleep(Duration::from_millis(5000));

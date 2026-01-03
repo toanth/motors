@@ -3,9 +3,9 @@ use std::env::Args;
 use std::iter::Peekable;
 use std::num::NonZeroUsize;
 
-use crate::general::common::Description::NoDescription;
-use crate::general::common::{nonzero_usize, parse_int_from_str, select_name_static, NamedEntity, Res};
 use crate::OutputArgs;
+use crate::general::common::Description::NoDescription;
+use crate::general::common::{NamedEntity, Res, nonzero_usize, parse_int_from_str, select_name_static};
 use anyhow::anyhow;
 use arbitrary::Arbitrary;
 use derive_more::Display;

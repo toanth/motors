@@ -15,19 +15,15 @@
  *  You should have received a copy of the GNU General Public License
  *  along with Gears. If not, see <https://www.gnu.org/licenses/>.
  */
-#![no_main]
+use criterion::{Criterion, black_box, criterion_group, criterion_main};
+use gears::games::chess::bitbase::calc_pawn_vs_king;
 
-use gears::games::chess::Board;
-use gears::games::chess::moves::Move;
-use gears::general::board::BoardTrait;
-use libfuzzer_sys::fuzz_target;
+pub fn calc_pawn_vs_king_bench(c: &mut Criterion) {
+    c.bench_function("calc bitbase", |b| {
+        b.iter(|| black_box(calc_pawn_vs_king()));
+    });
+}
 
-fuzz_target!(|data: Move| {
-    for pos in Board::bench_positions() {
-        let pl = pos.is_move_pseudolegal(data);
-        if pl {
-            let _ = pos.make_move(data);
-            assert!(pos.pseudolegal_moves().contains(&data));
-        }
-    }
-});
+criterion_group!(bitbase_benches, calc_pawn_vs_king_bench);
+
+criterion_main!(bitbase_benches);

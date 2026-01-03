@@ -2,15 +2,15 @@
 name = "monitors"
 version = "0.1.0"
 edition = "2024"
+build = "../build.rs"
 
 [dependencies]
 gears = { path = "../gears", default-features = false }
 
-rand = "0.9.0-beta.1"
-strum = "0.26.3"
-crossbeam-utils = "0.8.21"
-dyn-clone = "1.0.17"
-itertools = "0.14.0"
+rand = { workspace = true }
+crossbeam-utils = { workspace = true }
+dyn-clone = { workspace = true }
+itertools = { workspace = true }
 whoami = "2.0.0-pre.0"
 lazy_static = "1.5.0"
 motors = { path = "../motors", optional = true, default-features = false }

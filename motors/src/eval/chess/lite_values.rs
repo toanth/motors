@@ -19,10 +19,10 @@
 use crate::eval::chess::{FileOpenness, NUM_PAWN_CENTER_CONFIGURATIONS, NUM_PAWN_SHIELD_CONFIGURATIONS};
 use crate::eval::{ScoreType, SingleFeatureScore};
 use gears::games::DimT;
-use gears::games::chess::ChessColor;
-use gears::games::chess::ChessColor::White;
-use gears::games::chess::pieces::{ChessPieceType, NUM_CHESS_PIECES};
-use gears::games::chess::squares::{ChessSquare, NUM_SQUARES};
+use gears::games::chess::Color;
+use gears::games::chess::Color::White;
+use gears::games::chess::pieces::{NUM_CHESS_PIECES, PieceType};
+use gears::games::chess::squares::{NUM_SQUARES, Square};
 use gears::general::common::StaticallyNamedEntity;
 use gears::score::{PhasedScore, p};
 use std::fmt::{Debug, Display};
@@ -554,9 +554,9 @@ const PIN: [PhasedScore; NUM_CHESS_PIECES - 1] = [p(5, -17), p(26, 30), p(16, 34
 pub trait LiteValues: Debug + Default + Copy + Clone + Send + 'static + StaticallyNamedEntity {
     type Score: ScoreType;
 
-    fn psqt(&self, square: ChessSquare, piece: ChessPieceType, color: ChessColor) -> SingleFeatureScore<Self::Score>;
+    fn psqt(&self, square: Square, piece: PieceType, color: Color) -> SingleFeatureScore<Self::Score>;
 
-    fn passed_pawn(square: ChessSquare) -> SingleFeatureScore<Self::Score>;
+    fn passed_pawn(square: Square) -> SingleFeatureScore<Self::Score>;
 
     fn stoppable_passer() -> SingleFeatureScore<Self::Score>;
 
@@ -588,33 +588,33 @@ pub trait LiteValues: Debug + Default + Copy + Clone + Send + 'static + Statical
 
     fn pawn_passive_center(config: usize) -> SingleFeatureScore<Self::Score>;
 
-    fn pawn_shield(&self, color: ChessColor, config: usize) -> SingleFeatureScore<Self::Score>;
+    fn pawn_shield(&self, color: Color, config: usize) -> SingleFeatureScore<Self::Score>;
 
     fn pawnless_flank() -> SingleFeatureScore<Self::Score>;
 
-    fn pawn_protection(piece: ChessPieceType) -> SingleFeatureScore<Self::Score>;
+    fn pawn_protection(piece: PieceType) -> SingleFeatureScore<Self::Score>;
 
-    fn pawn_attack(piece: ChessPieceType) -> SingleFeatureScore<Self::Score>;
+    fn pawn_attack(piece: PieceType) -> SingleFeatureScore<Self::Score>;
 
-    fn pawn_advance_threat(piece: ChessPieceType) -> SingleFeatureScore<Self::Score>;
+    fn pawn_advance_threat(piece: PieceType) -> SingleFeatureScore<Self::Score>;
 
-    fn mobility(piece: ChessPieceType, mobility: usize) -> SingleFeatureScore<Self::Score>;
+    fn mobility(piece: PieceType, mobility: usize) -> SingleFeatureScore<Self::Score>;
 
-    fn threats(attacking: ChessPieceType, targeted: ChessPieceType) -> SingleFeatureScore<Self::Score>;
+    fn threats(attacking: PieceType, targeted: PieceType) -> SingleFeatureScore<Self::Score>;
 
-    fn defended(protecting: ChessPieceType, target: ChessPieceType) -> SingleFeatureScore<Self::Score>;
+    fn defended(protecting: PieceType, target: PieceType) -> SingleFeatureScore<Self::Score>;
 
-    fn king_zone_attack(attacking: ChessPieceType) -> SingleFeatureScore<Self::Score>;
+    fn king_zone_attack(attacking: PieceType) -> SingleFeatureScore<Self::Score>;
 
-    fn can_give_check(piece: ChessPieceType) -> SingleFeatureScore<Self::Score>;
+    fn can_give_check(piece: PieceType) -> SingleFeatureScore<Self::Score>;
 
     fn check_stm() -> SingleFeatureScore<Self::Score>;
 
     fn discovered_check_stm() -> SingleFeatureScore<Self::Score>;
 
-    fn discovered_check(piece: ChessPieceType) -> SingleFeatureScore<Self::Score>;
+    fn discovered_check(piece: PieceType) -> SingleFeatureScore<Self::Score>;
 
-    fn pin(piece: ChessPieceType) -> SingleFeatureScore<Self::Score>;
+    fn pin(piece: PieceType) -> SingleFeatureScore<Self::Score>;
 }
 
 /// Eval values tuned on a combination of the lichess-big-3-resolved dataset and a dataset used by 4ku,
@@ -649,11 +649,11 @@ impl StaticallyNamedEntity for Lite {
 impl LiteValues for Lite {
     type Score = PhasedScore;
 
-    fn psqt(&self, square: ChessSquare, piece: ChessPieceType, color: ChessColor) -> Self::Score {
+    fn psqt(&self, square: Square, piece: PieceType, color: Color) -> Self::Score {
         PSQTS[piece as usize][square.flip_if(color == White).bb_idx()]
     }
 
-    fn passed_pawn(square: ChessSquare) -> PhasedScore {
+    fn passed_pawn(square: Square) -> PhasedScore {
         PASSED_PAWNS[square.bb_idx()]
     }
 
@@ -727,7 +727,7 @@ impl LiteValues for Lite {
         PAWN_PASSIVE_CENTER[config]
     }
 
-    fn pawn_shield(&self, _color: ChessColor, config: usize) -> PhasedScore {
+    fn pawn_shield(&self, _color: Color, config: usize) -> PhasedScore {
         PAWN_SHIELDS[config]
     }
 
@@ -735,34 +735,34 @@ impl LiteValues for Lite {
         PAWNLESS_FLANK
     }
 
-    fn pawn_protection(piece: ChessPieceType) -> PhasedScore {
+    fn pawn_protection(piece: PieceType) -> PhasedScore {
         PAWN_PROTECTION[piece as usize]
     }
 
-    fn pawn_attack(piece: ChessPieceType) -> PhasedScore {
+    fn pawn_attack(piece: PieceType) -> PhasedScore {
         PAWN_ATTACKS[piece as usize]
     }
 
-    fn pawn_advance_threat(piece: ChessPieceType) -> PhasedScore {
+    fn pawn_advance_threat(piece: PieceType) -> PhasedScore {
         PAWN_ADVANCE_THREAT[piece as usize]
     }
 
-    fn mobility(piece: ChessPieceType, mobility: usize) -> PhasedScore {
+    fn mobility(piece: PieceType, mobility: usize) -> PhasedScore {
         MOBILITY[piece as usize - 1][mobility]
     }
 
-    fn threats(attacking: ChessPieceType, targeted: ChessPieceType) -> PhasedScore {
+    fn threats(attacking: PieceType, targeted: PieceType) -> PhasedScore {
         THREATS[attacking as usize - 1][targeted as usize]
     }
-    fn defended(protecting: ChessPieceType, target: ChessPieceType) -> PhasedScore {
+    fn defended(protecting: PieceType, target: PieceType) -> PhasedScore {
         DEFENDED[protecting as usize - 1][target as usize]
     }
 
-    fn king_zone_attack(attacking: ChessPieceType) -> PhasedScore {
+    fn king_zone_attack(attacking: PieceType) -> PhasedScore {
         KING_ZONE_ATTACK[attacking as usize]
     }
 
-    fn can_give_check(piece: ChessPieceType) -> PhasedScore {
+    fn can_give_check(piece: PieceType) -> PhasedScore {
         CAN_GIVE_CHECK[piece as usize]
     }
 
@@ -770,11 +770,11 @@ impl LiteValues for Lite {
         DISCOVERED_CHECK_STM
     }
 
-    fn pin(piece: ChessPieceType) -> PhasedScore {
+    fn pin(piece: PieceType) -> PhasedScore {
         PIN[piece as usize]
     }
 
-    fn discovered_check(piece: ChessPieceType) -> PhasedScore {
+    fn discovered_check(piece: PieceType) -> PhasedScore {
         DISCOVERED_CHECK[piece as usize]
     }
 

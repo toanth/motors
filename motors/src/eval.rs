@@ -1,6 +1,6 @@
 use gears::dyn_clone::DynClone;
-use gears::games::Color;
-use gears::general::board::Board;
+use gears::games::ColorTrait;
+use gears::general::board::BoardTrait;
 use gears::general::common::StaticallyNamedEntity;
 use gears::score::{PhaseType, PhasedScore, Score, ScoreT};
 use std::fmt::Debug;
@@ -18,7 +18,7 @@ pub mod mnk;
 #[cfg(feature = "uttt")]
 pub mod uttt;
 
-pub trait Eval<B: Board>: Debug + Send + StaticallyNamedEntity + DynClone + 'static {
+pub trait Eval<B: BoardTrait>: Debug + Send + StaticallyNamedEntity + DynClone + 'static {
     /// Eval the given board at the given depth in a search. To just eval a single position,
     /// `ply` should be set to 0. Most eval functions completely ignore it.
     /// `engine` is used for asymmetric evals like king gambot.
@@ -70,7 +70,7 @@ pub trait ScoreType:
     type Finalized: Default;
     type SingleFeatureScore: Default + Mul<usize, Output = Self::SingleFeatureScore>;
 
-    fn finalize<C: Color>(
+    fn finalize<C: ColorTrait>(
         self,
         phase: PhaseType,
         max_phase: PhaseType,
@@ -84,7 +84,7 @@ impl ScoreType for PhasedScore {
     type Finalized = Score;
     type SingleFeatureScore = Self;
 
-    fn finalize<C: Color>(
+    fn finalize<C: ColorTrait>(
         mut self,
         phase: PhaseType,
         max_phase: PhaseType,

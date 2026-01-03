@@ -1,6 +1,6 @@
-use crate::general::board::{Board, BoardHelpers, Strictness};
+use crate::general::board::{BoardHelpers, BoardTrait, Strictness};
 use crate::general::common::{NamedEntity, Res, Tokens, TokensToString, tokens, tokens_to_string};
-use crate::general::moves::Move;
+use crate::general::moves::MoveTrait;
 use crate::output::pgn::parse_pgn_moves_format;
 use crate::ugi::Protocol::Interactive;
 use anyhow::{anyhow, bail};
@@ -293,7 +293,7 @@ impl NamedEntity for EngineOption {
     }
 }
 
-pub fn parse_ugi_position_part_impl<B: Board>(
+pub fn parse_ugi_position_part_impl<B: BoardTrait>(
     first_word: &str,
     rest: &mut Tokens,
     current_pos: &B,
@@ -323,7 +323,7 @@ pub fn parse_ugi_position_part_impl<B: Board>(
     })
 }
 
-pub fn parse_ugi_position_part<B: Board>(
+pub fn parse_ugi_position_part<B: BoardTrait>(
     first_word: &str,
     rest: &mut Tokens,
     allow_position_part: bool,
@@ -376,7 +376,7 @@ fn ignore_move_number(input: &str) -> Option<&str> {
     None
 }
 
-fn parse_ugi_moves_part<B: Board>(
+fn parse_ugi_moves_part<B: BoardTrait>(
     words: &mut Tokens,
     state: &mut dyn ParseUgiPosState<B>,
     allow_empty: bool,
@@ -394,17 +394,15 @@ fn parse_ugi_moves_part<B: Board>(
         let mov = match B::Move::from_text(next_word, state.pos()) {
             Ok(mov) => mov,
             Err(err) => {
-                if accept_move_number {
-                    if let Some(remaining) = ignore_move_number(next_word) {
-                        accept_move_number = false;
-                        if remaining.is_empty() {
-                            _ = words.next();
-                            current_word = words.peek().copied();
-                        } else {
-                            current_word = Some(remaining);
-                        }
-                        continue;
+                if accept_move_number && let Some(remaining) = ignore_move_number(next_word) {
+                    accept_move_number = false;
+                    if remaining.is_empty() {
+                        _ = words.next();
+                        current_word = words.peek().copied();
+                    } else {
+                        current_word = Some(remaining);
                     }
+                    continue;
                 }
                 if !parsed_move && has_moves_word {
                     bail!(
@@ -439,7 +437,11 @@ fn parse_ugi_moves_part<B: Board>(
     Ok(())
 }
 
-pub fn parse_moves<B: Board>(words: &mut Tokens, state: &mut dyn ParseUgiPosState<B>, allow_empty: bool) -> Res<()> {
+pub fn parse_moves<B: BoardTrait>(
+    words: &mut Tokens,
+    state: &mut dyn ParseUgiPosState<B>,
+    allow_empty: bool,
+) -> Res<()> {
     let mut input_copy = words.clone();
     if let Err(err) = parse_ugi_moves_part(words, state, allow_empty) {
         if input_copy.peek().is_some_and(|f| f.eq_ignore_ascii_case("moves") || f.eq_ignore_ascii_case("mv")) {
@@ -461,7 +463,7 @@ pub fn parse_moves<B: Board>(words: &mut Tokens, state: &mut dyn ParseUgiPosStat
 }
 
 #[allow(clippy::too_many_arguments)]
-pub fn parse_ugi_position_and_moves<B: Board>(
+pub fn parse_ugi_position_and_moves<B: BoardTrait>(
     first_word: &str,
     rest: &mut Tokens,
     accept_pos_word: bool,
@@ -497,7 +499,7 @@ pub fn parse_ugi_position_and_moves<B: Board>(
     res
 }
 
-pub fn only_load_ugi_position<B: Board>(
+pub fn only_load_ugi_position<B: BoardTrait>(
     first_word: &str,
     rest: &mut Tokens,
     current_pos: &B,
@@ -519,7 +521,7 @@ pub fn only_load_ugi_position<B: Board>(
     }
 }
 
-pub trait ParseUgiPosState<B: Board> {
+pub trait ParseUgiPosState<B: BoardTrait> {
     fn pos(&mut self) -> &mut B;
     fn initial(&self) -> &B;
     fn previous(&self) -> Option<&B>;
@@ -527,13 +529,13 @@ pub trait ParseUgiPosState<B: Board> {
     fn make_move(&mut self, mov: B::Move) -> Res<()>;
 }
 
-struct SimpleParseUgiPosState<B: Board> {
+struct SimpleParseUgiPosState<B: BoardTrait> {
     pos: B,
     initial_pos: B,
     previous_pos: Option<B>,
 }
 
-impl<B: Board> ParseUgiPosState<B> for SimpleParseUgiPosState<B> {
+impl<B: BoardTrait> ParseUgiPosState<B> for SimpleParseUgiPosState<B> {
     fn pos(&mut self) -> &mut B {
         &mut self.pos
     }
@@ -560,7 +562,7 @@ impl<B: Board> ParseUgiPosState<B> for SimpleParseUgiPosState<B> {
     }
 }
 
-pub fn load_ugi_pos_simple<B: Board>(pos: &str, strictness: Strictness, old_board: &B) -> Res<B> {
+pub fn load_ugi_pos_simple<B: BoardTrait>(pos: &str, strictness: Strictness, old_board: &B) -> Res<B> {
     let mut tokens = tokens(pos);
     let first = tokens.next().unwrap_or_default();
     let res = only_load_ugi_position(first, &mut tokens, old_board, strictness, false, false)?;
@@ -577,14 +579,14 @@ pub fn load_ugi_pos_simple<B: Board>(pos: &str, strictness: Strictness, old_boar
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::games::chess::Chessboard;
+    use crate::games::chess::Board;
     use crate::general::board::Strictness::{Relaxed, Strict};
 
     #[cfg(feature = "chess")]
     #[test]
     fn test_chess_parsing() {
         let input = "startpos moves e2e4 e7e5 yolo";
-        let mut pos = Chessboard::startpos();
+        let mut pos = Board::startpos();
         assert!(load_ugi_pos_simple(input, Relaxed, &pos).is_err());
         assert!(only_load_ugi_position("position", &mut tokens(input), &pos, Strict, false, false).is_err());
         assert!(only_load_ugi_position("lol", &mut tokens(input), &pos, Strict, true, false).is_err());
@@ -595,29 +597,25 @@ mod tests {
         assert_eq!(res, pos);
         assert_eq!(input_tokens.next(), Some("yolo"));
 
-        let mut pos = Chessboard::from_name("kiwipete").unwrap();
+        let mut pos = Board::from_name("kiwipete").unwrap();
         let moves = " 0-0 e8h8 a2a3";
         let input = pos.as_fen() + moves;
         assert!(
-            only_load_ugi_position("position", &mut tokens(moves), &Chessboard::default(), Relaxed, true, false)
-                .is_err()
+            only_load_ugi_position("position", &mut tokens(moves), &Board::default(), Relaxed, true, false).is_err()
         );
-        assert!(
-            only_load_ugi_position("pos", &mut tokens(&input), &Chessboard::default(), Relaxed, true, false).is_ok()
-        );
+        assert!(only_load_ugi_position("pos", &mut tokens(&input), &Board::default(), Relaxed, true, false).is_ok());
         let res = load_ugi_pos_simple(&input, Strict, &pos).unwrap();
         pos = pos.make_move_from_str("O-O").unwrap();
         pos = pos.make_move_from_str("0-0 ?").unwrap();
         pos = pos.make_move_from_str("a3!!").unwrap();
         assert_eq!(res, pos);
 
-        let pos = Chessboard::from_name("lucena").unwrap();
+        let pos = Board::from_name("lucena").unwrap();
         let input = "lucena moves not";
         assert!(
-            only_load_ugi_position("position", &mut tokens(input), &Chessboard::default(), Relaxed, true, false)
-                .is_err()
+            only_load_ugi_position("position", &mut tokens(input), &Board::default(), Relaxed, true, false).is_err()
         );
-        let res = only_load_ugi_position("p", &mut tokens(input), &Chessboard::default(), Relaxed, true, true).unwrap();
+        let res = only_load_ugi_position("p", &mut tokens(input), &Board::default(), Relaxed, true, true).unwrap();
         assert_eq!(pos, res);
     }
 }

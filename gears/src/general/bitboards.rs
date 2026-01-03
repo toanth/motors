@@ -16,8 +16,8 @@ use num::traits::{WrappingMul, WrappingSub};
 use num::{PrimInt, Unsigned};
 use strum_macros::EnumIter;
 
-use crate::games::{DimT, KnownSize, Size};
-use crate::general::bitboards::chessboard::{RAYS_EXCLUSIVE, RAYS_INCLUSIVE};
+use crate::games::{DimT, KnownSize, SizeTrait};
+use crate::general::bitboards::chessboard::{Bitboard, RAYS_EXCLUSIVE, RAYS_INCLUSIVE};
 use crate::general::hq::{U64AndRev, U128AndRev, WithRev};
 use crate::general::squares::{RectangularCoordinates, RectangularSize, SmallGridSize, SmallGridSquare};
 
@@ -131,26 +131,28 @@ macro_rules! ray_between_inclusive {
 // with one extra to make some boundary conditions go away
 pub const MAX_WIDTH: usize = 27;
 
-pub(super) const STEPS_U64: [u64; MAX_STEP_SIZE] = step_bb_for!(u64, 64);
+pub(super) static STEPS_U64: [u64; MAX_STEP_SIZE] = step_bb_for!(u64, 64);
 
-pub(super) const DIAGONALS_U64: [[u64; 64]; MAX_WIDTH] = diagonal_bb_for!(u64, 64, STEPS_U64);
+// TODO: Most widths aren't being used, remove
+pub(super) static DIAGONALS_U64: [[u64; 64]; MAX_WIDTH] = diagonal_bb_for!(u64, 64, STEPS_U64);
 
-pub(super) const ANTI_DIAGONALS_U64: [[u64; 64]; MAX_WIDTH] = anti_diagonal_bb_for!(u64, 64, STEPS_U64);
+pub(super) static ANTI_DIAGONALS_U64: [[u64; 64]; MAX_WIDTH] = anti_diagonal_bb_for!(u64, 64, STEPS_U64);
 
 // These arrays are `static` instead of `const` because they are pretty large
 
 pub(super) static STEPS_U128: [u128; MAX_STEP_SIZE] = step_bb_for!(u128, 128);
 
-// TODO: Remove
+// TODO: Remove?
+// Uses 16B * 128 * 27 = 54KiB
 pub(super) static DIAGONALS_U128: [[u128; 128]; MAX_WIDTH] = diagonal_bb_for!(u128, 128, STEPS_U128);
 
 pub(super) static ANTI_DIAGONALS_U128: [[u128; 128]; MAX_WIDTH] = anti_diagonal_bb_for!(u128, 128, STEPS_U128);
 
-/// A [`RawBitboard`] is something like a `u64` or `u128` (but there's nothing that would prevent implementing it for a custom
+/// A [`RawBitboardTrait`] is something like a `u64` or `u128` (but there's nothing that would prevent implementing it for a custom
 /// 256 bit struct). Unlike a `[Bitboard]`, it has no notion of size, and therefore no notion of rows, columns, etc.
 /// It's also not generally a unique type, so e.g. a [`RawStandardBitboard`] does not offer any type safety over using a `u64`.
 #[must_use]
-pub trait RawBitboard:
+pub trait RawBitboardTrait:
     for<'a> Arbitrary<'a>
     + PrimInt
     + From<u8>
@@ -186,7 +188,7 @@ pub trait RawBitboard:
     }
 
     #[inline]
-    fn has_set_bit(self) -> bool {
+    fn has_any(self) -> bool {
         !self.is_zero()
     }
 
@@ -195,6 +197,11 @@ pub trait RawBitboard:
         let shift = self.num_trailing_zeros();
         *self &= *self - Self::one();
         shift
+    }
+
+    #[inline]
+    fn lsb(self) -> Self {
+        self & Self::zero().wrapping_sub(&self)
     }
 
     #[must_use]
@@ -208,7 +215,7 @@ pub trait RawBitboard:
 
     #[inline]
     fn more_than_one_bit_set(self) -> bool {
-        (self & (self.wrapping_sub(&Self::one()))).has_set_bit()
+        (self & (self.wrapping_sub(&Self::one()))).has_any()
     }
 
     #[inline]
@@ -231,33 +238,39 @@ pub trait RawBitboard:
         BitIterator(self)
     }
 
-    // TODO: Use more frequently
-    fn intersects(self, other: Self) -> bool {
-        (self & other).has_set_bit()
-    }
-
     fn shift<const UP: bool>(self, amount: usize) -> Self {
         if UP { self << amount } else { self >> amount }
     }
 }
 
 #[must_use]
-pub struct BitIterator<B: RawBitboard>(B);
+pub struct BitIterator<B: RawBitboardTrait>(B);
 
-impl<B: RawBitboard> Iterator for BitIterator<B> {
+impl<B: RawBitboardTrait> Iterator for BitIterator<B> {
     type Item = usize;
 
     #[inline]
     fn next(&mut self) -> Option<Self::Item> {
         if self.0.is_zero() { None } else { Some(self.0.pop_lsb()) }
     }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        let n = self.0.num_ones();
+        (n, Some(n))
+    }
 }
 
-impl<B: RawBitboard> FusedIterator for BitIterator<B> {}
+impl<B: RawBitboardTrait> FusedIterator for BitIterator<B> {}
+
+impl<B: RawBitboardTrait> ExactSizeIterator for BitIterator<B> {
+    fn len(&self) -> usize {
+        self.0.num_ones()
+    }
+}
 
 pub type RawStandardBitboard = u64;
 
-impl RawBitboard for RawStandardBitboard {
+impl RawBitboardTrait for RawStandardBitboard {
     type WithRev = U64AndRev;
 
     fn to_usize(self) -> usize {
@@ -290,7 +303,7 @@ impl RawBitboard for RawStandardBitboard {
 
 pub type ExtendedRawBitboard = u128;
 
-impl RawBitboard for ExtendedRawBitboard {
+impl RawBitboardTrait for ExtendedRawBitboard {
     type WithRev = U128AndRev;
 
     fn to_usize(self) -> usize {
@@ -330,12 +343,12 @@ pub enum RayDirections {
     AntiDiagonal,
 }
 
-/// A bitboard extends a [`RawBitboard`] (simply a set of 64 / 128 / ... bits) with a size,
+/// A bitboard extends a [`RawBitboardTrait`] (simply a set of 64 / 128 / ... bits) with a size,
 /// which allows talking about concepts like rows.
 // TODO: Redesign: Use two traits: Sized bitboard and unsized bitboard.
 // Bitboards that aren't sized, like Fairy or Mnk bitboards, don't need to be made sized.
 #[must_use]
-pub trait Bitboard<R: RawBitboard, C: RectangularCoordinates>:
+pub trait BitboardTrait<R: RawBitboardTrait, C: RectangularCoordinates>:
     Debug
     + Display
     + Copy
@@ -529,21 +542,41 @@ pub trait Bitboard<R: RawBitboard, C: RectangularCoordinates>:
         self.west().north()
     }
 
-    /// Includes the bitboard itself
+    /// Includes the bitboard itself.
+    /// Also see [`chessboard::KINGS`] for precomputed attacks (without the source square) of a single square on a 8x8 board
     #[inline]
-    fn moore_neighbors(self) -> Self {
+    fn moore_inclusive(self) -> Self {
         let line = self | self.west() | self.east();
         line | line.north() | line.south()
     }
 
-    /// Include the bitboard itself
+    /// Like [`Self::moore_inclusive`], but doesn't include the bitboard itself unless it's a moore neighbor of another bit.
+    /// Also see [`chessboard::KINGS`] for precomputed attacks of a single square on a 8x8 board
     #[inline]
-    fn extended_moore_neighbors(self, radius: usize) -> Self {
+    fn moore_exclusive(self) -> Self {
+        let east_west = self.west() | self.east();
+        let north_south = self.north() | self.south();
+        east_west | north_south | east_west.north() | east_west.south()
+    }
+
+    /// Includes the bitboard itself
+    #[inline]
+    fn extended_moore_neighborhood(self, radius: usize) -> Self {
         let mut res = self;
         for _ in 0..radius {
-            res = res.moore_neighbors();
+            res = res.moore_inclusive();
         }
         res
+    }
+
+    #[inline]
+    fn intersects(self, other: Self) -> bool {
+        (self & other).has_any()
+    }
+
+    #[inline]
+    fn contains(self, other: Self) -> bool {
+        (!self & other).is_zero()
     }
 
     #[inline]
@@ -564,7 +597,7 @@ pub trait Bitboard<R: RawBitboard, C: RectangularCoordinates>:
     }
 
     #[inline]
-    fn is_bit_set(self, c: C) -> bool {
+    fn has(self, c: C) -> bool {
         self.is_bit_set_at(self.size().internal_key(c))
     }
 
@@ -596,7 +629,7 @@ pub trait Bitboard<R: RawBitboard, C: RectangularCoordinates>:
 }
 
 #[inline]
-fn fill_file<R: RawBitboard, const UP: bool>(mut bb: R, w: usize) -> R {
+fn fill_file<R: RawBitboardTrait, const UP: bool>(mut bb: R, w: usize) -> R {
     let max_shift = size_of::<R>() * 8 - 1;
     bb |= bb.shift::<UP>(w);
     bb |= bb.shift::<UP>(2 * w);
@@ -615,10 +648,12 @@ fn fill_file<R: RawBitboard, const UP: bool>(mut bb: R, w: usize) -> R {
     bb
 }
 
-pub trait KnownSizeBitboard<R: RawBitboard, C: RectangularCoordinates<Size: KnownSize<C>>>: Bitboard<R, C> {
+pub trait KnownSizeBitboard<R: RawBitboardTrait, C: RectangularCoordinates<Size: KnownSize<C>>>:
+    BitboardTrait<R, C>
+{
     #[inline]
     fn from_raw(raw: R) -> Self {
-        Bitboard::new(raw, C::Size::default())
+        BitboardTrait::new(raw, C::Size::default())
     }
 
     // May panic if those coordinates aren't valid, which can happen for runtime sizes
@@ -631,42 +666,46 @@ pub trait KnownSizeBitboard<R: RawBitboard, C: RectangularCoordinates<Size: Know
 
     #[inline]
     fn single_piece(c: C) -> Self {
-        Self::from_raw(RawBitboard::single_piece_at(Self::idx_of(c)))
+        Self::from_raw(RawBitboardTrait::single_piece_at(Self::idx_of(c)))
     }
 
     #[inline]
     fn rank_0() -> Self {
-        Bitboard::rank_0_for(C::Size::default())
+        BitboardTrait::rank_0_for(C::Size::default())
     }
 
     #[inline]
     fn file_0() -> Self {
-        Bitboard::file_0_for(C::Size::default())
+        BitboardTrait::file_0_for(C::Size::default())
     }
 
     #[inline]
     fn rank(idx: DimT) -> Self {
-        Bitboard::rank_for(idx, C::Size::default())
+        BitboardTrait::rank_for(idx, C::Size::default())
     }
 
     #[inline]
     fn file(idx: DimT) -> Self {
-        Bitboard::file_for(idx, C::Size::default())
+        BitboardTrait::file_for(idx, C::Size::default())
     }
 
     #[inline]
     fn diagonal(sq: C) -> Self {
-        Bitboard::diag_for_sq(sq, C::Size::default())
+        BitboardTrait::diag_for_sq(sq, C::Size::default())
     }
 
     #[inline]
     fn anti_diagonal(sq: C) -> Self {
-        Bitboard::anti_diag_for_sq(sq, C::Size::default())
+        BitboardTrait::anti_diag_for_sq(sq, C::Size::default())
+    }
+
+    #[inline]
+    fn backranks() -> Self {
+        BitboardTrait::backranks_for(C::Size::default())
     }
 }
 
 #[derive(
-    Debug,
     Default,
     Copy,
     Clone,
@@ -691,13 +730,21 @@ pub trait KnownSizeBitboard<R: RawBitboard, C: RectangularCoordinates<Size: Know
 )]
 pub struct SmallGridBitboard<const H: usize, const W: usize>(pub RawStandardBitboard);
 
+impl<const H: usize, const W: usize> Debug for SmallGridBitboard<H, W> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        write!(f, "SmallGridBitboard<{H},{W}>({:#x})", self.0)
+    }
+}
+
 impl<const H: usize, const W: usize> SmallGridBitboard<H, W> {
     pub const A_FILE: Self = Self::new(0x0101_0101_0101_0101);
     pub const FIRST_RANK: Self = Self::new(0xff);
 
     pub const INVALID_EDGE_MASK: Self = Self(Self::files_too_high().0 | Self::ranks_too_high().0);
 
-    #[inline]
+    pub const ALL: Self = Self(!Self::INVALID_EDGE_MASK.0);
+
+    #[inline(always)]
     pub const fn new(raw: RawStandardBitboard) -> Self {
         Self(raw)
     }
@@ -728,7 +775,7 @@ impl<const H: usize, const W: usize> SmallGridBitboard<H, W> {
 }
 
 impl<const H: usize, const W: usize> WrappingSub for SmallGridBitboard<H, W> {
-    #[inline]
+    #[inline(always)]
     fn wrapping_sub(&self, v: &Self) -> Self {
         Self(self.0.wrapping_sub(v.0))
     }
@@ -740,28 +787,51 @@ impl<const H: usize, const W: usize> Display for SmallGridBitboard<H, W> {
     }
 }
 
-impl<const H: usize, const W: usize> Bitboard<RawStandardBitboard, SmallGridSquare<H, W, 8>>
+impl Iterator for SmallGridBitboard<8, 8> {
+    type Item = SmallGridSquare<8, 8, 8>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.0.is_zero() { None } else { Some(SmallGridSquare::from_bb_idx(self.pop_lsb())) }
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        let n = self.0.num_ones();
+        (n, Some(n))
+    }
+}
+
+impl FusedIterator for SmallGridBitboard<8, 8> {}
+
+impl ExactSizeIterator for SmallGridBitboard<8, 8> {
+    fn len(&self) -> usize {
+        self.0.num_ones()
+    }
+}
+
+impl<const H: usize, const W: usize> BitboardTrait<RawStandardBitboard, SmallGridSquare<H, W, 8>>
     for SmallGridBitboard<H, W>
 {
-    #[inline]
+    #[inline(always)]
     fn new(raw: RawStandardBitboard, _size: SmallGridSize<H, W>) -> Self {
         Self(raw)
     }
 
+    #[inline(always)]
     fn ray_exclusive(a: SmallGridSquare<H, W, 8>, b: SmallGridSquare<H, W, 8>, _size: SmallGridSize<H, W>) -> Self {
         Self::new(RAYS_EXCLUSIVE[a.bb_idx()][b.bb_idx()])
     }
 
+    #[inline(always)]
     fn ray_inclusive(a: SmallGridSquare<H, W, 8>, b: SmallGridSquare<H, W, 8>, _size: SmallGridSize<H, W>) -> Self {
         Self::new(RAYS_INCLUSIVE[a.bb_idx()][b.bb_idx()])
     }
 
-    #[inline]
+    #[inline(always)]
     fn raw(self) -> RawStandardBitboard {
         self.0
     }
 
-    #[inline]
+    #[inline(always)]
     fn size(self) -> SmallGridSize<H, W> {
         SmallGridSize::default()
     }
@@ -779,26 +849,52 @@ impl<const H: usize, const W: usize> KnownSizeBitboard<RawStandardBitboard, Smal
 {
 }
 
+// see <https://www.chessprogramming.org/Flipping_Mirroring_and_Rotating>
+impl SmallGridBitboard<8, 8> {
+    pub fn flip_left_right(mut self) -> Self {
+        let k1 = Self::new(0x5555555555555555);
+        let k2 = Self::new(0x3333333333333333);
+        let k4 = Self::new(0x0f0f0f0f0f0f0f0f);
+        self = ((self >> 1) & k1) | ((self & k1) << 1);
+        self = ((self >> 2) & k2) | ((self & k2) << 2);
+        self = ((self >> 4) & k4) | ((self & k4) << 4);
+        self
+    }
+
+    pub fn flip_diagonally(mut self) -> Self {
+        let k1 = Bitboard::new(0x5500550055005500);
+        let k2 = Bitboard::new(0x3333000033330000);
+        let k4 = Bitboard::new(0x0f0f0f0f00000000);
+        let mut t = k4 & (self ^ (self << 28));
+        self ^= t ^ (t >> 28);
+        t = k2 & (self ^ (self << 14));
+        self ^= t ^ (t >> 14);
+        t = k1 & (self ^ (self << 7));
+        self ^= t ^ (t >> 7);
+        self
+    }
+}
+
 // Deriving Eq and Partial Eq means that irrelevant bits are also getting compared.
 // This makes comparisons fast but shifts responsibility to the user to properly zero out those,
 // which can be confusing. TODO: Change?
 /// Despite the name, it's technically possible to instantiate this generic struct with a `KnownSize`.
 #[derive(Default, Copy, Clone, PartialEq, Eq)]
 #[must_use]
-pub struct DynamicallySizedBitboard<R: RawBitboard, C: RectangularCoordinates> {
+pub struct DynamicallySizedBitboard<R: RawBitboardTrait, C: RectangularCoordinates> {
     raw: R,
     size: C::Size,
 }
 
 // for some reason, automatically deriving `Arbitrary` doesn't work here
-impl<'a, R: RawBitboard, C: RectangularCoordinates> Arbitrary<'a> for DynamicallySizedBitboard<R, C> {
+impl<'a, R: RawBitboardTrait, C: RectangularCoordinates> Arbitrary<'a> for DynamicallySizedBitboard<R, C> {
     fn arbitrary(u: &mut Unstructured<'a>) -> arbitrary::Result<Self> {
         let (raw, size) = u.arbitrary::<(R, C::Size)>()?;
         Ok(Self { raw, size })
     }
 }
 
-impl<R: RawBitboard, C: RectangularCoordinates> Debug for DynamicallySizedBitboard<R, C> {
+impl<R: RawBitboardTrait, C: RectangularCoordinates> Debug for DynamicallySizedBitboard<R, C> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         f.debug_struct("DynamicallySizedBitboard")
             .field("raw", &format_args!("{:#x}", self.raw))
@@ -808,7 +904,7 @@ impl<R: RawBitboard, C: RectangularCoordinates> Debug for DynamicallySizedBitboa
 }
 
 // TODO: Bitboard overlay for board text output?
-impl<R: RawBitboard, C: RectangularCoordinates> Display for DynamicallySizedBitboard<R, C> {
+impl<R: RawBitboardTrait, C: RectangularCoordinates> Display for DynamicallySizedBitboard<R, C> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         self.format(f)
     }
@@ -816,7 +912,7 @@ impl<R: RawBitboard, C: RectangularCoordinates> Display for DynamicallySizedBitb
 
 // Unfortunately, we can't simply `#derive` the implementations for all the operators
 
-impl<R: RawBitboard, C: RectangularCoordinates> Deref for DynamicallySizedBitboard<R, C> {
+impl<R: RawBitboardTrait, C: RectangularCoordinates> Deref for DynamicallySizedBitboard<R, C> {
     type Target = R;
 
     #[inline]
@@ -825,7 +921,7 @@ impl<R: RawBitboard, C: RectangularCoordinates> Deref for DynamicallySizedBitboa
     }
 }
 
-impl<R: RawBitboard, C: RectangularCoordinates> DerefMut for DynamicallySizedBitboard<R, C> {
+impl<R: RawBitboardTrait, C: RectangularCoordinates> DerefMut for DynamicallySizedBitboard<R, C> {
     #[inline]
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.raw
@@ -833,7 +929,7 @@ impl<R: RawBitboard, C: RectangularCoordinates> DerefMut for DynamicallySizedBit
 }
 
 /// Necessary for WrappingSub (even though we don't want `Sub` itself).
-impl<R: RawBitboard, C: RectangularCoordinates> Sub for DynamicallySizedBitboard<R, C> {
+impl<R: RawBitboardTrait, C: RectangularCoordinates> Sub for DynamicallySizedBitboard<R, C> {
     type Output = Self;
 
     #[inline]
@@ -844,14 +940,14 @@ impl<R: RawBitboard, C: RectangularCoordinates> Sub for DynamicallySizedBitboard
 }
 
 /// Necessary for hyperbola quintessence.
-impl<R: RawBitboard, C: RectangularCoordinates> WrappingSub for DynamicallySizedBitboard<R, C> {
-    #[inline]
+impl<R: RawBitboardTrait, C: RectangularCoordinates> WrappingSub for DynamicallySizedBitboard<R, C> {
+    #[inline(always)]
     fn wrapping_sub(&self, v: &Self) -> Self {
         Self::new(self.raw.wrapping_sub(&v.raw), self.size)
     }
 }
 
-impl<R: RawBitboard, C: RectangularCoordinates> Not for DynamicallySizedBitboard<R, C> {
+impl<R: RawBitboardTrait, C: RectangularCoordinates> Not for DynamicallySizedBitboard<R, C> {
     type Output = Self;
 
     #[inline]
@@ -860,7 +956,7 @@ impl<R: RawBitboard, C: RectangularCoordinates> Not for DynamicallySizedBitboard
     }
 }
 
-impl<R: RawBitboard, C: RectangularCoordinates> BitOr for DynamicallySizedBitboard<R, C> {
+impl<R: RawBitboardTrait, C: RectangularCoordinates> BitOr for DynamicallySizedBitboard<R, C> {
     type Output = Self;
 
     #[inline]
@@ -870,7 +966,7 @@ impl<R: RawBitboard, C: RectangularCoordinates> BitOr for DynamicallySizedBitboa
     }
 }
 
-impl<R: RawBitboard, C: RectangularCoordinates> BitOrAssign for DynamicallySizedBitboard<R, C> {
+impl<R: RawBitboardTrait, C: RectangularCoordinates> BitOrAssign for DynamicallySizedBitboard<R, C> {
     #[inline]
     fn bitor_assign(&mut self, rhs: Self) {
         debug_assert_eq!(self.size(), rhs.size());
@@ -878,7 +974,7 @@ impl<R: RawBitboard, C: RectangularCoordinates> BitOrAssign for DynamicallySized
     }
 }
 
-impl<R: RawBitboard, C: RectangularCoordinates> BitAnd for DynamicallySizedBitboard<R, C> {
+impl<R: RawBitboardTrait, C: RectangularCoordinates> BitAnd for DynamicallySizedBitboard<R, C> {
     type Output = Self;
 
     #[inline]
@@ -888,7 +984,7 @@ impl<R: RawBitboard, C: RectangularCoordinates> BitAnd for DynamicallySizedBitbo
     }
 }
 
-impl<R: RawBitboard, C: RectangularCoordinates> BitAndAssign for DynamicallySizedBitboard<R, C> {
+impl<R: RawBitboardTrait, C: RectangularCoordinates> BitAndAssign for DynamicallySizedBitboard<R, C> {
     #[inline]
     fn bitand_assign(&mut self, rhs: Self) {
         debug_assert_eq!(self.size(), rhs.size());
@@ -896,7 +992,7 @@ impl<R: RawBitboard, C: RectangularCoordinates> BitAndAssign for DynamicallySize
     }
 }
 
-impl<R: RawBitboard, C: RectangularCoordinates> BitXor for DynamicallySizedBitboard<R, C> {
+impl<R: RawBitboardTrait, C: RectangularCoordinates> BitXor for DynamicallySizedBitboard<R, C> {
     type Output = Self;
 
     #[inline]
@@ -906,7 +1002,7 @@ impl<R: RawBitboard, C: RectangularCoordinates> BitXor for DynamicallySizedBitbo
     }
 }
 
-impl<R: RawBitboard, C: RectangularCoordinates> BitXorAssign for DynamicallySizedBitboard<R, C> {
+impl<R: RawBitboardTrait, C: RectangularCoordinates> BitXorAssign for DynamicallySizedBitboard<R, C> {
     #[inline]
     fn bitxor_assign(&mut self, rhs: Self) {
         debug_assert_eq!(self.size(), rhs.size());
@@ -914,7 +1010,7 @@ impl<R: RawBitboard, C: RectangularCoordinates> BitXorAssign for DynamicallySize
     }
 }
 
-impl<R: RawBitboard, C: RectangularCoordinates> Shl<usize> for DynamicallySizedBitboard<R, C> {
+impl<R: RawBitboardTrait, C: RectangularCoordinates> Shl<usize> for DynamicallySizedBitboard<R, C> {
     type Output = Self;
 
     #[inline]
@@ -923,14 +1019,14 @@ impl<R: RawBitboard, C: RectangularCoordinates> Shl<usize> for DynamicallySizedB
     }
 }
 
-impl<R: RawBitboard, C: RectangularCoordinates> ShlAssign<usize> for DynamicallySizedBitboard<R, C> {
+impl<R: RawBitboardTrait, C: RectangularCoordinates> ShlAssign<usize> for DynamicallySizedBitboard<R, C> {
     #[inline]
     fn shl_assign(&mut self, rhs: usize) {
         self.raw <<= rhs;
     }
 }
 
-impl<R: RawBitboard, C: RectangularCoordinates> Shr<usize> for DynamicallySizedBitboard<R, C> {
+impl<R: RawBitboardTrait, C: RectangularCoordinates> Shr<usize> for DynamicallySizedBitboard<R, C> {
     type Output = Self;
 
     #[inline]
@@ -939,15 +1035,15 @@ impl<R: RawBitboard, C: RectangularCoordinates> Shr<usize> for DynamicallySizedB
     }
 }
 
-impl<R: RawBitboard, C: RectangularCoordinates> ShrAssign<usize> for DynamicallySizedBitboard<R, C> {
+impl<R: RawBitboardTrait, C: RectangularCoordinates> ShrAssign<usize> for DynamicallySizedBitboard<R, C> {
     #[inline]
     fn shr_assign(&mut self, rhs: usize) {
         self.raw >>= rhs;
     }
 }
 
-impl<R: RawBitboard, C: RectangularCoordinates> Bitboard<R, C> for DynamicallySizedBitboard<R, C> {
-    #[inline]
+impl<R: RawBitboardTrait, C: RectangularCoordinates> BitboardTrait<R, C> for DynamicallySizedBitboard<R, C> {
+    #[inline(always)]
     fn new(raw: R, size: C::Size) -> Self {
         Self { raw, size }
     }
@@ -964,18 +1060,18 @@ impl<R: RawBitboard, C: RectangularCoordinates> Bitboard<R, C> for DynamicallySi
         Self::new(underlying, size)
     }
 
-    #[inline]
+    #[inline(always)]
     fn raw(self) -> R {
         self.raw
     }
 
-    #[inline]
+    #[inline(always)]
     fn size(self) -> C::Size {
         self.size
     }
 }
 
-impl<R: RawBitboard, C: RectangularCoordinates> DynamicallySizedBitboard<R, C> {
+impl<R: RawBitboardTrait, C: RectangularCoordinates> DynamicallySizedBitboard<R, C> {
     fn ray(a: C, b: C, size: C::Size) -> Self {
         if a.row() == b.row() {
             Self::rank_for(a.row(), size)
@@ -992,7 +1088,7 @@ impl<R: RawBitboard, C: RectangularCoordinates> DynamicallySizedBitboard<R, C> {
 }
 
 // TODO: Remove?!
-impl<R: RawBitboard, C: RectangularCoordinates<Size: KnownSize<C>>> KnownSizeBitboard<R, C>
+impl<R: RawBitboardTrait, C: RectangularCoordinates<Size: KnownSize<C>>> KnownSizeBitboard<R, C>
     for DynamicallySizedBitboard<R, C>
 {
 }
@@ -1094,39 +1190,66 @@ macro_rules! precompute_leaper_attacks {
 pub mod chessboard {
     use super::*;
 
-    pub type ChessBitboard = SmallGridBitboard<8, 8>;
+    pub type Bitboard = SmallGridBitboard<8, 8>;
 
-    pub const KNIGHTS: [ChessBitboard; 64] = {
-        let mut res: [ChessBitboard; 64] = [ChessBitboard::new(0); 64];
+    pub const KNIGHTS: [Bitboard; 64] = {
+        let mut res: [Bitboard; 64] = [Bitboard::new(0); 64];
         let mut i = 0;
         while i < 64 {
-            res[i] = ChessBitboard::new(precompute_leaper_attacks!(i, 1, 2, false, 8, false, u64));
+            res[i] = Bitboard::new(precompute_leaper_attacks!(i, 1, 2, false, 8, false, u64));
             i += 1;
         }
         res
     };
 
-    pub const KINGS: [ChessBitboard; 64] = {
-        let mut res = [ChessBitboard::new(0); 64];
+    pub const KINGS: [Bitboard; 64] = {
+        let mut res = [Bitboard::new(0); 64];
         let mut i = 0;
         while i < 64 {
             let bb = precompute_leaper_attacks!(i, 1, 1, false, 8, false, u64)
                 | precompute_leaper_attacks!(i, 0, 1, false, 8, false, u64);
-            res[i] = ChessBitboard::new(bb);
+            res[i] = Bitboard::new(bb);
+            i += 1;
+        }
+        res
+    };
+
+    /// Rook attacks on an empty board
+    pub const ROOKS: [Bitboard; 64] = {
+        let mut res = [Bitboard::new(0); 64];
+        let mut i = 0;
+        while i < 64 {
+            let rank = i / 8;
+            let bb = 0xff << (8 * rank);
+            let file = i % 8;
+            let bb = bb | Bitboard::A_FILE.0 << file;
+            res[i] = Bitboard::new(bb ^ (1 << i));
+            i += 1;
+        }
+        res
+    };
+
+    /// Bishop attacks on an empty board
+    pub const BISHOPS: [Bitboard; 64] = {
+        let mut res = [Bitboard::new(0); 64];
+        let mut i = 0;
+        while i < 64 {
+            let bb = DIAGONALS_U64[8][i] | ANTI_DIAGONALS_U64[8][i];
+            res[i] = Bitboard::new(bb ^ (1 << i));
             i += 1;
         }
         res
     };
 
     // All squares with a sup distance of 2
-    pub const ATAXX_LEAPERS: [ChessBitboard; 64] = {
-        let mut res = [ChessBitboard::new(0); 64];
+    pub const ATAXX_LEAPERS: [Bitboard; 64] = {
+        let mut res = [Bitboard::new(0); 64];
         let mut i = 0;
         while i < 64 {
             let bb = precompute_leaper_attacks!(i, 2, 2, false, 8, false, u64)
                 | precompute_leaper_attacks!(i, 1, 2, false, 8, false, u64)
                 | precompute_leaper_attacks!(i, 0, 2, false, 8, false, u64);
-            res[i] = ChessBitboard::new(bb);
+            res[i] = Bitboard::new(bb);
             i += 1;
         }
         res
@@ -1144,7 +1267,7 @@ pub mod chessboard {
                 let sq = rank * 8 + i;
                 res[start][sq] = ray_between_exclusive!(start, sq, 0xff << (8 * rank), 1_u64, u64);
                 let sq = 8 * i + file;
-                res[start][sq] = ray_between_exclusive!(start, sq, ChessBitboard::A_FILE.0 << file, 1_u64, u64);
+                res[start][sq] = ray_between_exclusive!(start, sq, Bitboard::A_FILE.0 << file, 1_u64, u64);
                 i += 1;
             }
             let mut diag = DIAGONALS_U64[8][start];
@@ -1179,23 +1302,49 @@ pub mod chessboard {
         res
     };
 
-    pub const fn white_squares() -> ChessBitboard {
+    /// Complete Rays: If there is a queen move between the two squares, extend that ray over the entire square
+    pub static INFINITE_RAYS: [[RawStandardBitboard; 64]; 64] = {
+        let mut res = [[0; 64]; 64];
+        let mut a = 0;
+        while a < 64 {
+            let mut b = 0;
+            while b < 64 {
+                res[a][b] = if a == b {
+                    0
+                } else if a % 8 == b % 8 {
+                    Bitboard::A_FILE.0 << b % 8
+                } else if a / 8 == b / 8 {
+                    Bitboard::FIRST_RANK.0 << (b / 8 * 8)
+                } else if DIAGONALS_U64[8][a] & (1 << b) != 0 {
+                    DIAGONALS_U64[8][a]
+                } else if ANTI_DIAGONALS_U64[8][a] & (1 << b) != 0 {
+                    ANTI_DIAGONALS_U64[8][a]
+                } else {
+                    0
+                };
+                b += 1;
+            }
+            a += 1;
+        }
+        res
+    };
+
+    pub const fn white_squares() -> Bitboard {
         COLORED_SQUARES[0]
     }
-    pub const fn black_squares() -> ChessBitboard {
+    pub const fn black_squares() -> Bitboard {
         COLORED_SQUARES[1]
     }
 
-    pub const COLORED_SQUARES: [ChessBitboard; 2] =
-        [ChessBitboard::new(0x55aa_55aa_55aa_55aa), ChessBitboard::new(0xaa55_aa55_aa55_aa55)];
+    pub const COLORED_SQUARES: [Bitboard; 2] =
+        [Bitboard::new(0x55aa_55aa_55aa_55aa), Bitboard::new(0xaa55_aa55_aa55_aa55)];
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::games::mnk::MnkBitboard;
-    use crate::games::{Height, Width};
-    use crate::general::bitboards::chessboard::{ATAXX_LEAPERS, ChessBitboard, KINGS};
+    use crate::games::{Height, Width, mnk};
+    use crate::general::bitboards::chessboard::{ATAXX_LEAPERS, Bitboard, KINGS};
     use crate::general::squares::{GridCoordinates, GridSize};
     use rand::rngs::StdRng;
     use rand::{Rng, SeedableRng, random};
@@ -1204,7 +1353,7 @@ mod tests {
     fn precomputed_test() {
         for i in 0..64 {
             // equivalent to `ChessSquare::from_bb_index(i).bb()`
-            let bb = ChessBitboard::new(RawStandardBitboard::single_piece_at(i));
+            let bb = Bitboard::new(RawStandardBitboard::single_piece_at(i));
             let king = bb.west() | bb.east() | bb;
             let king = king.south() | king.north() | king;
             let leaping = king.west() | king.east() | king;
@@ -1230,7 +1379,7 @@ mod tests {
                 | (1 << i);
             assert_eq!(
                 neighbors,
-                DynamicallySizedBitboard::<u128, GridCoordinates>::new(1 << i, size).moore_neighbors().raw
+                DynamicallySizedBitboard::<u128, GridCoordinates>::new(1 << i, size).moore_inclusive().raw
             );
         }
     }
@@ -1258,24 +1407,21 @@ mod tests {
 
     #[test]
     fn ranks_containing_test() {
-        assert_eq!(ChessBitboard::new(0).ranks_containing(), ChessBitboard::new(0));
-        assert_eq!(ChessBitboard::new(1).ranks_containing(), ChessBitboard::rank_0());
-        assert_eq!(ChessBitboard::new(1 << 12).ranks_containing(), ChessBitboard::rank(1));
+        assert_eq!(Bitboard::new(0).ranks_containing(), Bitboard::new(0));
+        assert_eq!(Bitboard::new(1).ranks_containing(), Bitboard::rank_0());
+        assert_eq!(Bitboard::new(1 << 12).ranks_containing(), Bitboard::rank(1));
         assert_eq!(
-            ChessBitboard::new(0x20_00_ff_00_00_81).ranks_containing(),
-            ChessBitboard::rank(0) | ChessBitboard::rank(3) | ChessBitboard::rank(5)
+            Bitboard::new(0x20_00_ff_00_00_81).ranks_containing(),
+            Bitboard::rank(0) | Bitboard::rank(3) | Bitboard::rank(5)
         );
     }
 
     #[test]
     fn files_containing_test() {
-        assert_eq!(
-            ChessBitboard::new(0x6_94_04).files_containing() & ChessBitboard::rank_0(),
-            ChessBitboard::new(0x96)
-        );
-        assert_eq!(ChessBitboard::new(0).files_containing(), ChessBitboard::new(0));
-        assert_eq!(ChessBitboard::new(1).files_containing(), ChessBitboard::file_0());
-        assert_eq!(ChessBitboard::new(1 << 12).files_containing(), ChessBitboard::file(4));
+        assert_eq!(Bitboard::new(0x6_94_04).files_containing() & Bitboard::rank_0(), Bitboard::new(0x96));
+        assert_eq!(Bitboard::new(0).files_containing(), Bitboard::new(0));
+        assert_eq!(Bitboard::new(1).files_containing(), Bitboard::file_0());
+        assert_eq!(Bitboard::new(1 << 12).files_containing(), Bitboard::file(4));
     }
 
     #[test]
@@ -1286,7 +1432,7 @@ mod tests {
         let bb = rng.random::<u128>()
             & rng.random::<u128>()
             & rng.random::<u128>().remove_ones_above(size.num_squares() - 1);
-        let bb = MnkBitboard::new(bb, size);
+        let bb = mnk::Bitboard::new(bb, size);
         let files = bb.files_containing();
         let ranks = bb.ranks_containing();
         let w = size.internal_width();
@@ -1314,65 +1460,65 @@ mod tests {
             let row = i / 8;
             let expected = (0xff_u128 - (1 << (i % 8))) << (row * 8);
             assert_eq!(
-                MnkBitboard::hyperbola_quintessence_fallback(
+                mnk::Bitboard::hyperbola_quintessence_fallback(
                     i,
-                    MnkBitboard::new(0, size),
-                    |x| MnkBitboard::new(x.reverse_bits(), size),
-                    MnkBitboard::new(0xff, size) << (row * 8)
+                    mnk::Bitboard::new(0, size),
+                    |x| mnk::Bitboard::new(x.reverse_bits(), size),
+                    mnk::Bitboard::new(0xff, size) << (row * 8)
                 ),
-                MnkBitboard::new(expected, size),
+                mnk::Bitboard::new(expected, size),
                 "{i}"
             );
         }
 
         assert_eq!(
-            MnkBitboard::hyperbola_quintessence_fallback(
+            mnk::Bitboard::hyperbola_quintessence_fallback(
                 3,
-                MnkBitboard::new(0b_0100_0001, size),
-                |x| MnkBitboard::new(x.reverse_bits(), size),
-                MnkBitboard::new(0xff, size),
+                mnk::Bitboard::new(0b_0100_0001, size),
+                |x| mnk::Bitboard::new(x.reverse_bits(), size),
+                mnk::Bitboard::new(0xff, size),
             ),
-            MnkBitboard::new(0b_0111_0111, size),
+            mnk::Bitboard::new(0b_0111_0111, size),
         );
 
         assert_eq!(
-            MnkBitboard::hyperbola_quintessence_fallback(
+            mnk::Bitboard::hyperbola_quintessence_fallback(
                 28,
-                MnkBitboard::new(0x1234_4000_0fed, size),
-                |x| MnkBitboard::new(x.reverse_bits(), size),
-                MnkBitboard::new(0xffff_ffff_ffff, size),
+                mnk::Bitboard::new(0x1234_4000_0fed, size),
+                |x| mnk::Bitboard::new(x.reverse_bits(), size),
+                mnk::Bitboard::new(0xffff_ffff_ffff, size),
             ),
-            MnkBitboard::new(0x0000_6fff_f800, size),
+            mnk::Bitboard::new(0x0000_6fff_f800, size),
         );
 
         assert_eq!(
-            MnkBitboard::hyperbola_quintessence_fallback(
+            mnk::Bitboard::hyperbola_quintessence_fallback(
                 28,
-                MnkBitboard::new(0x0110_0200_0001_1111, size),
-                |x| MnkBitboard::new(x.reverse_bits(), size),
-                MnkBitboard::new(0x1111_1111_1111_1111, size),
+                mnk::Bitboard::new(0x0110_0200_0001_1111, size),
+                |x| mnk::Bitboard::new(x.reverse_bits(), size),
+                mnk::Bitboard::new(0x1111_1111_1111_1111, size),
             ),
-            MnkBitboard::new(0x0011_1111_0111_0000, size),
+            mnk::Bitboard::new(0x0011_1111_0111_0000, size),
         );
 
         assert_eq!(
-            MnkBitboard::hyperbola_quintessence_fallback(
+            mnk::Bitboard::hyperbola_quintessence_fallback(
                 16,
-                MnkBitboard::new(0xfffe_d002_a912, size),
-                |x| MnkBitboard::new(x.swap_bytes(), size),
-                MnkBitboard::new(0x0101_0101_0101, size),
+                mnk::Bitboard::new(0xfffe_d002_a912, size),
+                |x| mnk::Bitboard::new(x.swap_bytes(), size),
+                mnk::Bitboard::new(0x0101_0101_0101, size),
             ),
-            MnkBitboard::new(0x0101_0100_0100, size),
+            mnk::Bitboard::new(0x0101_0100_0100, size),
         );
 
         assert_eq!(
-            MnkBitboard::hyperbola_quintessence_fallback(
+            mnk::Bitboard::hyperbola_quintessence_fallback(
                 20,
-                MnkBitboard::new(0xffff_ffef_ffff, size),
-                |x| MnkBitboard::new(x.swap_bytes(), size),
-                MnkBitboard::new(0x_ffff_ffff_ffff, size),
+                mnk::Bitboard::new(0xffff_ffef_ffff, size),
+                |x| mnk::Bitboard::new(x.swap_bytes(), size),
+                mnk::Bitboard::new(0x_ffff_ffff_ffff, size),
             ),
-            MnkBitboard::new(0, size),
+            mnk::Bitboard::new(0, size),
         );
     }
 }

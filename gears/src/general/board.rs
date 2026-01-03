@@ -17,20 +17,20 @@
  */
 use crate::PlayerResult::{Draw, Lose};
 use crate::games::{
-    AbstractPieceType, BoardHistory, CharType, Color, ColoredPiece, ColoredPieceType, Coordinates, DimT, PosHash,
-    Settings, Size, file_to_char,
+    AbstractPieceType, BoardHistory, CharType, ColorTrait, ColoredPieceTrait, ColoredPieceTypeTrait, CoordinatesTrait,
+    DimT, PosHash, SettingsTrait, SizeTrait, file_to_char,
 };
-use crate::general::bitboards::{Bitboard, RawBitboard};
+use crate::general::bitboards::{BitboardTrait, RawBitboardTrait};
 use crate::general::board::SelfChecks::{Assertion, Verify};
 use crate::general::board::Strictness::{Relaxed, Strict};
 use crate::general::common::Description::NoDescription;
 use crate::general::common::{
     EntityList, NamedEntity, Res, StaticallyNamedEntity, Tokens, TokensToString, select_name_static, tokens,
 };
-use crate::general::move_list::{MoveIter, MoveList};
+use crate::general::move_list::{MoveIter, MoveListTrait};
 use crate::general::moves::ExtendedFormat::Standard;
 use crate::general::moves::Legality::{Legal, PseudoLegal};
-use crate::general::moves::Move;
+use crate::general::moves::MoveTrait;
 use crate::general::squares::{RectangularCoordinates, RectangularSize, SquareColor};
 use crate::output::OutputOpts;
 use crate::output::text_output::BoardFormatter;
@@ -43,6 +43,7 @@ use colored::Colorize;
 use num::Zero;
 use rand::Rng;
 use std::fmt::{Debug, Display, Formatter};
+use std::iter::FusedIterator;
 use std::num::NonZeroUsize;
 use std::str::Split;
 use std::{fmt, iter};
@@ -52,15 +53,20 @@ use strum_macros::EnumIter;
 pub struct NameToPos {
     pub name: &'static str,
     pub fen: &'static str,
+    pub description: Option<&'static str>,
     pub strictness: Strictness,
 }
 
 impl NameToPos {
     pub fn strict(name: &'static str, fen: &'static str) -> Self {
-        Self { name, fen, strictness: Strict }
+        Self { name, fen, description: None, strictness: Strict }
     }
 
-    pub fn create<B: Board>(&self) -> B {
+    pub fn desc(name: &'static str, fen: &'static str, desc: &'static str) -> Self {
+        Self { name, fen, description: Some(desc), strictness: Strict }
+    }
+
+    pub fn create<B: BoardTrait>(&self) -> B {
         B::from_fen(self.fen, self.strictness).unwrap()
     }
 }
@@ -75,16 +81,17 @@ impl NamedEntity for NameToPos {
     }
 
     fn description(&self) -> Option<String> {
-        None
+        self.description.map(|s| s.to_string())
     }
 }
 
 /// How many checks to execute.
 /// Enum variants are listed in order; later checks generally include earlier checks.
-/// (Except that the chessboard currently allows illegal pseudolegal ep squares internally but not when parsing FENs in strict mode)
-#[derive(Debug, Eq, PartialEq, Copy, Clone)]
+/// In some cases [`SelfChecks::CheckFen`] silently fixes an incorrect ep square in [`Relaxed`] mode.
+#[derive(Debug, Eq, PartialEq, Copy, Clone, Ord, PartialOrd)]
 #[must_use]
 pub enum SelfChecks {
+    Tablebase,
     CheckFen,
     Verify,
     Assertion,
@@ -128,10 +135,10 @@ impl NamedEntity for Symmetry {
     }
 }
 
-/// An [`UnverifiedBoard`] is a [`Board`] where invariants can be violated.
-pub trait UnverifiedBoard<B: Board>: Debug + Clone + From<B>
+/// An [`UnverifiedBoardTrait`] is a [`BoardTrait`] where invariants can be violated.
+pub trait UnverifiedBoardTrait<B: BoardTrait>: Debug + Clone + From<B>
 where
-    B: Board<Unverified = Self>,
+    B: BoardTrait<Unverified = Self>,
 {
     /// Conceptually, this simply copies the board.
     fn new(board: B) -> Self {
@@ -176,9 +183,9 @@ where
         self.size().check_coordinates(coords)
     }
 
-    /// Place a piece of the given type and color on the given square. Like all functions that return an [`UnverifiedBoard`],
+    /// Place a piece of the given type and color on the given square. Like all functions that return an [`UnverifiedBoardTrait`],
     /// this doesn't check that the resulting position is legal.
-    /// However, this function can still fail if the piece can't be placed because the coordinates.
+    /// However, this function can still fail if the piece can't be placed.
     /// If there is a piece already on the square, it is implementation-defined what will happen; possible options include
     /// replacing the piece, returning an `Err`, or silently going into a bad state that will return an `Err` on [`Self::verify`].
     /// May perform expensive checks.
@@ -208,7 +215,7 @@ where
 
     /// Remove the piece at the given coordinates. If there is no piece there, nothing happens.
     /// If the coordinates are invalid, an `Err` is returned.
-    /// Some [`UnverifiedBoard`]s can represent multiple pieces at the same coordinates; it is implementation-defined
+    /// Some [`UnverifiedBoardTrait`]s can represent multiple pieces at the same coordinates; it is implementation-defined
     /// what this method does in that case.
     fn try_remove_piece(&mut self, coords: B::Coordinates) -> Res<()> {
         if !self.try_get_piece_on(coords)?.is_empty() {
@@ -228,14 +235,14 @@ where
     }
 
     /// Returns the piece on the given coordinates, or `None` if the coordinates aren't valid.
-    /// Some [`UnverifiedBoard`]s can represent multiple pieces at the same coordinates; it is implementation-defined
+    /// Some [`UnverifiedBoardTrait`]s can represent multiple pieces at the same coordinates; it is implementation-defined
     /// what this method does in that case (but it should never return empty coordinates in that case).
     fn try_get_piece_on(&self, coords: B::Coordinates) -> Res<B::Piece> {
         Ok(self.piece_on(self.check_coordinates(coords)?))
     }
 
     /// Returns the piece on the given coordinates, or `None` if the coordinates aren't valid.
-    /// Some [`UnverifiedBoard`]s can represent multiple pieces at the same coordinates; it is implementation-defined
+    /// Some [`UnverifiedBoardTrait`]s can represent multiple pieces at the same coordinates; it is implementation-defined
     /// what this method does in that case (but it should never return empty coordinates in that case).
     fn piece_on(&self, coords: B::Coordinates) -> B::Piece;
 
@@ -272,20 +279,20 @@ where
 
 // Rustc warns that the `Board` bounds are not enforced but removing them makes the program fail to compile
 #[expect(type_alias_bounds)]
-pub type ColPieceTypeOf<B: Board> = <B::Piece as ColoredPiece<B>>::ColoredPieceType;
+pub type ColPieceTypeOf<B: BoardTrait> = <B::Piece as ColoredPieceTrait<B>>::ColoredPieceType;
 
 #[expect(type_alias_bounds)]
-pub type PieceTypeOf<B: Board> = <ColPieceTypeOf<B> as ColoredPieceType<B>>::Uncolored;
+pub type PieceTypeOf<B: BoardTrait> = <ColPieceTypeOf<B> as ColoredPieceTypeTrait<B>>::Uncolored;
 
 #[expect(type_alias_bounds)]
-pub type BoardSize<B: Board> = <B::Coordinates as Coordinates>::Size;
+pub type BoardSize<B: BoardTrait> = <B::Coordinates as CoordinatesTrait>::Size;
 
 /// Currently, a game is completely determined by the `Board` type:
 /// The type implementing `Board` contains all the necessary information about the rules of the game.
 /// However, a `Board` is assumed to be markovian and needs to be `'static`.
 /// Despite not requiring [`Copy`], a board should be cheap to clone.
 /// In fact, currently all boards except [`FairyBoard`] implement [`Copy`]
-pub trait Board:
+pub trait BoardTrait:
     Debug
     + Display
     + Send
@@ -301,14 +308,14 @@ pub trait Board:
 {
     /// Should be either `Self::Unverified` or `Self`
     type EmptyRes: Into<Self::Unverified>;
-    type Settings: Settings;
+    type Settings: SettingsTrait;
     type SettingsRef: Default + Eq;
-    type Coordinates: Coordinates;
-    type Color: Color<Board = Self>;
-    type Piece: ColoredPiece<Self>;
-    type Move: Move<Self>;
-    type MoveList: MoveList<Self> + Default;
-    type Unverified: UnverifiedBoard<Self>;
+    type Coordinates: CoordinatesTrait;
+    type Color: ColorTrait<Board = Self>;
+    type Piece: ColoredPieceTrait<Self>;
+    type Move: MoveTrait<Self>;
+    type MoveList: MoveListTrait<Self> + Default;
+    type Unverified: UnverifiedBoardTrait<Self>;
 
     /// The position returned by this function does not have to be legal, e.g. in chess it would
     /// not include any kings. However, this is still useful to set up the board and is used
@@ -344,7 +351,7 @@ pub trait Board:
     }
 
     /// Returns a Vec mapping well-known position names to their FEN, for example for `kiwipete` in chess.
-    /// Can be implemented by a concrete [`Board`], which will make [`Self::from_name`] recognize the name and lets the
+    /// Can be implemented by a concrete [`BoardTrait`], which will make [`Self::from_name`] recognize the name and lets the
     /// UI know about supported positions.
     /// "startpos" is handled automatically in `from_name` but can be overwritten here.
     #[must_use]
@@ -355,7 +362,7 @@ pub trait Board:
     /// `bench` positions are used in various places, such as for testing the engine, measuring search speed, and in calling `bench`
     /// on an engine.
     #[must_use]
-    fn bench_positions() -> Vec<Self>;
+    fn bench_positions() -> impl IntoIterator<Item = Self>;
 
     /// Return a random legal (but `Relaxed`) position. Not every position has to be able to be generated, and there
     /// are no requirements for the distribution of positions. So always returning startpos would be a valid, if poor,
@@ -371,7 +378,6 @@ pub trait Board:
     // fn variant(name: &str, _additional: &mut Tokens) -> Res<Self> {
     //     bail!("The game {0} does not support any variants, including '{1}'", Self::game_name(), name.red())
     // }
-
     fn variant_for(name: &str, _additional: &mut Tokens, _proto: Protocol) -> Res<Self> {
         bail!("The game {0} does not support any variants, including '{1}'", Self::game_name(), name.red())
     }
@@ -403,9 +409,7 @@ pub trait Board:
     }
 
     /// Returns the piece at the given coordinates.
-    /// `uncolored_piece_on` can sometimes be implemented more efficiently, e.g. for chess,
-    /// but both methods can be relatively slow. For example, a chess move already stores the moving piece;
-    /// getting it from the chess move is more efficient than getting it from the board.
+    /// [`Self::piece_type_on`] can sometimes be implemented more efficiently, e.g. for chess.
     fn colored_piece_on(&self, coords: Self::Coordinates) -> Self::Piece;
 
     /// Returns the uncolored piece type at the given coordinates.
@@ -427,53 +431,84 @@ pub trait Board:
     /// and the default perft depth can change depending on that (or even depending on the current position)
     fn default_perft_depth(&self) -> DepthPly;
 
+    /// The maximum argument for `perft` and `splitperft`.
+    fn max_perft_depth() -> DepthPly {
+        DepthPly::new(1000)
+    }
+
     /// Most games (e.g., chess) don't need any special checks for game-over conditions in perft, but some should explicitly test
     /// if the game is over (e.g. mnk) because movegen wouldn't do this automatically otherwise.
-    /// If this function returns `true`, `player_result_no_movegen` must return a `Some`.
+    /// If this function returns `true`, [`Self::player_result_no_movegen`] must return a `Some`.
     fn cannot_call_movegen(&self) -> bool {
         false
     }
 
-    /// Generate pseudolegal moves into the supplied move list. Generic over the move list to allow arbitrary code
-    /// upon adding moves, such as scoring or filtering the new move.
-    /// This doesn't handle a forced passing move in case of no legal moves.
-    fn gen_pseudolegal<T: MoveList<Self>>(&self, moves: &mut T);
+    /// Returns a list of pseudolegal moves, that is, moves which can either be played using
+    /// [`Self::make_move`] or which will cause `make_move` to return `None`.
+    /// Note that an implementation is allowed to filter out illegal pseudolegal moves, so this function does not
+    /// guarantee that e.g. all pseudolegal chess moves are being returned.
+    fn pseudolegal_moves(&self) -> Self::MoveList {
+        let mut moves = Self::MoveList::default();
+        self.gen_pseudolegal(|m| moves.add_move(m));
+        moves
+    }
+
+    /// Returns a list of pseudo legal moves that are considered "tactical", such as captures and promotions in chess.
+    fn tactical_pseudolegal(&self) -> Self::MoveList {
+        let mut moves = Self::MoveList::default();
+        self.gen_tactical_pseudolegal(|m| moves.add_move(m));
+        moves
+    }
+
+    /// Generate pseudolegal moves and calls the provided callable for each move.
+    /// This doesn't handle a forced passing move in case of no legal moves, unlike
+    /// [`Self::pseudolegal_moves`]. It should therefore be considered a very low-level function.
+    fn gen_pseudolegal(&self, callback: impl FnMut(Self::Move));
 
     /// Generate moves that are considered "tactical" into the supplied move list.
     /// Generic over the move list, like [`Self::gen_pseudolegal`].
     /// Note that some games don't consider any moves tactical, so this function may have no effect.
-    fn gen_tactical_pseudolegal<T: MoveList<Self>>(&self, moves: &mut T);
+    fn gen_tactical_pseudolegal(&self, callback: impl FnMut(Self::Move));
 
     /// Returns a list of legal moves, that is, moves that can be played using `make_move`
     /// and will not return `None`.
     /// Some variants require a passing move if there are no legal moves and the game isn't over.
-    /// This function honors that requirement by inserting a `Move::default()`,
-    /// unlike `gen_pseudolegal` (which can't know if there are no legal moves).
+    /// Like [`Self::pseudolegal_moves`], this function honors that requirement by inserting a `Move::default()`,
+    /// unlike [`Self::gen_pseudolegal`] (which can't know if there are no legal moves).
     fn legal_moves_slow(&self) -> Self::MoveList {
         let mut res = self.pseudolegal_moves();
         if Self::Move::legality(self.settings()) == PseudoLegal {
             res.filter_moves(|m| self.is_pseudolegal_move_legal(*m));
-        }
-        if res.num_moves() == 0 && self.no_moves_result().is_none() {
-            res.add_move(Self::Move::default());
         }
         res
     }
 
     /// Returns the number of pseudolegal moves. Can sometimes be implemented more efficiently
     /// than generating all pseudolegal moves and counting their number.
+    /// Returns 1 in case of a forced passing move.
     fn num_pseudolegal_moves(&self) -> usize {
-        self.pseudolegal_moves().num_moves()
+        let mut ctr = 0;
+        self.gen_pseudolegal(|_| ctr += 1);
+        ctr
     }
 
     /// Returns the number of legal moves. Automatically falls back to [`Self::num_pseudolegal_moves`] for games
     /// with legal movegen.
+    /// Returns `1` in case of a forced passing move.
     fn num_legal_moves(&self) -> usize {
         if Self::Move::legality(self.settings()) == Legal {
-            let res = self.num_pseudolegal_moves();
-            if res == 0 && self.no_moves_result().is_none() { 1 } else { res }
+            self.num_pseudolegal_moves()
         } else {
-            self.legal_moves_slow().num_moves()
+            let mut ctr = 0;
+            self.gen_pseudolegal(|m| {
+                if self.is_pseudolegal_move_legal(m) {
+                    ctr += 1;
+                }
+            });
+            if ctr == 0 && self.no_moves_result().is_none() {
+                ctr += 1; // forced passing move
+            }
+            ctr
         }
     }
 
@@ -532,7 +567,7 @@ pub trait Board:
     }
 
     /// Expects a pseudolegal move and returns if this move is also legal, which means that playing it with
-    /// `make_move` returns `Some(new_board)`
+    /// [`Self::make_move`] returns `Some(new_board)`
     fn is_pseudolegal_move_legal(&self, mov: Self::Move) -> bool {
         Self::Move::legality(self.settings()) == Legal || self.clone().make_move(mov).is_some()
     }
@@ -653,7 +688,7 @@ pub trait Board:
 
 /// This trait contains associated functions that can be called on `Board` instances but shouldn't be overridden by `Board` implementations.
 /// The purpose of splitting them out into their own trait is to make implementing `Board` less confusing.
-pub trait BoardHelpers: Board {
+pub trait BoardHelpers: BoardTrait {
     /// Returns the name of the game, such as 'chess'.
     #[must_use]
     fn game_name() -> String {
@@ -698,26 +733,9 @@ pub trait BoardHelpers: Board {
         !self.is_empty(coords)
     }
 
-    /// Returns a list of pseudo legal moves, that is, moves which can either be played using
-    /// [`Self::make_move`] or which will cause `make_move` to return `None`.
-    /// Note that an implementation is allowed to filter out illegal pseudolegal moves, so this function does not
-    /// guarantee that e.g. all pseudolegal chess moves are being returned.
-    fn pseudolegal_moves(&self) -> Self::MoveList {
-        let mut moves = Self::MoveList::default();
-        self.gen_pseudolegal(&mut moves);
-        moves
-    }
-
-    /// Returns a list of pseudo legal moves that are considered "tactical", such as captures and promotions in chess.
-    fn tactical_pseudolegal(&self) -> Self::MoveList {
-        let mut moves = Self::MoveList::default();
-        self.gen_tactical_pseudolegal(&mut moves);
-        moves
-    }
-
     /// Returns an iterator over all the positions after making a legal move.
     /// Not very useful for search because it doesn't allow changing the order of generated positions and isn't quite as fast as
-    /// a manual loop, but convenient for some use cases like [`perft`](crate::general::perft::perft).
+    /// a manual loop, but convenient for some use cases, for example [`perft`](crate::general::perft::perft).
     /// Like [`Self::legal_moves_slow`], this handles forced passing moves.
     fn children(&self) -> impl Iterator<Item = Self> + Send {
         let iter = self.pseudolegal_moves().into_iter();
@@ -764,14 +782,14 @@ pub trait BoardHelpers: Board {
 
     /// Verifies that all invariants of this board are satisfied. It should never be possible for this function to
     /// fail for a bug-free program; failure most likely means the `Board` implementation is bugged.
-    /// For checking invariants that might be violated, use a [`Board::Unverified`] and call [`Board::Unverified::verify_with_level`].
+    /// For checking invariants that might be violated, use a [`BoardTrait::Unverified`] and call [`BoardTrait::Unverified::verify_with_level`].
     fn debug_verify_invariants(&self, strictness: Strictness) -> Res<Self> {
         let verified = Self::Unverified::new(self.clone()).verify_with_level(Assertion, strictness)?;
         ensure!(verified == *self, "Recalculated data doesn't match: Should be \n'{verified:?}' but is \n'{self:?}'");
         Ok(verified)
     }
 
-    /// Parses a move using [`Move::from_text`], then applies it on this board and returns the result.
+    /// Parses a move using [`MoveTrait::from_text`], then applies it on this board and returns the result.
     fn make_move_from_str(self, text: &str) -> Res<Self> {
         let mov = Self::Move::from_text(text, &self)?;
         self.clone().make_move(mov).ok_or_else(|| {
@@ -784,14 +802,14 @@ pub trait BoardHelpers: Board {
 
     /// Place a piece of the given type and color on the given square. Doesn't check that the resulting position is
     /// legal (hence the `Unverified` return type), but can still fail if the piece can't be placed because e.g. there
-    /// is already a piece on that square. See [`UnverifiedBoard::try_place_piece`] and [`Self::replace_piece`].
+    /// is already a piece on that square. See [`UnverifiedBoardTrait::try_place_piece`] and [`Self::replace_piece`].
     fn place_piece(self, piece: Self::Piece) -> Res<Self::Unverified> {
         let mut res = Self::Unverified::new(self);
         res.try_place_piece(piece)?;
         Ok(res)
     }
 
-    /// Remove a piece from the given square. See [`UnverifiedBoard::try_remove_piece`].
+    /// Remove a piece from the given square. See [`UnverifiedBoardTrait::try_remove_piece`].
     fn remove_piece(self, square: Self::Coordinates) -> Res<Self::Unverified> {
         let mut res = Self::Unverified::new(self);
         res.try_remove_piece(square)?;
@@ -805,14 +823,14 @@ pub trait BoardHelpers: Board {
         Ok(res)
     }
 
-    /// Set the active player. See [`UnverifiedBoard::set_active_player`].
+    /// Set the active player. See [`UnverifiedBoardTrait::set_active_player`].
     fn set_active_player(self, new_active: Self::Color) -> Self::Unverified {
         let mut res = Self::Unverified::new(self);
         res.set_active_player(new_active);
         res
     }
 
-    /// Set the ply counter since the start of the game. See [`UnverifiedBoard::set_ply_since_start`]
+    /// Set the ply counter since the start of the game. See [`UnverifiedBoardTrait::set_ply_since_start`]
     fn set_ply_since_start(self, ply: usize) -> Res<Self::Unverified> {
         let mut res = Self::Unverified::new(self);
         res.set_ply_since_start(ply)?;
@@ -820,9 +838,9 @@ pub trait BoardHelpers: Board {
     }
 }
 
-impl<B: Board> BoardHelpers for B {}
+impl<B: BoardTrait> BoardHelpers for B {}
 
-pub trait RectangularBoard: Board<Coordinates: RectangularCoordinates> {
+pub trait RectangularBoard: BoardTrait<Coordinates: RectangularCoordinates> {
     fn height(&self) -> DimT;
 
     fn width(&self) -> DimT;
@@ -838,7 +856,7 @@ pub trait RectangularBoard: Board<Coordinates: RectangularCoordinates> {
     fn idx_to_coordinates(&self, idx: DimT) -> Self::Coordinates;
 }
 
-impl<B: Board> RectangularBoard for B
+impl<B: BoardTrait> RectangularBoard for B
 where
     B::Coordinates: RectangularCoordinates,
 {
@@ -890,9 +908,7 @@ impl Default for AxesFormat {
 
 impl AxesFormat {
     pub fn player_pov() -> Self {
-        let mut res = Self::default();
-        res.orientation = BoardOrientation::PlayerPov;
-        res
+        Self { orientation: BoardOrientation::PlayerPov, ..Default::default() }
     }
 
     pub fn is_usi_format(&self) -> bool {
@@ -910,6 +926,10 @@ impl AxesFormat {
     ) -> impl Display {
         let mut flip = flip && self.orientation == BoardOrientation::PlayerPov;
         flip ^= matches!(axis, AxisSymbol::LetterReversed | AxisSymbol::NumberReversed);
+        // we need to handle invalid coordinates here so that we can print error messages
+        if i >= max {
+            return AxisEntry::Char('�', fmt_width.unwrap_or_default(), center);
+        }
         let num = if flip { max - 1 - i } else { i };
         match axis {
             AxisSymbol::Letter | AxisSymbol::LetterReversed => {
@@ -960,7 +980,7 @@ impl Display for AxisEntry {
     }
 }
 
-/// A trait for [`Board`]s that use [`Bitboard`]s.
+/// A trait for [`BoardTrait`]s that use [`BitboardTrait`]s.
 /// Bitboards are small bitvector representations of sets of squares.
 /// This trait mainly exists to make implementing new games easier, because
 /// implementing it trait provides some default implementations,
@@ -968,9 +988,9 @@ impl Display for AxisEntry {
 /// and *they might even be wrong* because this assumes that each square is either occupied by a piece or empty.
 // There is no actual reason why bitboards would require rectangular coordinates,
 // but currently all boards are rectangular and lifting this restriction would need a bit of restructuring.
-pub trait BitboardBoard: Board<Coordinates: RectangularCoordinates> {
-    type RawBitboard: RawBitboard;
-    type Bitboard: Bitboard<Self::RawBitboard, Self::Coordinates>;
+pub trait BitboardBoard: BoardTrait<Coordinates: RectangularCoordinates> {
+    type RawBitboard: RawBitboardTrait;
+    type Bitboard: BitboardTrait<Self::RawBitboard, Self::Coordinates>;
 
     /// Bitboard of all pieces of the given [`PieceType`], independent of which player they belong to.
     /// Note that it might not be valid to use the empty piece, if such a piece exists.
@@ -1031,7 +1051,7 @@ pub fn ply_counter_from_fullmove_nr(fullmove_nr: NonZeroUsize, is_active_first: 
 /// Not to be confused with `from_fen`, which can load arbitrary positions.
 /// However, `"fen <x>"` forwards to [`B::from_fen`].
 /// A free function instead of a default impl for [`B::from_name`] because Rust doesn't allow calling default impls in overriding impls.
-pub fn board_from_name<B: Board>(name: &str) -> Res<B> {
+pub fn board_from_name<B: BoardTrait>(name: &str) -> Res<B> {
     let mut tokens = tokens(name);
     let first_token = tokens.next().unwrap_or_default();
     if first_token.eq_ignore_ascii_case("fen") {
@@ -1267,7 +1287,8 @@ pub(crate) fn read_common_fen_part<B: RectangularBoard>(words: &mut Tokens, boar
 #[allow(unused)] // suppress warning when building only chess
 pub(crate) fn read_halfmove_clock<B: RectangularBoard>(words: &mut Tokens, board: &mut B::Unverified) -> Res<()> {
     let Some(halfmove_clock) = words.peek().copied() else { return board.set_halfmove_repetition_clock(0) };
-    let halfmove_clock = halfmove_clock.parse::<usize>()?;
+    let halfmove_clock =
+        halfmove_clock.parse::<usize>().map_err(|err| anyhow!("Couldn't parse halfmove clock: {err}"))?;
     _ = words.next();
     board.set_halfmove_repetition_clock(halfmove_clock)?;
     Ok(())
@@ -1345,13 +1366,13 @@ pub(crate) fn read_move_number_in_ply<B: RectangularBoard>(
     board.set_ply_since_start(ctr)
 }
 
-struct ChildrenIter<'a, B: Board> {
+struct ChildrenIter<'a, B: BoardTrait> {
     pos: &'a B,
     iter: MoveIter<B>,
     num_so_far: usize,
 }
 
-impl<B: Board> ChildrenIter<'_, B> {
+impl<B: BoardTrait> ChildrenIter<'_, B> {
     fn next_impl(&mut self) -> Option<B> {
         loop {
             let mov = self.iter.next()?;
@@ -1363,7 +1384,7 @@ impl<B: Board> ChildrenIter<'_, B> {
     }
 }
 
-impl<B: Board> Iterator for ChildrenIter<'_, B> {
+impl<B: BoardTrait> Iterator for ChildrenIter<'_, B> {
     type Item = B;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -1383,3 +1404,11 @@ impl<B: Board> Iterator for ChildrenIter<'_, B> {
         }
     }
 }
+
+impl<B: BoardTrait> ExactSizeIterator for ChildrenIter<'_, B> {
+    fn len(&self) -> usize {
+        self.iter.len()
+    }
+}
+
+impl<B: BoardTrait> FusedIterator for ChildrenIter<'_, B> {}

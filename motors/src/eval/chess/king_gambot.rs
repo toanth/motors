@@ -18,11 +18,11 @@
 use crate::eval::chess::FileOpenness;
 use crate::eval::chess::lite_values::{Lite, LiteValues};
 use gears::games::DimT;
-use gears::games::chess::ChessColor;
-use gears::games::chess::ChessColor::White;
-use gears::games::chess::pieces::ChessPieceType;
-use gears::games::chess::pieces::ChessPieceType::King;
-use gears::games::chess::squares::ChessSquare;
+use gears::games::chess::Color;
+use gears::games::chess::Color::White;
+use gears::games::chess::pieces::PieceType;
+use gears::games::chess::pieces::PieceType::King;
+use gears::games::chess::squares::Square;
 use gears::general::common::StaticallyNamedEntity;
 use gears::score::{PhasedScore, p};
 use std::fmt::Display;
@@ -41,7 +41,7 @@ const KING_GAMBOT_VALUES: [PhasedScore; 64] =   [
 
 #[derive(Debug, Default, Copy, Clone)]
 pub struct KingGambotValues {
-    pub us: ChessColor,
+    pub us: Color,
 }
 
 impl StaticallyNamedEntity for KingGambotValues {
@@ -72,7 +72,7 @@ impl StaticallyNamedEntity for KingGambotValues {
 impl LiteValues for KingGambotValues {
     type Score = PhasedScore;
 
-    fn psqt(&self, square: ChessSquare, piece: ChessPieceType, color: ChessColor) -> PhasedScore {
+    fn psqt(&self, square: Square, piece: PieceType, color: Color) -> PhasedScore {
         if color == self.us && piece == King {
             KING_GAMBOT_VALUES[square.flip_if(color == White).bb_idx()]
         } else {
@@ -80,7 +80,7 @@ impl LiteValues for KingGambotValues {
         }
     }
 
-    fn passed_pawn(square: ChessSquare) -> PhasedScore {
+    fn passed_pawn(square: Square) -> PhasedScore {
         Lite::passed_pawn(square)
     }
 
@@ -144,7 +144,7 @@ impl LiteValues for KingGambotValues {
         Lite::pawn_passive_center(config)
     }
 
-    fn pawn_shield(&self, color: ChessColor, config: usize) -> PhasedScore {
+    fn pawn_shield(&self, color: Color, config: usize) -> PhasedScore {
         let value = Lite::default().pawn_shield(color, config);
         if self.us == color { value / 2 } else { value }
     }
@@ -153,43 +153,43 @@ impl LiteValues for KingGambotValues {
         Lite::pawnless_flank()
     }
 
-    fn pawn_protection(piece: ChessPieceType) -> PhasedScore {
+    fn pawn_protection(piece: PieceType) -> PhasedScore {
         Lite::pawn_protection(piece)
     }
 
-    fn pawn_attack(piece: ChessPieceType) -> PhasedScore {
+    fn pawn_attack(piece: PieceType) -> PhasedScore {
         Lite::pawn_attack(piece)
     }
 
-    fn pawn_advance_threat(piece: ChessPieceType) -> PhasedScore {
+    fn pawn_advance_threat(piece: PieceType) -> PhasedScore {
         Lite::pawn_advance_threat(piece)
     }
 
-    fn mobility(piece: ChessPieceType, mobility: usize) -> PhasedScore {
+    fn mobility(piece: PieceType, mobility: usize) -> PhasedScore {
         Lite::mobility(piece, mobility)
     }
 
-    fn threats(attacking: ChessPieceType, targeted: ChessPieceType) -> PhasedScore {
+    fn threats(attacking: PieceType, targeted: PieceType) -> PhasedScore {
         Lite::threats(attacking, targeted)
     }
 
-    fn defended(protecting: ChessPieceType, target: ChessPieceType) -> PhasedScore {
+    fn defended(protecting: PieceType, target: PieceType) -> PhasedScore {
         Lite::defended(protecting, target)
     }
 
-    fn king_zone_attack(attacking: ChessPieceType) -> PhasedScore {
+    fn king_zone_attack(attacking: PieceType) -> PhasedScore {
         Lite::king_zone_attack(attacking) / 2
     }
 
-    fn can_give_check(piece: ChessPieceType) -> PhasedScore {
+    fn can_give_check(piece: PieceType) -> PhasedScore {
         Lite::can_give_check(piece) / 2
     }
 
-    fn pin(piece: ChessPieceType) -> PhasedScore {
+    fn pin(piece: PieceType) -> PhasedScore {
         Lite::pin(piece)
     }
 
-    fn discovered_check(piece: ChessPieceType) -> PhasedScore {
+    fn discovered_check(piece: PieceType) -> PhasedScore {
         Lite::discovered_check(piece)
     }
 

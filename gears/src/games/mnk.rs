@@ -10,20 +10,22 @@ use strum_macros::EnumIter;
 
 use crate::PlayerResult;
 use crate::PlayerResult::{Draw, Lose};
-use crate::games::mnk::MnkPieceType::{Empty, O, X};
+use crate::games::mnk::PieceType::{Empty, O, X};
 use crate::games::*;
-use crate::general::bitboards::{Bitboard, DynamicallySizedBitboard, ExtendedRawBitboard, MAX_WIDTH, RawBitboard};
+use crate::general::bitboards::{
+    BitboardTrait, DynamicallySizedBitboard, ExtendedRawBitboard, MAX_WIDTH, RawBitboardTrait,
+};
 use crate::general::board::SelfChecks::CheckFen;
 use crate::general::board::Strictness::{Relaxed, Strict};
 use crate::general::board::{
-    BoardHelpers, NameToPos, RectangularBoard, SelfChecks, Strictness, Symmetry, UnverifiedBoard, board_from_name,
+    BoardHelpers, NameToPos, RectangularBoard, SelfChecks, Strictness, Symmetry, UnverifiedBoardTrait, board_from_name,
     read_common_fen_part, read_single_move_number, simple_fen,
 };
 use crate::general::common::*;
 use crate::general::hq::BitReverseSliderGenerator;
-use crate::general::move_list::{InplaceMoveList, MoveList};
+use crate::general::move_list::InplaceMoveList;
 use crate::general::moves::Legality::Legal;
-use crate::general::moves::{Legality, Move, UntrustedMove};
+use crate::general::moves::{Legality, MoveTrait, UntrustedMove};
 use crate::general::squares::{GridCoordinates, GridSize, RectangularCoordinates, SquareColor};
 use crate::output::OutputOpts;
 use crate::output::text_output::{BoardFormatter, DefaultBoardFormatter, board_to_string, display_board_pretty};
@@ -32,40 +34,40 @@ use crate::ugi::Protocol;
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Default)]
 #[must_use]
-pub enum MnkPieceType {
+pub enum PieceType {
     X = 0,
     O = 1,
     #[default]
     Empty = 2,
 }
 
-impl From<MnkColor> for MnkPieceType {
-    fn from(value: MnkColor) -> Self {
+impl From<Color> for PieceType {
+    fn from(value: Color) -> Self {
         match value {
-            MnkColor::X => X,
-            MnkColor::O => O,
+            Color::X => X,
+            Color::O => O,
         }
     }
 }
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Default, Hash, EnumIter, Arbitrary)]
 #[must_use]
-pub enum MnkColor {
+pub enum Color {
     #[default]
     X,
     O,
 }
 
-impl Display for MnkColor {
+impl Display for Color {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         match self {
-            MnkColor::X => write!(f, "x"),
-            MnkColor::O => write!(f, "o"),
+            Color::X => write!(f, "x"),
+            Color::O => write!(f, "o"),
         }
     }
 }
 
-impl Not for MnkColor {
+impl Not for Color {
     type Output = Self;
 
     fn not(self) -> Self::Output {
@@ -73,30 +75,24 @@ impl Not for MnkColor {
     }
 }
 
-impl From<MnkColor> for usize {
-    fn from(value: MnkColor) -> usize {
-        value as usize
-    }
-}
-
-impl Color for MnkColor {
-    type Board = MNKBoard;
+impl ColorTrait for Color {
+    type Board = Board;
 
     fn second() -> Self {
-        MnkColor::O
+        Color::O
     }
 
-    fn to_char(self, _settings: &<Self::Board as Board>::Settings) -> char {
+    fn to_char(self, _settings: &<Self::Board as BoardTrait>::Settings) -> char {
         match self {
-            MnkColor::X => 'x',
-            MnkColor::O => 'o',
+            Color::X => 'x',
+            Color::O => 'o',
         }
     }
 
-    fn name(self, _settings: &<Self::Board as Board>::Settings) -> &str {
+    fn name(self, _settings: &<Self::Board as BoardTrait>::Settings) -> &str {
         match self {
-            MnkColor::X => "X",
-            MnkColor::O => "O",
+            Color::X => "X",
+            Color::O => "O",
         }
     }
 }
@@ -104,16 +100,16 @@ impl Color for MnkColor {
 const UNICODE_X: char = '⨉'; // '⨉',
 const UNICODE_O: char = '◯'; // '○'
 
-impl AbstractPieceType<MNKBoard> for MnkPieceType {
-    fn empty() -> MnkPieceType {
-        MnkPieceType::Empty
+impl AbstractPieceType<Board> for PieceType {
+    fn empty() -> PieceType {
+        PieceType::Empty
     }
 
-    fn non_empty(_settings: &MnkSettings) -> impl Iterator<Item = Self> {
+    fn non_empty(_settings: &Settings) -> impl Iterator<Item = Self> {
         [X, O].into_iter()
     }
 
-    fn to_char(self, typ: CharType, _settings: &MnkSettings) -> char {
+    fn to_char(self, typ: CharType, _settings: &Settings) -> char {
         match typ {
             Ascii => match self {
                 X => 'X',
@@ -128,11 +124,11 @@ impl AbstractPieceType<MNKBoard> for MnkPieceType {
         }
     }
 
-    fn to_display_char(self, typ: CharType, settings: &MnkSettings) -> char {
+    fn to_display_char(self, typ: CharType, settings: &Settings) -> char {
         self.to_char(typ, settings).to_ascii_uppercase()
     }
 
-    fn from_char(c: char, _settings: &MnkSettings) -> Option<Self> {
+    fn from_char(c: char, _settings: &Settings) -> Option<Self> {
         match c {
             ' ' => Some(Empty),
             'X' | UNICODE_X => Some(X),
@@ -141,7 +137,7 @@ impl AbstractPieceType<MNKBoard> for MnkPieceType {
         }
     }
 
-    fn name(&self, _settings: &MnkSettings) -> impl AsRef<str> {
+    fn name(&self, _settings: &Settings) -> impl AsRef<str> {
         match self {
             X => "x",
             O => "o",
@@ -154,8 +150,8 @@ impl AbstractPieceType<MNKBoard> for MnkPieceType {
     }
 }
 
-impl PieceType<MNKBoard> for MnkPieceType {
-    type Colored = MnkPieceType;
+impl PieceTypeTrait<Board> for PieceType {
+    type Colored = PieceType;
 
     fn from_idx(idx: usize) -> Self {
         match idx {
@@ -167,13 +163,13 @@ impl PieceType<MNKBoard> for MnkPieceType {
     }
 }
 
-impl ColoredPieceType<MNKBoard> for MnkPieceType {
-    type Uncolored = MnkPieceType;
+impl ColoredPieceTypeTrait<Board> for PieceType {
+    type Uncolored = PieceType;
 
-    fn color(self) -> Option<MnkColor> {
+    fn color(self) -> Option<Color> {
         match self {
-            X => Some(MnkColor::X),
-            O => Some(MnkColor::O),
+            X => Some(Color::X),
+            O => Some(Color::O),
             Empty => None,
         }
     }
@@ -182,19 +178,19 @@ impl ColoredPieceType<MNKBoard> for MnkPieceType {
         self as usize
     }
 
-    fn new(color: MnkColor, uncolored: Self::Uncolored) -> Self {
+    fn new(color: Color, uncolored: Self::Uncolored) -> Self {
         assert_eq!(uncolored.color().unwrap(), color);
         uncolored
     }
 }
 
-impl Display for MnkPieceType {
+impl Display for PieceType {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
-        write!(f, "{}", self.to_char(CharType::Unicode, &MnkSettings::default()))
+        write!(f, "{}", self.to_char(CharType::Unicode, &Settings::default()))
     }
 }
 
-type MnkPiece = GenericPiece<MNKBoard, MnkPieceType>;
+type Piece = GenericPiece<Board, PieceType>;
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq, Hash, Arbitrary)]
 #[must_use]
@@ -228,36 +224,36 @@ impl FillSquare {
     }
 }
 
-impl Move<MNKBoard> for FillSquare {
+impl MoveTrait<Board> for FillSquare {
     type Underlying = u16;
 
-    fn legality(_: &MnkSettings) -> Legality {
+    fn legality(_: &Settings) -> Legality {
         Legal
     }
 
-    fn src_square_in(self, _pos: &MNKBoard) -> Option<GridCoordinates> {
+    fn src_square_in(self, _pos: &Board) -> Option<GridCoordinates> {
         None
     }
 
-    fn dest_square_in(self, _pos: &MNKBoard) -> GridCoordinates {
+    fn dest_square_in(self, _pos: &Board) -> GridCoordinates {
         self.dest_square()
     }
 
-    fn is_tactical(self, _board: &MNKBoard) -> bool {
+    fn is_tactical(self, _board: &Board) -> bool {
         false
     }
 
-    fn description(self, board: &MNKBoard) -> String {
+    fn description(self, board: &Board) -> String {
         let piece = board.active_player.to_string().bold();
         let to = self.target.to_string().bold();
         format!("Place a {piece} on {to}")
     }
 
-    fn format_compact(self, f: &mut Formatter<'_>, _board: &MNKBoard) -> fmt::Result {
+    fn format_compact(self, f: &mut Formatter<'_>, _board: &Board) -> fmt::Result {
         write!(f, "{}", self.target)
     }
 
-    fn parse_compact_text<'a>(s: &'a str, board: &MNKBoard) -> Res<(&'a str, FillSquare)> {
+    fn parse_compact_text<'a>(s: &'a str, board: &Board) -> Res<(&'a str, FillSquare)> {
         let Some(mut square_str) = s.get(..2) else {
             bail!("m,n,k move '{}' doesn't start with a square consisting of two ASCII characters", s.red())
         };
@@ -273,11 +269,11 @@ impl Move<MNKBoard> for FillSquare {
         Ok((&s[square_str.len()..], FillSquare { target: c }))
     }
 
-    fn parse_extended_text<'a>(s: &'a str, board: &MNKBoard) -> Res<(&'a str, FillSquare)> {
+    fn parse_extended_text<'a>(s: &'a str, board: &Board) -> Res<(&'a str, FillSquare)> {
         Self::parse_compact_text(s, board)
     }
 
-    fn from_u64_unchecked(val: u64) -> UntrustedMove<MNKBoard> {
+    fn from_u64_unchecked(val: u64) -> UntrustedMove<Board> {
         UntrustedMove::from_move(Self {
             target: GridCoordinates::from_rank_file(((val >> 8) & 0xff) as DimT, (val & 0xff) as DimT),
         })
@@ -290,18 +286,18 @@ impl Move<MNKBoard> for FillSquare {
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq, Hash, Arbitrary)]
 #[must_use]
-pub struct MnkSettings {
+pub struct Settings {
     height: DimT,
     width: DimT,
     k: DimT,
 }
 
-impl MnkSettings {
+impl Settings {
     pub fn from_input(first: &str, rest: &mut Tokens) -> Res<Self> {
         let height = parse_int_from_str(first, "mnk height")?;
         let width = parse_int(rest, "mnk width")?;
         let k = parse_int(rest, "mnk k")?;
-        let settings = MnkSettings { height, width, k };
+        let settings = Settings { height, width, k };
         if !settings.check_invariants() {
             bail!("mnk invariants violated (at least one value is too large or too small)");
         }
@@ -358,40 +354,40 @@ impl MnkSettings {
     }
 }
 
-impl Default for MnkSettings {
+impl Default for Settings {
     fn default() -> Self {
         Self::titactoe()
     }
 }
 
-impl Display for MnkSettings {
+impl Display for Settings {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         self.fen_part(f)
     }
 }
 
-impl Settings for MnkSettings {
+impl SettingsTrait for Settings {
     fn text(&self) -> Option<String> {
         Some(format!("[{} in a row to win]", self.k))
     }
 }
 
-pub type MnkBitboard = DynamicallySizedBitboard<ExtendedRawBitboard, GridCoordinates>;
+pub type Bitboard = DynamicallySizedBitboard<ExtendedRawBitboard, GridCoordinates>;
 
-type SliderGen<'a> = BitReverseSliderGenerator<'a, GridCoordinates, MnkBitboard>;
+type SliderGen<'a> = BitReverseSliderGenerator<'a, GridCoordinates, Bitboard>;
 
 #[derive(Copy, Clone, Default, Debug, Arbitrary)]
 #[must_use]
-pub struct MNKBoard {
+pub struct Board {
     x_bb: ExtendedRawBitboard,
     o_bb: ExtendedRawBitboard,
     ply: u32,
-    active_player: MnkColor,
-    settings: MnkSettings,
+    active_player: Color,
+    settings: Settings,
     last_move: Option<FillSquare>,
 }
 
-impl PartialEq<Self> for MNKBoard {
+impl PartialEq<Self> for Board {
     fn eq(&self, other: &Self) -> bool {
         self.x_bb == other.x_bb
             && self.o_bb == other.o_bb
@@ -401,9 +397,9 @@ impl PartialEq<Self> for MNKBoard {
     }
 }
 
-impl Eq for MNKBoard {}
+impl Eq for Board {}
 
-impl StaticallyNamedEntity for MNKBoard {
+impl StaticallyNamedEntity for Board {
     fn static_short_name() -> impl Display
     where
         Self: Sized,
@@ -426,47 +422,47 @@ impl StaticallyNamedEntity for MNKBoard {
     }
 }
 
-impl MNKBoard {
-    pub fn x_bb(self) -> MnkBitboard {
-        MnkBitboard::new(self.x_bb, self.size())
+impl Board {
+    pub fn x_bb(self) -> Bitboard {
+        Bitboard::new(self.x_bb, self.size())
     }
 
-    pub fn o_bb(self) -> MnkBitboard {
-        MnkBitboard::new(self.o_bb, self.size())
+    pub fn o_bb(self) -> Bitboard {
+        Bitboard::new(self.o_bb, self.size())
     }
 
-    pub fn player_bb(self, player: MnkColor) -> MnkBitboard {
+    pub fn player_bb(self, player: Color) -> Bitboard {
         match player {
-            MnkColor::X => self.x_bb(),
-            MnkColor::O => self.o_bb(),
+            Color::X => self.x_bb(),
+            Color::O => self.o_bb(),
         }
     }
 
-    pub fn active_player_bb(self) -> MnkBitboard {
+    pub fn active_player_bb(self) -> Bitboard {
         self.player_bb(self.active_player())
     }
 
-    pub fn inactive_player_bb(self) -> MnkBitboard {
+    pub fn inactive_player_bb(self) -> Bitboard {
         self.player_bb(self.active_player().other())
     }
 
-    pub fn occupied_bb(self) -> MnkBitboard {
+    pub fn occupied_bb(self) -> Bitboard {
         self.o_bb() | self.x_bb()
     }
 
-    pub fn empty_bb(self) -> MnkBitboard {
+    pub fn empty_bb(self) -> Bitboard {
         let n = self.num_squares() - 1;
         let res = !self.occupied_bb().raw() & (u128::MAX >> (127 - n));
-        MnkBitboard::new(res, self.size())
+        Bitboard::new(res, self.size())
     }
 
     pub fn k(self) -> u32 {
         self.settings.k as u32
     }
 
-    fn make_move_for_player(mut self, mov: <Self as Board>::Move, player: MnkColor) -> Self {
+    fn make_move_for_player(mut self, mov: <Self as BoardTrait>::Move, player: Color) -> Self {
         debug_assert!(self.is_move_pseudolegal(mov));
-        let mut p = UnverifiedMnkBoard::new(self);
+        let mut p = UnverifiedBoard::new(self);
         p.place_piece(mov.target, player.into());
         self = p.0;
         self.ply += 1;
@@ -480,40 +476,40 @@ impl MNKBoard {
     }
 }
 
-impl Display for MNKBoard {
+impl Display for Board {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         write!(f, "{0} {1}", self.settings, self.fen_no_rules())
     }
 }
 
-impl Board for MNKBoard {
-    type EmptyRes = MNKBoard;
+impl BoardTrait for Board {
+    type EmptyRes = Board;
 
-    type Settings = MnkSettings;
-    type SettingsRef = MnkSettings;
+    type Settings = Settings;
+    type SettingsRef = Settings;
 
     type Coordinates = GridCoordinates;
-    type Color = MnkColor;
+    type Color = Color;
 
-    type Piece = MnkPiece;
+    type Piece = Piece;
 
     type Move = FillSquare;
 
     type MoveList = InplaceMoveList<Self, 128>;
 
-    type Unverified = UnverifiedMnkBoard;
+    type Unverified = UnverifiedBoard;
 
-    fn empty_for_settings(settings: MnkSettings) -> MNKBoard {
+    fn empty_for_settings(settings: Settings) -> Board {
         Self::startpos_for_settings(settings)
     }
 
-    fn startpos_for_settings(settings: MnkSettings) -> MNKBoard {
+    fn startpos_for_settings(settings: Settings) -> Board {
         assert!(settings.height <= 128);
         assert!(settings.width <= 128);
         assert!(settings.k <= 128);
         assert!(settings.k <= settings.height.min(settings.width));
         assert!(settings.height * settings.width <= 128);
-        MNKBoard { ply: 0, x_bb: 0, o_bb: 0, settings, active_player: MnkColor::first(), last_move: None }
+        Board { ply: 0, x_bb: 0, o_bb: 0, settings, active_player: Color::first(), last_move: None }
     }
 
     fn from_name(name: &str) -> Res<Self> {
@@ -523,7 +519,7 @@ impl Board for MNKBoard {
                 let height = parse_int_from_str(parts[0], "m")?;
                 let width = parse_int_from_str(parts[1], "n")?;
                 let k = parse_int_from_str(parts[2], "k")?;
-                let settings = MnkSettings { height, width, k };
+                let settings = Settings { height, width, k };
                 if !settings.check_invariants() {
                     bail!("Invalid m,n,k values (at least one value is too large or too small)");
                 }
@@ -540,12 +536,22 @@ impl Board for MNKBoard {
 
     fn name_to_pos_map() -> EntityList<NameToPos> {
         vec![
-            NameToPos { name: "large", fen: "11 11 4 11/11/11/11/11/11/11/11/11/11/11 x", strictness: Relaxed },
-            NameToPos { name: "tictactoe", fen: "3 3 3 3/3/3 x 1", strictness: Strict },
+            NameToPos {
+                name: "large",
+                description: Some("Starting position on a large board"),
+                fen: "11 11 4 11/11/11/11/11/11/11/11/11/11/11 x",
+                strictness: Relaxed,
+            },
+            NameToPos {
+                name: "tictactoe",
+                fen: "3 3 3 3/3/3 x 1",
+                description: Some("Starting position of Tic-Tac-Toe"),
+                strictness: Strict,
+            },
         ]
     }
 
-    fn bench_positions() -> Vec<Self> {
+    fn bench_positions() -> impl IntoIterator<Item = Self> {
         let fens = &[
             "3 3 3 3/3/3 x",
             "5 5 4 X4/5/O2X1/O1X2/O4 x",
@@ -559,7 +565,7 @@ impl Board for MNKBoard {
             "10 8 5 2X3X1/X4O1X/2OXO2O/O1OO4/1X2X3/X2O2X1/OXOOXO1O/1X1XOO1X/5XO1/XOX1O2X x",
             "10 12 5 12/9X2/12/3O1O2X3/6OO4/4X2X4/3X8/O2O2X4X/4X4O2/12 o",
         ];
-        fens.map(|f| Self::from_fen(f, Relaxed).unwrap()).into_iter().collect()
+        fens.map(|f| Self::from_fen(f, Relaxed).unwrap()).into_iter()
     }
 
     fn random_pos(rng: &mut impl Rng, strictness: Strictness, symmetry: Option<Symmetry>) -> Res<Self> {
@@ -571,8 +577,8 @@ impl Board for MNKBoard {
             let height = rng.random_range(3..10);
             let width = rng.random_range(3..10);
             let k = rng.random_range(2..=min(height, width));
-            let settings = MnkSettings::new(Height::new(height), Width::new(width), k as DimT);
-            let mut pos = UnverifiedMnkBoard(Self::empty_for_settings(settings));
+            let settings = Settings::new(Height::new(height), Width::new(width), k as DimT);
+            let mut pos = UnverifiedBoard(Self::empty_for_settings(settings));
             let num_pieces = rng.random_range(0..settings.size().num_squares() - 1);
             for _ in 0..num_pieces {
                 let empty = pos.0.empty_bb();
@@ -591,7 +597,7 @@ impl Board for MNKBoard {
         }
     }
 
-    fn settings(&self) -> &MnkSettings {
+    fn settings(&self) -> &Settings {
         &self.settings
     }
 
@@ -599,12 +605,12 @@ impl Board for MNKBoard {
         self.settings
     }
 
-    fn variant_for(first: &str, rest: &mut Tokens, _proto: Protocol) -> Res<MNKBoard> {
-        let settings = MnkSettings::from_input(first, rest)?;
+    fn variant_for(first: &str, rest: &mut Tokens, _proto: Protocol) -> Res<Board> {
+        let settings = Settings::from_input(first, rest)?;
         Ok(Self::startpos_for_settings(settings))
     }
 
-    fn active_player(&self) -> MnkColor {
+    fn active_player(&self) -> Color {
         self.active_player
     }
 
@@ -626,7 +632,7 @@ impl Board for MNKBoard {
         !self.occupied_bb().is_bit_set_at(idx)
     }
 
-    fn colored_piece_on(&self, coordinates: Self::Coordinates) -> MnkPiece {
+    fn colored_piece_on(&self, coordinates: Self::Coordinates) -> Piece {
         let idx = self.size().internal_key(coordinates);
         debug_assert!(self.x_bb & self.o_bb == 0);
         let symbol = if self.x_bb.is_bit_set_at(idx) {
@@ -636,7 +642,7 @@ impl Board for MNKBoard {
         } else {
             Empty
         };
-        MnkPiece::new(symbol, coordinates)
+        Piece::new(symbol, coordinates)
     }
 
     fn default_perft_depth(&self) -> DepthPly {
@@ -648,19 +654,19 @@ impl Board for MNKBoard {
         self.last_move_won_game()
     }
 
-    fn gen_pseudolegal<T: MoveList<Self>>(&self, moves: &mut T) {
+    fn gen_pseudolegal(&self, mut callback: impl FnMut(Self::Move)) {
         let mut empty = self.empty_bb();
-        while empty.has_set_bit() {
+        while empty.has_any() {
             let idx = empty.pop_lsb();
             if idx >= self.num_squares() {
                 break; // TODO: Necessary?
             }
             let next_move = FillSquare { target: self.idx_to_coordinates(idx as DimT) };
-            moves.add_move(next_move);
+            callback(next_move);
         }
     }
 
-    fn gen_tactical_pseudolegal<T: MoveList<Self>>(&self, _moves: &mut T) {
+    fn gen_tactical_pseudolegal(&self, _callback: impl FnMut(FillSquare)) {
         // currently, no moves are considered tactical
     }
 
@@ -727,7 +733,7 @@ impl Board for MNKBoard {
         Some(Draw)
     }
 
-    fn can_reasonably_win(&self, _player: MnkColor) -> bool {
+    fn can_reasonably_win(&self, _player: Color) -> bool {
         true
     }
 
@@ -745,19 +751,19 @@ impl Board for MNKBoard {
         let Some(first) = words.next() else {
             bail!("Empty mnk fen".to_string());
         };
-        let settings = MnkSettings::from_input(first, words)?;
+        let settings = Settings::from_input(first, words)?;
         Self::read_fen_for(words, strictness, settings)
     }
 
-    fn read_fen_and_advance_input_for(words: &mut Tokens, strictness: Strictness, settings: MnkSettings) -> Res<Self> {
+    fn read_fen_and_advance_input_for(words: &mut Tokens, strictness: Strictness, settings: Settings) -> Res<Self> {
         let Some(first) = words.peek().copied() else {
             bail!("Empty mnk fen".to_string());
         };
-        let settings = if first.parse::<usize>().is_ok() { MnkSettings::from_input(first, words)? } else { settings };
+        let settings = if first.parse::<usize>().is_ok() { Settings::from_input(first, words)? } else { settings };
 
-        let board = MNKBoard::empty_for_settings(settings);
-        let mut board = UnverifiedMnkBoard::new(board);
-        read_common_fen_part::<MNKBoard>(words, &mut board)?;
+        let board = Board::empty_for_settings(settings);
+        let mut board = UnverifiedBoard::new(board);
+        read_common_fen_part::<Board>(words, &mut board)?;
 
         let mut ply = board.0.occupied_bb().num_ones();
         if (ply % 2 == 0) != board.active_player().is_first() {
@@ -765,7 +771,7 @@ impl Board for MNKBoard {
             // doesn't change the board.
             ply += 1;
         }
-        read_single_move_number::<MNKBoard>(words, &mut board, strictness, Some(ply))?;
+        read_single_move_number::<Board>(words, &mut board, strictness, Some(ply))?;
 
         board.0.last_move = None;
 
@@ -773,7 +779,7 @@ impl Board for MNKBoard {
     }
 
     fn as_diagram(&self, typ: CharType, flip: bool, mark_active: bool) -> String {
-        board_to_string(self, MnkPiece::to_char, typ, flip, mark_active)
+        board_to_string(self, Piece::to_char, typ, flip, mark_active)
     }
 
     fn display_pretty(&self, fmt: &mut dyn BoardFormatter<Self>) -> String {
@@ -794,7 +800,7 @@ impl Board for MNKBoard {
     }
 }
 
-impl MNKBoard {
+impl Board {
     fn last_move_won_game(&self) -> bool {
         // verifying a board (e.g. when parsing FENs) sets the last move in case the game is over
         if let Some(last_move) = self.last_move { self.is_game_won_at(last_move.target) } else { false }
@@ -821,10 +827,10 @@ impl MNKBoard {
             || (generator.anti_diagonal_attacks(square) & player_bb).num_ones() >= k
     }
 
-    fn read_fen_for(words: &mut Tokens, strictness: Strictness, settings: MnkSettings) -> Res<Self> {
-        let board = MNKBoard::empty_for_settings(settings);
-        let mut board = UnverifiedMnkBoard::new(board);
-        read_common_fen_part::<MNKBoard>(words, &mut board)?;
+    fn read_fen_for(words: &mut Tokens, strictness: Strictness, settings: Settings) -> Res<Self> {
+        let board = Board::empty_for_settings(settings);
+        let mut board = UnverifiedBoard::new(board);
+        read_common_fen_part::<Board>(words, &mut board)?;
 
         let mut ply = board.0.occupied_bb().num_ones();
         if (ply % 2 == 0) != board.active_player().is_first() {
@@ -832,7 +838,7 @@ impl MNKBoard {
             // doesn't change the board.
             ply += 1;
         }
-        read_single_move_number::<MNKBoard>(words, &mut board, strictness, Some(ply))?;
+        read_single_move_number::<Board>(words, &mut board, strictness, Some(ply))?;
 
         board.0.last_move = None;
 
@@ -840,18 +846,18 @@ impl MNKBoard {
     }
 }
 
-impl From<MNKBoard> for UnverifiedMnkBoard {
-    fn from(board: MNKBoard) -> Self {
+impl From<Board> for UnverifiedBoard {
+    fn from(board: Board) -> Self {
         Self(board)
     }
 }
 
 #[derive(Debug, Copy, Clone)]
 #[must_use]
-pub struct UnverifiedMnkBoard(MNKBoard);
+pub struct UnverifiedBoard(Board);
 
-impl UnverifiedBoard<MNKBoard> for UnverifiedMnkBoard {
-    fn verify_with_level(self, level: SelfChecks, strictness: Strictness) -> Res<MNKBoard> {
+impl UnverifiedBoardTrait<Board> for UnverifiedBoard {
+    fn verify_with_level(self, level: SelfChecks, strictness: Strictness) -> Res<Board> {
         let mut this = self.0;
         let non_empty = this.occupied_bb().count_ones();
         // support custom starting positions where pieces have already been placed, as well as
@@ -865,14 +871,14 @@ impl UnverifiedBoard<MNKBoard> for UnverifiedMnkBoard {
                     "In strict mode, the number of plies ({0}) has to be exactly the number of placed pieces ({non_empty})",
                     this.ply
                 )
-            } else if diff != isize::from(this.active_player == MnkColor::O) {
+            } else if diff != isize::from(this.active_player == Color::O) {
                 bail!(
                     "In strict mode, the number of {X} and {O} must match, unless it's {O}'s turn, \
                     in which case there must be one more {X}. However that difference is {diff}"
                 )
             }
         }
-        if level != CheckFen && (this.o_bb & this.x_bb).has_set_bit() {
+        if level > CheckFen && (this.o_bb & this.x_bb).has_any() {
             bail!(
                 "At least one square has two pieces on it (square {})",
                 this.size().to_coordinates_unchecked((this.o_bb & this.x_bb).pop_lsb())
@@ -901,7 +907,7 @@ impl UnverifiedBoard<MNKBoard> for UnverifiedMnkBoard {
         Ok(this)
     }
 
-    fn settings(&self) -> &MnkSettings {
+    fn settings(&self) -> &Settings {
         self.0.settings()
     }
 
@@ -909,7 +915,7 @@ impl UnverifiedBoard<MNKBoard> for UnverifiedMnkBoard {
         self.0.size()
     }
 
-    fn place_piece(&mut self, sq: GridCoordinates, piece: MnkPieceType) {
+    fn place_piece(&mut self, sq: GridCoordinates, piece: PieceType) {
         let placed_bb = ExtendedRawBitboard::single_piece_at(self.size().internal_key(sq));
         let bb = match piece {
             X => &mut self.0.x_bb,
@@ -930,7 +936,7 @@ impl UnverifiedBoard<MNKBoard> for UnverifiedMnkBoard {
         this.ply = 0;
     }
 
-    fn piece_on(&self, coords: GridCoordinates) -> MnkPiece {
+    fn piece_on(&self, coords: GridCoordinates) -> Piece {
         self.0.colored_piece_on(coords)
     }
 
@@ -938,11 +944,11 @@ impl UnverifiedBoard<MNKBoard> for UnverifiedMnkBoard {
         self.0.is_empty(square)
     }
 
-    fn active_player(&self) -> MnkColor {
+    fn active_player(&self) -> Color {
         self.0.active_player
     }
 
-    fn set_active_player(&mut self, player: MnkColor) {
+    fn set_active_player(&mut self, player: Color) {
         self.0.active_player = player;
     }
 
@@ -962,6 +968,7 @@ impl UnverifiedBoard<MNKBoard> for UnverifiedMnkBoard {
 #[cfg(test)]
 mod test {
     use crate::general::board::Strictness::Relaxed;
+    use crate::general::perft::Bulkness::{Bulk, NoBulk};
     use crate::general::perft::{perft, split_perft};
     use crate::search::DepthPly;
 
@@ -969,44 +976,44 @@ mod test {
 
     #[test]
     fn dimension_test() {
-        let board = MNKBoard::default();
+        let board = Board::default();
         assert_eq!(board.size().height.0, 3);
         assert_eq!(board.size().width.0, 3);
         assert_eq!(board.k(), 3);
-        let board = MNKBoard::empty_for_settings(MnkSettings::new(Height(2), Width(5), 2));
+        let board = Board::empty_for_settings(Settings::new(Height(2), Width(5), 2));
         assert_eq!(board.size().width.0, 5);
         assert_eq!(board.size().height.0, 2);
         assert_eq!(board.k(), 2);
-        let settings = MnkSettings::new(Height(12), Width(10), 6);
+        let settings = Settings::new(Height(12), Width(10), 6);
         assert_eq!(settings.width, 10);
         assert_eq!(settings.height, 12);
         assert_eq!(settings.k, 6);
-        let board = MNKBoard::startpos_for_settings(settings);
+        let board = Board::startpos_for_settings(settings);
         assert_eq!(board.settings, settings);
     }
 
     #[test]
     #[should_panic]
     fn dimension_test_invalid_k_0() {
-        _ = MnkSettings::new(Height(4), Width(5), 0);
+        _ = Settings::new(Height(4), Width(5), 0);
     }
 
     #[test]
     #[should_panic]
     fn dimension_test_invalid_k_too_large() {
-        _ = MnkSettings::new(Height(4), Width(5), 6);
+        _ = Settings::new(Height(4), Width(5), 6);
     }
 
     #[test]
     #[should_panic]
     fn dimension_test_invalid_zero_width() {
-        _ = MnkSettings::new(Height(4), Width(0), 3);
+        _ = Settings::new(Height(4), Width(0), 3);
     }
 
     #[test]
     #[should_panic]
     fn dimension_test_invalid_width_too_large() {
-        _ = MnkSettings::new(Height(4), Width(33), 3);
+        _ = Settings::new(Height(4), Width(33), 3);
     }
 
     #[test]
@@ -1014,16 +1021,16 @@ mod test {
         let input = "20 20 6";
         let mut words = tokens(input);
         let first = words.next().unwrap();
-        assert!(MnkSettings::from_input(first, &mut words).is_err());
+        assert!(Settings::from_input(first, &mut words).is_err());
     }
 
     // Only covers very basic cases, perft is used for mor more complex cases
     #[test]
     fn movegen_test() {
-        let board = MNKBoard::empty_for_settings(MnkSettings::new(Height(4), Width(5), 2));
+        let board = Board::empty_for_settings(Settings::new(Height(4), Width(5), 2));
         let moves = board.pseudolegal_moves();
         assert_eq!(moves.len(), 20);
-        assert_eq!(MNKBoard::from_name("10,9,7").unwrap().pseudolegal_moves().len(), 90);
+        assert_eq!(Board::from_name("10,9,7").unwrap().pseudolegal_moves().len(), 90);
 
         let mov: FillSquare = moves.iter().next().copied().unwrap();
         assert_eq!(moves.len(), 20);
@@ -1032,19 +1039,19 @@ mod test {
 
     #[test]
     fn place_piece_test() {
-        let board = MNKBoard::default();
+        let board = Board::default();
         let mov = FillSquare { target: GridCoordinates::default() };
-        assert_eq!(board.active_player(), MnkColor::first());
+        assert_eq!(board.active_player(), Color::first());
         let board = board.make_move(mov).unwrap();
         assert_eq!(board.size().num_squares(), 9);
         assert_eq!(board.x_bb, 1);
         assert_eq!(board.o_bb, 0);
         assert_eq!(board.ply, 1);
         assert_eq!(board.empty_bb().raw(), !1 & 0x1ff);
-        assert_eq!(board.active_player(), MnkColor::second());
+        assert_eq!(board.active_player(), Color::second());
         assert!(!board.last_move_won_game());
         for k in [1, 2] {
-            let board = MNKBoard::empty_for_settings(MnkSettings::new(Height(3), Width(4), k));
+            let board = Board::empty_for_settings(Settings::new(Height(3), Width(4), k));
             let board = board.make_move(mov).unwrap();
             assert_eq!(k == 1, board.last_move_won_game());
             assert_ne!(board.x_bb().raw(), 0);
@@ -1052,7 +1059,7 @@ mod test {
             assert!(board.x_bb().is_single_piece());
             if k == 1 {
                 assert!(board.last_move_won_game());
-                assert_eq!(perft(DepthPly::new(1), board, false).nodes, 0);
+                assert_eq!(perft(DepthPly::new(1), board, false, Bulk).nodes, 0);
             } else {
                 assert_eq!(board.pseudolegal_moves().len() + 1, board.num_squares());
             }
@@ -1061,34 +1068,36 @@ mod test {
 
     #[test]
     fn perft_startpos_test() {
-        let r = perft(DepthPly::new(1), MNKBoard::default(), true);
+        let r = perft(DepthPly::new(1), Board::default(), true, NoBulk);
         assert_eq!(r.depth.get(), 1);
         assert_eq!(r.nodes, 9);
         assert!(r.time.as_millis() <= 1); // 1 ms should be far more than enough even on a very slow device
         let r = split_perft(
             DepthPly::new(2),
-            MNKBoard::empty_for_settings(MnkSettings::new(Height(8), Width(12), 2)),
+            Board::empty_for_settings(Settings::new(Height(8), Width(12), 2)),
             true,
+            Bulk,
         );
         assert_eq!(r.perft_res.depth.get(), 2);
         assert_eq!(r.perft_res.nodes, 96 * 95);
         assert!(r.children.iter().all(|x| x.1 == r.children[0].1));
         let r =
-            split_perft(DepthPly::new(3), MNKBoard::empty_for_settings(MnkSettings::new(Height(4), Width(3), 3)), true);
+            split_perft(DepthPly::new(3), Board::empty_for_settings(Settings::new(Height(4), Width(3), 3)), true, Bulk);
         assert_eq!(r.perft_res.depth.get(), 3);
         assert_eq!(r.perft_res.nodes, 12 * 11 * 10);
         assert!(r.children.iter().all(|x| x.1 == r.children[0].1));
         let r = split_perft(
             DepthPly::new(5),
-            MNKBoard::empty_for_settings(MnkSettings::new(Height(5), Width(5), 5)),
+            Board::empty_for_settings(Settings::new(Height(5), Width(5), 5)),
             false,
+            Bulk,
         );
         assert_eq!(r.perft_res.depth.get(), 5);
         assert_eq!(r.perft_res.nodes, 25 * 24 * 23 * 22 * 21);
         assert!(r.children.iter().all(|x| x.1 == r.children[0].1));
         assert!(r.perft_res.time.as_millis() <= 10_000);
 
-        let r = split_perft(DepthPly::new(9), MNKBoard::startpos_for_settings(MnkSettings::titactoe()), true);
+        let r = split_perft(DepthPly::new(9), Board::startpos_for_settings(Settings::titactoe()), true, Bulk);
         assert_eq!(r.perft_res.depth.get(), 9);
         assert!(r.perft_res.nodes >= 100_000);
         assert!(r.perft_res.nodes <= 9 * 8 * 7 * 6 * 5 * 4 * 3 * 2);
@@ -1098,20 +1107,20 @@ mod test {
         }
         assert!(r.perft_res.time.as_millis() <= 4000);
 
-        let board = MNKBoard::empty_for_settings(MnkSettings::new(Height(2), Width(2), 2));
-        let r = split_perft(DepthPly::new(3), board, false);
+        let board = Board::empty_for_settings(Settings::new(Height(2), Width(2), 2));
+        let r = split_perft(DepthPly::new(3), board, false, Bulk);
         assert_eq!(r.perft_res.depth.get(), 3);
         assert_eq!(r.perft_res.nodes, 2 * 3 * 4);
         assert!(r.children.iter().all(|x| x.1 == 2 * 3));
         assert!(r.perft_res.time.as_millis() <= 10);
-        let r = perft(DepthPly::new(4), board, true);
+        let r = perft(DepthPly::new(4), board, true, NoBulk);
         assert_eq!(r.depth.get(), 4);
         assert_eq!(r.nodes, 0);
 
-        let board = MNKBoard::empty_for_settings(MnkSettings::new(Height(6), Width(7), 4));
+        let board = Board::empty_for_settings(Settings::new(Height(6), Width(7), 4));
         let expected = [1, 42, 42 * 41, 42 * 41 * 40];
         for (i, e) in expected.into_iter().enumerate() {
-            let r = perft(DepthPly::new(i), board, false);
+            let r = perft(DepthPly::new(i), board, false, Bulk);
             assert_eq!(r.nodes, e);
             assert_eq!(r.depth, DepthPly::new(i));
         }
@@ -1119,24 +1128,24 @@ mod test {
 
     #[test]
     fn as_fen_test() {
-        let board = MNKBoard::default();
+        let board = Board::default();
         assert_eq!(board.ply, 0);
         let str = board.as_fen();
         assert_eq!(str, "3 3 3 3/3/3 x 1");
 
         let board = board.make_move(FillSquare { target: board.idx_to_coordinates(4) }).unwrap();
-        assert_eq!(board.x_bb(), MnkBitboard::new(0x10, GridSize::tictactoe()));
+        assert_eq!(board.x_bb(), Bitboard::new(0x10, GridSize::tictactoe()));
         assert_eq!(board.colored_piece_on(board.size().to_coordinates_unchecked(4)).symbol, X);
         assert_eq!(board.ply, 1);
         assert_eq!(board.as_fen(), "3 3 3 3/1X1/3 o 1");
 
-        let board = board.make_move_for_player(FillSquare { target: board.idx_to_coordinates(3) }, MnkColor::first());
+        let board = board.make_move_for_player(FillSquare { target: board.idx_to_coordinates(3) }, Color::first());
         assert_eq!(board.as_fen(), "3 3 3 3/XX1/3 o 1");
 
-        let board = board.make_move_for_player(FillSquare { target: board.idx_to_coordinates(5) }, MnkColor::second());
+        let board = board.make_move_for_player(FillSquare { target: board.idx_to_coordinates(5) }, Color::second());
         assert_eq!(board.as_fen(), "3 3 3 3/XXO/3 x 2");
 
-        let board = MNKBoard::empty_for_settings(MnkSettings { height: 3, width: 4, k: 2 });
+        let board = Board::empty_for_settings(Settings { height: 3, width: 4, k: 2 });
         assert_eq!(board.as_fen(), "3 4 2 4/4/4 x 1");
 
         let board = board.make_move(FillSquare { target: board.idx_to_coordinates(0) }).unwrap();
@@ -1154,114 +1163,114 @@ mod test {
 
     #[test]
     fn from_fen_test() {
-        let board = MNKBoard::from_fen("4 3 2 3/3/3/3 x", Relaxed).unwrap();
+        let board = Board::from_fen("4 3 2 3/3/3/3 x", Relaxed).unwrap();
         assert_eq!(board.occupied_bb().raw(), 0);
         assert_eq!(board.size(), GridSize::new(Height(4), Width(3)));
         assert_eq!(board.k(), 2);
-        assert_eq!(board, MNKBoard::empty_for_settings(MnkSettings::new(Height(4), Width(3), 2)));
+        assert_eq!(board, Board::empty_for_settings(Settings::new(Height(4), Width(3), 2)));
 
-        let board = MNKBoard::from_fen("3 4 3 3X/4/2O1 x 2", Strict).unwrap();
+        let board = Board::from_fen("3 4 3 3X/4/2O1 x 2", Strict).unwrap();
         assert_eq!(board.occupied_bb().raw(), 0b1000_0000_0100);
         assert_eq!(
             board,
-            MNKBoard {
+            Board {
                 x_bb: 0b1000_0000_0000,
                 o_bb: 0b0000_0000_0100,
                 ply: 2,
-                settings: MnkSettings::new(Height(3), Width(4), 3),
-                active_player: MnkColor::first(),
+                settings: Settings::new(Height(3), Width(4), 3),
+                active_player: Color::first(),
                 last_move: None
             }
         );
 
-        let copy = MNKBoard::from_fen(&board.as_fen(), Relaxed).unwrap();
+        let copy = Board::from_fen(&board.as_fen(), Relaxed).unwrap();
         assert_eq!(board, copy);
 
-        let board = MNKBoard::from_fen("7 3 2 X1O/3/OXO/1X1/XO1/XXX/1OO o", Relaxed).unwrap();
+        let board = Board::from_fen("7 3 2 X1O/3/OXO/1X1/XO1/XXX/1OO o", Relaxed).unwrap();
         let white_bb = 0b001_000_010_010_001_111_000;
         let black_bb = 0b100_000_101_000_010_000_110;
         assert_eq!(
             board,
-            MNKBoard {
+            Board {
                 x_bb: white_bb,
                 o_bb: black_bb,
                 ply: 13,
-                settings: MnkSettings::new(Height(7), Width(3), 2),
-                active_player: MnkColor::second(),
+                settings: Settings::new(Height(7), Width(3), 2),
+                active_player: Color::second(),
                 last_move: None
             }
         );
-        assert_eq!(board, MNKBoard::from_fen(&board.as_fen(), Relaxed).unwrap());
+        assert_eq!(board, Board::from_fen(&board.as_fen(), Relaxed).unwrap());
 
-        let board = MNKBoard::from_fen("4 12 3 12/11X/1X10/2X1X3XXX1 x", Relaxed).unwrap();
+        let board = Board::from_fen("4 12 3 12/11X/1X10/2X1X3XXX1 x", Relaxed).unwrap();
         let white_bb = 0b0000_0000_0000_1000_0000_0000_0000_0000_0010_0111_0001_0100;
         let black_bb = 0;
         assert_eq!(
             board,
-            MNKBoard {
+            Board {
                 x_bb: white_bb,
                 o_bb: black_bb,
                 ply: 8,
-                settings: MnkSettings::new(Height(4), Width(12), 3),
-                active_player: MnkColor::first(),
+                settings: Settings::new(Height(4), Width(12), 3),
+                active_player: Color::first(),
                 last_move: None,
             }
         );
         println!("{board}");
-        assert_eq!(board, MNKBoard::from_fen(&board.as_fen(), Relaxed).unwrap());
+        assert_eq!(board, Board::from_fen(&board.as_fen(), Relaxed).unwrap());
     }
 
     #[test]
     fn from_invalid_fen_test() {
-        assert!(MNKBoard::from_fen("4 3 2 3/3/3/3 1 x", Strict).is_err());
-        assert!(MNKBoard::from_fen("4 3 2 3/3/3/3 abc x", Relaxed).is_err());
-        assert!(MNKBoard::from_fen("4 3 2 3/3/3/3", Relaxed).is_err());
-        assert!(MNKBoard::from_fen("4 3 2 3/3/3/3 w", Relaxed).is_err());
-        assert!(MNKBoard::from_fen("4 3 2 3/3/3/3 wx", Relaxed).is_err());
-        let e = MNKBoard::from_fen("4 3 2 3/4/3/3 o", Relaxed);
+        assert!(Board::from_fen("4 3 2 3/3/3/3 1 x", Strict).is_err());
+        assert!(Board::from_fen("4 3 2 3/3/3/3 abc x", Relaxed).is_err());
+        assert!(Board::from_fen("4 3 2 3/3/3/3", Relaxed).is_err());
+        assert!(Board::from_fen("4 3 2 3/3/3/3 w", Relaxed).is_err());
+        assert!(Board::from_fen("4 3 2 3/3/3/3 wx", Relaxed).is_err());
+        let e = Board::from_fen("4 3 2 3/4/3/3 o", Relaxed);
         assert!(e.as_ref().is_err_and(|e| e.to_string().contains("Line '4' has incorrect width")), "{e:?}");
-        _ = MNKBoard::from_fen("4 3 2 3//3/3 o", Relaxed).unwrap_err();
-        assert!(MNKBoard::from_fen("4 3 2 x", Relaxed).is_err());
-        assert!(MNKBoard::from_fen("4 0 2 /// x", Relaxed).is_err());
-        _ = MNKBoard::from_fen("0 3 2 x", Relaxed).unwrap_err();
-        assert!(MNKBoard::from_fen("4 3 2 4/4/4 o", Relaxed).is_err());
-        assert!(MNKBoard::from_fen("4 3 3/3/3/3 x", Relaxed).is_err());
-        assert!(MNKBoard::from_fen("3 13 2 13/12X/13/O12 x", Relaxed).is_err());
-        assert!(MNKBoard::from_fen("12 12 2 12/12/12/12/12/12/12/12/12/12/12/12 o", Relaxed).is_err());
-        assert!(MNKBoard::from_fen("3 3 3 3/X1O/11X o", Relaxed).is_err());
-        assert!(MNKBoard::from_fen("3 3 3 3/X1O/F1X o", Relaxed).is_err());
-        assert!(MNKBoard::from_fen("3 10 3 10/10/0XA x", Relaxed).is_err());
-        assert!(MNKBoard::from_fen("3 3 3 3/3/0X2 o", Relaxed).is_err());
-        assert!(MNKBoard::from_fen("3 3 3 3/-1X3/X2 x", Relaxed).is_err());
+        _ = Board::from_fen("4 3 2 3//3/3 o", Relaxed).unwrap_err();
+        assert!(Board::from_fen("4 3 2 x", Relaxed).is_err());
+        assert!(Board::from_fen("4 0 2 /// x", Relaxed).is_err());
+        _ = Board::from_fen("0 3 2 x", Relaxed).unwrap_err();
+        assert!(Board::from_fen("4 3 2 4/4/4 o", Relaxed).is_err());
+        assert!(Board::from_fen("4 3 3/3/3/3 x", Relaxed).is_err());
+        assert!(Board::from_fen("3 13 2 13/12X/13/O12 x", Relaxed).is_err());
+        assert!(Board::from_fen("12 12 2 12/12/12/12/12/12/12/12/12/12/12/12 o", Relaxed).is_err());
+        assert!(Board::from_fen("3 3 3 3/X1O/11X o", Relaxed).is_err());
+        assert!(Board::from_fen("3 3 3 3/X1O/F1X o", Relaxed).is_err());
+        assert!(Board::from_fen("3 10 3 10/10/0XA x", Relaxed).is_err());
+        assert!(Board::from_fen("3 3 3 3/3/0X2 o", Relaxed).is_err());
+        assert!(Board::from_fen("3 3 3 3/-1X3/X2 x", Relaxed).is_err());
     }
 
     // perft and bench catch subtler problems, so only test fairly simple cases here
     #[test]
     fn test_winning() {
-        let board = MNKBoard::from_fen("3 3 3 XX1/3/3 x", Relaxed).unwrap();
+        let board = Board::from_fen("3 3 3 XX1/3/3 x", Relaxed).unwrap();
         let h = NoHistory::default();
-        assert_eq!(board.active_player(), MnkColor::first());
+        assert_eq!(board.active_player(), Color::first());
 
         assert!(board.is_game_won_after_slow(FillSquare { target: board.idx_to_coordinates(8) }, h));
         assert!(!board.is_game_won_after_slow(FillSquare { target: board.idx_to_coordinates(5) }, h));
 
-        let board = MNKBoard::from_fen("4 3 3 XOX/O1O/XOO/1OX o", Relaxed).unwrap();
+        let board = Board::from_fen("4 3 3 XOX/O1O/XOO/1OX o", Relaxed).unwrap();
         assert!(board.is_game_won_after_slow(FillSquare { target: board.idx_to_coordinates(0) }, h));
-        let board = MNKBoard::from_fen("3 3 3 XOX/O1O/XOO x", Relaxed).unwrap();
+        let board = Board::from_fen("3 3 3 XOX/O1O/XOO x", Relaxed).unwrap();
         assert!(board.is_game_won_after_slow(FillSquare { target: board.idx_to_coordinates(4) }, h));
-        let board = MNKBoard::from_fen("4 3 3 XOX/OXO/XOO/1OX x", Relaxed).unwrap();
+        let board = Board::from_fen("4 3 3 XOX/OXO/XOO/1OX x", Relaxed).unwrap();
         assert!(!board.is_game_won_after_slow(FillSquare { target: board.idx_to_coordinates(0) }, h));
     }
 
     #[test]
     fn game_over_test() {
-        let pos = MNKBoard::from_fen("3 3 3 XX1/3/3 x", Relaxed).unwrap();
+        let pos = Board::from_fen("3 3 3 XX1/3/3 x", Relaxed).unwrap();
         let mov = FillSquare::new(GridCoordinates::from_rank_file(2, 2));
         assert!(pos.is_game_won_after_slow(mov, NoHistory::default()));
         let new_pos = pos.make_move(mov).unwrap();
         assert!(new_pos.last_move_won_game());
         assert_eq!(new_pos.last_move, Some(mov));
         assert_eq!(new_pos.player_result_slow(&NoHistory::default()), Some(Lose));
-        assert_eq!(new_pos.active_player_bb(), MnkBitboard::new(0, pos.size()));
+        assert_eq!(new_pos.active_player_bb(), Bitboard::new(0, pos.size()));
     }
 }

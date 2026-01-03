@@ -22,11 +22,11 @@ use gears::colored::Color::TrueColor;
 use gears::colored::Colorize;
 use gears::colorgrad::{BasisGradient, Gradient, LinearGradient};
 use gears::games::CharType::Unicode;
-use gears::games::Color;
-use gears::general::board::{Board, BoardHelpers};
+use gears::games::ColorTrait;
+use gears::general::board::{BoardHelpers, BoardTrait};
 use gears::general::common::{Tokens, sigmoid};
 use gears::general::moves::ExtendedFormat::Standard;
-use gears::general::moves::Move;
+use gears::general::moves::MoveTrait;
 use gears::itertools::Itertools;
 use gears::output::{Message, OutputBox, OutputOpts};
 use gears::score::{SCORE_LOST, SCORE_WON, Score};
@@ -55,7 +55,7 @@ struct TypeErasedSearchInfo {
 }
 
 impl TypeErasedSearchInfo {
-    fn new<B: Board>(info: SearchInfo<B>) -> Self {
+    fn new<B: BoardTrait>(info: SearchInfo<B>) -> Self {
         Self {
             budget: info.budget,
             iterations: info.iterations,
@@ -260,7 +260,7 @@ pub trait AbstractUgiOutput {
     fn write_ugi_input(&mut self, msg: Tokens);
 }
 
-impl<B: Board> AbstractUgiOutput for UgiOutput<B> {
+impl<B: BoardTrait> AbstractUgiOutput for UgiOutput<B> {
     fn write_ugi(&mut self, message: &fmt::Arguments) {
         use std::io::Stdout;
         use std::io::Write;
@@ -285,7 +285,7 @@ impl<B: Board> AbstractUgiOutput for UgiOutput<B> {
 #[derive(Debug)]
 /// All UGI communication is done through stdout, but there can be additional outputs,
 /// such as a logger, or human-readable printing to stderr
-pub struct UgiOutput<B: Board> {
+pub struct UgiOutput<B: BoardTrait> {
     type_erased: TypeErasedUgiOutput,
     pub(super) additional_outputs: Vec<OutputBox<B>>,
     previous_exact_pv: Option<Vec<B::Move>>,
@@ -297,7 +297,7 @@ pub struct UgiOutput<B: Board> {
     pub minimal: bool,
 }
 
-impl<B: Board> Default for UgiOutput<B> {
+impl<B: BoardTrait> Default for UgiOutput<B> {
     fn default() -> Self {
         Self {
             additional_outputs: vec![],
@@ -313,7 +313,7 @@ impl<B: Board> Default for UgiOutput<B> {
     }
 }
 
-impl<B: Board> UgiOutput<B> {
+impl<B: BoardTrait> UgiOutput<B> {
     pub fn new(pretty: bool, debug: bool) -> Self {
         let mut res = Self::default();
         res.type_erased.pretty = pretty;
@@ -478,7 +478,7 @@ impl<B: Board> UgiOutput<B> {
     }
 }
 
-fn format_variation_noninteractive<B: Board>(
+fn format_variation_noninteractive<B: BoardTrait>(
     mut pos: B,
     variation: impl Iterator<Item = B::Move>,
     allow_nullmoves: bool,
@@ -580,9 +580,13 @@ pub fn pretty_score(
             return res + "   ";
         }
         // use both `sigmoid - sigmoid` and `sigmoid(diff)` to weight changes close to 0 stronger
-        let x = ((0.5 + 2.0 * (sigmoid(score, 100.0) as f32 - sigmoid(previous, 100.0) as f32))
-            + sigmoid(score - previous, 50.0) as f32)
-            / 2.0;
+        let x = if score.is_won_or_lost() {
+            sigmoid(score - previous, 10.0) as f32
+        } else {
+            ((0.5 + 2.0 * (sigmoid(score, 100.0) as f32 - sigmoid(previous, 100.0) as f32))
+                + sigmoid(score - previous, 50.0) as f32)
+                / 2.0
+        };
         let color = gradient.at(x);
         let [r, g, b, _] = color.to_rgba8();
         let diff = score - previous;
@@ -628,7 +632,7 @@ fn write_move_nr(res: &mut String, move_nr: usize, first_move: bool, first_playe
     }
 }
 
-fn pretty_variation<B: Board>(
+fn pretty_variation<B: BoardTrait>(
     pv: &[B::Move],
     mut pos: B,
     previous: Option<&[B::Move]>,
@@ -669,4 +673,8 @@ fn pretty_variation<B: Board>(
         }
     }
     (res, pos)
+}
+
+pub fn pretty_variation_simple<B: BoardTrait>(pv: &[B::Move], pos: B) -> (String, B) {
+    pretty_variation(pv, pos, None, None, Exact)
 }

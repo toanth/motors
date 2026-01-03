@@ -28,28 +28,28 @@ mod tests;
 
 use crate::PlayerResult;
 use crate::games::CharType::Ascii;
-use crate::games::fairy::moves::FairyMove;
+use crate::games::fairy::moves::Move;
 use crate::games::fairy::pieces::{ColoredPieceId, PieceId};
 use crate::games::fairy::rules::{FenHandInfo, MoveNumFmt, RulesBuilder};
 use crate::games::fairy::rules::{GameEndEager, NumRoyals, Rules, RulesRef};
 use crate::games::{
-    AbstractPieceType, BoardHistory, CharType, Color, ColoredPiece, ColoredPieceType, DimT, GenericPiece, NUM_COLORS,
-    NoHistory, PosHash, Size,
+    AbstractPieceType, BoardHistory, CharType, ColorTrait, ColoredPieceTrait, ColoredPieceTypeTrait, DimT,
+    GenericPiece, NUM_COLORS, NoHistory, PosHash, SizeTrait,
 };
-use crate::general::bitboards::{Bitboard, DynamicallySizedBitboard, ExtendedRawBitboard, RawBitboard};
+use crate::general::bitboards::{BitboardTrait, DynamicallySizedBitboard, ExtendedRawBitboard, RawBitboardTrait};
 use crate::general::board::SelfChecks::CheckFen;
 use crate::general::board::Strictness::{Relaxed, Strict};
 use crate::general::board::{
-    AxesFormat, BitboardBoard, Board, BoardHelpers, BoardSize, ColPieceTypeOf, NameToPos, PieceTypeOf, SelfChecks,
-    Strictness, Symmetry, UnverifiedBoard, position_fen_part, read_common_fen_part, read_halfmove_clock,
+    AxesFormat, BitboardBoard, BoardHelpers, BoardSize, BoardTrait, ColPieceTypeOf, NameToPos, PieceTypeOf, SelfChecks,
+    Strictness, Symmetry, UnverifiedBoardTrait, position_fen_part, read_common_fen_part, read_halfmove_clock,
     read_move_number_in_ply, read_single_move_number,
 };
 use crate::general::common::Description::NoDescription;
 use crate::general::common::{
     EntityList, GenericSelect, Res, StaticallyNamedEntity, Tokens, parse_int_from_str, select_name_static, tokens,
 };
-use crate::general::move_list::{MoveList, SboMoveList};
-use crate::general::moves::Move;
+use crate::general::move_list::{MoveListTrait, SboMoveList};
+use crate::general::moves::MoveTrait;
 use crate::general::squares::{GridCoordinates, GridSize, RectangularCoordinates, RectangularSize, SquareColor};
 use crate::output::OutputOpts;
 use crate::output::text_output::{BoardFormatter, DefaultBoardFormatter, board_to_string, display_board_pretty};
@@ -69,76 +69,67 @@ use strum::IntoEnumIterator;
 use strum_macros::{EnumIter, FromRepr};
 
 // Using a 64 bit bitboard makes chess perft twice as fast, but obviously doesn't work for larger boards
-type RawFairyBitboard = ExtendedRawBitboard;
-type FairyBitboard = DynamicallySizedBitboard<RawFairyBitboard, FairySquare>;
+type RawBitboard = ExtendedRawBitboard;
+type Bitboard = DynamicallySizedBitboard<RawBitboard, Square>;
 
 /// There can never be more than 32 piece types in a given game
 /// (For chess, the number would be 6; for ataxx, 1).
 /// Note that some effects can also be represented by one of these bitboards.
 const MAX_NUM_PIECE_TYPES: usize = 16;
 
-pub type FairySquare = GridCoordinates;
-pub type FairySize = GridSize;
+pub type Square = GridCoordinates;
+pub type Size = GridSize;
 
 /// If there are more moves than this, the move list allocates
 const MAX_NO_ALLOC_MOVES: usize = 250; // should result in a SmallVec of size <= 1024
 
-type FairyMoveList = SboMoveList<FairyBoard, MAX_NO_ALLOC_MOVES>;
+type MoveList = SboMoveList<Board, MAX_NO_ALLOC_MOVES>;
 
 #[derive(Debug, Default, Copy, Clone, Eq, PartialEq, Hash, Arbitrary)]
 #[must_use]
-pub struct FairyColor(bool);
+pub struct Color(bool);
 
-impl FairyColor {
-    pub fn idx(&self) -> usize {
-        self.0 as usize
-    }
+impl Color {
     pub fn from_idx(idx: usize) -> Self {
         Self(idx != 0)
     }
 }
 
-impl From<FairyColor> for usize {
-    fn from(value: FairyColor) -> Self {
-        value.idx()
-    }
-}
-
-impl Color for FairyColor {
-    type Board = FairyBoard;
+impl ColorTrait for Color {
+    type Board = Board;
 
     fn second() -> Self {
         Self(true)
     }
 
     fn to_char(self, settings: &Rules) -> char {
-        settings.colors[self.idx()].ascii_char
+        settings.colors[self].ascii_char
     }
 
     #[allow(refining_impl_trait)]
     fn name(self, settings: &Rules) -> &str {
-        &settings.colors[self.idx()].name
+        &settings.colors[self].name
     }
 }
 
-impl Not for FairyColor {
+impl Not for Color {
     type Output = Self;
     fn not(self) -> Self {
         self.other()
     }
 }
 
-impl<T> Index<FairyColor> for [T; 2] {
+impl<T> Index<Color> for [T; 2] {
     type Output = T;
 
-    fn index(&self, color: FairyColor) -> &Self::Output {
-        &self[color.idx()]
+    fn index(&self, color: Color) -> &Self::Output {
+        &self[color.0 as usize]
     }
 }
 
-impl<T> IndexMut<FairyColor> for [T; 2] {
-    fn index_mut(&mut self, color: FairyColor) -> &mut Self::Output {
-        &mut self[color.idx()]
+impl<T> IndexMut<Color> for [T; 2] {
+    fn index_mut(&mut self, color: Color) -> &mut Self::Output {
+        &mut self[color.0 as usize]
     }
 }
 
@@ -183,14 +174,14 @@ impl Hash for CastlingMoveInfo {
 }
 
 impl ColoredFairyCastleInfo {
-    fn king_dest_sq(self, side: Side) -> Option<FairySquare> {
-        self.sides[side as usize].map(|info| FairySquare::from_rank_file(self.rank, info.king_dest_file))
+    fn king_dest_sq(self, side: Side) -> Option<Square> {
+        self.sides[side as usize].map(|info| Square::from_rank_file(self.rank, info.king_dest_file))
     }
-    fn rook_dest_sq(self, side: Side) -> Option<FairySquare> {
-        self.sides[side as usize].map(|info| FairySquare::from_rank_file(self.rank, info.rook_dest_file))
+    fn rook_dest_sq(self, side: Side) -> Option<Square> {
+        self.sides[side as usize].map(|info| Square::from_rank_file(self.rank, info.rook_dest_file))
     }
-    fn rook_sq(self, side: Side) -> Option<FairySquare> {
-        self.sides[side as usize].map(|info| FairySquare::from_rank_file(self.rank, info.rook_file))
+    fn rook_sq(self, side: Side) -> Option<Square> {
+        self.sides[side as usize].map(|info| Square::from_rank_file(self.rank, info.rook_file))
     }
 }
 
@@ -220,31 +211,31 @@ impl Default for FairyCastleInfo {
 }
 
 impl FairyCastleInfo {
-    fn new(size: FairySize) -> Self {
+    fn new(size: Size) -> Self {
         let mut res = Self::default();
         res.players[1].rank = size.height.0 - 1;
         res
     }
-    fn player(&self, color: FairyColor) -> &ColoredFairyCastleInfo {
-        &self.players[color.idx()]
+    fn player(&self, color: Color) -> &ColoredFairyCastleInfo {
+        &self.players[color]
     }
-    fn info(&self, color: FairyColor, side: Side) -> Option<CastlingMoveInfo> {
+    fn info(&self, color: Color, side: Side) -> Option<CastlingMoveInfo> {
         self.player(color).sides[side as usize]
     }
-    pub fn can_castle(&self, color: FairyColor, side: Side) -> bool {
+    pub fn can_castle(&self, color: Color, side: Side) -> bool {
         self.info(color, side).is_some()
     }
-    pub fn unset(&mut self, color: FairyColor, side: Side) {
-        self.players[color.idx()].sides[side as usize] = None;
+    pub fn unset(&mut self, color: Color, side: Side) {
+        self.players[color].sides[side as usize] = None;
     }
-    pub fn unset_both_sides(&mut self, color: FairyColor) {
+    pub fn unset_both_sides(&mut self, color: Color) {
         self.unset(color, Side::Queenside);
         self.unset(color, Side::Kingside);
     }
     pub fn write_fen_part(&self, f: &mut Formatter<'_>) -> fmt::Result {
         write!(f, " ")?;
         let mut can_castle = false;
-        for color in FairyColor::iter() {
+        for color in Color::iter() {
             for side in Side::iter() {
                 if let Some(info) = self.info(color, side) {
                     can_castle = true;
@@ -264,13 +255,13 @@ type AdditionalCtrT = i32;
 /// A FairyBoard is a rectangular board for a chess-like variant.
 #[derive(Debug, Clone, Eq, PartialEq, Arbitrary)]
 #[must_use]
-pub struct UnverifiedFairyBoard {
+pub struct UnverifiedBoard {
     // unfortunately, ArrayVec isn't `Copy`
-    piece_bitboards: [RawFairyBitboard; MAX_NUM_PIECE_TYPES],
-    color_bitboards: [RawFairyBitboard; NUM_COLORS],
-    neutral_bb: RawFairyBitboard,
+    piece_bitboards: [RawBitboard; MAX_NUM_PIECE_TYPES],
+    color_bitboards: [RawBitboard; NUM_COLORS],
+    neutral_bb: RawBitboard,
     // bb of all valid squares
-    mask_bb: RawFairyBitboard,
+    mask_bb: RawBitboard,
     // for each piece type, how many the player has available to drop
     in_hand: [[u8; MAX_NUM_PIECE_TYPES]; NUM_COLORS],
     ply_since_start: usize,
@@ -280,47 +271,47 @@ pub struct UnverifiedFairyBoard {
     in_check: [bool; NUM_COLORS],
     // Their meaning depends on the variant. For example, this counts checks in 3check.
     additional_ctrs: [AdditionalCtrT; NUM_COLORS],
-    active: FairyColor,
+    active: Color,
     castling_info: FairyCastleInfo,
-    ep: Option<FairySquare>,
-    last_move: FairyMove,
+    ep: Option<Square>,
+    last_move: Move,
     hash: PosHash,
     rules: RulesRef,
 }
 
-impl Default for UnverifiedFairyBoard {
+impl Default for UnverifiedBoard {
     fn default() -> Self {
         let rules = RulesRef::default();
         rules.empty_pos()
     }
 }
 
-impl UnverifiedFairyBoard {
-    fn occupied_bb(&self) -> FairyBitboard {
-        FairyBitboard::new(self.color_bitboards[0] | self.color_bitboards[1] | self.neutral_bb, self.size())
+impl UnverifiedBoard {
+    fn occupied_bb(&self) -> Bitboard {
+        Bitboard::new(self.color_bitboards[0] | self.color_bitboards[1] | self.neutral_bb, self.size())
     }
 
-    fn either_player_bb(&self) -> FairyBitboard {
-        FairyBitboard::new(self.color_bitboards[0] | self.color_bitboards[1], self.size())
+    fn either_player_bb(&self) -> Bitboard {
+        Bitboard::new(self.color_bitboards[0] | self.color_bitboards[1], self.size())
     }
 
     fn rules(&self) -> &Rules {
         self.rules.get()
     }
 
-    fn color_name(&self, color: FairyColor) -> &str {
-        &self.rules().colors[color.idx()].name
+    fn color_name(&self, color: Color) -> &str {
+        &self.rules().colors[color].name
     }
 }
 
-impl From<FairyBoard> for UnverifiedFairyBoard {
-    fn from(value: FairyBoard) -> Self {
+impl From<Board> for UnverifiedBoard {
+    fn from(value: Board) -> Self {
         value.0
     }
 }
 
-impl UnverifiedBoard<FairyBoard> for UnverifiedFairyBoard {
-    fn verify_with_level(self, level: SelfChecks, strictness: Strictness) -> Res<FairyBoard> {
+impl UnverifiedBoardTrait<Board> for UnverifiedBoard {
+    fn verify_with_level(self, level: SelfChecks, strictness: Strictness) -> Res<Board> {
         let size = self.size();
         let rules = self.rules();
         if size != rules.size {
@@ -333,10 +324,10 @@ impl UnverifiedBoard<FairyBoard> for UnverifiedFairyBoard {
                 rules.pieces.len()
             )
         }
-        let mut pieces = RawFairyBitboard::default();
+        let mut pieces = RawBitboard::default();
         for (id, _piece) in rules.pieces.iter().enumerate() {
             let bb = self.piece_bitboards[id];
-            if (bb & pieces).has_set_bit() {
+            if (bb & pieces).has_any() {
                 bail!("Two pieces on the same square")
             }
             pieces |= bb;
@@ -370,30 +361,30 @@ impl UnverifiedBoard<FairyBoard> for UnverifiedFairyBoard {
             bail!("Ridiculously large ply counter ({})", self.ply_since_start)
         }
 
-        for color in FairyColor::iter() {
+        for color in Color::iter() {
             for side in Side::iter() {
                 if !self.castling_info.can_castle(color, side) {
                     continue;
                 }
                 let castling = self.castling_info.player(color);
-                if let Some(rook_sq) = castling.rook_sq(side) {
-                    if self.is_empty(rook_sq) {
-                        bail!(
-                            "Color {0} can castle {side}, but there is no piece to castle with{1}",
-                            self.color_name(color),
-                            if level == CheckFen { " (invalid castling flag in FEN?)" } else { "" }
-                        );
-                    }
+                if let Some(rook_sq) = castling.rook_sq(side)
+                    && self.is_empty(rook_sq)
+                {
+                    bail!(
+                        "Color {0} can castle {side}, but there is no piece to castle with{1}",
+                        self.color_name(color),
+                        if level == CheckFen { " (invalid castling flag in FEN?)" } else { "" }
+                    );
                 }
             }
         }
         if self.ep.is_some() && !rules.has_ep {
             bail!("The ep square is set even though the rules don't mention en passant")
         }
-        for color in FairyColor::iter() {
+        for color in Color::iter() {
             let royals = self.royal_bb_for(color);
             let num = royals.num_ones();
-            match rules.num_royals[color.idx()] {
+            match rules.num_royals[color] {
                 NumRoyals::Exactly(n) => {
                     ensure!(
                         num == n,
@@ -418,20 +409,20 @@ impl UnverifiedBoard<FairyBoard> for UnverifiedFairyBoard {
             }
         }
 
-        let mut res = FairyBoard(self);
+        let mut res = Board(self);
         res.0.hash = res.compute_hash();
-        for c in FairyColor::iter() {
+        for c in Color::iter() {
             res.0.in_check[c] = res.compute_is_in_check(c);
         }
         ensure!(
             res.rules().check_rules.active_check_ok.satisfied(&res, res.active_player()),
             "Player {} is in check, but that's not allowed in this position",
-            res.rules().colors[res.active_player().idx()].name
+            res.rules().colors[res.active_player()].name
         );
         ensure!(
             res.rules().check_rules.inactive_check_ok.satisfied(&res, res.inactive_player()),
             "Player {} is in check, but that's not allowed in this position (it's not their turn to move)",
-            res.rules().colors[res.inactive_player().idx()].name
+            res.rules().colors[res.inactive_player()].name
         );
 
         Ok(res)
@@ -445,24 +436,24 @@ impl UnverifiedBoard<FairyBoard> for UnverifiedFairyBoard {
         self.settings().name.clone()
     }
 
-    fn size(&self) -> BoardSize<FairyBoard> {
+    fn size(&self) -> BoardSize<Board> {
         self.rules().size
     }
 
-    fn place_piece(&mut self, coords: FairySquare, piece: ColPieceTypeOf<FairyBoard>) {
+    fn place_piece(&mut self, coords: Square, piece: ColPieceTypeOf<Board>) {
         let bb = self.single_piece(coords).raw();
         self.piece_bitboards[piece.to_uncolored_idx()] |= bb;
         if let Some(color) = piece.color() {
-            self.color_bitboards[color.idx()] |= bb;
+            self.color_bitboards[color] |= bb;
         } else {
             self.neutral_bb |= bb;
         }
     }
 
-    fn remove_piece(&mut self, sq: FairySquare) {
+    fn remove_piece(&mut self, sq: Square) {
         let piece = self.piece_on(sq).symbol;
         self.remove_piece_impl(sq, piece);
-        for col in FairyColor::iter() {
+        for col in Color::iter() {
             for side in Side::iter() {
                 if Some(sq) == self.castling_info.players[col].rook_sq(side) {
                     self.castling_info.unset(col, side);
@@ -476,7 +467,7 @@ impl UnverifiedBoard<FairyBoard> for UnverifiedFairyBoard {
         self.ep = None;
     }
 
-    fn piece_on(&self, coords: FairySquare) -> <FairyBoard as Board>::Piece {
+    fn piece_on(&self, coords: Square) -> <Board as BoardTrait>::Piece {
         let idx = self.idx(coords);
         let piece = self
             .piece_bitboards
@@ -488,20 +479,20 @@ impl UnverifiedBoard<FairyBoard> for UnverifiedFairyBoard {
             .color_bitboards
             .iter()
             .find_position(|bb| bb.is_bit_set_at(idx))
-            .map(|(idx, _bb)| FairyColor::from_idx(idx));
+            .map(|(idx, _bb)| Color::from_idx(idx));
 
         GenericPiece::new(ColoredPieceId::create(piece, color), coords)
     }
 
-    fn is_empty(&self, coords: FairySquare) -> bool {
+    fn is_empty(&self, coords: Square) -> bool {
         !self.occupied_bb().is_bit_set_at(self.idx(coords))
     }
 
-    fn active_player(&self) -> FairyColor {
+    fn active_player(&self) -> Color {
         self.active
     }
 
-    fn set_active_player(&mut self, player: FairyColor) {
+    fn set_active_player(&mut self, player: Color) {
         self.active = player;
     }
 
@@ -561,34 +552,34 @@ impl UnverifiedBoard<FairyBoard> for UnverifiedFairyBoard {
     }
 }
 
-impl UnverifiedFairyBoard {
-    fn idx(&self, square: FairySquare) -> usize {
+impl UnverifiedBoard {
+    fn idx(&self, square: Square) -> usize {
         self.size().internal_key(square)
     }
-    fn single_piece(&self, square: FairySquare) -> FairyBitboard {
-        FairyBitboard::new(RawFairyBitboard::single_piece_at(self.idx(square)), self.size())
+    fn single_piece(&self, square: Square) -> Bitboard {
+        Bitboard::new(RawBitboard::single_piece_at(self.idx(square)), self.size())
     }
     // doesn't affect the neutral bitboard (todo: change?)
-    fn remove_piece_impl(&mut self, square: FairySquare, piece: ColoredPieceId) {
+    fn remove_piece_impl(&mut self, square: Square, piece: ColoredPieceId) {
         let bb = self.single_piece(square).raw();
         if let Some(col) = piece.color() {
-            self.color_bitboards[col.idx()] ^= bb;
+            self.color_bitboards[col] ^= bb;
         }
         self.piece_bitboards[piece.uncolor().val()] ^= bb;
     }
     // adds or removes a given piece at a given square
-    fn xor_given_piece_at(&mut self, square: FairySquare, piece: PieceId, color: FairyColor) {
+    fn xor_given_piece_at(&mut self, square: Square, piece: PieceId, color: Color) {
         let idx = self.idx(square);
-        let bb = RawFairyBitboard::single_piece_at(idx);
+        let bb = RawBitboard::single_piece_at(idx);
         debug_assert_eq!(
             self.piece_bitboards[piece.val()].is_bit_set_at(idx),
-            self.color_bitboards[color.idx()].is_bit_set_at(idx)
+            self.color_bitboards[color].is_bit_set_at(idx)
         );
-        self.color_bitboards[color.idx()] ^= bb;
+        self.color_bitboards[color] ^= bb;
         self.piece_bitboards[piece.val()] ^= bb;
     }
     // doesn't affect the neutral bitboard
-    fn remove_all_pieces(&mut self, bb: RawFairyBitboard) {
+    fn remove_all_pieces(&mut self, bb: RawBitboard) {
         let mask = !bb;
         for bb in self.piece_bitboards.iter_mut() {
             *bb &= mask;
@@ -645,7 +636,7 @@ impl UnverifiedFairyBoard {
             return Ok(());
         }
         let mut empty = true;
-        for color in FairyColor::iter() {
+        for color in Color::iter() {
             for (id, piece) in rules.pieces().rev() {
                 let mut count = self.in_hand[color][id.val()];
                 if count > 0 {
@@ -670,22 +661,22 @@ impl UnverifiedFairyBoard {
 
 #[derive(Debug, Clone, Eq, PartialEq, Arbitrary)]
 #[must_use]
-pub struct FairyBoard(UnverifiedFairyBoard);
+pub struct Board(UnverifiedBoard);
 
-impl Default for FairyBoard {
+impl Default for Board {
     fn default() -> Self {
         Self::startpos()
     }
 }
 
-impl Display for FairyBoard {
+impl Display for Board {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         self.rules().format_rules.write_rules_part(f, &self.rules().name)?;
         write!(f, "{}", NoRulesFenFormatter(self))
     }
 }
 
-impl StaticallyNamedEntity for FairyBoard {
+impl StaticallyNamedEntity for Board {
     fn static_short_name() -> impl Display
     where
         Self: Sized,
@@ -708,18 +699,18 @@ impl StaticallyNamedEntity for FairyBoard {
     }
 }
 
-type FairyPiece = GenericPiece<FairyBoard, ColoredPieceId>;
+type Piece = GenericPiece<Board, ColoredPieceId>;
 
-impl Board for FairyBoard {
+impl BoardTrait for Board {
     type EmptyRes = Self::Unverified;
     type Settings = Rules;
     type SettingsRef = RulesRef;
-    type Coordinates = FairySquare;
-    type Color = FairyColor;
-    type Piece = FairyPiece;
-    type Move = FairyMove;
-    type MoveList = FairyMoveList;
-    type Unverified = UnverifiedFairyBoard;
+    type Coordinates = Square;
+    type Color = Color;
+    type Piece = Piece;
+    type Move = Move;
+    type MoveList = MoveList;
+    type Unverified = UnverifiedBoard;
 
     fn empty_for_settings(settings: RulesRef) -> Self::Unverified {
         settings.empty_pos()
@@ -733,18 +724,39 @@ impl Board for FairyBoard {
     fn name_to_pos_map() -> EntityList<NameToPos> {
         // TODO: add more named positions
         vec![
-            NameToPos::strict("kiwipete", "chess r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 0 1"),
-            NameToPos::strict("large_mnk", "mnk 11 11 4 11/11/11/11/11/11/11/11/11/11/11 x 1"),
-            NameToPos::strict(
+            NameToPos::desc(
+                "kiwipete",
+                "chess r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 0 1",
+                "Classical chess test position",
+            ),
+            NameToPos::desc(
+                "large_mnk",
+                "mnk 11 11 4 11/11/11/11/11/11/11/11/11/11/11 x 1",
+                "Starting position of a large m,n,k board",
+            ),
+            NameToPos::desc(
                 "shogi_usi_startpos",
                 "shogi lnsgkgsnl/1r5b1/ppppppppp/9/9/9/PPPPPPPPP/1B5R1/LNSGKGSNL b - 1",
+                "Shogi startpos, using USI notation instead of UGI notation",
             ),
         ]
     }
 
-    fn bench_positions() -> Vec<Self> {
-        // TODO: More positions covering a wide variety of rules
-        Self::name_to_pos_map().iter().map(|n| Self::from_name(n.name).unwrap()).collect()
+    fn bench_positions() -> impl IntoIterator<Item = Self> {
+        let fens = &[
+            "chess 4r1Q1/B2nr3/5b2/8/4p3/4KbNq/ppppppp1/RR3Nkn w - - 0 1",
+            "3check r2qk2r/1bpp1ppp/ppnb1n2/1B2p3/2NPP3/2P2N1P/PP3PP1/R1BQR1K1 w kq - 0 11 +0+0",
+            "kingofthehill r1b2b1r/4kppp/p1np1n2/1pp5/4PP2/2N1BN2/PPP2KPP/R4B1R b - - 1 11",
+            "shogi 6snl/2+P1k1g2/p1+Bppp1p1/4l1p1p/1p3S1P1/3+b2Pl1/PP3PK1P/7R1/5+n1NL b 2GN2Prg2sp 1",
+            "atomic rnb1kb1r/pp2pppp/1qp5/1B1p4/4P3/2N5/PPPP1PPP/R1B1K2R w KQkq - 3 7",
+            "antichess rnbqk1nr/pppp1pQp/8/8/8/8/PbP1PPPP/RNB1KBNR w - - 0 5",
+            "shatranj 8/p2k4/1pN4p/1Ppp1p2/5Rb1/PNPP2n1/5R2/1KB1r2r b - - 1 38",
+            "makruk 7r/3k4/1nsm1pp1/n1p5/4RM1N/P1S5/1NK5/3R4 b - - 0 38",
+            "ataxx x5o/1x4o/3-3/2---2/3-x2/1o3x1/o5x o - - 0 3",
+        ];
+        fens.into_iter()
+            .map(|fen| Self::from_fen(fen, Strict).unwrap())
+            .chain(Self::name_to_pos_map().into_iter().map(|n| Self::from_name(n.name).unwrap()))
     }
 
     // TODO: We could at least pass settings and do `startpos_for_setting()`, but ideally we'd also randomize the settings.
@@ -781,7 +793,7 @@ impl Board for FairyBoard {
         Some(Self::variants().iter().map(|v| v.name.to_string()).collect_vec())
     }
 
-    fn active_player(&self) -> FairyColor {
+    fn active_player(&self) -> Color {
         self.0.active
     }
 
@@ -793,7 +805,7 @@ impl Board for FairyBoard {
         self.0.draw_counter
     }
 
-    fn size(&self) -> FairySize {
+    fn size(&self) -> Size {
         self.rules().size
     }
 
@@ -838,21 +850,56 @@ impl Board for FairyBoard {
     }
 
     fn cannot_call_movegen(&self) -> bool {
-        let mut res = false;
         for (cond, _) in &self.rules().game_end_eager {
-            res |= self.precludes_movegen(cond);
+            if self.precludes_movegen(cond) {
+                return true;
+            }
         }
-        res
+        false
     }
 
-    fn gen_pseudolegal<T: MoveList<Self>>(&self, moves: &mut T) {
-        self.gen_pseudolegal_impl(moves);
+    fn pseudolegal_moves(&self) -> MoveList {
+        let mut moves = MoveList::new();
+        self.gen_pseudolegal_impl(&mut moves);
+        if moves.is_empty() && self.no_moves_result().is_none() {
+            moves.push(Self::Move::default());
+        }
+        moves
+    }
+
+    fn tactical_pseudolegal(&self) -> MoveList {
+        let mut moves = MoveList::new();
+        self.gen_pseudolegal_impl(&mut moves);
+        MoveListTrait::<Board>::filter_moves(&mut moves, |m: &mut Move| m.is_tactical(self));
+        moves
+    }
+
+    fn num_pseudolegal_moves(&self) -> usize {
+        let mut ctr = 0;
+        self.gen_pseudolegal(|_| ctr += 1);
+        if ctr == 0 && self.no_moves_result().is_none() {
+            ctr += 1;
+        }
+        ctr
+    }
+
+    fn gen_pseudolegal(&self, mut callback: impl FnMut(Move)) {
+        let mut moves = MoveList::new();
+        self.gen_pseudolegal_impl(&mut moves);
+        for m in moves {
+            callback(m);
+        }
     }
 
     // Implemented by simply filtering all pseudolegal moves
-    fn gen_tactical_pseudolegal<T: MoveList<Self>>(&self, moves: &mut T) {
-        self.gen_pseudolegal_impl(moves);
-        moves.filter_moves(|m| m.is_tactical(self));
+    fn gen_tactical_pseudolegal(&self, mut callback: impl FnMut(Move)) {
+        let mut moves = MoveList::new();
+        self.gen_pseudolegal_impl(&mut moves);
+        for m in moves {
+            if m.is_tactical(self) {
+                callback(m);
+            }
+        }
     }
 
     fn random_legal_move<R: Rng>(&self, rng: &mut R) -> Option<Self::Move> {
@@ -868,16 +915,13 @@ impl Board for FairyBoard {
     }
 
     fn make_nullmove(mut self) -> Option<Self> {
-        self.0.last_move = FairyMove::default();
-        self.end_move(FairyMove::default())
+        self.0.last_move = Move::default();
+        self.end_move(Move::default())
     }
 
     fn is_move_pseudolegal(&self, mov: Self::Move) -> bool {
         let moves = self.pseudolegal_moves();
         moves.contains(&mov)
-            || (mov.is_null()
-                && !moves.iter().any(|&m| self.is_pseudolegal_move_legal(m))
-                && self.no_moves_result().is_none())
     }
 
     fn is_pseudolegal_move_legal(&self, mov: Self::Move) -> bool {
@@ -915,7 +959,7 @@ impl Board for FairyBoard {
         None
     }
 
-    fn can_reasonably_win(&self, _player: FairyColor) -> bool {
+    fn can_reasonably_win(&self, _player: Color) -> bool {
         true
     }
 
@@ -929,6 +973,7 @@ impl Board for FairyBoard {
         if variant_name == rules.get().name {
             _ = input.next();
         } else {
+            // TODO: support custom matching, e.g. <n>check for any reasonable `n`
             let variants = Self::variants();
             if let Some(v) = variants.iter().find(|v| v.name.eq_ignore_ascii_case(variant_name)) {
                 _ = input.next();
@@ -943,7 +988,7 @@ impl Board for FairyBoard {
                 *input = input_copy;
             }
         }
-        let board = FairyBoard::empty_for_settings(rules.clone());
+        let board = Board::empty_for_settings(rules.clone());
         let input_copy = input.clone();
         match board.read_fen_without_rules(input, strictness) {
             Ok(res) => Ok(res),
@@ -984,27 +1029,27 @@ impl Board for FairyBoard {
         Box::new(DefaultBoardFormatter::new(self.clone(), piece, last_move, opts))
     }
 
-    fn background_color(&self, square: FairySquare) -> SquareColor {
+    fn background_color(&self, square: Square) -> SquareColor {
         // TODO: Maybe have a member in settings for turning that on
         square.square_color()
     }
 
     fn as_alternative_fen(&self) -> Option<String> {
         let alternative = self.settings().fallback.clone()?;
-        let pos = UnverifiedFairyBoard { rules: RulesRef::from_arc(alternative), ..self.0 };
+        let pos = UnverifiedBoard { rules: RulesRef::from_arc(alternative), ..self.0 };
         Some(pos.verify(Relaxed).ok()?.to_string())
     }
 }
 
-impl BitboardBoard for FairyBoard {
-    type RawBitboard = RawFairyBitboard;
-    type Bitboard = FairyBitboard;
+impl BitboardBoard for Board {
+    type RawBitboard = RawBitboard;
+    type Bitboard = Bitboard;
 
-    fn piece_bb(&self, piece: PieceTypeOf<Self>) -> FairyBitboard {
+    fn piece_bb(&self, piece: PieceTypeOf<Self>) -> Bitboard {
         self.0.piece_bb(piece)
     }
 
-    fn player_bb(&self, color: FairyColor) -> FairyBitboard {
+    fn player_bb(&self, color: Color) -> Bitboard {
         self.0.player_bb(color)
     }
 
@@ -1019,14 +1064,14 @@ impl BitboardBoard for FairyBoard {
 
 type NameToVariant = GenericSelect<Box<dyn Fn() -> RulesRef>>;
 
-impl Deref for FairyBoard {
-    type Target = UnverifiedFairyBoard;
+impl Deref for Board {
+    type Target = UnverifiedBoard;
     fn deref(&self) -> &Self::Target {
         &self.0
     }
 }
 
-impl FairyBoard {
+impl Board {
     fn variants_for(protocol: Protocol) -> EntityList<NameToVariant> {
         vec![
             GenericSelect { name: "chess", val: Box::new(|| RulesRef::new(RulesBuilder::chess().build())) },
@@ -1038,7 +1083,7 @@ impl FairyBoard {
             GenericSelect { name: "horde", val: Box::new(|| RulesRef::new(RulesBuilder::horde().build())) },
             GenericSelect {
                 name: "racingkings",
-                val: Box::new(|| RulesRef::new(RulesBuilder::racing_kings(FairySize::chess()).build())),
+                val: Box::new(|| RulesRef::new(RulesBuilder::racing_kings(Size::chess()).build())),
             },
             GenericSelect { name: "crazyhouse", val: Box::new(|| RulesRef::new(RulesBuilder::crazyhouse().build())) },
             GenericSelect { name: "3check", val: Box::new(|| RulesRef::new(RulesBuilder::n_check(3).build())) },
@@ -1053,7 +1098,7 @@ impl FairyBoard {
             GenericSelect { name: "ataxx", val: Box::new(|| RulesRef::new(RulesBuilder::ataxx().build())) },
             GenericSelect {
                 name: "droptaxx",
-                val: Box::new(|| RulesRef::new(RulesBuilder::droptaxx(FairySize::ataxx()).build())),
+                val: Box::new(|| RulesRef::new(RulesBuilder::droptaxx(Size::ataxx()).build())),
             },
             GenericSelect { name: "tictactoe", val: Box::new(|| RulesRef::new(RulesBuilder::tictactoe().build())) },
             GenericSelect {
@@ -1126,7 +1171,7 @@ impl FairyBoard {
     }
 }
 
-pub struct NoRulesFenFormatter<'a>(&'a FairyBoard);
+pub struct NoRulesFenFormatter<'a>(&'a Board);
 
 impl Display for NoRulesFenFormatter<'_> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
@@ -1191,9 +1236,9 @@ impl Display for NoRulesFenFormatter<'_> {
     }
 }
 
-impl UnverifiedFairyBoard {
-    fn read_fen_without_rules(mut self, input: &mut Tokens, strictness: Strictness) -> Res<FairyBoard> {
-        read_common_fen_part::<FairyBoard>(input, &mut self)?;
+impl UnverifiedBoard {
+    fn read_fen_without_rules(mut self, input: &mut Tokens, strictness: Strictness) -> Res<Board> {
+        read_common_fen_part::<Board>(input, &mut self)?;
         if self.rules().format_rules.hand == FenHandInfo::SeparateToken {
             let Some(hand) = input.next() else {
                 bail!("Missing hand part");
@@ -1204,11 +1249,11 @@ impl UnverifiedFairyBoard {
         self.read_castling_and_ep_fen_parts(input, strictness)?;
         let trailing_counters = self.rules().num_additional_ctrs() > 0 && self.read_ctrs(input, true).is_err();
         if self.rules().format_rules.has_ply_clock {
-            read_halfmove_clock::<FairyBoard>(input, &mut self)?;
+            read_halfmove_clock::<Board>(input, &mut self)?;
         }
         match self.rules().format_rules.move_num_fmt {
-            MoveNumFmt::Fullmove => read_single_move_number::<FairyBoard>(input, &mut self, strictness, None)?,
-            MoveNumFmt::Halfmove => read_move_number_in_ply::<FairyBoard>(input, &mut self, strictness)?,
+            MoveNumFmt::Fullmove => read_single_move_number::<Board>(input, &mut self, strictness, None)?,
+            MoveNumFmt::Halfmove => read_move_number_in_ply::<Board>(input, &mut self, strictness)?,
         }
         if trailing_counters {
             self.read_ctrs(input, false)?;
@@ -1216,15 +1261,15 @@ impl UnverifiedFairyBoard {
         self.verify_with_level(CheckFen, strictness)
     }
 
-    fn square_formatter(&self, sq: FairySquare) -> SquareFormatter {
+    fn square_formatter(&self, sq: Square) -> SquareFormatter {
         SquareFormatter { sq, axes_format: self.rules().format_rules.axes_format, size: self.size() }
     }
 }
 
 struct SquareFormatter {
-    sq: FairySquare,
+    sq: Square,
     axes_format: AxesFormat,
-    size: FairySize,
+    size: Size,
 }
 
 impl Display for SquareFormatter {

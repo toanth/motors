@@ -28,14 +28,14 @@ use gears::cli::Game;
 use gears::colored::Colorize;
 use gears::games::CharType::{Ascii, Unicode};
 #[cfg(feature = "fairy")]
-use gears::games::fairy::FairyBoard;
-use gears::games::{AbstractPieceType, Color, ColoredPiece, Size};
-use gears::general::board::{Board, BoardHelpers, ColPieceTypeOf, Strictness};
+use gears::games::fairy::Board;
+use gears::games::{AbstractPieceType, ColorTrait, ColoredPieceTrait, SizeTrait};
+use gears::general::board::{BoardHelpers, BoardTrait, ColPieceTypeOf, Strictness};
 use gears::general::common::anyhow::{anyhow, bail};
 use gears::general::common::{
     Name, NamedEntity, Res, Tokens, parse_duration_ms, parse_int, parse_int_from_str, tokens,
 };
-use gears::general::moves::{ExtendedFormat, Move};
+use gears::general::moves::{ExtendedFormat, MoveTrait};
 use gears::itertools::Itertools;
 use gears::output::Message::Warning;
 use gears::output::OutputOpts;
@@ -58,7 +58,7 @@ pub type CommandList = Vec<Command>;
 
 fn display_cmd(f: &mut Formatter<'_>, cmd: &Command) -> fmt::Result {
     if let Some(desc) = cmd.description() {
-        write!(f, "{}: {desc}.", cmd.short_name().bold())
+        write!(f, "{}: {desc}.", cmd.short_name().bold().underline())
     } else {
         write!(f, "{}", cmd.short_name().bold())
     }
@@ -70,7 +70,7 @@ struct SubCommandsFn(Option<SubCommandFnT>);
 
 impl Debug for SubCommandsFn {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        write!(f, "<subcommands>")
+        f.debug_tuple("SubCommandsFn").finish_non_exhaustive()
     }
 }
 
@@ -217,7 +217,7 @@ pub fn ugi_commands() -> CommandList {
             Ok(())
         }),
         command!(
-            setoption | so,
+            setoption | so | set,
             All,
             "Sets an engine option",
             |ugi, words, _| ugi.handle_setoption(words),
@@ -239,7 +239,7 @@ pub fn ugi_commands() -> CommandList {
             "Flips the side to move, unless this results in an illegal position",
             |ugi, _, _| ugi.handle_flip()
         ),
-        command!(quit, All, "Exits the program immediately", |ugi, _, _| {
+        command!(quit | q, All, "Exits the program immediately", |ugi, _, _| {
             if cfg!(feature = "fuzzing") {
                 eprintln!("Fuzzing is enabled, ignoring 'quit' command");
                 return Ok(());
@@ -259,7 +259,7 @@ pub fn ugi_commands() -> CommandList {
             }
         ),
         command!(
-            query | q,
+            query,
             UgiNotUci,
             "Answer a query about the current match state",
             |ugi, words, _| ugi.handle_query(words),
@@ -362,7 +362,7 @@ pub fn ugi_commands() -> CommandList {
                 let mut games = Game::iter().map(|g| Box::new(Name::new(&g))).collect_vec();
                 #[cfg(feature = "fairy")]
                 {
-                    games.extend(FairyBoard::list_variants().unwrap_or_default().iter().map(|v| Box::new(Name::from_name(&format!("Fairy-{v}")))));
+                    games.extend(Board::list_variants().unwrap_or_default().iter().map(|v| Box::new(Name::from_name(&format!("Fairy-{v}")))));
                 }
                 select_command::<Name>(&games)
             }
@@ -398,7 +398,7 @@ pub fn ugi_commands() -> CommandList {
             --> |state| state.coords_subcmds(false, true)
         ),
         command!(
-            move_piece,
+            move_piece | mp,
             Custom,
             "Moves the piece on the first given square to the second given square, e.g. 'move a1 a2'",
             |ugi, words, _| ugi.handle_move_piece(words),
@@ -468,6 +468,7 @@ pub fn ugi_commands() -> CommandList {
 /// The purpose of this trait is to type erase the Board
 pub trait AbstractGoState: Debug {
     fn set_searchmoves(&mut self, words: &mut Tokens) -> Res<()>;
+    fn set_excludemoves(&mut self, words: &mut Tokens) -> Res<()>;
     fn set_time(&mut self, words: &mut Tokens, first: bool, inc: bool, name: &str) -> Res<()>;
     fn override_hash(&mut self, words: &mut Tokens) -> Res<()>;
     fn limit_mut(&mut self) -> &mut SearchLimit;
@@ -478,17 +479,30 @@ pub trait AbstractGoState: Debug {
     fn is_first_player_active(&self) -> bool;
 }
 
-impl<B: Board> AbstractGoState for GoState<B> {
+fn set_sm_or_em<B: BoardTrait>(pos: &B, words: &mut Tokens, name: &str) -> Res<Vec<B::Move>> {
+    let mut moves = vec![];
+    while let Some(mov) = words.peek().and_then(|m| B::Move::from_text(m, &pos).ok()) {
+        _ = words.next().unwrap();
+        moves.push(mov);
+    }
+    if moves.is_empty() {
+        let additional = words.peek().map(|w| format!(" (the next word is '{}')", w.red())).unwrap_or_default();
+        bail!("No valid moves after '{}' command{additional}", name.bold());
+    }
+    Ok(moves)
+}
+
+impl<B: BoardTrait> AbstractGoState for GoState<B> {
     fn set_searchmoves(&mut self, words: &mut Tokens) -> Res<()> {
-        let mut search_moves = vec![];
-        while let Some(mov) = words.peek().and_then(|m| B::Move::from_text(m, &self.pos).ok()) {
-            _ = words.next().unwrap();
-            search_moves.push(mov);
-        }
-        if search_moves.is_empty() {
-            bail!("No valid moves after 'searchmoves' command");
-        }
-        self.search_moves = Some(search_moves);
+        self.search_moves = Some(set_sm_or_em(&self.pos, words, "searchmoves")?);
+        Ok(())
+    }
+
+    fn set_excludemoves(&mut self, words: &mut Tokens) -> Res<()> {
+        let excluded = set_sm_or_em(&self.pos, words, "excludemoves")?;
+        let mut sm = self.search_moves.clone().unwrap_or_else(|| self.pos.legal_moves_slow().into_iter().collect_vec());
+        sm.retain(|m| !excluded.contains(m));
+        self.search_moves = Some(sm);
         Ok(())
     }
 
@@ -506,7 +520,7 @@ impl<B: Board> AbstractGoState for GoState<B> {
     }
 
     fn override_hash(&mut self, words: &mut Tokens) -> Res<()> {
-        self.generic.override_hash_size = Some(parse_int(words, "TT size in MB")?);
+        self.generic.override_hash_size = Some(parse_int(words, "TT size in MiB")?);
         Ok(())
     }
 
@@ -551,7 +565,7 @@ impl<B: Board> AbstractGoState for GoState<B> {
 }
 
 #[derive(Debug, Clone)]
-pub struct GoState<B: Board> {
+pub struct GoState<B: BoardTrait> {
     pub generic: GenericGoState,
     pub search_moves: Option<Vec<B::Move>>,
     pub pos: B,
@@ -567,6 +581,7 @@ pub struct GenericGoState {
     pub complete: bool,
     pub unique: bool,
     pub compare: bool,
+    pub no_bulk: bool,
     pub move_overhead: Duration,
     pub strictness: Strictness,
     pub override_hash_size: Option<usize>,
@@ -575,7 +590,7 @@ pub struct GenericGoState {
     default_perft_depth: DepthPly,
 }
 
-impl<B: Board> GoState<B> {
+impl<B: BoardTrait> GoState<B> {
     pub fn default_depth_limit(ugi: &EngineUGI<B>, search_type: SearchType) -> DepthPly {
         match search_type {
             Bench => ugi.state.engine.get_engine_info().default_bench_depth(),
@@ -619,6 +634,7 @@ impl<B: Board> GoState<B> {
                 complete: false,
                 unique: false,
                 compare: false,
+                no_bulk: false,
                 move_overhead,
                 strictness,
                 override_hash_size: None,
@@ -636,12 +652,13 @@ impl<B: Board> GoState<B> {
 }
 
 pub(super) fn accept_depth(limit: &mut SearchLimit, words: &mut Tokens) -> Res<()> {
-    if let Some(word) = words.peek() {
-        if let Ok(number) = parse_int_from_str(word, "depth") {
-            limit.depth = DepthPly::try_new(number)?;
-            _ = words.next();
-        }
+    if let Some(word) = words.peek()
+        && let Ok(number) = parse_int_from_str(word, "depth")
+    {
+        limit.depth = DepthPly::try_new(number)?;
+        _ = words.next();
     }
+
     Ok(())
 }
 
@@ -652,7 +669,7 @@ pub(super) fn depth_cmd() -> Command {
     })
 }
 
-pub(super) fn go_options<B: Board>(mode: Option<SearchType>, settings: B::SettingsRef) -> CommandList {
+pub(super) fn go_options<B: BoardTrait>(mode: Option<SearchType>, settings: B::SettingsRef) -> CommandList {
     let pos = B::startpos_for_settings(settings);
     let mut res = go_options_impl(mode, pos.color_chars(), pos.color_names());
 
@@ -670,7 +687,17 @@ pub(super) fn go_options_impl(
     color_names: [String; 2],
 ) -> CommandList {
     let mut res = vec![depth_cmd()];
-    if !matches!(mode.unwrap_or(Normal), Perft | SplitPerft) {
+    if matches!(mode.unwrap_or(Normal), Perft | SplitPerft) {
+        res.push(command!(
+            threads | t,
+            Custom,
+            "The only valid number is '1' to disable multithreading",
+            |state, words, _| {
+                state.go_state_mut().get_mut().threads = Some(parse_int(words, "threads")?);
+                Ok(())
+            }
+        ));
+    } else {
         let mut additional: CommandList = vec![
             Command {
                 primary_name: format!("{}time", color_chars[0]),
@@ -798,6 +825,13 @@ pub(super) fn go_options_impl(
                 --> |state| state.moves_subcmds(false, false),
                 recurse = true
             ),
+            command!(excludemoves | em | ignoremoves,
+            Custom,
+            "Don't search the specified moves; the dual of 'searchmoves'",
+            |state, words, _| state.go_state_mut().set_excludemoves(words),
+            --> |state| state.moves_subcmds(false, false),
+            recurse = true
+            ),
             command!(
                 multipv | mpv,
                 Custom,
@@ -887,10 +921,21 @@ pub(super) fn go_options_impl(
         );
         res.push(c);
     }
+    if mode.is_none_or(|m| [Perft, SplitPerft].contains(&m)) {
+        res.push(command!(
+            no_bulk | non_bulk | nb,
+            Custom,
+            "Turn off (pseudo) bulk counting in perft/splitperft; this makes it slower",
+            |state, _words, _| {
+                state.go_state_mut().get_mut().no_bulk = true;
+                Ok(())
+            }
+        ));
+    }
     res
 }
 
-pub(super) fn query_options<B: Board>() -> CommandList {
+pub(super) fn query_options<B: BoardTrait>() -> CommandList {
     // TODO: See go_options, doesn't update the chars
     query_options_impl(B::default().color_chars())
 }
@@ -995,7 +1040,7 @@ fn bool_options() -> CommandList {
     ]
 }
 
-pub(super) fn position_options<B: Board>(pos: Option<&B>, accept_pos_word: bool) -> CommandList {
+pub(super) fn position_options<B: BoardTrait>(pos: Option<&B>, accept_pos_word: bool) -> CommandList {
     let all_names_fn = || {
         let mut res = vec![];
         for p in B::name_to_pos_map() {
@@ -1048,7 +1093,7 @@ pub(super) fn move_command(recurse: bool) -> Command {
     )
 }
 
-pub(super) fn moves_options<B: Board>(pos: &B, recurse: bool) -> CommandList {
+pub(super) fn moves_options<B: BoardTrait>(pos: &B, recurse: bool) -> CommandList {
     let mut res: CommandList = vec![];
     let legals = pos.legal_moves_slow().into_iter().collect_vec();
     for &mov in &legals {
@@ -1079,7 +1124,7 @@ pub(super) fn moves_options<B: Board>(pos: &B, recurse: bool) -> CommandList {
     res
 }
 
-pub(super) fn coords_options<B: Board>(pos: &B, ac_coords: bool, only_occupied: bool) -> CommandList {
+pub(super) fn coords_options<B: BoardTrait>(pos: &B, ac_coords: bool, only_occupied: bool) -> CommandList {
     let mut res = vec![];
     for c in pos.size().valid_coordinates() {
         if only_occupied && pos.is_empty(c) {
@@ -1101,7 +1146,7 @@ pub(super) fn coords_options<B: Board>(pos: &B, ac_coords: bool, only_occupied: 
     res
 }
 
-pub(super) fn piece_options<B: Board>(pos: &B) -> CommandList {
+pub(super) fn piece_options<B: BoardTrait>(pos: &B) -> CommandList {
     let mut res = vec![];
     let settings = pos.settings();
     for p in ColPieceTypeOf::<B>::non_empty(settings) {

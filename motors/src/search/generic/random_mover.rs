@@ -2,7 +2,7 @@ use gears::itertools::Itertools;
 use std::fmt::{Debug, Display, Formatter};
 use std::time::Duration;
 
-use gears::general::board::Board;
+use gears::general::board::BoardTrait;
 use gears::rand::{Rng, RngCore, SeedableRng, rng};
 
 use crate::eval::Eval;
@@ -17,18 +17,18 @@ pub trait SeedRng: Rng + SeedableRng {}
 
 impl<T> SeedRng for T where T: Rng + SeedableRng {}
 
-pub struct RandomMover<B: Board, R: SeedRng> {
+pub struct RandomMover<B: BoardTrait, R: SeedRng> {
     pub rng: R,
     state: SearchState<B, EmptySearchStackEntry, NoCustomInfo>,
 }
 
-impl<B: Board, R: SeedRng> Debug for RandomMover<B, R> {
+impl<B: BoardTrait, R: SeedRng> Debug for RandomMover<B, R> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         f.write_str("random mover")
     }
 }
 
-impl<B: Board, R: SeedRng> Default for RandomMover<B, R> {
+impl<B: BoardTrait, R: SeedRng> Default for RandomMover<B, R> {
     fn default() -> Self {
         Self { rng: R::seed_from_u64(rng().next_u64()), state: SearchState::new(DepthPly::new(1)) }
     }
@@ -44,7 +44,7 @@ impl<B: Board, R: SeedRng> Default for RandomMover<B, R> {
 //     }
 // }
 
-impl<B: Board, R: SeedRng + 'static> StaticallyNamedEntity for RandomMover<B, R> {
+impl<B: BoardTrait, R: SeedRng + 'static> StaticallyNamedEntity for RandomMover<B, R> {
     fn static_short_name() -> impl Display
     where
         Self: Sized,
@@ -67,7 +67,7 @@ impl<B: Board, R: SeedRng + 'static> StaticallyNamedEntity for RandomMover<B, R>
     }
 }
 
-impl<B: Board, R: SeedRng + Clone + Send + 'static> Engine<B> for RandomMover<B, R> {
+impl<B: BoardTrait, R: SeedRng + Clone + Send + 'static> Engine<B> for RandomMover<B, R> {
     type SearchStackEntry = EmptySearchStackEntry;
     type CustomInfo = NoCustomInfo;
 

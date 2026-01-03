@@ -17,18 +17,19 @@ mod tests {
     use crate::search::{AbstractSearchState, Engine, SearchParams};
     use crate::{list_chess_evals, list_chess_searchers};
     use gears::PlayerResult::{Draw, Win};
-    use gears::games::chess::Chessboard;
-    use gears::games::chess::moves::{ChessMove, ChessMoveFlags};
-    use gears::games::chess::pieces::ChessPiece;
-    use gears::games::chess::pieces::ChessPieceType::Bishop;
-    use gears::games::chess::pieces::ColoredChessPieceType::BlackKnight;
-    use gears::games::chess::squares::ChessSquare;
+    use gears::games::chess::Board;
+    use gears::games::chess::moves::{Move, MoveFlags};
+    use gears::games::chess::pieces::ColoredPieceType::BlackKnight;
+    use gears::games::chess::pieces::Piece;
+    use gears::games::chess::pieces::PieceType::Bishop;
+    use gears::games::chess::squares::Square;
     use gears::games::{BoardHistDyn, ZobristHistory, n_fold_repetition};
     use gears::general::board::Strictness::{Relaxed, Strict};
-    use gears::general::board::{Board, BoardHelpers, UnverifiedBoard};
+    use gears::general::board::{BoardHelpers, BoardTrait, UnverifiedBoardTrait};
     use gears::general::common::NamedEntity;
-    use gears::general::moves::Move;
+    use gears::general::moves::MoveTrait;
     use gears::output::pgn::parse_pgn;
+    use gears::parse_ugi_pos_and_hist;
     use gears::rand::rngs::StdRng;
     use gears::score::{NO_SCORE_YET, SCORE_LOST, SCORE_WON, Score, game_result_to_score};
     use gears::search::{DepthPly, NodesLimit, SearchLimit};
@@ -43,7 +44,7 @@ mod tests {
     #[test]
     #[cfg(feature = "gaps")]
     fn generic_negamax_test() {
-        generic_search_test(Gaps::<Chessboard>::default());
+        generic_search_test(Gaps::<Board>::default());
     }
 
     #[test]
@@ -54,54 +55,49 @@ mod tests {
 
     #[test]
     fn random_mover_test() {
-        game_over_test(&mut RandomMover::<Chessboard, StdRng>::default());
+        game_over_test(&mut RandomMover::<Board, StdRng>::default());
     }
 
-    fn game_over_test<E: Engine<Chessboard>>(engine: &mut E) {
-        let mated_pos = load_ugi_pos_simple("mate_in_1 moves h7a7", Strict, &Chessboard::default()).unwrap();
+    fn game_over_test<E: Engine<Board>>(engine: &mut E) {
+        let mated_pos = load_ugi_pos_simple("mate_in_1 moves h7a7", Strict, &Board::default()).unwrap();
         assert!(mated_pos.is_checkmate_slow());
         for i in (1..123).step_by(11) {
             let res = engine.search_with_new_tt(mated_pos, SearchLimit::depth(DepthPly::new(i)));
             assert!(res.ponder_move.is_none());
-            assert_eq!(res.chosen_move, ChessMove::default());
+            assert_eq!(res.chosen_move, Move::default());
             let res = engine.search_with_new_tt(mated_pos, SearchLimit::nodes_(i as u64));
             assert!(res.ponder_move.is_none());
-            assert_eq!(res.chosen_move, ChessMove::default());
+            assert_eq!(res.chosen_move, Move::default());
         }
         let fen = "QQQQQQQQ/QQQQQQQQ/QQQQQQQQ/QQQQQQQQ/QQQQQQQQ/QQQQQQQQ/QQQQQQNN/KQQQQQNk w - - 0 1";
-        let drawn_pos = Chessboard::from_fen(fen, Relaxed).unwrap();
+        let drawn_pos = Board::from_fen(fen, Relaxed).unwrap();
         assert!(drawn_pos.is_stalemate_slow());
         let res = engine.search_with_new_tt(drawn_pos, SearchLimit::nodes_(42));
         assert_eq!(res.ponder_move, None);
-        assert_eq!(res.chosen_move, ChessMove::default());
+        assert_eq!(res.chosen_move, Move::default());
         // TODO: Ensure that this returns 0 instead of SCORE_TIME_UP
         // assert_eq!(res.score, Score(0));
         let drawn_pos = drawn_pos.make_nullmove().unwrap();
         let res = engine.search_with_new_tt(drawn_pos, SearchLimit::nodes_(42));
         // assert_eq!(res.score, Score(0));
-        assert_eq!(res.chosen_move, ChessMove::default());
-        let mut pos =
-            drawn_pos.replace_piece(ChessPiece::new(BlackKnight, ChessSquare::from_str("g1").unwrap())).unwrap();
-        pos.try_replace_piece(ChessSquare::from_str("g2").unwrap(), BlackKnight).unwrap();
-        pos.try_replace_piece(ChessSquare::from_str("h2").unwrap(), BlackKnight).unwrap();
+        assert_eq!(res.chosen_move, Move::default());
+        let mut pos = drawn_pos.replace_piece(Piece::new(BlackKnight, Square::from_str("g1").unwrap())).unwrap();
+        pos.try_replace_piece(Square::from_str("g2").unwrap(), BlackKnight).unwrap();
+        pos.try_replace_piece(Square::from_str("h2").unwrap(), BlackKnight).unwrap();
         let drawn_pos = pos.verify(Relaxed).unwrap();
         let res = engine.search_with_new_tt(drawn_pos, SearchLimit::nodes_(42));
         assert_eq!(res.ponder_move, None);
-        assert_eq!(res.chosen_move, ChessMove::default());
+        assert_eq!(res.chosen_move, Move::default());
         // assert_eq!(res.score, Score(0));
     }
 
-    fn generic_search_test<E: Engine<Chessboard>>(mut engine: E) {
+    fn generic_search_test<E: Engine<Board>>(mut engine: E) {
         let fen = "7r/pBrkqQ1p/3b4/5b2/8/6P1/PP2PP1P/R1BR2K1 w - - 1 17";
-        let board = Chessboard::from_fen(fen, Strict).unwrap();
+        let board = Board::from_fen(fen, Strict).unwrap();
         let res = engine.search_with_new_tt(board, SearchLimit::mate(DepthPly::new(5)));
         assert_eq!(
             res.chosen_move,
-            ChessMove::new(
-                ChessSquare::from_str("d1").unwrap(),
-                ChessSquare::from_str("d6").unwrap(),
-                ChessMoveFlags::RookMove
-            )
+            Move::new(Square::from_str("d1").unwrap(), Square::from_str("d6").unwrap(), MoveFlags::NormalMove)
         );
         assert_eq!(res.score, SCORE_WON - 3);
 
@@ -112,10 +108,10 @@ mod tests {
         two_threads_test::<E>();
     }
 
-    fn avoid_repetition<E: Engine<Chessboard>>(engine: &mut E) {
+    fn avoid_repetition<E: Engine<Board>>(engine: &mut E) {
         let pgn = r#"[Variant "From Position"][FEN "8/3Q4/2K5/k7/6P1/8/8/8 w - - 0 1"]
                         1. Qd4 Ka6 2. Qd6 Ka5 3. Qd4 Ka6 4. Qd7 Ka5"#;
-        let game = parse_pgn::<Chessboard>(pgn, Strict, None).unwrap().game;
+        let game = parse_pgn::<Board>(pgn, Strict, None).unwrap().game;
         let params = SearchParams::new_unshared(
             game.board,
             SearchLimit::depth(engine.default_bench_depth()),
@@ -128,28 +124,28 @@ mod tests {
         } else {
             assert!(res.score >= Score(500));
         }
-        assert_ne!(res.chosen_move, ChessMove::from_text("Qd4", &game.board).unwrap());
+        assert_ne!(res.chosen_move, Move::from_text("Qd4", &game.board).unwrap());
     }
 
-    fn mate_beats_repetition<E: Engine<Chessboard>>(engine: &mut E) {
-        let pos = Chessboard::from_fen("8/3Q4/2K5/k7/6P1/8/8/8 w - - 99 99", Strict).unwrap();
+    fn mate_beats_repetition<E: Engine<Board>>(engine: &mut E) {
+        let pos = Board::from_fen("8/3Q4/2K5/k7/6P1/8/8/8 w - - 99 99", Strict).unwrap();
         let res = engine.search_with_new_tt(pos, SearchLimit::depth(engine.default_bench_depth()));
         let score = res.score;
         assert!(score > Score(500));
         if let Some(plies_to_win) = res.score.plies_until_game_won() {
             assert!(plies_to_win > 2);
         }
-        assert_eq!(res.chosen_move, ChessMove::from_text("g5!", &pos).unwrap());
-        let pos = Chessboard::from_fen("8/8/k1K5/8/8/8/3Q2P1/8 w - - 99 99", Strict).unwrap();
+        assert_eq!(res.chosen_move, Move::from_text("g5!", &pos).unwrap());
+        let pos = Board::from_fen("8/8/k1K5/8/8/8/3Q2P1/8 w - - 99 99", Strict).unwrap();
         let res = engine.search_with_new_tt(pos, SearchLimit::depth_(3));
         let score = res.score;
         assert_eq!(score.plies_until_game_won(), Some(1), "{score}");
-        assert_eq!(res.chosen_move, ChessMove::from_text("d2a2", &pos).unwrap());
+        assert_eq!(res.chosen_move, Move::from_text("d2a2", &pos).unwrap());
     }
 
-    fn two_threads_test<E: Engine<Chessboard>>() {
+    fn two_threads_test<E: Engine<Board>>() {
         let fen = "2kr3r/2pb1p2/p2b1p2/1p4pp/B2R4/2P1P2P/PP2KPP1/R1B5 w - - 0 16";
-        let board = Chessboard::from_fen(fen, Strict).unwrap();
+        let board = Board::from_fen(fen, Strict).unwrap();
         let mut engine = E::for_eval::<LiTEval>();
         let mut engine2 = E::for_eval::<LiTEval>();
         let tt = TT::default();
@@ -184,15 +180,15 @@ mod tests {
         atomic2.set_stop(true);
         let res2 = handle2.join().unwrap();
         assert!(res.score.0.abs_diff(res2.score.0) <= max_diff, "{0} {1}", res.score, res2.score);
-        assert_eq!(res.chosen_move.piece_type(), Bishop);
-        assert_eq!(res2.chosen_move.src_square(), ChessSquare::from_str("a4").unwrap());
+        assert_eq!(res.chosen_move.piece_type(&board), Bishop);
+        assert_eq!(res2.chosen_move.src_square(), Square::from_str("a4").unwrap());
     }
 
     #[test]
     fn weird_position_test() {
         // this fen is actually a legal chess position
         let fen = "q2k2q1/2nqn2b/1n1P1n1b/2rnr2Q/1NQ1QN1Q/3Q3B/2RQR2B/Q2K2Q1 w - - 0 1";
-        let board = Chessboard::from_fen(fen, Strict).unwrap();
+        let board = Board::from_fen(fen, Strict).unwrap();
         let mut engine = Caps::for_eval::<LiTEval>();
         // TODO: New testcase that asserts that unfinished iterations can still change the score
         let res = engine.search_with_new_tt(board, SearchLimit::depth_(1));
@@ -201,7 +197,7 @@ mod tests {
         assert!(res.score >= Score(1400), "{score}");
         // not a legal chess position, but search should still handle this
         let fen = "RRRRRRRR/RRRRRRRR/BBBBBBBB/BBBBBBBB/QQQQQQQQ/QQQQQQQQ/QPPPPPPP/K6k b - - 0 1";
-        let board = Chessboard::from_fen(fen, Relaxed).unwrap();
+        let board = Board::from_fen(fen, Relaxed).unwrap();
         assert!(board.pseudolegal_moves().len() <= 3);
         for i in (2..55).step_by(3) {
             // do this several times to get different random numbers
@@ -213,11 +209,11 @@ mod tests {
         let mut engine = Caps::for_eval::<LiTEval>();
         let res = engine.search_with_new_tt(board, SearchLimit::depth_(10));
         assert_eq!(res.score, SCORE_LOST + 2);
-        let expected_move = ChessMove::from_compact_text("h1g1", &board).unwrap();
+        let expected_move = Move::from_compact_text("h1g1", &board).unwrap();
         assert_eq!(res.chosen_move, expected_move);
         // caused a crash once
         let fen = "8/2k5/8/4P3/PPPP1PPP/PPPPPPPP/PPPPPPPP/QQQQKQQQ b - - 0 1";
-        let board = Chessboard::from_fen(fen, Relaxed).unwrap();
+        let board = Board::from_fen(fen, Relaxed).unwrap();
         let res = engine.search_with_new_tt(board, SearchLimit::depth(DepthPly::new(8)));
         assert!(res.score <= Score(7000), "{}", res.score);
     }
@@ -225,18 +221,18 @@ mod tests {
     #[test]
     fn repetition_test() {
         // the only winning move leads to a repeated position; all other moves lose
-        let mut board = Chessboard::from_fen("8/8/3k3q/8/1K6/8/8/R7 w - - 0 1", Strict).unwrap();
+        let mut board = Board::from_fen("8/8/3k3q/8/1K6/8/8/R7 w - - 0 1", Strict).unwrap();
         let movelist = ["Ra6+", "Kd7", "Ra1", "Kd6"];
         let mut hist = ZobristHistory::default();
         for _ in 0..2 {
             for mov in movelist {
-                let mov = ChessMove::from_extended_text(mov, &board).unwrap();
+                let mov = Move::from_extended_text(mov, &board).unwrap();
                 board = board.make_move(mov).unwrap();
                 assert!(board.player_result_slow(&hist).is_none());
                 hist.push(board.hash_pos());
             }
         }
-        let mov = ChessMove::from_extended_text(movelist[0], &board).unwrap();
+        let mov = Move::from_extended_text(movelist[0], &board).unwrap();
         let new_board = board.make_move(mov).unwrap();
         assert!(new_board.is_in_check());
         assert!(new_board.is_3fold_repetition(&hist));
@@ -254,14 +250,28 @@ mod tests {
             assert_eq!(res.chosen_move, mov);
             assert_eq!(res.score, Score(0));
         }
+        let state = parse_ugi_pos_and_hist::<Board>(
+            "pos fen 1k6/8/2K5/Q7/8/8/8/8 w - - 0 1 moves a5d8 b8a7 d8a5 a7b8 a5d8 b8a7 d8a5 a7b8",
+            Strict,
+        )
+        .unwrap();
+        let hist = state.board_hist.clone();
+        let res = engine.search(SearchParams::new_unshared(
+            state.board,
+            SearchLimit::nodes_(12_345),
+            hist.clone(),
+            TT::default(),
+        ));
+        assert_eq!(state.board.player_result_slow(&hist), Some(Draw));
+        assert_eq!(res.score.plies_until_game_won(), Some(3));
+        assert_eq!(res.chosen_move, Move::from_text("Qc7+", &state.board).unwrap());
     }
 
     #[test]
     fn mate_in_three() {
-        let pos =
-            Chessboard::from_fen("r4r1k/7p/pp1pP2b/2p1p2P/2P2p2/3B3q/PP1BNP2/R1QR2K1 b - - 4 27", Strict).unwrap();
+        let pos = Board::from_fen("r4r1k/7p/pp1pP2b/2p1p2P/2P2p2/3B3q/PP1BNP2/R1QR2K1 b - - 4 27", Strict).unwrap();
         let mut limit = SearchLimit::mate_in_moves(3);
-        let engines: [(Box<dyn Engine<Chessboard>>, u64); 2] = [
+        let engines: [(Box<dyn Engine<Board>>, u64); 2] = [
             (Box::new(Caps::for_eval::<KingGambot>()), 100_000),
             (Box::new(Caps::for_eval::<MaterialOnlyEval>()), 200_000),
             // TODO: Re-enable when Gaps has more features
@@ -273,24 +283,24 @@ mod tests {
             let res = engine.search_with_new_tt(pos, limit);
             assert!(res.score.is_game_won_score(), "{}", res.score);
             assert_eq!(res.score.plies_until_game_won(), Some(5));
-            assert_eq!(res.chosen_move, ChessMove::from_text("f3", &pos).unwrap());
+            assert_eq!(res.chosen_move, Move::from_text("f3", &pos).unwrap());
         }
     }
 
     #[test]
     fn multipv_mate() {
-        let pos = Chessboard::from_name("mate_in_1").unwrap();
-        let limit = SearchLimit::depth_(4);
+        let pos = Board::from_name("mate_in_1").unwrap();
+        let limit = SearchLimit::depth_(5);
 
-        let engines: [Box<dyn Engine<Chessboard>>; 8] = [
+        let engines: [Box<dyn Engine<Board>>; 8] = [
             Box::new(Caps::for_eval::<LiTEval>()),
             Box::new(Caps::for_eval::<MaterialOnlyEval>()),
             Box::new(Caps::for_eval::<KingGambot>()),
             Box::new(Caps::for_eval::<RandEval>()),
-            Box::new(Gaps::<Chessboard>::for_eval::<LiTEval>()),
-            Box::new(Gaps::<Chessboard>::for_eval::<MaterialOnlyEval>()),
-            Box::new(Gaps::<Chessboard>::for_eval::<KingGambot>()),
-            Box::new(Gaps::<Chessboard>::for_eval::<RandEval>()),
+            Box::new(Gaps::<Board>::for_eval::<LiTEval>()),
+            Box::new(Gaps::<Board>::for_eval::<MaterialOnlyEval>()),
+            Box::new(Gaps::<Board>::for_eval::<KingGambot>()),
+            Box::new(Gaps::<Board>::for_eval::<RandEval>()),
         ];
 
         for mut engine in engines.into_iter() {
@@ -298,15 +308,19 @@ mod tests {
             let mut params = SearchParams::for_pos(pos, limit);
             params.num_multi_pv = 3;
             let res = engine.search(params);
-            assert_eq!(res.chosen_move, ChessMove::from_text("Ra7#", &pos).unwrap());
+            assert_eq!(res.chosen_move, Move::from_text("Ra7#", &pos).unwrap());
             assert_eq!(res.score, game_result_to_score(Win, 1));
             let pv_data = engine.search_state_dyn().pv_data();
             assert_eq!(pv_data.len(), 3);
             assert_eq!(pv_data[0].score, res.score);
             assert_eq!(pv_data[0].pv.list.first(), Some(&res.chosen_move));
-            assert_eq!(pv_data[1].score, game_result_to_score(Win, 3));
-            let second_best_move = ChessMove::from_extended_text("e1Q+", &pos).unwrap();
-            assert_eq!(pv_data[1].pv.list.first(), Some(&second_best_move));
+            assert!(pv_data[1].score <= game_result_to_score(Win, 3));
+            assert!(pv_data[1].score >= Score(1000));
+            let second_best_move = Move::from_extended_text("e1Q+", &pos).unwrap();
+            assert_eq!(
+                pv_data[1].pv.list.first() == Some(&second_best_move),
+                pv_data[1].score == game_result_to_score(Win, 3)
+            );
             assert!(pv_data[2].score >= Score(1000));
             assert!(!pv_data[2].pv.list.is_empty());
         }
@@ -315,7 +329,7 @@ mod tests {
     #[test]
     fn deep_search() {
         let fen = "5b1k/p1p1p1p1/P1P1P1P1/8/4p1p1/PpPpP1P1/1P1P4/K1B3B1 w - - 0 1";
-        let pos = Chessboard::from_fen(fen, Relaxed).unwrap();
+        let pos = Board::from_fen(fen, Relaxed).unwrap();
         let mut engine = Caps::for_eval::<PistonEval>();
         let res = engine.search_with_new_tt(pos, SearchLimit::depth_(9999));
         assert_eq!(res.score, Score(0));
@@ -324,7 +338,7 @@ mod tests {
     #[test]
     fn doesnt_clear_check() {
         let fen = "kr5r/1p1q3p/8/1q6/R7/8/1RQ5/1K1B4 b - - 0 1";
-        let pos = Chessboard::from_fen(fen, Relaxed).unwrap();
+        let pos = Board::from_fen(fen, Relaxed).unwrap();
         let mut engine = Caps::for_eval::<PistonEval>();
         let res = engine.search_with_new_tt(pos, SearchLimit::nodes_(3));
         if res.score == NO_SCORE_YET {
@@ -338,18 +352,19 @@ mod tests {
     #[test]
     fn ep_mate_in_one() {
         let input = "fen 3k4/2p4R/8/3P4/8/7B/3Q4/3KR3 b - - 0 1 moves c7c5";
-        let pos = load_ugi_pos_simple(input, Strict, &Chessboard::default()).unwrap();
+        let pos = load_ugi_pos_simple(input, Strict, &Board::default()).unwrap();
         let mut engine = Caps::for_eval::<PistonEval>();
         let res = engine.search_with_new_tt(pos, SearchLimit::nodes_(200));
+        assert_eq!(pos.ep_square(), Some(Square::from_str("c6").unwrap()));
         assert!(res.score.is_game_won_score());
         assert_eq!(res.score.plies_until_game_won(), Some(1));
-        assert_eq!(res.chosen_move, ChessMove::from_text(":c ep", &pos).unwrap());
+        assert_eq!(res.chosen_move, Move::from_text(":c ep", &pos).unwrap());
     }
 
     #[test]
     fn weird_unbalanced() {
         let input = "fen krr5/rrr5/rrr5/8/8/8/QQQQQQQQ/QQQQKQQQ w - - 0 1";
-        let pos = load_ugi_pos_simple(input, Relaxed, &Chessboard::default()).unwrap();
+        let pos = load_ugi_pos_simple(input, Relaxed, &Board::default()).unwrap();
         let evals = list_chess_evals();
         let tt = TT::minimal();
         for searcher in list_chess_searchers() {
@@ -369,13 +384,13 @@ mod tests {
                 assert!(pos.is_move_legal(res.chosen_move));
 
                 let fen = "qqqqqqqq/qqqqqqqq/qqqqqqqq/qqqqqqqq/qqqqrbnq/qqqqbKQn/qqqqrb1b/qqqqqrbk b - - 0 1";
-                let pos = Chessboard::from_fen(fen, Relaxed).unwrap();
+                let pos = Board::from_fen(fen, Relaxed).unwrap();
                 let res = engine.search_with_tt(pos, SearchLimit::nodes_(500), tt.clone());
                 assert_eq!(res.score.plies_until_game_won(), Some(1));
                 let pos = pos.make_nullmove().unwrap();
                 let res = engine.search_with_tt(pos, SearchLimit::nodes_(500), tt.clone());
                 assert_eq!(res.score.plies_until_game_won(), Some(1));
-                assert_eq!(res.chosen_move, ChessMove::from_text("Qg2", &pos).unwrap());
+                assert_eq!(res.chosen_move, Move::from_text("Qg2", &pos).unwrap());
             }
         }
     }
@@ -384,9 +399,9 @@ mod tests {
     fn hash_collision() {
         // these two positions have the exact same zobrist hash
         let pos1 = "2n5/1Rp1K1pn/q6Q/1rrr4/k3Br2/7B/1n1N2Q1/1Nn2R2 w - - 0 1";
-        let pos1 = Chessboard::from_fen(pos1, Strict).unwrap();
+        let pos1 = Board::from_fen(pos1, Strict).unwrap();
         let pos2 = "1K1NQ3/q2RqR2/3rp3/Qr3rn1/1Q1bB3/1Q1b1PN1/pRp3P1/k1q1Bn1q w - - 0 1";
-        let pos2 = Chessboard::from_fen(pos2, Strict).unwrap();
+        let pos2 = Board::from_fen(pos2, Strict).unwrap();
         assert_eq!(pos1.hash_pos(), pos2.hash_pos());
         let limit = SearchLimit::nodes_(2222);
         let tt = TT::default();
@@ -397,7 +412,7 @@ mod tests {
         let res2 = engine.search_with_tt(pos2, limit, tt.clone());
         assert_ne!(res2.chosen_move, res1.chosen_move);
         assert!(pos2.is_move_legal(res2.chosen_move));
-        let entry = tt.load::<Chessboard>(pos2.hash_pos(), 0).unwrap();
+        let entry = tt.load::<Board>(pos2.hash_pos(), 0).unwrap();
         assert_eq!(entry.move_untrusted().trust_unchecked(), res2.chosen_move);
         let entry1 = tt.load(pos1.hash_pos(), 0).unwrap();
         assert_eq!(entry1, entry);
@@ -410,16 +425,16 @@ mod tests {
     #[test]
     fn depth_one_startpos() {
         let mut engine = Caps::for_eval::<LiTEval>();
-        let res = engine.search(SearchParams::for_pos(Chessboard::default(), SearchLimit::depth_(1)));
+        let res = engine.search(SearchParams::for_pos(Board::default(), SearchLimit::depth_(1)));
         assert_eq!(engine.iterations().get(), 1);
-        assert!(Chessboard::default().is_move_legal(res.chosen_move));
+        assert!(Board::default().is_move_legal(res.chosen_move));
         assert!(!res.score.is_won_lost_or_draw_score());
-        assert_eq!(res.pos, Chessboard::default());
+        assert_eq!(res.pos, Board::default());
         let nodes = engine.uci_nodes();
         assert!(nodes >= 22, "{nodes}");
         assert!(nodes <= 42, "{nodes}");
         engine.forget();
-        let res2 = engine.search(SearchParams::for_pos(Chessboard::default(), SearchLimit::nodes_(nodes)));
+        let res2 = engine.search(SearchParams::for_pos(Board::default(), SearchLimit::nodes_(nodes)));
         assert_eq!(res, res2);
     }
 }

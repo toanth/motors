@@ -4,6 +4,25 @@ resolver = "2"
 members = ["motors", "gears", "monitors", "pliers", "gears/fuzz", "motors/fuzz"] # TODO: Also fuzz the other crates
 default-members = ["motors"]
 
+[workspace.dependencies]
+num = "0.4"
+rand = "0.9"
+# Technically, crossterm already provides coloring functionality.
+# However, colored simply does this a lot better.
+colored = "3.0"
+strum = "0.27"
+strum_macros = "0.27"
+derive_more = { version = "2.1", features = ["full"] }
+itertools = "0.14"
+chrono = "0.4"
+dyn-clone = "1.0"
+arrayvec = "0.7"
+anyhow = { version = "1.0", default-features = false, features = ["std"] }
+crossterm = "0.29"
+crossbeam-utils = "0.8"
+rayon = "1.11"
+
+
 [profile.release]
 lto = true
 panic = "abort"

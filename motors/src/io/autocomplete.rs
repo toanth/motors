@@ -28,10 +28,10 @@ use gears::MatchStatus::Ongoing;
 use gears::ProgramStatus::Run;
 use gears::colored::Colorize;
 use gears::games::OutputList;
-use gears::general::board::{Board, BoardHelpers, Symmetry};
+use gears::general::board::{BoardHelpers, BoardTrait, Symmetry};
 use gears::general::common::anyhow::anyhow;
 use gears::general::common::{Name, NamedEntity, Res, Tokens, tokens};
-use gears::general::moves::Move;
+use gears::general::moves::MoveTrait;
 use gears::itertools::Itertools;
 use gears::output::{Message, OutputBuilder, OutputOpts};
 use gears::rand::prelude::IndexedRandom;
@@ -55,7 +55,7 @@ fn add<T>(mut a: Vec<T>, mut b: Vec<T>) -> Vec<T> {
 }
 
 #[derive(Debug, Clone)]
-pub struct ACState<B: Board> {
+pub struct ACState<B: BoardTrait> {
     pub go_state: GoState<B>,
     outputs: Rc<OutputList<B>>,
     searchers: Rc<SearcherList<B>>,
@@ -63,7 +63,7 @@ pub struct ACState<B: Board> {
     pub(super) options: Rc<Vec<EngineOption>>,
 }
 
-impl<B: Board> ACState<B> {
+impl<B: BoardTrait> ACState<B> {
     fn pos(&self) -> &B {
         &self.go_state.pos
     }
@@ -92,7 +92,7 @@ pub(super) trait AutoCompleteState: Debug {
     fn upcast_mut(&mut self) -> &mut dyn AbstractEngineUgiState;
 }
 
-impl<B: Board> AutoCompleteState for ACState<B> {
+impl<B: BoardTrait> AutoCompleteState for ACState<B> {
     fn go_subcmds(&self, search_type: SearchType) -> CommandList {
         go_options::<B>(Some(search_type), self.pos().settings_ref())
     }
@@ -190,7 +190,7 @@ impl<B: Board> AutoCompleteState for ACState<B> {
     }
 }
 
-impl<B: Board> AbstractEngineUgiState for ACState<B> {
+impl<B: BoardTrait> AbstractEngineUgiState for ACState<B> {
     fn options_text(&self, _words: &mut Tokens) -> Res<String> {
         Ok(String::new())
     }
@@ -322,14 +322,14 @@ impl<B: Board> AbstractEngineUgiState for ACState<B> {
 }
 
 #[derive(Debug, Clone)]
-pub struct CommandAutocomplete<B: Board> {
+pub struct CommandAutocomplete<B: BoardTrait> {
     // Rc because the Autocomplete trait requires DynClone and invokes `clone` on every prompt call
     pub list: Rc<CommandList>,
     pub state: ACState<B>,
     last_completion: Instant,
 }
 
-impl<B: Board> CommandAutocomplete<B> {
+impl<B: BoardTrait> CommandAutocomplete<B> {
     pub fn new(ugi: &EngineUGI<B>) -> Self {
         let state = ACState {
             go_state: GoState::new(ugi, Normal, Instant::now()),
@@ -430,7 +430,7 @@ struct Completion {
 }
 
 /// top-level function for completion suggestions, calls the recursive completions() function
-fn suggestions<B: Board>(autocomplete: &CommandAutocomplete<B>, input: &str) -> Vec<Completion> {
+fn suggestions<B: BoardTrait>(autocomplete: &CommandAutocomplete<B>, input: &str) -> Vec<Completion> {
     let mut words = tokens(input);
     let Some(cmd_name) = words.next() else {
         return vec![];
@@ -464,7 +464,7 @@ fn suggestions<B: Board>(autocomplete: &CommandAutocomplete<B>, input: &str) -> 
     }
 }
 
-impl<B: Board> Autocomplete for CommandAutocomplete<B> {
+impl<B: BoardTrait> Autocomplete for CommandAutocomplete<B> {
     fn get_suggestions(&mut self, input: &str) -> Result<Vec<String>, CustomUserError> {
         if self.last_completion.elapsed().as_millis() < 3 {
             // prevents doing unnecessary work when copy-pasting parts of a command, which could otherwise lead to a noticeable
@@ -506,7 +506,7 @@ impl<B: Board> Autocomplete for CommandAutocomplete<B> {
 
 // Useful for generating a fuzz testing corpus
 #[allow(unused)]
-pub fn random_command<B: Board>(initial: String, ac: &mut CommandAutocomplete<B>, depth: usize) -> String {
+pub fn random_command<B: BoardTrait>(initial: String, ac: &mut CommandAutocomplete<B>, depth: usize) -> String {
     let mut res = initial;
     for i in 0..depth {
         res.push(' ');

@@ -1,23 +1,18 @@
 use std::process::abort;
 
-use crate::cli::{parse_cli, CommandLineArgs, HumanArgs, PlayerArgs};
+use crate::cli::{CommandLineArgs, HumanArgs, PlayerArgs, parse_cli};
 use crate::play::player::PlayerBuilder;
 use crate::play::ugi_client::RunClient;
 use crate::ui::text_input::TextInputBuilder;
 use crate::ui::{InputBuilder, InputList};
 use gears::cli::Game;
-use gears::games::ataxx::AtaxxBoard;
-use gears::games::chess::Chessboard;
-use gears::games::fairy::FairyBoard;
-use gears::games::mnk::MNKBoard;
-use gears::games::uttt::UtttBoard;
-use gears::games::OutputList;
-use gears::general::board::{Board, BoardHelpers, RectangularBoard};
-use gears::general::common::anyhow::anyhow;
+use gears::games::{OutputList, ataxx, chess, fairy, mnk, uttt};
+use gears::general::board::{BoardHelpers, BoardTrait, RectangularBoard};
 use gears::general::common::Description::WithDescription;
-use gears::general::common::{select_name_dyn, Res};
+use gears::general::common::anyhow::anyhow;
+use gears::general::common::{Res, select_name_dyn};
 use gears::output::{normal_outputs, required_outputs};
-use gears::{create_selected_output_builders, output_builder_from_str, AnyRunnable};
+use gears::{AnyRunnable, create_selected_output_builders, output_builder_from_str};
 
 pub mod cli;
 pub mod play;
@@ -31,7 +26,7 @@ fn main() {
 }
 
 #[must_use]
-pub fn text_based_inputs<B: Board>() -> InputList<B> {
+pub fn text_based_inputs<B: BoardTrait>() -> InputList<B> {
     vec![
         Box::new(TextInputBuilder::default()),
         // TODO: Add SPRT input
@@ -39,7 +34,7 @@ pub fn text_based_inputs<B: Board>() -> InputList<B> {
 }
 
 #[must_use]
-pub fn required_uis<B: Board>() -> (OutputList<B>, InputList<B>) {
+pub fn required_uis<B: BoardTrait>() -> (OutputList<B>, InputList<B>) {
     (required_outputs(), text_based_inputs())
 }
 
@@ -49,31 +44,31 @@ pub fn normal_uis<B: RectangularBoard>() -> (OutputList<B>, InputList<B>) {
 }
 
 #[must_use]
-fn list_chess_uis() -> (OutputList<Chessboard>, InputList<Chessboard>) {
-    normal_uis::<Chessboard>()
+fn list_chess_uis() -> (OutputList<chess::Board>, InputList<chess::Board>) {
+    normal_uis::<chess::Board>()
 }
 
 #[must_use]
-fn list_ataxx_uis() -> (OutputList<AtaxxBoard>, InputList<AtaxxBoard>) {
-    normal_uis::<AtaxxBoard>()
+fn list_ataxx_uis() -> (OutputList<ataxx::Board>, InputList<ataxx::Board>) {
+    normal_uis::<ataxx::Board>()
 }
 
 #[must_use]
-fn list_uttt_uis() -> (OutputList<UtttBoard>, InputList<UtttBoard>) {
-    normal_uis::<UtttBoard>()
+fn list_uttt_uis() -> (OutputList<uttt::Board>, InputList<uttt::Board>) {
+    normal_uis::<uttt::Board>()
 }
 
 #[must_use]
-fn list_fairy_uis() -> (OutputList<FairyBoard>, InputList<FairyBoard>) {
-    normal_uis::<FairyBoard>()
+fn list_fairy_uis() -> (OutputList<fairy::Board>, InputList<fairy::Board>) {
+    normal_uis::<fairy::Board>()
 }
 
 #[must_use]
-fn list_mnk_uis() -> (OutputList<MNKBoard>, InputList<MNKBoard>) {
-    normal_uis::<MNKBoard>()
+fn list_mnk_uis() -> (OutputList<mnk::Board>, InputList<mnk::Board>) {
+    normal_uis::<mnk::Board>()
 }
 
-pub fn create_input_from_str<B: Board>(
+pub fn create_input_from_str<B: BoardTrait>(
     name: &str,
     opts: &str,
     list: &[Box<dyn InputBuilder<B>>],
@@ -104,7 +99,7 @@ pub fn create_match(args: CommandLineArgs) -> Res<AnyRunnable> {
     }
 }
 
-pub fn create_client_match_for_game<B: Board>(
+pub fn create_client_match_for_game<B: BoardTrait>(
     mut args: CommandLineArgs,
     uis: (OutputList<B>, InputList<B>),
 ) -> Res<AnyRunnable> {
