@@ -267,7 +267,7 @@ impl BoardToText {
                     PrettyAscii => m.get_board().pretty_formatter(Some(CharType::Ascii), m.last_move(), opts),
                     Bitboard => {
                         let bb = highlight.unwrap_or(0.into());
-                        bb_string = format!("Bitboard: {bb:#x}\n");
+                        bb_string = format!("Bitboard: {}\n", format!("{bb:#x}").bold());
                         let invalid = bb & m.get_board().invalid_square_bb();
                         if invalid != B::RawBitboard::from(0) {
                             let fixed = bb & !invalid;

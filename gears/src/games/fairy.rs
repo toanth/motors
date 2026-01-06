@@ -249,6 +249,18 @@ impl FairyCastleInfo {
         }
         Ok(())
     }
+    fn king_dest_squares(&self, size: Size) -> Bitboard {
+        let to_bb = |col: Color, side: Side| -> Bitboard {
+            self.players[col]
+                .king_dest_sq(side)
+                .map(|sq| Bitboard::single_piece_for(sq, size))
+                .unwrap_or(Bitboard::new(0, size))
+        };
+        to_bb(Color::first(), Side::Queenside)
+            | to_bb(Color::first(), Side::Kingside)
+            | to_bb(Color::second(), Side::Queenside)
+            | to_bb(Color::second(), Side::Kingside)
+    }
 }
 
 type AdditionalCtrT = i32;
@@ -1045,16 +1057,42 @@ impl BoardTrait for Board {
     fn bitboard_from_name(&self) -> BBSelect<Self> {
         let mut res = default_bitboards_from_name(self);
         res.push(GenericSelect::full(
+            "royals",
+            None,
+            "Bitboard of royal pieces, such as kings in chess",
+            self.royal_bb().raw(),
+        ));
+        res.push(GenericSelect::full(
             "neutral",
             None,
             "Bitboard of squares that aren't empty and don't have a piece belonging to either player",
             self.neutral_bb,
         ));
+        if self.rules().has_ep {
+            res.push(GenericSelect::full(
+                "e_p_square",
+                None,
+                "Bitboard of squares where an ep capture is possible",
+                self.ep.map(|sq| self.single_piece(sq)).unwrap_or(self.zero_bitboard()).raw(),
+            ));
+        }
+        if self.rules().has_castling {
+            res.push(GenericSelect::full(
+                "castling_dest_squares",
+                None,
+                "Bitboard of squares where the king ends up after castling",
+                self.castling_info.king_dest_squares(self.size()).raw(),
+            ));
+        }
         res
     }
 
     fn valid_squares_bb(&self) -> Self::RawBitboard {
         self.mask_bb
+    }
+
+    fn attacks_of(&self, sq: Square) -> ExtendedRawBitboard {
+        self.attack_of_impl(sq)
     }
 }
 

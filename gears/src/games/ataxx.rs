@@ -12,7 +12,7 @@ use crate::games::{
     BoardHistory, BoardTrait, CharType, ColorTrait, ColoredPieceTrait, ColoredPieceTypeTrait, CoordinatesTrait,
     GenericPiece, NUM_COLORS, NoHistory, PosHash, SettingsTrait, SizeTrait,
 };
-use crate::general::bitboards::chessboard::ATAXX_LEAPERS;
+use crate::general::bitboards::chessboard::{ATAXX_LEAPERS, KINGS};
 use crate::general::bitboards::{
     BitboardTrait, KnownSizeBitboard, RawBitboardTrait, RawStandardBitboard, SmallGridBitboard,
 };
@@ -334,6 +334,13 @@ impl BoardTrait for Board {
             Blocked
         };
         Self::Piece::new(typ, coordinates)
+    }
+
+    fn attacks_of(&self, sq: Square) -> RawStandardBitboard {
+        if self.is_empty(sq) {
+            return 0;
+        }
+        (ATAXX_LEAPERS[sq.bb_idx()].raw() | KINGS[sq.bb_idx()].raw()) & self.empty.raw()
     }
 
     fn default_perft_depth(&self) -> DepthPly {

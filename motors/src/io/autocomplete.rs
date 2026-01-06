@@ -17,7 +17,7 @@
  */
 use crate::io::SearchType::Normal;
 use crate::io::command::{
-    AbstractGoState, Command, CommandList, GoState, SubCommandsFn, coords_options, go_options, move_command,
+    AbstractGoState, Command, CommandList, GoState, Standard, SubCommandsFn, coords_options, go_options, move_command,
     moves_options, named_entity_to_command, options_options, piece_options, position_options, query_options,
     select_command, ugi_commands,
 };
@@ -26,6 +26,7 @@ use crate::search::{AbstractEvalBuilder, AbstractSearcherBuilder, EvalList, Sear
 use edit_distance::edit_distance;
 use gears::MatchStatus::Ongoing;
 use gears::ProgramStatus::Run;
+use gears::arrayvec::ArrayVec;
 use gears::colored::Colorize;
 use gears::games::OutputList;
 use gears::general::board::{BoardHelpers, BoardTrait, Symmetry};
@@ -140,7 +141,21 @@ impl<B: BoardTrait> AutoCompleteState for ACState<B> {
         add(res, position_options(Some(self.pos()), true))
     }
     fn bb_subcmds(&self) -> CommandList {
-        self.pos().bitboard_from_name().iter().map(|bb| named_entity_to_command(bb)).collect_vec()
+        let mut res = self.pos().bitboard_from_name().iter().map(|bb| named_entity_to_command(bb)).collect_vec();
+        // todo: accept an arbitrary bitboard after attacks_of and `bitor` the attacks of all pieces in that bitboard
+        // implement by adding a method attacks_for(bb) to BoardTrait
+        let mut other_names = ArrayVec::new();
+        other_names.push("attacks".to_string());
+        res.push(Command {
+            primary_name: "attacks_of".to_string(),
+            other_names,
+            help_text: Some("Attacks of all pieces on the given bitboard".to_string()),
+            standard: Standard::Custom,
+            autocomplete_recurse: false,
+            func: |_, _, _| Ok(()),
+            sub_commands: SubCommandsFn::new_from_box(Box::new(|state| state.bb_subcmds())),
+        });
+        res
     }
     fn engine_subcmds(&self) -> CommandList {
         select_command::<dyn AbstractSearcherBuilder<B>>(self.searchers.as_slice())

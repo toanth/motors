@@ -39,7 +39,7 @@ mod tests {
     use std::sync::atomic::Ordering::SeqCst;
     use std::sync::atomic::fence;
     use std::thread::{sleep, spawn};
-    use std::time::Duration;
+    use std::time::{Duration, Instant};
 
     #[test]
     #[cfg(feature = "gaps")]
@@ -61,11 +61,12 @@ mod tests {
     fn game_over_test<E: Engine<Board>>(engine: &mut E) {
         let mated_pos = load_ugi_pos_simple("mate_in_1 moves h7a7", Strict, &Board::default()).unwrap();
         assert!(mated_pos.is_checkmate_slow());
+        let tt = TT::minimal();
         for i in (1..123).step_by(11) {
-            let res = engine.search_with_new_tt(mated_pos, SearchLimit::depth(DepthPly::new(i)));
+            let res = engine.search_with_tt(mated_pos, SearchLimit::depth(DepthPly::new(i)), tt.clone());
             assert!(res.ponder_move.is_none());
             assert_eq!(res.chosen_move, Move::default());
-            let res = engine.search_with_new_tt(mated_pos, SearchLimit::nodes_(i as u64));
+            let res = engine.search_with_tt(mated_pos, SearchLimit::nodes_(i as u64), tt.clone());
             assert!(res.ponder_move.is_none());
             assert_eq!(res.chosen_move, Move::default());
         }
@@ -92,6 +93,7 @@ mod tests {
     }
 
     fn generic_search_test<E: Engine<Board>>(mut engine: E) {
+        let i = Instant::now();
         let fen = "7r/pBrkqQ1p/3b4/5b2/8/6P1/PP2PP1P/R1BR2K1 w - - 1 17";
         let board = Board::from_fen(fen, Strict).unwrap();
         let res = engine.search_with_new_tt(board, SearchLimit::mate(DepthPly::new(5)));
@@ -101,11 +103,16 @@ mod tests {
         );
         assert_eq!(res.score, SCORE_WON - 3);
 
+        println!("{}", i.elapsed().as_millis());
         game_over_test(&mut engine);
+        println!("{}", i.elapsed().as_millis());
         avoid_repetition(&mut engine);
+        println!("{}", i.elapsed().as_millis());
         mate_beats_repetition(&mut engine);
+        println!("{}", i.elapsed().as_millis());
 
         two_threads_test::<E>();
+        println!("{}", i.elapsed().as_millis());
     }
 
     fn avoid_repetition<E: Engine<Board>>(engine: &mut E) {
@@ -169,7 +176,7 @@ mod tests {
         let max_diff = if engine.short_name() == "CAPS" { 50 } else { 500 };
         let handle = spawn(move || engine.search(params));
         let handle2 = spawn(move || engine2.search(params2));
-        sleep(Duration::from_millis(500));
+        sleep(Duration::from_millis(300));
         atomic.set_stop(true);
         assert!(atomic.stop_flag());
         assert!(!atomic2.stop_flag());

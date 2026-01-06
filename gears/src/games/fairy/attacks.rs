@@ -31,7 +31,7 @@ use crate::games::{
     AbstractPieceType, ColorTrait, ColoredPieceTrait, ColoredPieceTypeTrait, CoordinatesTrait, DimT, NUM_COLORS,
     SizeTrait, char_to_file,
 };
-use crate::general::bitboards::{BitboardTrait, RawBitboardTrait};
+use crate::general::bitboards::{BitboardTrait, ExtendedRawBitboard, RawBitboardTrait};
 use crate::general::board::{BitboardBoard, BoardHelpers, BoardTrait, PieceTypeOf, Strictness, UnverifiedBoardTrait};
 use crate::general::common::{Res, Tokens};
 use crate::general::hq::BitReverseSliderGenerator;
@@ -45,7 +45,7 @@ use colored::Colorize;
 use std::str::FromStr;
 use std::sync::Arc;
 
-type SliderGen<'a> = BitReverseSliderGenerator<'a, Square, Bitboard>;
+pub(super) type SliderGen<'a> = BitReverseSliderGenerator<'a, Square, Bitboard>;
 
 /// The general organization of movegen is that of a pipeline, where a stage communicates with the next through enums,
 /// which usually need the `rules()` to be interpreted correctly
@@ -654,6 +654,26 @@ impl Board {
                 }
             }
         }
+    }
+
+    pub(super) fn attack_of_impl(&self, sq: Square) -> ExtendedRawBitboard {
+        let p = self.piece_type_on(sq);
+        let Some(piece) = p.get(self.rules()) else {
+            return 0;
+        };
+        let mut res = 0;
+        for attack_kind in &piece.attacks {
+            let Some(bb) = attack_kind.attacks(
+                self.piece_on(sq),
+                self,
+                AttackMode::Captures,
+                &SliderGen::new(self.blocker_bb(), None),
+            ) else {
+                continue;
+            };
+            res |= bb.bb();
+        }
+        res
     }
 
     /// Returns a bitboard of all royal pieces that are in check.

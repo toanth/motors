@@ -435,6 +435,14 @@ pub trait BoardTrait:
         iter::empty()
     }
 
+    /// Returns a bitboard of all attacks of the piece on the given square.
+    /// If there is no piece on that square, return the empty bitboard.
+    /// What constitutes an 'attack' is game-dependent; in particular there does not have to be
+    /// a one-to-one relation between pseudolegal moves of that piece and set bits of the returned bitboard.
+    /// For example, in chess, promotions mean that a bit can correspond to more than one move, and
+    /// because pawn pushed or castling moves can't capture, they don't count as attacks and won't set a bit.
+    fn attacks_of(&self, sq: Self::Coordinates) -> Self::RawBitboard;
+
     /// Returns the default depth that should be used for perft if not otherwise specified.
     /// Takes in a reference to self because some boards have a size determined at runtime,
     /// and the default perft depth can change depending on that (or even depending on the current position)
@@ -942,6 +950,14 @@ pub fn default_bitboards_from_name<B: BitboardBoard>(pos: &B) -> BBSelect<B> {
             alternative_name: None,
             description: Some(format!("Bitboard of all squares on rank {rank_name}")),
             val: B::Bitboard::rank_for(rank, size).raw(),
+        })
+    }
+    for sq in size.valid_coordinates() {
+        t.push(GenericSelect {
+            name: format!("square_{sq}"),
+            alternative_name: None,
+            description: Some(format!("Bitboard where the only set bit corresponds to {sq}")),
+            val: B::RawBitboard::single_piece_at(size.internal_key(sq)),
         })
     }
     t

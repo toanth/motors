@@ -451,8 +451,6 @@ fn chess960_startpos_test() {
         let board = Board::from_fen_for("chess", &chessboard.as_fen(), Strict).unwrap();
         assert!(board.clone().debug_verify_invariants(Strict).is_ok());
         assert!(fens.insert(board.fen_no_rules()));
-        let num_moves = board.num_legal_moves();
-        assert!((18..=21).contains(&num_moves)); // 21 legal moves because castling can be legal
         for c in Color::iter() {
             for s in Side::iter() {
                 assert!(board.castling_info.can_castle(c, s));
@@ -466,10 +464,12 @@ fn chess960_startpos_test() {
         same_fen |= board.fen_no_rules() == chess::START_FEN;
         let chess_nodes = chessboard.num_legal_moves();
         let fairy_nodes = board.num_legal_moves();
+        assert!((18..=21).contains(&fairy_nodes)); // 21 legal moves because castling can be legal
         assert_eq!(chess_nodes, fairy_nodes);
     }
-    assert!(!same_fen);
+    assert!(!same_fen); // we should write shredder FENs, which don't match the startpos
     assert!(startpos_found);
+    assert_eq!(fens.len(), 960);
 }
 
 #[test]

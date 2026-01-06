@@ -790,6 +790,10 @@ impl BoardTrait for Board {
         }
     }
 
+    fn attacks_of(&self, _sq: Square) -> ExtendedRawBitboard {
+        0
+    }
+
     fn default_perft_depth(&self) -> DepthPly {
         DepthPly::new(5)
     }

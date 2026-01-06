@@ -46,7 +46,10 @@ use gears::colored::Color::Red;
 use gears::colored::Colorize;
 use gears::games::CharType::Ascii;
 use gears::games::chess::UCI_CHESS960;
-use gears::games::{AbstractPieceType, BoardHistDyn, ColorTrait, ColoredPieceTrait, ColoredPieceTypeTrait, OutputList};
+use gears::games::{
+    AbstractPieceType, BoardHistDyn, ColorTrait, ColoredPieceTrait, ColoredPieceTypeTrait, OutputList, SizeTrait,
+};
+use gears::general::bitboards::RawBitboardTrait;
 use gears::general::board::Strictness::{Relaxed, Strict};
 use gears::general::board::{BoardHelpers, BoardTrait, ColPieceTypeOf, Strictness, Symmetry, UnverifiedBoardTrait};
 use gears::general::common::Description::{NoDescription, WithDescription};
@@ -61,7 +64,7 @@ use gears::general::moves::MoveTrait;
 use gears::general::perft::Bulkness::{Bulk, NoBulk};
 use gears::general::perft::{SplitPerftRes, num_unique_positions_up_to, perft_for, split_perft};
 use gears::itertools::Itertools;
-use gears::num::Num;
+use gears::num::{Num, Zero};
 use gears::output::Message::*;
 use gears::output::logger::LoggerBuilder;
 use gears::output::pgn::parse_pgn;
@@ -941,6 +944,39 @@ impl<B: BoardTrait> EngineUGI<B> {
     }
 
     #[cold]
+    fn read_bb(&mut self, words: &mut Tokens) -> Res<B::RawBitboard> {
+        let Some(name) = words.next() else { bail!("Missing bitboard after '{}' output", "bitboard".bold()) };
+        let list = self.state.pos().bitboard_from_name();
+        let select = |bb| select_name_static(bb, list.iter(), "bitboard name", self.game_name(), WithDescription);
+        let bb = select(name);
+        if let Ok(bb) = bb {
+            return Ok(bb.val);
+        }
+        if name == "attacks_of" {
+            let bb = self.read_bb(words)?;
+            let mut res = B::RawBitboard::zero();
+            let pos = self.state.pos();
+            let size = pos.size();
+            for idx in bb.one_indices() {
+                let sq = size.check_coordinates(size.to_coordinates_unchecked(idx))?;
+                res |= pos.attacks_of(sq);
+            }
+            self.write_ugi(&format_args!("Printing attacks of bitboard '{}':", format!("{bb:#x}").bold()));
+            return Ok(res);
+        }
+        if let Ok(val) = B::RawBitboard::from_str_radix(name.strip_prefix("0x").unwrap_or(name), 16) {
+            return Ok(val);
+        }
+        if let Some(next) = words.next()
+            && let Ok(bb) = select(&format!("{name} {next}"))
+        {
+            Ok(bb.val)
+        } else {
+            bail!("'{}' is not a valid name of a bitboard or an integer representing a bitboard", name.red())
+        }
+    }
+
+    #[cold]
     fn handle_print_impl(&mut self, words: &mut Tokens, opts: OutputOpts) -> Res<()> {
         let mut output = self.select_output(words)?;
         if let Some(o) = output.as_mut()
@@ -1438,30 +1474,10 @@ impl<B: BoardTrait> AbstractEngineUgiState for EngineUGI<B> {
         self.handle_print_impl(words, opts)
     }
 
+    #[cold]
     fn handle_bb(&mut self, words: &mut Tokens) -> Res<()> {
         let mut o = self.select_output(&mut tokens("bb"))?.unwrap();
-        let Some(name) = words.next() else { bail!("Missing bitboard after '{}' output", "bitboard".bold()) };
-        let list = self.state.pos().bitboard_from_name();
-        let select = |bb| select_name_static(bb, list.iter(), "bitboard name", self.game_name(), WithDescription);
-        let bb = select(name);
-        let bb = match bb {
-            Ok(bb) => bb.val,
-            Err(_) => match B::RawBitboard::from_str_radix(name.strip_prefix("0x").unwrap_or(name), 16) {
-                Ok(val) => val,
-                Err(_) => {
-                    if let Some(next) = words.next()
-                        && let Ok(bb) = select(&format!("{name} {next}"))
-                    {
-                        bb.val
-                    } else {
-                        bail!(
-                            "'{}' is not a valid name of a bitboard or an integer representing a bitboard",
-                            name.red()
-                        )
-                    }
-                }
-            },
-        };
+        let bb = self.read_bb(words)?;
         o.show(&self.state, OutputOpts::default(), Some(bb));
         Ok(())
     }
@@ -2237,7 +2253,7 @@ mod tests {
             eprintln!("<EXECUTING> {c}");
             ugi.handle_input(c).unwrap();
         }
-        sleep(Duration::from_millis(5000));
+        sleep(Duration::from_millis(500));
         ugi.quit().unwrap(); // can't use handle_input("quit") because that gets ignored in fuzzing mode
         assert_eq!(ugi.state.status, Quit(QuitProgram));
     }

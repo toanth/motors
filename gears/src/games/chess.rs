@@ -16,7 +16,7 @@ use crate::games::{
     AbstractPieceType, BoardHistory, BoardTrait, CharType, ColorTrait, ColoredPieceTrait, ColoredPieceTypeTrait, DimT,
     NUM_COLORS, PosHash, SettingsTrait, n_fold_repetition,
 };
-use crate::general::bitboards::chessboard::{Bitboard, KINGS, black_squares, white_squares};
+use crate::general::bitboards::chessboard::{Bitboard, KINGS, dark_squares, light_squares};
 use crate::general::bitboards::{BitboardTrait, KnownSizeBitboard, RawBitboardTrait, RawStandardBitboard};
 use crate::general::board::SelfChecks::CheckFen;
 use crate::general::board::Strictness::{Relaxed, Strict};
@@ -605,6 +605,11 @@ impl BoardTrait for Board {
         self.mailbox[square]
     }
 
+    // doesn't return pawn pushes and castling moves
+    fn attacks_of(&self, sq: Square) -> RawStandardBitboard {
+        self.attacks_of_impl(sq).raw()
+    }
+
     fn default_perft_depth(&self) -> DepthPly {
         DepthPly::new(6)
     }
@@ -720,7 +725,7 @@ impl BoardTrait for Board {
             return false;
         }
         if self.col_piece_bb(player, Knight).is_zero()
-            && ((bishops & white_squares()).is_zero() || (bishops & black_squares()).is_zero())
+            && ((bishops & light_squares()).is_zero() || (bishops & dark_squares()).is_zero())
         {
             return false;
         }
@@ -825,6 +830,8 @@ impl BoardTrait for Board {
             "Bitboard of squares where an ep capture is possible",
             self.ep_square.map(|sq| sq.bb()).unwrap_or_default().raw(),
         ));
+        res.push(GenericSelect::full("light_squares", None, "Bitboard of light squares", light_squares().raw()));
+        res.push(GenericSelect::full("dark_squares", None, "Bitboard of dark squares", dark_squares().raw()));
         res
     }
 }
@@ -911,7 +918,7 @@ impl Board {
             return false;
         }
         let bishops = self.piece_bb(Bishop);
-        if bishops.intersects(black_squares()) && bishops.intersects(white_squares()) {
+        if bishops.intersects(dark_squares()) && bishops.intersects(light_squares()) {
             return false; // opposite-colored bishops (even if they belong to different players)
         }
         if bishops.has_any() && self.piece_bb(Knight).has_any() {

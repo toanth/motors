@@ -626,6 +626,10 @@ impl BoardTrait for Board {
         Piece::new(symbol, coordinates)
     }
 
+    fn attacks_of(&self, _sq: Self::Coordinates) -> ExtendedRawBitboard {
+        0
+    }
+
     fn default_perft_depth(&self) -> DepthPly {
         let n = 1 + 1_000_000_f64.log(self.num_squares() as f64) as usize;
         DepthPly::new(n)
