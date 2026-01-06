@@ -7,7 +7,7 @@ use crate::general::board::{BoardHelpers, BoardTrait};
 use crate::general::common::Res;
 use crate::general::moves::Legality::Legal;
 use crate::general::moves::{Legality, MoveTrait, UntrustedMove};
-use ColoredAtaxxPieceType::*;
+use ColoredPieceType::*;
 use anyhow::{bail, ensure};
 use arbitrary::Arbitrary;
 use colored::Colorize;
@@ -75,7 +75,7 @@ impl AbstractPieceType<Board> for AtaxxPieceType {
         }
     }
 
-    fn name(&self, _settings: &Settings) -> impl AsRef<str> {
+    fn name(&self, _settings: &Settings) -> impl AsRef<str> + ToString {
         match self {
             Empty => "empty",
             Blocked => "gap",
@@ -89,7 +89,7 @@ impl AbstractPieceType<Board> for AtaxxPieceType {
 }
 
 impl PieceTypeTrait<Board> for AtaxxPieceType {
-    type Colored = ColoredAtaxxPieceType;
+    type Colored = ColoredPieceType;
 
     fn from_idx(idx: usize) -> Self {
         Self::iter().nth(idx).unwrap()
@@ -97,7 +97,7 @@ impl PieceTypeTrait<Board> for AtaxxPieceType {
 }
 
 #[derive(Debug, Default, Eq, PartialEq, Copy, Clone, EnumIter)]
-pub enum ColoredAtaxxPieceType {
+pub enum ColoredPieceType {
     #[default]
     Empty,
     Blocked,
@@ -105,13 +105,13 @@ pub enum ColoredAtaxxPieceType {
     OPiece,
 }
 
-impl Display for ColoredAtaxxPieceType {
+impl Display for ColoredPieceType {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.to_char(CharType::Unicode, &Settings))
     }
 }
 
-impl AbstractPieceType<Board> for ColoredAtaxxPieceType {
+impl AbstractPieceType<Board> for ColoredPieceType {
     fn empty() -> Self {
         Self::Empty
     }
@@ -122,8 +122,8 @@ impl AbstractPieceType<Board> for ColoredAtaxxPieceType {
 
     fn to_char(self, _typ: CharType, _settings: &Settings) -> char {
         match self {
-            ColoredAtaxxPieceType::Empty => '.',
-            ColoredAtaxxPieceType::Blocked => '-',
+            ColoredPieceType::Empty => '.',
+            ColoredPieceType::Blocked => '-',
             XPiece => 'x',
             OPiece => 'o',
         }
@@ -143,10 +143,10 @@ impl AbstractPieceType<Board> for ColoredAtaxxPieceType {
         }
     }
 
-    fn name(&self, _settings: &Settings) -> impl AsRef<str> {
+    fn name(&self, _settings: &Settings) -> &'static str {
         match self {
-            ColoredAtaxxPieceType::Empty => "empty",
-            ColoredAtaxxPieceType::Blocked => "gap",
+            ColoredPieceType::Empty => "empty",
+            ColoredPieceType::Blocked => "gap",
             XPiece => "x",
             OPiece => "o",
         }
@@ -157,7 +157,7 @@ impl AbstractPieceType<Board> for ColoredAtaxxPieceType {
     }
 }
 
-impl ColoredPieceTypeTrait<Board> for ColoredAtaxxPieceType {
+impl ColoredPieceTypeTrait<Board> for ColoredPieceType {
     type Uncolored = AtaxxPieceType;
 
     fn new(color: Color, uncolored: Self::Uncolored) -> Self {
@@ -184,7 +184,7 @@ impl ColoredPieceTypeTrait<Board> for ColoredAtaxxPieceType {
     }
 }
 
-pub const MAX_ATAXX_MOVES_IN_POS: usize =
+pub const MAX_MOVES_IN_POS: usize =
     NUM_SQUARES + 2 * ((NUM_ROWS - 2) * (NUM_COLUMNS - 2) * 2 + (NUM_ROWS - 2 + NUM_COLUMNS - 2));
 
 #[derive(Debug, Default, Copy, Clone, Eq, PartialEq, Hash, Arbitrary)]

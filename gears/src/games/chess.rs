@@ -21,10 +21,11 @@ use crate::general::bitboards::{BitboardTrait, KnownSizeBitboard, RawBitboardTra
 use crate::general::board::SelfChecks::CheckFen;
 use crate::general::board::Strictness::{Relaxed, Strict};
 use crate::general::board::{
-    AxesFormat, BitboardBoard, BoardHelpers, NameToPos, PieceTypeOf, Strictness, Symmetry, UnverifiedBoardTrait,
-    board_from_name, position_fen_part, read_common_fen_part, read_two_move_numbers,
+    AxesFormat, BBSelect, BitboardBoard, BoardHelpers, NameToPos, PieceTypeOf, Strictness, Symmetry,
+    UnverifiedBoardTrait, board_from_name, default_bitboards_from_name, position_fen_part, read_common_fen_part,
+    read_two_move_numbers,
 };
-use crate::general::common::{EntityList, Res, StaticallyNamedEntity, Tokens, parse_int_from_str};
+use crate::general::common::{EntityList, GenericSelect, Res, StaticallyNamedEntity, Tokens, parse_int_from_str};
 use crate::general::move_list::InplaceMoveList;
 use crate::general::squares::{RectangularCoordinates, SquareColor};
 use crate::output::OutputOpts;
@@ -321,6 +322,7 @@ impl StaticallyNamedEntity for Board {
 
 impl BoardTrait for Board {
     type EmptyRes = UnverifiedBoard;
+    type RawBitboard = RawStandardBitboard;
     type Settings = Settings;
     type SettingsRef = Settings;
     type Coordinates = Square;
@@ -567,6 +569,10 @@ impl BoardTrait for Board {
         self.ply_100_ctr as usize
     }
 
+    fn valid_squares_bb(&self) -> Self::RawBitboard {
+        !0
+    }
+
     fn size(&self) -> ChessboardSize {
         ChessboardSize::default()
     }
@@ -802,10 +808,28 @@ impl BoardTrait for Board {
     fn background_color(&self, square: Square) -> SquareColor {
         square.square_color()
     }
+
+    fn bitboard_from_name(&self) -> BBSelect<Self> {
+        let mut res = default_bitboards_from_name(self);
+        res.push(GenericSelect::full(
+            "threats",
+            Some("attacked"),
+            "Bitboard of squares attacked by the inactive player",
+            self.threats.raw(),
+        ));
+        res.push(GenericSelect::full("checkers", None, "Bitboard of pieces giving check", self.checkers.raw()));
+        res.push(GenericSelect::full("pinned", None, "Bitboard of pinned pieces", self.pinned.raw()));
+        res.push(GenericSelect::full(
+            "e_p_square",
+            None,
+            "Bitboard of squares where an ep capture is possible",
+            self.ep_square.map(|sq| sq.bb()).unwrap_or_default().raw(),
+        ));
+        res
+    }
 }
 
 impl BitboardBoard for Board {
-    type RawBitboard = RawStandardBitboard;
     type Bitboard = Bitboard;
 
     fn piece_bb(&self, piece: PieceTypeOf<Self>) -> Self::Bitboard {
@@ -824,6 +848,11 @@ impl BitboardBoard for Board {
 
     fn mask_bb(&self) -> Self::Bitboard {
         Bitboard::new(!0)
+    }
+
+    fn calc_move_dest_bb(&self) -> Self::Bitboard {
+        let us = self.active;
+        self.calc_threats_of(us) | self.pawn_advance_dests()
     }
 }
 

@@ -17,9 +17,9 @@
  */
 use crate::io::SearchType::Normal;
 use crate::io::command::{
-    AbstractGoState, Command, CommandList, GoState, coords_options, go_options, move_command, moves_options,
-    named_entity_to_command, options_options, piece_options, position_options, query_options, select_command,
-    ugi_commands,
+    AbstractGoState, Command, CommandList, GoState, SubCommandsFn, coords_options, go_options, move_command,
+    moves_options, named_entity_to_command, options_options, piece_options, position_options, query_options,
+    select_command, ugi_commands,
 };
 use crate::io::{AbstractEngineUgiState, EngineUGI, SearchType};
 use crate::search::{AbstractEvalBuilder, AbstractSearcherBuilder, EvalList, SearcherList};
@@ -80,6 +80,7 @@ pub(super) trait AutoCompleteState: Debug {
     fn query_subcmds(&self) -> CommandList;
     fn output_subcmds(&self) -> CommandList;
     fn print_subcmds(&self) -> CommandList;
+    fn bb_subcmds(&self) -> CommandList;
     fn engine_subcmds(&self) -> CommandList;
     fn set_eval_subcmds(&self) -> CommandList;
     fn coords_subcmds(&self, ac_coords: bool, only_occupied: bool) -> CommandList;
@@ -130,7 +131,16 @@ impl<B: BoardTrait> AutoCompleteState for ACState<B> {
         )
     }
     fn print_subcmds(&self) -> CommandList {
-        add(select_command::<dyn OutputBuilder<B>>(self.outputs.as_slice()), position_options(Some(self.pos()), true))
+        let mut res = select_command::<dyn OutputBuilder<B>>(self.outputs.as_slice());
+        for cmd in &mut res {
+            if cmd.primary_name == "bb" {
+                cmd.sub_commands = SubCommandsFn::new_from_box(Box::new(|state| state.bb_subcmds()));
+            }
+        }
+        add(res, position_options(Some(self.pos()), true))
+    }
+    fn bb_subcmds(&self) -> CommandList {
+        self.pos().bitboard_from_name().iter().map(|bb| named_entity_to_command(bb)).collect_vec()
     }
     fn engine_subcmds(&self) -> CommandList {
         select_command::<dyn AbstractSearcherBuilder<B>>(self.searchers.as_slice())
@@ -247,6 +257,9 @@ impl<B: BoardTrait> AbstractEngineUgiState for ACState<B> {
         Ok(())
     }
     fn handle_print(&mut self, _words: &mut Tokens, _opts: OutputOpts) -> Res<()> {
+        Ok(())
+    }
+    fn handle_bb(&mut self, _words: &mut Tokens) -> Res<()> {
         Ok(())
     }
     fn handle_engine_print(&mut self) -> Res<()> {

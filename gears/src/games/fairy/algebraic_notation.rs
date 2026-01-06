@@ -868,7 +868,7 @@ impl<'a> MoveParser<'a> {
         // moves without a piece but source and dest square have probably been meant as UCI moves, and not as pawn moves
         if original_piece == PieceId::empty() && from_bb.is_single_piece() {
             let piece = board.colored_piece_on(from_bb.to_square().unwrap());
-            let piece_name = piece.symbol.name(board.settings()).as_ref().bold();
+            let piece_name = piece.symbol.name(board.settings()).bold();
             if piece.uncolored() == PieceId::empty() {
                 bail!("The square {from} is {0}, so the move '{mov}' is invalid{additional}", "empty".bold(),)
             } else if piece.color() != Some(us) {

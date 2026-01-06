@@ -40,13 +40,14 @@ use crate::general::bitboards::{BitboardTrait, DynamicallySizedBitboard, Extende
 use crate::general::board::SelfChecks::CheckFen;
 use crate::general::board::Strictness::{Relaxed, Strict};
 use crate::general::board::{
-    AxesFormat, BitboardBoard, BoardHelpers, BoardSize, BoardTrait, ColPieceTypeOf, NameToPos, PieceTypeOf, SelfChecks,
-    Strictness, Symmetry, UnverifiedBoardTrait, position_fen_part, read_common_fen_part, read_halfmove_clock,
-    read_move_number_in_ply, read_single_move_number,
+    AxesFormat, BBSelect, BitboardBoard, BoardHelpers, BoardSize, BoardTrait, ColPieceTypeOf, NameToPos, PieceTypeOf,
+    SelfChecks, Strictness, Symmetry, UnverifiedBoardTrait, default_bitboards_from_name, position_fen_part,
+    read_common_fen_part, read_halfmove_clock, read_move_number_in_ply, read_single_move_number,
 };
 use crate::general::common::Description::NoDescription;
 use crate::general::common::{
-    EntityList, GenericSelect, Res, StaticallyNamedEntity, Tokens, parse_int_from_str, select_name_static, tokens,
+    EntityList, GenericSelect, Res, SimpleSelect, StaticallyNamedEntity, Tokens, parse_int_from_str,
+    select_name_static, tokens,
 };
 use crate::general::move_list::{MoveListTrait, SboMoveList};
 use crate::general::moves::MoveTrait;
@@ -539,7 +540,7 @@ impl UnverifiedBoardTrait<Board> for UnverifiedBoard {
             let Some(new_val) = val.checked_add(num) else {
                 bail!(
                     "Too many pieces of type '{0}': A player can only have at most 255 pieces in hand, not {1}",
-                    piece.name(self.rules.clone().get()).as_ref().bold(),
+                    piece.name(self.rules.clone().get()).bold(),
                     (*val as usize + num as usize).to_string().red()
                 )
             };
@@ -703,6 +704,7 @@ type Piece = GenericPiece<Board, ColoredPieceId>;
 
 impl BoardTrait for Board {
     type EmptyRes = Self::Unverified;
+    type RawBitboard = RawBitboard;
     type Settings = Rules;
     type SettingsRef = RulesRef;
     type Coordinates = Square;
@@ -1039,10 +1041,24 @@ impl BoardTrait for Board {
         let pos = UnverifiedBoard { rules: RulesRef::from_arc(alternative), ..self.0 };
         Some(pos.verify(Relaxed).ok()?.to_string())
     }
+
+    fn bitboard_from_name(&self) -> BBSelect<Self> {
+        let mut res = default_bitboards_from_name(self);
+        res.push(GenericSelect::full(
+            "neutral",
+            None,
+            "Bitboard of squares that aren't empty and don't have a piece belonging to either player",
+            self.neutral_bb,
+        ));
+        res
+    }
+
+    fn valid_squares_bb(&self) -> Self::RawBitboard {
+        self.mask_bb
+    }
 }
 
 impl BitboardBoard for Board {
-    type RawBitboard = RawBitboard;
     type Bitboard = Bitboard;
 
     fn piece_bb(&self, piece: PieceTypeOf<Self>) -> Bitboard {
@@ -1062,7 +1078,7 @@ impl BitboardBoard for Board {
     }
 }
 
-type NameToVariant = GenericSelect<Box<dyn Fn() -> RulesRef>>;
+type NameToVariant = SimpleSelect<Box<dyn Fn() -> RulesRef>>;
 
 impl Deref for Board {
     type Target = UnverifiedBoard;
@@ -1074,38 +1090,38 @@ impl Deref for Board {
 impl Board {
     fn variants_for(protocol: Protocol) -> EntityList<NameToVariant> {
         vec![
-            GenericSelect { name: "chess", val: Box::new(|| RulesRef::new(RulesBuilder::chess().build())) },
-            GenericSelect { name: "atomic", val: Box::new(|| RulesRef::new(RulesBuilder::atomic().build())) },
-            GenericSelect {
+            SimpleSelect { name: "chess", val: Box::new(|| RulesRef::new(RulesBuilder::chess().build())) },
+            SimpleSelect { name: "atomic", val: Box::new(|| RulesRef::new(RulesBuilder::atomic().build())) },
+            SimpleSelect {
                 name: "kingofthehill",
                 val: Box::new(|| RulesRef::new(RulesBuilder::king_of_the_hill().build())),
             },
-            GenericSelect { name: "horde", val: Box::new(|| RulesRef::new(RulesBuilder::horde().build())) },
-            GenericSelect {
+            SimpleSelect { name: "horde", val: Box::new(|| RulesRef::new(RulesBuilder::horde().build())) },
+            SimpleSelect {
                 name: "racingkings",
                 val: Box::new(|| RulesRef::new(RulesBuilder::racing_kings(Size::chess()).build())),
             },
-            GenericSelect { name: "crazyhouse", val: Box::new(|| RulesRef::new(RulesBuilder::crazyhouse().build())) },
-            GenericSelect { name: "3check", val: Box::new(|| RulesRef::new(RulesBuilder::n_check(3).build())) },
-            GenericSelect { name: "5check", val: Box::new(|| RulesRef::new(RulesBuilder::n_check(5).build())) },
-            GenericSelect { name: "antichess", val: Box::new(|| RulesRef::new(RulesBuilder::antichess().build())) },
-            GenericSelect { name: "shatranj", val: Box::new(|| RulesRef::new(RulesBuilder::shatranj().build())) },
-            GenericSelect { name: "makruk", val: Box::new(|| RulesRef::new(RulesBuilder::makruk().build())) },
-            GenericSelect {
+            SimpleSelect { name: "crazyhouse", val: Box::new(|| RulesRef::new(RulesBuilder::crazyhouse().build())) },
+            SimpleSelect { name: "3check", val: Box::new(|| RulesRef::new(RulesBuilder::n_check(3).build())) },
+            SimpleSelect { name: "5check", val: Box::new(|| RulesRef::new(RulesBuilder::n_check(5).build())) },
+            SimpleSelect { name: "antichess", val: Box::new(|| RulesRef::new(RulesBuilder::antichess().build())) },
+            SimpleSelect { name: "shatranj", val: Box::new(|| RulesRef::new(RulesBuilder::shatranj().build())) },
+            SimpleSelect { name: "makruk", val: Box::new(|| RulesRef::new(RulesBuilder::makruk().build())) },
+            SimpleSelect {
                 name: "shogi",
                 val: Box::new(move || RulesRef::new(RulesBuilder::shogi(protocol == Protocol::USI).build())),
             },
-            GenericSelect { name: "ataxx", val: Box::new(|| RulesRef::new(RulesBuilder::ataxx().build())) },
-            GenericSelect {
+            SimpleSelect { name: "ataxx", val: Box::new(|| RulesRef::new(RulesBuilder::ataxx().build())) },
+            SimpleSelect {
                 name: "droptaxx",
                 val: Box::new(|| RulesRef::new(RulesBuilder::droptaxx(Size::ataxx()).build())),
             },
-            GenericSelect { name: "tictactoe", val: Box::new(|| RulesRef::new(RulesBuilder::tictactoe().build())) },
-            GenericSelect {
+            SimpleSelect { name: "tictactoe", val: Box::new(|| RulesRef::new(RulesBuilder::tictactoe().build())) },
+            SimpleSelect {
                 name: "mnk",
                 val: Box::new(|| RulesRef::new(RulesBuilder::mnk(GridSize::connect4(), 4).build())),
             },
-            GenericSelect {
+            SimpleSelect {
                 name: "cfour",
                 val: Box::new(|| RulesRef::new(RulesBuilder::cfour(GridSize::connect4(), 4).build())),
             },

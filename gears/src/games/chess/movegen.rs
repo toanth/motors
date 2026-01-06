@@ -205,6 +205,14 @@ impl Board {
             }
         }
     }
+    pub(super) fn pawn_advance_dests(&self) -> Bitboard {
+        let us = self.active;
+        let pawns = self.col_piece_bb(us, Pawn);
+        let empty = self.empty_bb();
+        let res = pawns.pawn_advance(us);
+        let res = res | (res & Bitboard::pawn_ranks() & empty).pawn_advance(us);
+        res & empty
+    }
 
     fn is_castling_pseudolegal(&self, side: CastleRight) -> bool {
         let color = self.active;

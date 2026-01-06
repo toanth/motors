@@ -51,7 +51,7 @@ impl AbstractOutput for ChessOutput {
 }
 
 impl<B: RectangularBoard> Output<B> for ChessOutput {
-    fn as_string(&self, m: &dyn GameState<B>, opts: OutputOpts) -> String {
+    fn as_string(&self, m: &dyn GameState<B>, opts: OutputOpts, _highlight: Option<B::RawBitboard>) -> String {
         let mut res = String::default();
         let pos = m.get_board();
         let last_move = m.last_move();

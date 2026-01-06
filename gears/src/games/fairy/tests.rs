@@ -343,7 +343,7 @@ mod general {
         let pos = pos.make_nullmove().unwrap();
         for m in pos.legal_moves_slow() {
             if m.src_square_in(&pos).is_none() {
-                assert_eq!(m.piece(&pos).name(pos.rules()).as_ref(), "white pawn");
+                assert_eq!(m.piece(&pos).name(pos.rules()), "white pawn");
             }
         }
         let pos = Board::from_fen("crazyhouse 7n/5p2/6p1/8/8/k7/7p/1K1Q4[] b - - 1 1", Strict).unwrap();

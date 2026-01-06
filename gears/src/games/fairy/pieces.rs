@@ -233,7 +233,7 @@ impl AbstractPieceType<Board> for ColoredPieceId {
         }
     }
 
-    fn name(&self, settings: &Rules) -> impl AsRef<str> {
+    fn name(&self, settings: &Rules) -> String {
         if let Some(color) = self.color {
             format!("{0} {1}", color.name(settings), self.id.name(settings))
         } else {

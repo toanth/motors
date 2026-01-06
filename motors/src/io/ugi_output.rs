@@ -142,7 +142,7 @@ impl TypeErasedUgiOutput {
         )
         .unwrap();
         if let Some(str) = top_moves {
-            write!(message, "{str}").unwrap();
+            message.push_str(str);
         }
         Self::write_boards(&mut message, curr_pos, root_pos, &self.previous_exact_pv_end_pos);
         bar.set_prefix(message);
@@ -402,7 +402,7 @@ impl<B: BoardTrait> UgiOutput<B> {
         for (i, (m, score)) in self.top_moves.iter().enumerate() {
             let score = pretty_score(*score, None, None, &self.type_erased.gradient, false, false);
             if i > 0 {
-                write!(top_moves, ", ").unwrap();
+                top_moves.push_str(", ");
             }
             write!(top_moves, "{0} [{score}]", m.extended_formatter(pos, Standard, None)).unwrap();
         }
@@ -471,9 +471,9 @@ impl<B: BoardTrait> UgiOutput<B> {
         }
     }
 
-    pub fn show(&mut self, m: &dyn GameState<B>, opts: OutputOpts) {
+    pub fn show(&mut self, m: &dyn GameState<B>, opts: OutputOpts, highlight: Option<B::RawBitboard>) {
         for output in &mut self.additional_outputs {
-            output.show(m, opts);
+            output.show(m, opts, highlight);
         }
     }
 }

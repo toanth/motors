@@ -480,9 +480,11 @@ impl<B: BoardTrait> TextInputThread<B> {
         match words.next().unwrap_or_default() {
             "" => client.show(),
             x => {
-                output_builder_from_str(x, &client.all_outputs)?
-                    .for_client(&client.state)?
-                    .show(&client.state, OutputOpts::default());
+                output_builder_from_str(x, &client.all_outputs)?.for_client(&client.state)?.show(
+                    &client.state,
+                    OutputOpts::default(),
+                    None,
+                );
             }
         }
         Ok(())

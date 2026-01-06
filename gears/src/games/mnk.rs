@@ -18,8 +18,9 @@ use crate::general::bitboards::{
 use crate::general::board::SelfChecks::CheckFen;
 use crate::general::board::Strictness::{Relaxed, Strict};
 use crate::general::board::{
-    BoardHelpers, NameToPos, RectangularBoard, SelfChecks, Strictness, Symmetry, UnverifiedBoardTrait, board_from_name,
-    read_common_fen_part, read_single_move_number, simple_fen,
+    BBSelect, BitboardBoard, BoardHelpers, NameToPos, PieceTypeOf, RectangularBoard, SelfChecks, Strictness, Symmetry,
+    UnverifiedBoardTrait, board_from_name, default_bitboards_from_name, read_common_fen_part, read_single_move_number,
+    simple_fen,
 };
 use crate::general::common::*;
 use crate::general::hq::BitReverseSliderGenerator;
@@ -137,7 +138,7 @@ impl AbstractPieceType<Board> for PieceType {
         }
     }
 
-    fn name(&self, _settings: &Settings) -> impl AsRef<str> {
+    fn name(&self, _settings: &Settings) -> &'static str {
         match self {
             X => "x",
             O => "o",
@@ -431,31 +432,6 @@ impl Board {
         Bitboard::new(self.o_bb, self.size())
     }
 
-    pub fn player_bb(self, player: Color) -> Bitboard {
-        match player {
-            Color::X => self.x_bb(),
-            Color::O => self.o_bb(),
-        }
-    }
-
-    pub fn active_player_bb(self) -> Bitboard {
-        self.player_bb(self.active_player())
-    }
-
-    pub fn inactive_player_bb(self) -> Bitboard {
-        self.player_bb(self.active_player().other())
-    }
-
-    pub fn occupied_bb(self) -> Bitboard {
-        self.o_bb() | self.x_bb()
-    }
-
-    pub fn empty_bb(self) -> Bitboard {
-        let n = self.num_squares() - 1;
-        let res = !self.occupied_bb().raw() & (u128::MAX >> (127 - n));
-        Bitboard::new(res, self.size())
-    }
-
     pub fn k(self) -> u32 {
         self.settings.k as u32
     }
@@ -484,6 +460,7 @@ impl Display for Board {
 
 impl BoardTrait for Board {
     type EmptyRes = Board;
+    type RawBitboard = ExtendedRawBitboard;
 
     type Settings = Settings;
     type SettingsRef = Settings;
@@ -620,6 +597,10 @@ impl BoardTrait for Board {
 
     fn ply_draw_clock(&self) -> usize {
         0
+    }
+
+    fn valid_squares_bb(&self) -> Self::RawBitboard {
+        self.mask_bb().raw()
     }
 
     fn size(&self) -> GridSize {
@@ -798,6 +779,10 @@ impl BoardTrait for Board {
     fn background_color(&self, square: GridCoordinates) -> SquareColor {
         square.square_color()
     }
+
+    fn bitboard_from_name(&self) -> BBSelect<Self> {
+        default_bitboards_from_name(self)
+    }
 }
 
 impl Board {
@@ -843,6 +828,39 @@ impl Board {
         board.0.last_move = None;
 
         board.verify_with_level(CheckFen, strictness)
+    }
+}
+
+impl BitboardBoard for Board {
+    type Bitboard = Bitboard;
+
+    fn piece_bb(&self, _piece: PieceTypeOf<Self>) -> Self::Bitboard {
+        self.occupied_bb()
+    }
+
+    fn col_piece_bb(&self, color: Self::Color, _piece: PieceTypeOf<Self>) -> Self::Bitboard {
+        self.player_bb(color)
+    }
+
+    fn player_bb(&self, color: Self::Color) -> Self::Bitboard {
+        match color {
+            Color::X => self.x_bb(),
+            Color::O => self.o_bb(),
+        }
+    }
+
+    fn occupied_bb(&self) -> Self::Bitboard {
+        self.o_bb() | self.x_bb()
+    }
+
+    fn mask_bb(&self) -> Self::Bitboard {
+        let n = self.num_squares() - 1;
+        let res = u128::MAX >> (127 - n);
+        Bitboard::new(res, self.size())
+    }
+
+    fn calc_move_dest_bb(&self) -> Self::Bitboard {
+        self.empty_bb()
     }
 }
 

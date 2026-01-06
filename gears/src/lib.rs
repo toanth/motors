@@ -3,6 +3,7 @@
 //! and `pliers` crates, which deal with engines, UI, and tuning, respectively.
 
 #![deny(unused_results)]
+#![allow(refining_impl_trait)]
 
 use crate::AdjudicationReason::*;
 use crate::GameResult::Aborted;

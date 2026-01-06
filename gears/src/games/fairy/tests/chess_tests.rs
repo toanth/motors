@@ -260,7 +260,7 @@ fn mate_test() {
         if !board.is_pseudolegal_move_legal(mov) {
             continue;
         }
-        let checkmates = mov.piece(&board).name(board.settings()).as_ref() == "white rook"
+        let checkmates = mov.piece(&board).name(board.settings()) == "white rook"
             && mov.dest_square_in(&board) == Square::from_rank_file(7, G_FILE_NUM);
         assert_eq!(board.is_game_won_after_slow(mov, NoHistory::default()), checkmates);
         let new_board = board.clone().make_move(mov).unwrap();
@@ -280,7 +280,7 @@ fn capture_only_test() {
     for m in tactical {
         assert!(matches!(m.kind(), MoveKind::Promotion(_)));
         assert!(!m.is_capture());
-        assert_eq!(m.piece(&board).name(board.settings()).as_ref(), "black pawn");
+        assert_eq!(m.piece(&board).name(board.settings()), "black pawn");
     }
 }
 

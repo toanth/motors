@@ -37,10 +37,12 @@ use crate::general::bitboards::{
 use crate::general::board::SelfChecks::*;
 use crate::general::board::Strictness::Strict;
 use crate::general::board::{
-    BoardHelpers, BoardTrait, NameToPos, SelfChecks, Strictness, Symmetry, UnverifiedBoardTrait,
+    BBSelect, BoardHelpers, BoardTrait, NameToPos, SelfChecks, Strictness, Symmetry, UnverifiedBoardTrait,
     ply_counter_from_fullmove_nr, read_common_fen_part, simple_fen,
 };
-use crate::general::common::{EntityList, Res, StaticallyNamedEntity, Tokens, ith_one_u64, ith_one_u128, parse_int};
+use crate::general::common::{
+    EntityList, GenericSelect, Res, StaticallyNamedEntity, Tokens, ith_one_u64, ith_one_u128, parse_int,
+};
 use crate::general::move_list::InplaceMoveList;
 use crate::general::moves::Legality::Legal;
 use crate::general::moves::{Legality, MoveTrait, UntrustedMove};
@@ -62,9 +64,9 @@ use std::str::FromStr;
 use std::{fmt, iter};
 use strum_macros::{EnumIter, FromRepr};
 
-/// `Bitboard`s have the  semantic constraint of storing squares in a row-major fashion.
-/// That's why the public API of this struct only exposes `RawBitboard`s, which don't have this constraint,
-/// and `SubBitboard`s, which adhere to that.
+/// The [`BitboardTrait`] has the  semantic constraint of storing squares in a row-major fashion.
+/// That's why the public API of this struct only exposes [`RawBitboard`]s, which don't have this constraint,
+/// and [`SubBitboard`]s, which adhere to that.
 pub type RawBitboard = ExtendedRawBitboard;
 
 pub type SubSize = SmallGridSize<3, 3>;
@@ -154,7 +156,7 @@ impl AbstractPieceType<Board> for PieceType {
         }
     }
 
-    fn name(&self, _settings: &Settings) -> impl AsRef<str> {
+    fn name(&self, _settings: &Settings) -> &'static str {
         match self {
             Empty => "empty",
             Occupied => "occupied",
@@ -229,7 +231,7 @@ impl AbstractPieceType<Board> for ColoredPieceType {
         }
     }
 
-    fn name(&self, _settings: &Settings) -> impl AsRef<str> {
+    fn name(&self, _settings: &Settings) -> &'static str {
         match self {
             XStone => "x",
             OStone => "o",
@@ -677,6 +679,7 @@ impl Display for Board {
 
 impl BoardTrait for Board {
     type EmptyRes = Board;
+    type RawBitboard = ExtendedRawBitboard;
     type Settings = Settings;
     type SettingsRef = Settings;
     type Coordinates = Square;
@@ -761,6 +764,10 @@ impl BoardTrait for Board {
 
     fn ply_draw_clock(&self) -> usize {
         0
+    }
+
+    fn valid_squares_bb(&self) -> Self::RawBitboard {
+        Self::BOARD_BB
     }
 
     fn size(&self) -> Size {
@@ -1000,6 +1007,25 @@ impl BoardTrait for Board {
 
     fn background_color(&self, square: Square) -> SquareColor {
         square.sub_square().square_color()
+    }
+
+    fn bitboard_from_name(&self) -> BBSelect<Self> {
+        // TODO: Implement BitboardBoard for UTTT by splitting off a `RectangularBitboard` subtrait off the `BitboardTrait`.)
+        let mut closed_subboards = 0;
+        for sq in self.size().valid_coordinates() {
+            if !self.is_sub_board_open(sq.sub_board()) {
+                closed_subboards |= 1 << sq.bb_idx();
+            }
+        }
+        vec![
+            GenericSelect::full("active", Some("us"), "Our pieces", self.active_player_bb()),
+            GenericSelect::full("inactive", Some("them"), "Their pieces", self.inactive_player_bb()),
+            GenericSelect::full("empty", None, "Empty squares", self.all_empty_squares_bb()),
+            GenericSelect::full("occupied", None, "Squares that aren't empty", self.occupied_bb()),
+            GenericSelect::full("all", None, "All squares", Self::BOARD_BB),
+            GenericSelect::full("can_move_to", Some("open"), "Squares where a stone can be placed", self.open_bb()),
+            GenericSelect::full("closed", None, "Squares in subboards that are closed", closed_subboards),
+        ]
     }
 }
 

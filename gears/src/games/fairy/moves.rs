@@ -158,7 +158,7 @@ impl MoveTrait<Board> for Move {
     fn description(self, board: &Board) -> String {
         let from = self.src_square_in(board).unwrap_or_default().to_string().bold();
         let to = self.dest(board.size()).to_string().bold();
-        let piece = self.piece(board).name(board.settings()).as_ref().bold();
+        let piece = self.piece(board).name(board.settings()).bold();
         if self.is_null() {
             return "A passing move".to_string();
         }
@@ -176,7 +176,7 @@ impl MoveTrait<Board> for Move {
                     format!("Move the {piece} on {from} to {to}")
                 };
                 if let MoveKind::Promotion(promo) = self.kind() {
-                    let piece = ColoredPieceId::from_u8(promo).name(board.settings()).as_ref().bold();
+                    let piece = ColoredPieceId::from_u8(promo).name(board.settings()).bold();
                     format!("{text} and promote it to a {piece}")
                 } else {
                     text

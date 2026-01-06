@@ -6,19 +6,21 @@ use crate::PlayerResult;
 use crate::PlayerResult::{Draw, Lose, Win};
 use crate::games::ataxx::Color::{O, X};
 use crate::games::ataxx::common::AtaxxPieceType::Occupied;
-use crate::games::ataxx::common::ColoredAtaxxPieceType::{Blocked, Empty, OPiece, XPiece};
-use crate::games::ataxx::common::{ColoredAtaxxPieceType, MAX_ATAXX_MOVES_IN_POS, Move};
+use crate::games::ataxx::common::ColoredPieceType::{Blocked, Empty, OPiece, XPiece};
+use crate::games::ataxx::common::{ColoredPieceType, MAX_MOVES_IN_POS, Move};
 use crate::games::{
     BoardHistory, BoardTrait, CharType, ColorTrait, ColoredPieceTrait, ColoredPieceTypeTrait, CoordinatesTrait,
     GenericPiece, NUM_COLORS, NoHistory, PosHash, SettingsTrait, SizeTrait,
 };
+use crate::general::bitboards::chessboard::ATAXX_LEAPERS;
 use crate::general::bitboards::{
     BitboardTrait, KnownSizeBitboard, RawBitboardTrait, RawStandardBitboard, SmallGridBitboard,
 };
 use crate::general::board::SelfChecks::{Assertion, CheckFen};
 use crate::general::board::Strictness::Strict;
 use crate::general::board::{
-    BitboardBoard, BoardHelpers, PieceTypeOf, SelfChecks, Strictness, Symmetry, UnverifiedBoardTrait, simple_fen,
+    BBSelect, BitboardBoard, BoardHelpers, PieceTypeOf, SelfChecks, Strictness, Symmetry, UnverifiedBoardTrait,
+    default_bitboards_from_name, simple_fen,
 };
 use crate::general::common::{Res, StaticallyNamedEntity, Tokens, ith_one_u64};
 use crate::general::move_list::InplaceMoveList;
@@ -41,11 +43,11 @@ type Bitboard = SmallGridBitboard<7, 7>;
 #[derive(Debug, Default, Copy, Clone, Eq, PartialEq)]
 pub struct Settings;
 
-const ATAXX_SETTINGS: Settings = Settings {};
+const SETTINGS: Settings = Settings {};
 
 impl SettingsTrait for Settings {}
 
-pub type AtaxxSize = SmallGridSize<7, 7>;
+pub type Size = SmallGridSize<7, 7>;
 
 pub type Square = SmallGridSquare<7, 7, 8>;
 
@@ -134,14 +136,15 @@ impl StaticallyNamedEntity for Board {
     }
 }
 
-type Piece = GenericPiece<Board, ColoredAtaxxPieceType>;
+type Piece = GenericPiece<Board, ColoredPieceType>;
 
 // for some reason, Chessboard::MoveList can be ambiguous? This should fix that
-pub type MoveList = InplaceMoveList<Board, MAX_ATAXX_MOVES_IN_POS>;
+pub type MoveList = InplaceMoveList<Board, MAX_MOVES_IN_POS>;
 
 impl BoardTrait for Board {
     // TODO: This is not a useful board state since neither player can make any moves
     type EmptyRes = Board;
+    type RawBitboard = RawStandardBitboard;
     type Settings = Settings;
     type SettingsRef = Settings;
     type Coordinates = Square;
@@ -248,7 +251,7 @@ impl BoardTrait for Board {
                 let sq = Square::from_bb_idx(sq);
                 let color = Color::iter().nth(rng.random_range(0..2)).unwrap();
                 // doesn't currently generate gaps (doing so would need to ensure the board is connected)
-                let piece = ColoredAtaxxPieceType::new(color, Occupied);
+                let piece = ColoredPieceType::new(color, Occupied);
                 pos.place_piece(sq, piece);
                 if let Some(symmetry) = symmetry {
                     let sq = match symmetry {
@@ -256,13 +259,11 @@ impl BoardTrait for Board {
                             let empty = pos.0.empty_bb().raw();
                             Square::from_bb_idx(ith_one_u64(rng.random_range(0..empty.num_ones()), empty))
                         }
-                        Symmetry::Horizontal => sq.flip_left_right(AtaxxSize::default()),
-                        Symmetry::Vertical => sq.flip_up_down(AtaxxSize::default()),
-                        Symmetry::Rotation180 => {
-                            sq.flip_left_right(AtaxxSize::default()).flip_up_down(AtaxxSize::default())
-                        }
+                        Symmetry::Horizontal => sq.flip_left_right(Size::default()),
+                        Symmetry::Vertical => sq.flip_up_down(Size::default()),
+                        Symmetry::Rotation180 => sq.flip_left_right(Size::default()).flip_up_down(Size::default()),
                     };
-                    let piece = ColoredAtaxxPieceType::new(!color, Occupied);
+                    let piece = ColoredPieceType::new(!color, Occupied);
                     pos.place_piece(sq, piece);
                 }
             }
@@ -279,11 +280,11 @@ impl BoardTrait for Board {
     }
 
     fn settings(&self) -> &Settings {
-        &ATAXX_SETTINGS
+        &SETTINGS
     }
 
     fn settings_ref(&self) -> Self::SettingsRef {
-        ATAXX_SETTINGS
+        SETTINGS
     }
 
     fn active_player(&self) -> Color {
@@ -298,8 +299,12 @@ impl BoardTrait for Board {
         self.ply_100_ctr
     }
 
-    fn size(&self) -> AtaxxSize {
-        AtaxxSize::default()
+    fn valid_squares_bb(&self) -> Self::RawBitboard {
+        !Bitboard::INVALID_EDGE_MASK.raw()
+    }
+
+    fn size(&self) -> Size {
+        Size::default()
     }
 
     fn is_empty(&self, coords: Self::Coordinates) -> bool {
@@ -307,7 +312,7 @@ impl BoardTrait for Board {
         !self.occupied_bb().is_bit_set_at(coords.bb_idx())
     }
 
-    fn is_piece_on(&self, sq: Square, piece: ColoredAtaxxPieceType) -> bool {
+    fn is_piece_on(&self, sq: Square, piece: ColoredPieceType) -> bool {
         match piece {
             Empty => self.empty_bb(),
             Blocked => self.blocked_bb(),
@@ -439,10 +444,13 @@ impl BoardTrait for Board {
         // Don't paint a checkerboard pattern, just make everything white
         White
     }
+
+    fn bitboard_from_name(&self) -> BBSelect<Self> {
+        default_bitboards_from_name(self)
+    }
 }
 
 impl BitboardBoard for Board {
-    type RawBitboard = RawStandardBitboard;
     type Bitboard = Bitboard;
 
     fn piece_bb(&self, _piece: PieceTypeOf<Self>) -> Self::Bitboard {
@@ -463,6 +471,16 @@ impl BitboardBoard for Board {
 
     fn mask_bb(&self) -> Self::Bitboard {
         !Bitboard::INVALID_EDGE_MASK
+    }
+
+    fn calc_move_dest_bb(&self) -> Self::Bitboard {
+        let pieces = self.active_player_bb();
+        let empty = self.empty_bb();
+        let mut res = pieces.moore_inclusive() & empty;
+        for source in pieces.ones() {
+            res |= Bitboard::new(ATAXX_LEAPERS[source.bb_idx()].raw()) & empty;
+        }
+        res
     }
 }
 
@@ -520,11 +538,11 @@ impl UnverifiedBoardTrait<Board> for UnverifiedAtaxxBoard {
         self.0.settings()
     }
 
-    fn size(&self) -> AtaxxSize {
+    fn size(&self) -> Size {
         self.0.size()
     }
 
-    fn place_piece(&mut self, square: Square, piece: ColoredAtaxxPieceType) {
+    fn place_piece(&mut self, square: Square, piece: ColoredPieceType) {
         let bb = Bitboard::single_piece(square);
         self.0.colors[0] &= !bb;
         self.0.colors[1] &= !bb;

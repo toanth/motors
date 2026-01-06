@@ -77,19 +77,19 @@ impl AbstractOutput for Logger {
 }
 
 impl<B: BoardTrait> Output<B> for Logger {
-    fn show(&mut self, m: &dyn GameState<B>, opts: OutputOpts) {
-        let msg = self.as_string(m, opts);
+    fn show(&mut self, m: &dyn GameState<B>, opts: OutputOpts, _highlight: Option<B::RawBitboard>) {
+        let msg = self.as_string(m, opts, _highlight);
         self.stream.write("Board:\n", &format_args!("{msg}"));
     }
 
-    fn as_string(&self, m: &dyn GameState<B>, opts: OutputOpts) -> String {
-        self.board_to_text.as_string(m, opts)
+    fn as_string(&self, m: &dyn GameState<B>, opts: OutputOpts, _highlight: Option<B::RawBitboard>) -> String {
+        self.board_to_text.as_string(m, opts, None)
     }
 
     fn display_message_with_state(&mut self, m: &dyn GameState<B>, typ: Message, message: &fmt::Arguments) {
         self.display_message(typ, message);
         if typ != Message::Info {
-            let str = self.as_string(m, OutputOpts::default());
+            let str = self.as_string(m, OutputOpts::default(), None);
             self.stream.write(&typ.message_prefix(), &format_args!("{str}"));
         }
     }

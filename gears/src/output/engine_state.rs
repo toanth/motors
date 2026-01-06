@@ -62,7 +62,7 @@ impl AbstractOutput for EngineStateOutput {
 }
 
 impl<B: BoardTrait> Output<B> for EngineStateOutput {
-    fn as_string(&self, m: &dyn GameState<B>, _opts: OutputOpts) -> String {
+    fn as_string(&self, m: &dyn GameState<B>, _opts: OutputOpts, _highlight: Option<B::RawBitboard>) -> String {
         m.print_engine_state().unwrap_or_else(|e| e.to_string())
     }
 }

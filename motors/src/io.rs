@@ -61,6 +61,7 @@ use gears::general::moves::MoveTrait;
 use gears::general::perft::Bulkness::{Bulk, NoBulk};
 use gears::general::perft::{SplitPerftRes, num_unique_positions_up_to, perft_for, split_perft};
 use gears::itertools::Itertools;
+use gears::num::Num;
 use gears::output::Message::*;
 use gears::output::logger::LoggerBuilder;
 use gears::output::pgn::parse_pgn;
@@ -932,7 +933,7 @@ impl<B: BoardTrait> EngineUGI<B> {
                     Ok(None)
                 } else {
                     // Even though "pretty" can look better than "prettyascii", it's also significantly more risky
-                    // because how it looks very much depends on the terminal.
+                    // because how it looks very much depends on the terminal and installed fonts.
                     self.select_output(&mut tokens("prettyascii"))
                 }
             }
@@ -941,13 +942,18 @@ impl<B: BoardTrait> EngineUGI<B> {
 
     #[cold]
     fn handle_print_impl(&mut self, words: &mut Tokens, opts: OutputOpts) -> Res<()> {
-        let output = self.select_output(words)?;
+        let mut output = self.select_output(words)?;
+        if let Some(o) = output.as_mut()
+            && o.short_name() == "bb"
+        {
+            return self.handle_bb(words);
+        }
         let print = |this: &Self, output: Option<OutputBox<B>>, state| match output {
             None => {
-                this.output().show(state, opts);
+                this.output().show(state, opts, None);
             }
             Some(mut output) => {
-                output.show(state, opts);
+                output.show(state, opts, None);
             }
         };
         if words.peek().is_some() {
@@ -1265,6 +1271,8 @@ trait AbstractEngineUgiState: Debug {
 
     fn handle_print(&mut self, words: &mut Tokens, opts: OutputOpts) -> Res<()>;
 
+    fn handle_bb(&mut self, words: &mut Tokens) -> Res<()>;
+
     fn handle_engine_print(&mut self) -> Res<()>;
 
     fn handle_move_eval(&mut self, words: &mut Tokens) -> Res<()>;
@@ -1428,6 +1436,34 @@ impl<B: BoardTrait> AbstractEngineUgiState for EngineUGI<B> {
 
     fn handle_print(&mut self, words: &mut Tokens, opts: OutputOpts) -> Res<()> {
         self.handle_print_impl(words, opts)
+    }
+
+    fn handle_bb(&mut self, words: &mut Tokens) -> Res<()> {
+        let mut o = self.select_output(&mut tokens("bb"))?.unwrap();
+        let Some(name) = words.next() else { bail!("Missing bitboard after '{}' output", "bitboard".bold()) };
+        let list = self.state.pos().bitboard_from_name();
+        let select = |bb| select_name_static(bb, list.iter(), "bitboard name", self.game_name(), WithDescription);
+        let bb = select(name);
+        let bb = match bb {
+            Ok(bb) => bb.val,
+            Err(_) => match B::RawBitboard::from_str_radix(name.strip_prefix("0x").unwrap_or(name), 16) {
+                Ok(val) => val,
+                Err(_) => {
+                    if let Some(next) = words.next()
+                        && let Ok(bb) = select(&format!("{name} {next}"))
+                    {
+                        bb.val
+                    } else {
+                        bail!(
+                            "'{}' is not a valid name of a bitboard or an integer representing a bitboard",
+                            name.red()
+                        )
+                    }
+                }
+            },
+        };
+        o.show(&self.state, OutputOpts::default(), Some(bb));
+        Ok(())
     }
 
     #[cold]

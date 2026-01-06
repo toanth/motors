@@ -1,6 +1,11 @@
 extern crate num;
 
 use arbitrary::{Arbitrary, Unstructured};
+use derive_more::{
+    BitAnd, BitAndAssign, BitOr, BitOrAssign, BitXor, BitXorAssign, Not, Shl, ShlAssign, Shr, ShrAssign, Sub,
+};
+use num::traits::{WrappingMul, WrappingSub};
+use num::{PrimInt, Unsigned};
 use std::fmt;
 use std::fmt::{Debug, Display, Formatter};
 use std::iter::FusedIterator;
@@ -8,12 +13,7 @@ use std::ops::{
     BitAnd, BitAndAssign, BitOr, BitOrAssign, BitXor, BitXorAssign, Deref, DerefMut, Not, Shl, ShlAssign, Shr,
     ShrAssign, Sub,
 };
-
-use derive_more::{
-    BitAnd, BitAndAssign, BitOr, BitOrAssign, BitXor, BitXorAssign, Not, Shl, ShlAssign, Shr, ShrAssign, Sub,
-};
-use num::traits::{WrappingMul, WrappingSub};
-use num::{PrimInt, Unsigned};
+use std::str::FromStr;
 use strum_macros::EnumIter;
 
 use crate::games::{DimT, KnownSize, SizeTrait};
@@ -155,6 +155,7 @@ pub(super) static ANTI_DIAGONALS_U128: [[u128; 128]; MAX_WIDTH] = anti_diagonal_
 pub trait RawBitboardTrait:
     for<'a> Arbitrary<'a>
     + PrimInt
+    + FromStr
     + From<u8>
     + WrappingSub
     + WrappingMul
@@ -164,13 +165,16 @@ pub trait RawBitboardTrait:
     + ShlAssign<usize>
     + ShrAssign<usize>
     + Unsigned
+    + Copy
     + Display
     + Debug
-    + std::fmt::LowerHex
+    + fmt::UpperHex
+    + fmt::LowerHex
 {
     type WithRev: WithRev<RawBitboard = Self>;
 
     /// A `usize` may not be enough to hold all the bits, but sometimes that's fine.
+    // TODO: Remove?
     fn to_usize(self) -> usize;
 
     fn steps_bb(step_size: usize) -> Self;
@@ -903,7 +907,6 @@ impl<R: RawBitboardTrait, C: RectangularCoordinates> Debug for DynamicallySizedB
     }
 }
 
-// TODO: Bitboard overlay for board text output?
 impl<R: RawBitboardTrait, C: RectangularCoordinates> Display for DynamicallySizedBitboard<R, C> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         self.format(f)

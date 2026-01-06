@@ -66,7 +66,7 @@ fn display_cmd(f: &mut Formatter<'_>, cmd: &Command) -> fmt::Result {
 
 type SubCommandFnT = Box<dyn Fn(&mut dyn AutoCompleteState) -> CommandList>;
 #[derive(Default)]
-struct SubCommandsFn(Option<SubCommandFnT>);
+pub(super) struct SubCommandsFn(Option<SubCommandFnT>);
 
 impl Debug for SubCommandsFn {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
@@ -75,8 +75,12 @@ impl Debug for SubCommandsFn {
 }
 
 impl SubCommandsFn {
-    pub fn new(cmd: fn(&mut dyn AutoCompleteState) -> CommandList) -> Self {
+    fn new(cmd: fn(&mut dyn AutoCompleteState) -> CommandList) -> Self {
         Self(Some(Box::new(cmd)))
+    }
+
+    pub(super) fn new_from_box(cmd: Box<dyn Fn(&mut dyn AutoCompleteState) -> CommandList>) -> Self {
+        Self(Some(cmd))
     }
 
     fn call(&self, state: &mut dyn AutoCompleteState) -> CommandList {
@@ -95,7 +99,7 @@ pub struct Command {
     pub standard: Standard,
     pub autocomplete_recurse: bool,
     pub func: fn(&mut dyn AbstractEngineUgiState, remaining_input: &mut Tokens, _cmd: &str) -> Res<()>,
-    sub_commands: SubCommandsFn,
+    pub(super) sub_commands: SubCommandsFn,
 }
 
 impl Command {
@@ -314,6 +318,12 @@ pub fn ugi_commands() -> CommandList {
             Custom,
             "Enables logging. Can optionally specify a file name, `stdout` / `stderr` or `off`",
             |ugi, words, _| ugi.handle_log(words)
+        ),
+        command!(bb | bitboard,
+            Custom,
+            "Show a given bitboard",
+            |ugi, words, _| ugi.handle_bb(words),
+            --> |state| state.bb_subcmds()
         ),
         command!(
             debug | d,
@@ -850,7 +860,7 @@ pub(super) fn go_options_impl(
                     Ok(())
                 }
             ),
-            command!(hash | h | tt, Custom, "Search with a temporary TT of n MiB", |state, words, _| state
+            command!(hash | h | tt | cache, Custom, "Search with a temporary TT of n MiB", |state, words, _| state
                 .go_state_mut()
                 .override_hash(words)),
             command!(ponder, All, "Search on the opponent's time", |state, _, _| state

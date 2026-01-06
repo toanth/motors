@@ -292,18 +292,18 @@ impl Name {
 pub type EntityList<T> = Vec<T>;
 
 // TODO: Rework, description should be required
-pub struct GenericSelect<T> {
+pub struct SimpleSelect<T> {
     pub name: &'static str,
     pub val: T, // can be a factory function / object in many cases
 }
 
-impl<T> Debug for GenericSelect<T> {
+impl<T> Debug for SimpleSelect<T> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "GenericSelect({})", self.name)
     }
 }
 
-impl<T> NamedEntity for GenericSelect<T> {
+impl<T> NamedEntity for SimpleSelect<T> {
     fn short_name(&self) -> String {
         self.name.to_string()
     }
@@ -314,6 +314,48 @@ impl<T> NamedEntity for GenericSelect<T> {
 
     fn description(&self) -> Option<String> {
         None
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct GenericSelect<T: Debug> {
+    pub name: String,
+    pub alternative_name: Option<String>,
+    pub description: Option<String>,
+    pub val: T,
+}
+
+impl<T: Debug> GenericSelect<T> {
+    pub fn simple(name: &str, val: T) -> Self {
+        Self { name: name.to_string(), alternative_name: None, description: None, val }
+    }
+
+    pub fn full(name: &str, alternative: Option<&str>, description: &str, val: T) -> Self {
+        Self {
+            name: name.to_string(),
+            alternative_name: alternative.map(|s| s.to_string()),
+            description: Some(description.to_string()),
+            val,
+        }
+    }
+}
+
+impl<T: Debug> NamedEntity for GenericSelect<T> {
+    fn short_name(&self) -> String {
+        self.name.clone()
+    }
+
+    fn long_name(&self) -> String {
+        if let Some(name) = self.alternative_name.clone() { name } else { self.name.clone() }
+    }
+
+    fn description(&self) -> Option<String> {
+        self.description.clone()
+    }
+
+    fn matches(&self, name: &str) -> bool {
+        name.eq_ignore_ascii_case(&self.name)
+            || self.alternative_name.as_ref().is_some_and(|n| name.eq_ignore_ascii_case(&n))
     }
 }
 
@@ -374,9 +416,9 @@ fn select_name_impl<I: Iterator + Clone, F: Fn(&I::Item) -> String, G: Fn(&I::It
     typ: &str,
     game_name: &str,
     to_name: F,
-    compare: G,
+    matches: G,
 ) -> Res<I::Item> {
-    let idx = list.clone().find(|entity| compare(entity, name));
+    let idx = list.clone().find(|entity| matches(entity, name));
     match idx {
         Some(res) => Ok(res),
         None => error_msg(name, list, typ, game_name, to_name),
