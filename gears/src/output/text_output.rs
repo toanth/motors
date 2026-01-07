@@ -18,6 +18,7 @@ use crate::output::text_output::PrintType::Simple;
 use crate::output::{AbstractOutput, Message, Output, OutputBox, OutputBuilder, OutputOpts};
 use anyhow::{anyhow, bail, ensure};
 use colored::Colorize;
+use itertools::Itertools;
 use std::fmt::Write;
 use std::fs::File;
 use std::io::{Stderr, Stdout, stderr, stdout};
@@ -629,6 +630,11 @@ const LIGHT_UPPER_RIGHT_CORNER: &str = "┐";
 const LIGHT_LOWER_LEFT_CORNER: &str = "└";
 const LIGHT_LOWER_RIGHT_CORNER: &str = "┘";
 
+const LIGHT_LEFT_BORDER: &str = "├";
+const LIGHT_RIGHT_BORDER: &str = "┤";
+const LIGHT_LOWER_BORDER: &str = "┴";
+const LIGHT_UPPER_BORDER: &str = "┬";
+
 const HEAVY_UPPER_LEFT_CORNER: &str = "┏";
 const HEAVY_UPPER_RIGHT_CORNER: &str = "┓";
 const HEAVY_LOWER_LEFT_CORNER: &str = "┗";
@@ -727,6 +733,34 @@ fn write_horizontal_bar(
                     cross = LIGHT_LOWER_RIGHT_CORNER
                 }
             }
+        }
+        if cross_color.is_some() {
+            cross = if x > 0
+                && y > 0
+                && [colors[y - 1][x - 1], colors[y][x - 1], colors[y - 1][x], colors[y][x]].iter().all_equal()
+            {
+                CROSS
+            } else if x > 0
+                && y > 0
+                && colors[y - 1][x - 1] == colors[y - 1][x]
+                && colors[y][x - 1] == colors[y][x]
+                && colors[y - 1][x].is_some()
+            {
+                LIGHT_UPPER_BORDER
+            } else if x > 0 && colors[y][x - 1] == colors[y][x] && (y == 0 || colors[y - 1][x] == colors[y - 1][x - 1])
+            {
+                LIGHT_LOWER_BORDER
+            } else if y > 0
+                && colors[y - 1][x] == colors[y][x]
+                && col.is_some()
+                && (x == 0 || colors[y][x - 1] == colors[y - 1][x - 1])
+            {
+                LIGHT_LEFT_BORDER
+            } else if x > 0 && y > 0 && colors[y - 1][x - 1] == colors[y][x - 1] && colors[y - 1][x] == colors[y][x] {
+                LIGHT_RIGHT_BORDER
+            } else {
+                cross
+            };
         }
         if cross_color.is_none() && ![0, printer.get_width()].contains(&x) && ![0, printer.get_height()].contains(&y) {
             if y_spacer && !x_spacer {
