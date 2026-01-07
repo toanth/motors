@@ -138,7 +138,7 @@ impl<B: BoardTrait> AutoCompleteState for ACState<B> {
                 cmd.sub_commands = SubCommandsFn::new_from_box(Box::new(|state| state.bb_subcmds()));
             }
         }
-        add(res, position_options(Some(self.pos()), true))
+        add(res, position_options::<B>(None, true))
     }
     fn bb_subcmds(&self) -> CommandList {
         let mut res = self.pos().bitboard_from_name().iter().map(|bb| named_entity_to_command(bb)).collect_vec();

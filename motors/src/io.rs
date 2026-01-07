@@ -1003,6 +1003,10 @@ impl<B: BoardTrait> EngineUGI<B> {
         } else {
             print(self, output, &self.state);
         }
+        if self.debug_mode() {
+            let pos = self.state.pos().clone();
+            self.write_message(Debug, &format_args!("Current position debug print: '{pos:?}'"));
+        }
         Ok(())
     }
 
