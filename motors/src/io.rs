@@ -2228,7 +2228,8 @@ mod tests {
         ugi.handle_input("undo").unwrap();
         assert_eq!(*ugi.state.pos(), Board::default());
         assert_eq!(ugi.state.mov_hist.len(), 0);
-        ugi.handle_input("position startpos e2e4").unwrap();
+        ugi.handle_input("kiwipete").unwrap();
+        ugi.handle_input("position old e2e4").unwrap();
         ugi.handle_input("randomize").unwrap();
         ugi.handle_input("gb").unwrap();
         assert_eq!(ugi.state.pos().active_player(), Black);

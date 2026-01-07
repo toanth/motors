@@ -576,7 +576,10 @@ struct ParseUgiMatchState<'a, B: BoardTrait> {
 }
 
 impl<B: BoardTrait> ParseUgiPosState<B> for ParseUgiMatchState<'_, B> {
-    fn pos(&mut self) -> &mut B {
+    fn pos(&self) -> &B {
+        &self.match_state.current.board
+    }
+    fn pos_mut(&mut self) -> &mut B {
         &mut self.match_state.current.board
     }
 
