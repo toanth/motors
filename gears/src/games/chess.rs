@@ -743,17 +743,30 @@ impl BoardTrait for Board {
         }
         read_common_fen_part::<Board>(words, &mut board)?;
         let color = board.0.active_player();
-        let Some(castling_word) = words.next() else { bail!("FEN ends after color to move, missing castling rights") };
+        let castling_word = words.next().or((strictness == Relaxed).then_some("-")).ok_or_else(|| {
+            anyhow!("FEN ends after color to move, missing castling rights, which are required in strict mode")
+        })?;
         let castling_rights =
             CastlingFlags::default().parse_castling_rights(castling_word, &mut board.0, strictness)?;
         board.0.active = color;
         board.0.castling = castling_rights;
 
-        let Some(ep_square) = words.next() else { bail!("FEN ends after castling rights, missing en passant square") };
-        if ep_square != "-" {
-            // will be checked later in `verify_with_level`, because doing so can require movegen
-            board.0.ep_square = Some(Square::from_str(ep_square)?);
-        }
+        match words.next() {
+            Some(ep_sq) => {
+                if ep_sq != "-" {
+                    // will be checked later in `verify_with_level`, because doing so can require movegen
+                    board.0.ep_square =
+                        Some(Square::from_str(ep_sq).map_err(|e| anyhow!("Couldn't parse e.p. square: {e}"))?);
+                }
+            }
+            None => {
+                if strictness == Strict {
+                    bail!(
+                        "FEN ends after castling rights, missing the en passant square. This is required in strict mode"
+                    );
+                }
+            }
+        };
         read_two_move_numbers::<Board>(words, &mut board, strictness)?;
         // also sets the zobrist hash
         board.verify_with_level(CheckFen, strictness)
