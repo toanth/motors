@@ -27,7 +27,6 @@ use crate::general::bitboards::{
 };
 use crate::general::squares::RectangularCoordinates;
 use crate::general::squares::RectangularSize;
-use crate::shift_left;
 use num::traits::WrappingSub;
 use std::fmt::Debug;
 use std::marker::PhantomData;
@@ -139,32 +138,42 @@ impl ChessSliderGenerator {
 }
 
 /// See <https://www.chessprogramming.org/Kogge-Stone_Algorithm>
-pub fn kogge_stone<const DIR: isize>(sliders: Bitboard, mut allowed: Bitboard) -> Bitboard {
-    let mut res = sliders;
-    res |= allowed & shift_left!(res, DIR);
-    allowed &= shift_left!(allowed, DIR);
-    res |= allowed & shift_left!(res, 2 * DIR);
-    allowed &= shift_left!(allowed, 2 * DIR);
-    res |= allowed & shift_left!(res, 4 * DIR);
-    res
+pub fn kogge_stone<const DIR: usize>(
+    sliders: Bitboard,
+    empty: Bitboard,
+    fwd_filter: Bitboard,
+    bwd_filter: Bitboard,
+) -> Bitboard {
+    let mut forward = sliders;
+    let mut fwd_allowed = empty & fwd_filter;
+    let mut backward = sliders;
+    let mut bwd_allowed = empty & bwd_filter;
+    forward |= fwd_allowed & (forward << DIR);
+    backward |= bwd_allowed & (backward >> DIR);
+    fwd_allowed &= fwd_allowed << DIR;
+    bwd_allowed &= bwd_allowed >> DIR;
+    forward |= fwd_allowed & (forward << 2 * DIR);
+    backward |= bwd_allowed & (backward >> 2 * DIR);
+    fwd_allowed &= fwd_allowed << 2 * DIR;
+    bwd_allowed &= bwd_allowed >> 2 * DIR;
+    forward |= fwd_allowed & (forward << 4 * DIR);
+    backward |= bwd_allowed & (backward >> 4 * DIR);
+    ((forward << DIR) & fwd_filter) | ((backward >> DIR) & bwd_filter)
 }
 
 pub fn all_rook_attacks(sliders: Bitboard, empty: Bitboard) -> Bitboard {
-    let mut res = kogge_stone::<8>(sliders, empty) << 8;
-    res |= kogge_stone::<-8>(sliders, empty) >> 8;
-    res |= (kogge_stone::<1>(sliders, empty & !Bitboard::file_0()) << 1) & !Bitboard::file_0();
-    res |= (kogge_stone::<-1>(sliders, empty & !Bitboard::file(7)) >> 1) & !Bitboard::file(7);
-    res
+    let all = Bitboard::new(!0);
+    let vertical = kogge_stone::<8>(sliders, empty, all, all);
+    let horizontal = kogge_stone::<1>(sliders, empty, !Bitboard::file_0(), !Bitboard::file(7));
+    horizontal | vertical
 }
 
 pub fn all_bishop_attacks(sliders: Bitboard, empty: Bitboard) -> Bitboard {
     let not_a_file = !Bitboard::file_0();
     let not_h_file = !Bitboard::file(7);
-    let mut res = (kogge_stone::<9>(sliders, empty & not_a_file) << 9) & not_a_file;
-    res |= (kogge_stone::<-9>(sliders, empty & not_h_file) >> 9) & not_h_file;
-    res |= (kogge_stone::<7>(sliders, empty & not_h_file) << 7) & not_h_file;
-    res |= (kogge_stone::<-7>(sliders, empty & not_a_file) >> 7) & not_a_file;
-    res
+    let diagonal = kogge_stone::<9>(sliders, empty, not_a_file, not_h_file);
+    let anti_diagonal = kogge_stone::<7>(sliders, empty, not_h_file, not_a_file);
+    diagonal | anti_diagonal
 }
 
 // Factoring out the similarities with `ChessSliderGenerator` into a trait doesn't really reduce the amount of boilerplate
