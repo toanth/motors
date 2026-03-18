@@ -68,12 +68,8 @@ impl AbstractPieceType<Board> for PieceId {
         rules.matching_piece_ids(|p| p.uncolored_symbol.contains(&c)).next()
     }
 
-    #[allow(refining_impl_trait)]
-    fn name(&self, settings: &Rules) -> String {
-        if *self == Self::empty() {
-            return "<No piece>".to_string();
-        }
-        self.get(settings).unwrap().name.clone()
+    fn max_num_chars(settings: &Rules) -> usize {
+        if settings.pieces.iter().any(|p| p.promotions.promoted_from.is_some()) { 2 } else { 1 }
     }
 
     fn write_as_str(
@@ -99,8 +95,12 @@ impl AbstractPieceType<Board> for PieceId {
         }
     }
 
-    fn max_num_chars(settings: &Rules) -> usize {
-        if settings.pieces.iter().any(|p| p.promotions.promoted_from.is_some()) { 2 } else { 1 }
+    #[allow(refining_impl_trait)]
+    fn name(&self, settings: &Rules) -> String {
+        if *self == Self::empty() {
+            return "<No piece>".to_string();
+        }
+        self.get(settings).unwrap().name.clone()
     }
 
     fn to_uncolored_idx(self) -> usize {
@@ -356,7 +356,7 @@ pub(super) const PAWN_IDX: usize = 0;
 pub(super) const CHESS_KING_IDX: usize = 5;
 
 /// This struct defines the rules for a single piece.
-// Cloning a piece uses copy-on-write semantics for attack bitboards
+/// It is created through a [`super::piece_builder::PieceBuilder`].
 #[derive(Debug, Clone, Arbitrary)]
 #[must_use]
 pub struct Piece {
@@ -380,29 +380,4 @@ pub struct Piece {
     pub(super) output_omit_piece: bool,
     // true for kings but not for rooks
     pub(super) can_castle: bool,
-}
-
-impl Piece {
-    pub fn new_for(name: &str, attacks: Vec<AttackKind>, ascii_char: char, unicode_chars: Option<[char; 3]>) -> Self {
-        let lowercase_ascii = ascii_char.to_ascii_lowercase();
-        let uppercase_ascii = ascii_char.to_ascii_uppercase();
-        let [white_uni, black_uni, uncolored_uni] = if let Some(unicode) = unicode_chars {
-            unicode
-        } else {
-            [uppercase_ascii, lowercase_ascii, uppercase_ascii]
-        };
-        Self {
-            name: name.to_string(),
-            uncolored: false,
-            uncolored_symbol: [uppercase_ascii, uncolored_uni],
-            player_symbol: [[uppercase_ascii, white_uni], [lowercase_ascii, black_uni]],
-            attacks,
-            promotions: Promo::none(),
-            can_ep_capture: false,
-            resets_draw_counter: DrawCtrReset::Never,
-            royal: false,
-            output_omit_piece: false,
-            can_castle: false,
-        }
-    }
 }

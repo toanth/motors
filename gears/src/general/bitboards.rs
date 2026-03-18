@@ -204,6 +204,7 @@ pub trait RawBitboardTrait:
     }
 
     #[inline]
+    /// A Bitboard where only least significant bit of the current Bitboard is set, or `0` if `self == 0`.
     fn lsb(self) -> Self {
         self & Self::zero().wrapping_sub(&self)
     }
@@ -455,6 +456,11 @@ pub trait BitboardTrait<R: RawBitboardTrait, C: RectangularCoordinates>:
         self.size().height().val()
     }
 
+    #[inline]
+    fn reverse(self) -> Self {
+        Self::new(self.raw().reverse_bits(), self.size())
+    }
+
     fn flip_up_down(self) -> Self {
         let size = self.size();
         let mut bb = self;
@@ -491,13 +497,14 @@ pub trait BitboardTrait<R: RawBitboardTrait, C: RectangularCoordinates>:
 
     #[inline]
     /// This function is very general and can deal with arbitrary rays (e.g. riders in fairy chess),
-    /// but at the cost of calling `reverse` multiple times.
+    /// but at the cost of calling `reverse` multiple times. Like the other hq functions, it assumes that `ray`
+    ///  doesn't have a set bit at `idx`, which means it doens't matter whether `blockers` has a bit set at that position.
     fn hyperbola_quintessence_fallback<F>(idx: usize, blockers: Self, reverse: F, ray: Self) -> Self
     where
         F: Fn(Self) -> Self,
     {
         let piece = Self::new(R::single_piece_at(idx), blockers.size());
-        debug_assert!(!(piece & ray).is_zero());
+        debug_assert!(!ray.intersects(piece));
         let blockers = blockers & ray;
         let reversed_blockers = reverse(blockers);
         let forward = blockers.wrapping_sub(&piece);
@@ -1115,8 +1122,8 @@ macro_rules! do_shift {
     $typ: ty) => {{
         let h_shift = if $cylinder && $file < -$horizontal_shift {
             ($horizontal_shift % $width + $width) % $width
-        } else if $cylinder && $file + $horizontal_shift <= $width {
-            $horizontal_shift % $width
+        } else if $cylinder && $file + $horizontal_shift >= $width {
+            ($file + $horizontal_shift) % $width - $file
         } else {
             $horizontal_shift
         };
@@ -1136,12 +1143,12 @@ macro_rules! do_shift {
 // can be called at compile time or when constructing fairy chess rules
 // width is the internal width, so boards with a width less than 8, but height <= 8 can simply use 8 as the width
 #[macro_export]
-macro_rules! precompute_leaper_attacks {
-    ($square_idx: expr, $diff_1: expr, $diff_2: expr, $repeat: expr, $width: expr, $cylinder: expr, $typ: ty) => {{
+macro_rules! precompute_leaper_or_rider_attacks {
+    ($square_idx: expr, $diff_1: expr, $diff_2: expr, $build_rider: expr, $width: expr, $is_cylinder: expr, $typ: ty) => {{
         let diff_1 = $diff_1 as isize;
         let diff_2 = $diff_2 as isize;
         let width = $width as isize;
-        assert!(diff_1 <= diff_2); // an (a, b) leaper is the same as an (b, a) leaper
+        assert!($build_rider || diff_1 <= diff_2); // an (a, b) leaper is the same as an (b, a) leaper
         let this_piece: $typ = 1 << $square_idx;
         let file = $square_idx as isize % width;
         let mut attacks: $typ = 0;
@@ -1155,24 +1162,26 @@ macro_rules! precompute_leaper_attacks {
             let mut repetition = 0;
             loop {
                 attacks |= $crate::do_shift!(
-                    diff_2 * horizontal_offset,
-                    diff_1 * vertical_offset,
-                    width,
-                    file,
-                    this_piece,
-                    $cylinder,
-                    $typ
-                );
-                attacks |= $crate::do_shift!(
                     diff_1 * horizontal_offset,
                     diff_2 * vertical_offset,
                     width,
                     file,
                     this_piece,
-                    $cylinder,
+                    $is_cylinder,
                     $typ
                 );
-                if !$repeat || repetition > $width {
+                if !$build_rider {
+                    attacks |= $crate::do_shift!(
+                        diff_2 * horizontal_offset,
+                        diff_1 * vertical_offset,
+                        width,
+                        file,
+                        this_piece,
+                        $is_cylinder,
+                        $typ
+                    );
+                }
+                if !$build_rider || repetition > $width {
                     // TODO: max(width, height)
                     break;
                 }
@@ -1180,7 +1189,11 @@ macro_rules! precompute_leaper_attacks {
                 vertical_offset += vertical_dir;
                 repetition += 1;
             }
-            i += 1;
+            if $build_rider {
+                i += 3;
+            } else {
+                i += 1;
+            }
         }
         attacks
     }};
@@ -1199,7 +1212,7 @@ pub mod chessboard {
         let mut res: [Bitboard; 64] = [Bitboard::new(0); 64];
         let mut i = 0;
         while i < 64 {
-            res[i] = Bitboard::new(precompute_leaper_attacks!(i, 1, 2, false, 8, false, u64));
+            res[i] = Bitboard::new(precompute_leaper_or_rider_attacks!(i, 1, 2, false, 8, false, u64));
             i += 1;
         }
         res
@@ -1209,8 +1222,8 @@ pub mod chessboard {
         let mut res = [Bitboard::new(0); 64];
         let mut i = 0;
         while i < 64 {
-            let bb = precompute_leaper_attacks!(i, 1, 1, false, 8, false, u64)
-                | precompute_leaper_attacks!(i, 0, 1, false, 8, false, u64);
+            let bb = precompute_leaper_or_rider_attacks!(i, 1, 1, false, 8, false, u64)
+                | precompute_leaper_or_rider_attacks!(i, 0, 1, false, 8, false, u64);
             res[i] = Bitboard::new(bb);
             i += 1;
         }
@@ -1249,9 +1262,9 @@ pub mod chessboard {
         let mut res = [Bitboard::new(0); 64];
         let mut i = 0;
         while i < 64 {
-            let bb = precompute_leaper_attacks!(i, 2, 2, false, 8, false, u64)
-                | precompute_leaper_attacks!(i, 1, 2, false, 8, false, u64)
-                | precompute_leaper_attacks!(i, 0, 2, false, 8, false, u64);
+            let bb = precompute_leaper_or_rider_attacks!(i, 2, 2, false, 8, false, u64)
+                | precompute_leaper_or_rider_attacks!(i, 1, 2, false, 8, false, u64)
+                | precompute_leaper_or_rider_attacks!(i, 0, 2, false, 8, false, u64);
             res[i] = Bitboard::new(bb);
             i += 1;
         }
@@ -1315,7 +1328,7 @@ pub mod chessboard {
                 res[a][b] = if a == b {
                     0
                 } else if a % 8 == b % 8 {
-                    Bitboard::A_FILE.0 << b % 8
+                    Bitboard::A_FILE.0 << (b % 8)
                 } else if a / 8 == b / 8 {
                     Bitboard::FIRST_RANK.0 << (b / 8 * 8)
                 } else if DIAGONALS_U64[8][a] & (1 << b) != 0 {
@@ -1367,7 +1380,7 @@ mod tests {
         let size = GridSize::new(Height::new(11), Width::new(9));
         for i in 0..99 {
             let origin = SmallGridSquare::<11, 9, 9>::from_bb_idx(i);
-            let attacks = precompute_leaper_attacks!(i, 1, 2, false, 9, false, u128)
+            let attacks = precompute_leaper_or_rider_attacks!(i, 1, 2, false, 9, false, u128)
                 & DynamicallySizedBitboard::<ExtendedRawBitboard, GridCoordinates>::valid_squares_for_size(size).raw();
             for sq in attacks.one_indices() {
                 let sq = SmallGridSquare::<11, 9, 9>::from_bb_idx(sq);
@@ -1377,8 +1390,8 @@ mod tests {
                 s.sort();
                 assert_eq!(s, [1, 2]);
             }
-            let neighbors = (precompute_leaper_attacks!(i, 0, 1, false, 9, false, u128)
-                ^ precompute_leaper_attacks!(i, 1, 1, false, 9, false, u128))
+            let neighbors = (precompute_leaper_or_rider_attacks!(i, 0, 1, false, 9, false, u128)
+                ^ precompute_leaper_or_rider_attacks!(i, 1, 1, false, 9, false, u128))
                 | (1 << i);
             assert_eq!(
                 neighbors,
@@ -1465,9 +1478,9 @@ mod tests {
             assert_eq!(
                 mnk::Bitboard::hyperbola_quintessence_fallback(
                     i,
-                    mnk::Bitboard::new(0, size),
-                    |x| mnk::Bitboard::new(x.reverse_bits(), size),
-                    mnk::Bitboard::new(0xff, size) << (row * 8)
+                    mnk::Bitboard::new(1 << i, size),
+                    mnk::Bitboard::reverse,
+                    (mnk::Bitboard::new(0xff, size) << (row * 8)) ^ mnk::Bitboard::new(1 << i, size)
                 ),
                 mnk::Bitboard::new(expected, size),
                 "{i}"
@@ -1476,10 +1489,20 @@ mod tests {
 
         assert_eq!(
             mnk::Bitboard::hyperbola_quintessence_fallback(
+                15,
+                mnk::Bitboard::new(0, size),
+                mnk::Bitboard::reverse,
+                mnk::Bitboard::new((STEPS_U128[8] << 7) ^ (1 << 15), size)
+            ),
+            mnk::Bitboard::new((STEPS_U128[8] << 7) ^ (1 << 15), size)
+        );
+
+        assert_eq!(
+            mnk::Bitboard::hyperbola_quintessence_fallback(
                 3,
                 mnk::Bitboard::new(0b_0100_0001, size),
                 |x| mnk::Bitboard::new(x.reverse_bits(), size),
-                mnk::Bitboard::new(0xff, size),
+                mnk::Bitboard::new(0xff ^ (1 << 3), size),
             ),
             mnk::Bitboard::new(0b_0111_0111, size),
         );
@@ -1489,7 +1512,7 @@ mod tests {
                 28,
                 mnk::Bitboard::new(0x1234_4000_0fed, size),
                 |x| mnk::Bitboard::new(x.reverse_bits(), size),
-                mnk::Bitboard::new(0xffff_ffff_ffff, size),
+                mnk::Bitboard::new(0xffff_ffff_ffff ^ (1 << 28), size),
             ),
             mnk::Bitboard::new(0x0000_6fff_f800, size),
         );
@@ -1499,7 +1522,7 @@ mod tests {
                 28,
                 mnk::Bitboard::new(0x0110_0200_0001_1111, size),
                 |x| mnk::Bitboard::new(x.reverse_bits(), size),
-                mnk::Bitboard::new(0x1111_1111_1111_1111, size),
+                mnk::Bitboard::new(0x1111_1111_1111_1111 ^ (1 << 28), size),
             ),
             mnk::Bitboard::new(0x0011_1111_0111_0000, size),
         );
@@ -1509,7 +1532,7 @@ mod tests {
                 16,
                 mnk::Bitboard::new(0xfffe_d002_a912, size),
                 |x| mnk::Bitboard::new(x.swap_bytes(), size),
-                mnk::Bitboard::new(0x0101_0101_0101, size),
+                mnk::Bitboard::new(0x0101_0101_0101 ^ (1 << 16), size),
             ),
             mnk::Bitboard::new(0x0101_0100_0100, size),
         );
@@ -1519,9 +1542,11 @@ mod tests {
                 20,
                 mnk::Bitboard::new(0xffff_ffef_ffff, size),
                 |x| mnk::Bitboard::new(x.swap_bytes(), size),
-                mnk::Bitboard::new(0x_ffff_ffff_ffff, size),
+                mnk::Bitboard::new(0x_ffff_ffff_ffff ^ (1 << 20), size),
             ),
             mnk::Bitboard::new(0, size),
         );
     }
+
+    // TODO: Testcases with bitboards that are very non-quadratic, like 10x2 or 3x20
 }

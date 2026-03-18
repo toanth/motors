@@ -19,7 +19,8 @@ use crate::PlayerResult;
 use crate::games::fairy::attacks::{Dir, EffectRules};
 use crate::games::fairy::effects::Observers;
 use crate::games::fairy::moves::Move;
-use crate::games::fairy::piece_builder::{AttackKindBuilder, PieceBuilder};
+use crate::games::fairy::piece_builder::Topology::Cylinder;
+use crate::games::fairy::piece_builder::{AttackKindBuilder, PieceBuilder, PieceBuilderCache};
 use crate::games::fairy::pieces::{CHESS_KING_IDX, PAWN_IDX, Piece, PieceId};
 use crate::games::fairy::rules::GameEndEager::{
     AdditionalCounter, And, CanAchieve, DrawCounter, InsufficientMaterial, NoPiece, Not, Repetition,
@@ -219,14 +220,14 @@ impl SquareFilter {
             SquareFilter::Rank(rank) => Bitboard::rank_for(*rank, pos.size()),
             // TODO: Make sure this only exists in builders and isn't queried each node
             SquareFilter::RanksRelative(ranks, player) => match player {
-                PlayerCond::All => rank_relatives(&ranks, pos.size(), false) | rank_relatives(&ranks, pos.size(), true),
-                PlayerCond::First => rank_relatives(&ranks, pos.size(), false),
-                PlayerCond::Second => rank_relatives(&ranks, pos.size(), true),
-                PlayerCond::Active => rank_relatives(&ranks, pos.size(), !us.is_first()),
-                PlayerCond::Inactive => rank_relatives(&ranks, pos.size(), us.is_first()),
+                PlayerCond::All => rank_relatives(ranks, pos.size(), false) | rank_relatives(ranks, pos.size(), true),
+                PlayerCond::First => rank_relatives(ranks, pos.size(), false),
+                PlayerCond::Second => rank_relatives(ranks, pos.size(), true),
+                PlayerCond::Active => rank_relatives(ranks, pos.size(), !us.is_first()),
+                PlayerCond::Inactive => rank_relatives(ranks, pos.size(), us.is_first()),
                 PlayerCond::FirstAndActive => {
                     if us.is_first() {
-                        rank_relatives(&ranks, pos.size(), false)
+                        rank_relatives(ranks, pos.size(), false)
                     } else {
                         Bitboard::new(0, pos.size())
                     }
@@ -936,6 +937,12 @@ impl RulesBuilder {
         }
     }
 
+    pub fn cylinder_chess() -> Self {
+        let mut rules = Self::chess().make_cylindrical();
+        rules.name = "cylinder_chess".to_string();
+        rules
+    }
+
     pub fn king_of_the_hill() -> Self {
         let mut rules = Self::chess();
         rules.game_end_eager.retain(|(c, _r)| !matches!(c, InsufficientMaterial(_, _)));
@@ -1281,11 +1288,21 @@ impl RulesBuilder {
         res
     }
 
+    pub fn make_cylindrical(mut self) -> Self {
+        for p in &mut self.pieces {
+            for a in &mut p.attacks {
+                a.topology = Cylinder;
+            }
+        }
+        self
+    }
+
     pub fn build(self) -> Rules {
+        let mut cache = PieceBuilderCache::default();
         Rules {
             format_rules: self.format_rules,
             fallback: self.fallback.map(|r| Arc::new(r.build())),
-            pieces: self.pieces.into_iter().map(|p| p.build(self.size)).collect_vec(),
+            pieces: self.pieces.into_iter().map(|p| p.build(self.size, &mut cache)).collect_vec(),
             colors: self.colors,
             starting_pieces_in_hand: self.starting_pieces_in_hand,
             game_end_eager: self.game_end_eager,

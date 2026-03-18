@@ -669,9 +669,11 @@ impl<'a> MoveParser<'a> {
         let original_piece = self.piece;
         if self.piece == PieceId::empty() {
             let mut no_symbol = board.rules().matching_piece_ids(|p| p.output_omit_piece && !p.uncolored);
-            if self.start_rank.is_some() && self.start_file.is_some() {
+            if let Some(rank) = self.start_rank
+                && let Some(file) = self.start_file
+            {
                 // this allows parsing UGI notation and other input where the piece is clear from context
-                let sq = Square::from_rank_file(self.start_rank.unwrap(), self.start_file.unwrap());
+                let sq = Square::from_rank_file(rank, file);
                 self.piece = board.piece_type_on(sq);
             } else if let Some(id) = no_symbol.next() {
                 if no_symbol.next().is_none() {
@@ -812,13 +814,17 @@ impl<'a> MoveParser<'a> {
 
         let (from, from_bb) = f(self.start_file, self.start_rank);
         let to = f(self.target_file, self.target_rank).0;
-        let target_sq = if self.target_rank.is_some() && self.target_file.is_some() {
-            Some(Square::from_rank_file(self.target_rank.unwrap(), self.target_file.unwrap()))
+        let target_sq = if let Some(rank) = self.target_rank
+            && let Some(file) = self.target_file
+        {
+            Some(Square::from_rank_file(rank, file))
         } else {
             None
         };
-        let start_sq = if self.start_rank.is_some() && self.start_file.is_some() {
-            Some(Square::from_rank_file(self.start_rank.unwrap(), self.start_file.unwrap()))
+        let start_sq = if let Some(rank) = self.start_rank
+            && let Some(file) = self.start_file
+        {
+            Some(Square::from_rank_file(rank, file))
         } else {
             None
         };

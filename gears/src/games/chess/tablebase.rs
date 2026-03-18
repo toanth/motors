@@ -126,7 +126,7 @@ mod no_pawns {
             let [w, b] = KING_SQUARES[i];
             let w = KING_INDICES_SYMMETRY[w.bb_idx()] as usize;
             res[w][b.bb_idx()] = i as u16;
-            i = i + 1;
+            i += 1;
         }
         res
     });
@@ -676,13 +676,11 @@ impl<const PAWNS: bool> PosIdx<PAWNS> {
             // the inactive king is the primary king
             swap(&mut primary_king, &mut secondary_king);
         }
-        if !PAWNS || compact {
-            if primary_king.file() >= 4 {
-                primary_king = primary_king.flip_left_right(ChessboardSize::default());
-                secondary_king = secondary_king.flip_left_right(ChessboardSize::default());
-                for bb in &mut self.bbs[0..t.num_bbs] {
-                    *bb = bb.flip_left_right();
-                }
+        if (!PAWNS || compact) && primary_king.file() >= 4 {
+            primary_king = primary_king.flip_left_right(ChessboardSize::default());
+            secondary_king = secondary_king.flip_left_right(ChessboardSize::default());
+            for bb in &mut self.bbs[0..t.num_bbs] {
+                *bb = bb.flip_left_right();
             }
         }
         if !PAWNS && primary_king.rank() >= 4 {
@@ -823,12 +821,11 @@ fn base_case_iter<const PAWN: bool>(p: &PosIdx<PAWN>, t: &TableData<PAWN>, activ
     }
     pos.place_piece(kings[0], WhiteKing);
     pos.place_piece(kings[1], BlackKing);
-    if let Some(captured_sq) = captured.to_square() {
-        if let Some(piece) =
+    if let Some(captured_sq) = captured.to_square()
+        && let Some(piece) =
             piece_counts[!active].iter().find_position(|&&cnt| cnt > 0).map(|x| PieceType::from_repr(x.0).unwrap())
-        {
-            pos.place_piece(captured_sq, ColoredPieceType::new(!active, piece));
-        }
+    {
+        pos.place_piece(captured_sq, ColoredPieceType::new(!active, piece));
     }
     let promoted = pos.0.col_piece_bb(!active, Pawn) & Bitboard::rank(7 * (active as DimT));
     if promoted.more_than_one_bit_set() {
@@ -946,7 +943,7 @@ fn step<const PAWNS: bool>(
     // will not influence the minimum. Therefore, we don't even need to construct a `Chessboard`,
     // we can simply use the attacks of the individual pieces
     let test_nonking_move = |i: usize, src: Square, dest: Square| {
-        let mut res = value_after(&p, t, p_i, i, src, dest, table);
+        let mut res = value_after(p, t, p_i, i, src, dest, table);
         // handle ep, no need to test for legality.
         // fortunately, positions with an ep capture can't be base case positions (because ep being set implies legal moves)
         if i < t.num_pawn_bbs() && dest.rank().abs_diff(src.rank()) == 2 {
@@ -1222,8 +1219,8 @@ fn compact_size(piece_counts: PieceCounts) -> usize {
     num_free += 16; // non-pawn pieces can also be placed on backranks
     // place all other pieces
     for c in Color::iter() {
-        for p_idx in 1..5 {
-            encode_pieces(piece_counts[c][p_idx], &mut num_free);
+        for &pc in &piece_counts[c][1..5] {
+            encode_pieces(pc, &mut num_free);
         }
     }
     // when both sides have the same material, we demand that it's white's turn to move
@@ -1301,8 +1298,8 @@ fn postprocess<const PAWNS: bool>(table: &[Entry], t: &TableData<PAWNS>) -> Vec<
         }
     };
     for (w_iter, b_iter) in PosIdx::<PAWNS>::outer_iter(t) {
-        w_iter.for_each(|iter| handle_batch(iter));
-        b_iter.for_each(|iter| handle_batch(iter));
+        w_iter.for_each(handle_batch);
+        b_iter.for_each(handle_batch);
     }
     // these values are after symmetry reduction, so they are somewhat arbitrary
     let all = compressed.len();

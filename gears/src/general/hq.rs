@@ -34,7 +34,7 @@ use std::marker::PhantomData;
 use std::ops::{BitAnd, BitOr, BitXor, Sub};
 
 /// See <https://www.chessprogramming.org/SSSE3#SSSE3Version>, peshkov's optimization
-/// The Hyperbola Quintessence function, used to compute slider (actually, rider) attacks except for horizontal rays in chess.
+/// The Hyperbola Quintessence function, used to compute slider and rider attacks except for horizontal rays on u64 bitboards.
 #[inline]
 fn hq<W: WithRev>(square: W, ray: W, blockers: W) -> W {
     let blockers = blockers & ray;
@@ -491,6 +491,40 @@ static BIT_REVERSE_HQ_DATA: [[U128BitReverseHq; 128]; MAX_WIDTH] = {
     res
 };
 
+// Attacks that go to the right on a cylindrical board.
+// Attacks that go to the left can be calculated by calling `.reverse_bits` before and after.
+// This special case function is necessary because attacks that wrap around break many assumptions of regular hq, such as indices within
+// a ray being monotonic.
+pub fn hq_right_horizontal_cylinder(
+    file: usize,
+    w: usize,
+    step: usize,
+    all_blockers: ExtendedRawBitboard,
+) -> ExtendedRawBitboard {
+    debug_assert!(step > 0 && step <= w, "{step} {w}");
+    let mut res = ExtendedRawBitboard::default();
+    let piece = ExtendedRawBitboard::single_piece_at(file);
+    let mut start = piece;
+    loop {
+        debug_assert!(start.is_single_piece());
+        let ray = STEPS_U128[step] << (start.trailing_zeros() as usize + step);
+        let blockers = all_blockers & ray;
+        let forward = (blockers.wrapping_sub(start) ^ blockers) & ray;
+        let wrap_around = forward & (!0 << w);
+        res |= forward & !wrap_around;
+        let wrap_around = (wrap_around >> w) & ((1 << w) - 1) & !res;
+        start = wrap_around.lsb();
+        if start.is_zero() {
+            break;
+        }
+        res |= start;
+        if all_blockers & start != 0 {
+            break;
+        }
+    }
+    res
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -586,5 +620,46 @@ mod tests {
         let attacks = all_bishop_attacks(bishops, !blockers);
         let expected = Bitboard::new(0x446820b84dae1728);
         assert_eq!(attacks, expected);
+    }
+
+    #[test]
+    fn test_hq_right_horizontal_cylinder() {
+        let blockers = !0;
+        let attacks = hq_right_horizontal_cylinder(0, 8, 1, blockers);
+        debug_assert_eq!(attacks, 2);
+        let blockers = 17;
+        let attacks = hq_right_horizontal_cylinder(1, 9, 1, blockers);
+        debug_assert_eq!(attacks, 0b11100);
+        let blockers = 0;
+        let attacks = hq_right_horizontal_cylinder(2, 10, 1, blockers);
+        debug_assert_eq!(attacks, 0b11_1111_1111);
+        let blockers = 2;
+        let attacks = hq_right_horizontal_cylinder(4, 6, 1, blockers);
+        debug_assert_eq!(attacks, 0b10_0011);
+        for w in 2..=26 {
+            for file in 0..w {
+                for step in 1..(w + 1) {
+                    for blocker_step in 1..(w + 3) {
+                        for blocker_start in 0..(w + 3) {
+                            let blockers = STEPS_U128[blocker_step] << blocker_start;
+                            let attacks = hq_right_horizontal_cylinder(file, w, step, blockers);
+                            let mut expected = 0;
+                            let mut i = (file + step) % w;
+                            loop {
+                                expected |= 1 << i;
+                                if blockers.is_bit_set_at(i) || i == file {
+                                    break;
+                                }
+                                i = (i + step) % w;
+                            }
+                            assert_eq!(
+                                attacks, expected,
+                                "w {w}, file {file}, step {step}, blocker_step {blocker_step}, blocker_start {blocker_start}, blockers {blockers:x}"
+                            );
+                        }
+                    }
+                }
+            }
+        }
     }
 }

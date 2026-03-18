@@ -205,6 +205,52 @@ mod general {
     }
 
     #[test]
+    fn cylinder_attacks_test() {
+        let pos = Board::from_fen_for("cylinder_chess", "8/8/8/8/8/1k6/6P1/3K1R2 w - - 0 1", Strict).unwrap();
+        let moves = pos.legal_moves_slow();
+        assert!(moves.contains(&Move::from_compact_text("f1b1", &pos).unwrap()));
+        assert!(moves.contains(&Move::from_compact_text("f1e1", &pos).unwrap()));
+        assert!(moves.contains(&Move::from_compact_text("g2g4", &pos).unwrap()));
+        assert_eq!(moves.len(), 6 + 7 + 4 + 2);
+        let pos = Board::from_fen_for("cylinder_chess", "8/2k5/8/2K5/8/3r4/8/8 b - - 0 1", Strict).unwrap();
+        let moves = pos.legal_moves_slow();
+        assert_eq!(moves.len(), 5 + (7 + 7));
+        assert!(Move::from_compact_text("d3d3", &pos).is_err());
+        let pos = Board::from_fen_for("cylinder_chess", "8/8/8/8/8/1k1K2R1/8/8 b - - 0 1", Strict).unwrap();
+        assert!(pos.is_in_check());
+        let pos = Board::from_fen_for("cylinder_chess", "8/5Q2/k7/8/8/8/2K5/8 w - - 0 1", Strict).unwrap();
+        let moves = pos.legal_moves_slow();
+        assert!(moves.contains(&Move::from_compact_text("f7h1", &pos).unwrap()));
+        assert!(moves.contains(&Move::from_compact_text("f7a4", &pos).unwrap()));
+        let pos = Board::from_fen_for("cylinder_chess", "8/8/8/p6P/8/K7/6N1/7k w - a6 0 1", Strict).unwrap();
+        let moves = pos.legal_moves_slow();
+        assert!(moves.contains(&Move::from_compact_text("h5a6", &pos).unwrap()));
+        assert_eq!(moves.len(), 4 + 5 + 2);
+        let pos = Board::from_fen_for("cylinder_chess", "7k/5B2/3Q4/8/p5p1/7P/2R1pp2/K5N1 w - - 4 2", Strict).unwrap();
+        let moves = pos.legal_moves_slow();
+        assert!(moves.contains(&Move::from_compact_text("f7a4", &pos).unwrap()));
+        assert_eq!(moves.len(), 5 + (7 + 7 + 5 + 6) + (7 + 7) + (7 + 4) + 3 + 3);
+    }
+
+    #[test]
+    fn simple_cylinder_chess_test() {
+        let pos = Board::variant_simple("cylinder_chess").unwrap();
+        let fen = pos.fen_no_rules();
+        assert_eq!(&fen, chess::START_FEN);
+        assert_eq!(pos.num_legal_moves(), 20);
+        let pos = pos.make_move_from_str("e4").unwrap().make_move_from_str("b7b6").unwrap();
+        assert!(Move::from_compact_text("f1h7", &pos).is_ok());
+        assert!(pos.clone().make_move_from_str("d1c8").is_ok());
+        let pos = pos.make_move_from_str("c2c3").unwrap();
+        let pos = pos.make_move_from_str("b8a6").unwrap();
+        let pos = pos.make_move_from_str("f1c4").unwrap();
+        let pos = pos.make_move_from_str("a6h4").unwrap();
+        let pos = pos.make_move_from_str("d1f7").unwrap();
+        assert_eq!(pos.match_result_slow(&ZobristHistory::default()).unwrap().result, GameResult::P1Win);
+        // TODO: perft test
+    }
+
+    #[test]
     fn simple_shatranj_startpos_test() {
         let pos = Board::variant_simple("shatranj").unwrap();
         let as_fen = pos.fen_no_rules();

@@ -529,7 +529,7 @@ impl BoardTrait for Board {
             "1Q2Q3/N2NP1K1/Rn2B3/qQr3n1/1n5N/1P6/4n3/BkN4q w - - 0 1",
             "2n5/1Rp1K1pn/q6Q/1rrr4/k3Br2/7B/1n1N2Q1/1Nn2R2 w - - 0 1",
         ];
-        let res = fens.into_iter().map(|fen| Self::from_fen(fen, Strict).unwrap());
+        let res = fens.iter().map(|fen| Self::from_fen(fen, Strict).unwrap());
         let other = Self::name_to_pos_map().into_iter().filter(|e| e.strictness == Strict).map(|e| e.create::<Board>());
         res.chain(other)
     }

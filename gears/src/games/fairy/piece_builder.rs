@@ -27,27 +27,65 @@ use crate::games::fairy::attacks::GenAttackKind::*;
 use crate::games::fairy::attacks::GenAttacksCondition::*;
 use crate::games::fairy::attacks::SliderDirections::{Bishop, Forward, Queen, Rook, Vertical};
 use crate::games::fairy::attacks::{
-    AttackKind, AttackMode, AttackTypes, CaptureCondition, Dir, GenAttackKind, GenAttacksCondition, LeapingBitboards,
-    MoveKind, RequiredForAttack, SliderDirections,
+    AttackBitboardGen, AttackKind, AttackMode, CaptureCondition, Dir, GenAttackKind, GenAttacksCondition,
+    LeapingBitboards, MoveKind, RequiredForAttack, SliderDirections, rider,
 };
-use crate::games::fairy::piece_builder::AttackBuilder::{Castling, Fixed, Leaping, Rider, Slider};
+use crate::games::fairy::piece_builder::AttackBbGenBuilder::{Castling, Fixed, Leaping, Rider, Slider};
+use crate::games::fairy::piece_builder::Topology::*;
 use crate::games::fairy::pieces::{DrawCtrReset, Piece, PieceId, Promo, PromoCondition};
 use crate::games::fairy::rules::PlayerCond::Inactive;
 use crate::games::fairy::rules::SquareFilter::{EmptySquares, InDirectionOf, NoSquares, Not, NotUs, RanksRelative};
 use crate::games::fairy::rules::{PieceCond, PlayerCond, SquareFilter};
-use crate::games::fairy::{Color, Side, Size};
+use crate::games::fairy::{Color, RawBitboard, Side, Size};
 use crate::games::{ColorTrait, NUM_CHAR_TYPES, NUM_COLORS};
 use arbitrary::Arbitrary;
 use itertools::Itertools;
 use std::cmp::max;
 use std::collections::HashMap;
+use std::mem;
+use std::sync::Arc;
 
 const UNICODE_X: char = '⨉'; // '⨉',
 const UNICODE_O: char = '◯'; // '○'
 
-// TODO: If several pieces have the same attacks, only build them once and share the generated bitboards
+#[derive(Debug, Default, Copy, Clone, Eq, PartialEq, Hash, Arbitrary)]
+pub enum Topology {
+    #[default]
+    Plane,
+    Cylinder,
+    // TODO: Bouncing (subset of 4 board edges)
+}
+
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]
+pub struct RayDescription {
+    pub dx: isize,
+    pub dy: isize,
+    pub with_reverse: bool,
+    pub size: Size,
+    pub topology: Topology,
+}
+
+impl RayDescription {
+    pub fn new(mut dx: isize, mut dy: isize, with_reverse: bool, size: Size, topology: Topology) -> Self {
+        if with_reverse && (dx, dy) < (0, 0) {
+            dx *= -1;
+            dy *= -1;
+        }
+        dx %= size.width.val() as isize;
+        Self { dx, dy, with_reverse, topology, size }
+    }
+}
+
+// Often, a lot of attack data is shared between different pieces in the same game. For example, there might be several
+// pieces that can move along the same ray. This struct ensures this shared information is only computed and stored once
+#[derive(Debug, Default)]
+pub(super) struct PieceBuilderCache {
+    ray_cache: HashMap<RayDescription, Arc<[RawBitboard]>>,
+    leaper_cache: HashMap<(usize, usize), LeapingBitboards>,
+}
+
 #[derive(Debug, Clone, Arbitrary)]
-pub(super) enum AttackBuilder {
+pub(super) enum AttackBbGenBuilder {
     Leaping { n: usize, m: usize },
     Rider { n: usize, m: usize },
     Slider(SliderDirections),
@@ -56,32 +94,29 @@ pub(super) enum AttackBuilder {
     Drop,
 }
 
-impl AttackBuilder {
+impl AttackBbGenBuilder {
     fn range_hv(hor_range: &[isize], vert_range: &[isize]) -> Self {
         Fixed { offsets: hor_range.iter().copied().cartesian_product(vert_range.iter().copied()).collect() }
     }
 
     fn radius_exact(n: isize) -> Self {
-        let v = (-n..=n)
-            .into_iter()
-            .cartesian_product([-n, n])
-            .chain([-n, n].into_iter().cartesian_product(-n + 1..n))
-            .collect_vec();
+        let v =
+            (-n..=n).cartesian_product([-n, n]).chain([-n, n].into_iter().cartesian_product(-n + 1..n)).collect_vec();
         Fixed { offsets: v }
     }
 
     #[allow(unused)]
     fn radius_up_to(n: isize) -> Self {
-        let offsets = (-n..=n).into_iter().cartesian_product(-n..=n).filter(|&x| x != (0, 0));
+        let offsets = (-n..=n).cartesian_product(-n..=n).filter(|&x| x != (0, 0));
         Fixed { offsets: offsets.collect_vec() }
     }
 }
 
 #[derive(Debug, Clone, Arbitrary)]
 pub(super) struct AttackKindBuilder {
-    pub(super) cylinder: bool,
+    pub(super) topology: Topology,
     pub(super) build_col_relative: bool,
-    pub(super) typ: AttackBuilder,
+    pub(super) attack_bb_gen: AttackBbGenBuilder,
     pub(super) required: RequiredForAttack,
     pub(super) condition: GenAttacksCondition,
     pub(super) attack_mode: AttackMode,
@@ -90,52 +125,131 @@ pub(super) struct AttackKindBuilder {
     pub(super) capture_condition: CaptureCondition,
 }
 
+fn build_rider_ray(ray: RayDescription, cache: &mut PieceBuilderCache) -> Arc<[RawBitboard]> {
+    let entry = cache.ray_cache.entry(ray);
+    entry.or_insert_with(|| rider(ray)).clone()
+}
+
+fn build_rider_pair(
+    mut ray: RayDescription,
+    side_relative: bool,
+    cache: &mut PieceBuilderCache,
+) -> [AttackBitboardGen; NUM_COLORS] {
+    ray.dx %= ray.size.width.val() as isize;
+    let first_player = build_rider_ray(ray, cache);
+    if side_relative {
+        ray.dy = -ray.dy;
+    }
+    let second_player = build_rider_ray(ray, cache);
+    [AttackBitboardGen::rider(first_player), AttackBitboardGen::rider(second_player)]
+}
+
 impl AttackKindBuilder {
-    pub fn build(&self, size: Size) -> AttackKind {
-        let typ = match &self.typ {
-            &Leaping { n, m } => AttackTypes::leaping_cylinder(n, m, size, self.cylinder),
-            &Rider { n, m } => AttackTypes::rider(n, m, size, self.cylinder),
-            Slider(direction) => AttackTypes::Rider(direction.clone()),
+    fn build_attack_bb_gen(&self, size: Size, cache: &mut PieceBuilderCache) -> Vec<[AttackBitboardGen; NUM_COLORS]> {
+        match &self.attack_bb_gen {
+            &Leaping { n, m } => {
+                let res = if let Some(entry) = cache.leaper_cache.get(&(n, m)) {
+                    entry.clone()
+                } else {
+                    let res = LeapingBitboards::fixed_cylinder(n, m, size, self.topology);
+                    _ = cache.leaper_cache.insert((n, m), res.clone());
+                    res
+                };
+                vec![[AttackBitboardGen::Leaping(res.clone()), AttackBitboardGen::Leaping(res)]]
+            }
+            &Rider { n, m } => {
+                let mut ray = RayDescription::new(n as isize, m as isize, true, size, self.topology);
+                let r1 = build_rider_pair(ray, false, cache);
+                mem::swap(&mut ray.dx, &mut ray.dy);
+                let r2 = build_rider_pair(ray, false, cache);
+                vec![r1, r2]
+            }
+            Slider(direction) => {
+                // TODO: Make direction be not color relative, so instead of `.clone()` we need to flip here (or maybe remove this entirely)
+                match self.topology {
+                    Plane => {
+                        vec![[AttackBitboardGen::Rider(direction.clone()), AttackBitboardGen::Rider(direction.clone())]]
+                    }
+                    Cylinder => match direction.clone() {
+                        Forward => vec![[
+                            AttackBitboardGen::Rider(direction.clone()),
+                            AttackBitboardGen::Rider(direction.clone()),
+                        ]],
+                        Vertical => {
+                            let ray = RayDescription::new(0, 1, true, size, Cylinder);
+                            vec![build_rider_pair(ray, false, cache)]
+                        }
+                        Rook => {
+                            let ray = RayDescription::new(0, 1, true, size, Cylinder);
+                            let vertical = build_rider_pair(ray, false, cache);
+                            vec![
+                                vertical,
+                                [AttackBitboardGen::HorizontalCylinder(1), AttackBitboardGen::HorizontalCylinder(1)],
+                            ]
+                        }
+                        Bishop => {
+                            let mut ray = RayDescription::new(1, 1, true, size, Cylinder);
+                            let diagonal = build_rider_pair(ray, false, cache);
+                            ray.dy = -1;
+                            let anti_diagonal = build_rider_pair(ray, false, cache);
+                            vec![diagonal, anti_diagonal]
+                        }
+                        Queen => {
+                            let mut ray = RayDescription::new(0, 1, true, size, Cylinder);
+                            let vertical = build_rider_pair(ray, false, cache);
+                            let horizontal =
+                                [AttackBitboardGen::HorizontalCylinder(1), AttackBitboardGen::HorizontalCylinder(1)];
+                            ray.dx = 1;
+                            let diagonal = build_rider_pair(ray, false, cache);
+                            ray.dy = -1;
+                            let anti_diagonal = build_rider_pair(ray, false, cache);
+                            vec![vertical, horizontal, diagonal, anti_diagonal]
+                        }
+                        SliderDirections::RiderRay { .. } => {
+                            panic!("Rider builders should use the 'Rider' variant instead")
+                        }
+                    },
+                }
+            }
             Fixed { offsets } => {
-                AttackTypes::Leaping(LeapingBitboards::range(offsets.iter().copied(), size, self.cylinder))
+                let first_player =
+                    AttackBitboardGen::Leaping(LeapingBitboards::range(offsets.iter().copied(), size, self.topology));
+                let is_symetrical = offsets.iter().all(|&(d_file, d_rank)| offsets.contains(&(d_file, -d_rank)));
+                let second_player = if !self.build_col_relative || is_symetrical {
+                    first_player.clone()
+                } else {
+                    let flipped_offsets = offsets.iter().map(|&(d_file, d_rank)| (d_file, -d_rank)).collect_vec();
+                    AttackBitboardGen::Leaping(LeapingBitboards::range(
+                        flipped_offsets.iter().copied(),
+                        size,
+                        self.topology,
+                    ))
+                };
+                vec![[first_player, second_player]]
             }
-            &Castling(side) => AttackTypes::Castling(side),
-            AttackBuilder::Drop => AttackTypes::Drop,
-        };
-        let flipped = if let Slider(dir) = &self.typ
-            && let SliderDirections::Rider { .. } = dir
-        {
-            panic!("Rider builders should use the 'Rider' variant instead")
-        } else if self.build_col_relative
-            && let Fixed { offsets } = &self.typ
-        {
-            let is_symmetrical = offsets.iter().all(|&(d_file, d_rank)| offsets.contains(&(d_file, -d_rank)));
-            if is_symmetrical {
-                typ.clone() // only use a single copy of the precomputed bitboards
-            } else {
-                let flipped_offsets = offsets.iter().map(|&(d_file, d_rank)| (d_file, -d_rank)).collect_vec();
-                AttackTypes::Leaping(LeapingBitboards::range(flipped_offsets.iter().copied(), size, self.cylinder))
-            }
-        } else {
-            typ.clone()
-        };
-        let typ = [typ, flipped];
+            &Castling(side) => vec![[AttackBitboardGen::Castling(side), AttackBitboardGen::Castling(side)]],
+            AttackBbGenBuilder::Drop => vec![[AttackBitboardGen::Drop, AttackBitboardGen::Drop]],
+        }
+    }
+
+    pub fn build(&self, size: Size, cache: &mut PieceBuilderCache) -> AttackKind {
+        let typ = self.build_attack_bb_gen(size, cache);
         AttackKind {
             required: self.required,
             condition: self.condition,
             attack_mode: self.attack_mode,
-            typ,
+            bb_gen: typ,
             bitboard_filter: self.bitboard_filter.clone(),
             kind: self.kind,
             capture_condition: self.capture_condition,
         }
     }
 
-    fn simple(typ: AttackBuilder) -> Self {
+    fn simple(typ: AttackBbGenBuilder) -> Self {
         Self {
-            cylinder: false,
+            topology: Plane,
             required: RequiredForAttack::PieceOnBoard,
-            typ,
+            attack_bb_gen: typ,
             condition: Always,
             bitboard_filter: vec![NotUs],
             kind: Normal,
@@ -145,12 +259,12 @@ impl AttackKindBuilder {
         }
     }
 
-    pub fn pawn_noncapture(typ: AttackBuilder) -> Self {
+    pub fn pawn_noncapture(typ: AttackBbGenBuilder) -> Self {
         Self {
-            cylinder: false,
+            topology: Plane,
             build_col_relative: true,
             required: RequiredForAttack::PieceOnBoard,
-            typ,
+            attack_bb_gen: typ,
             condition: Always,
             bitboard_filter: vec![EmptySquares],
             kind: Normal,
@@ -159,12 +273,12 @@ impl AttackKindBuilder {
         }
     }
 
-    pub fn pawn_capture(typ: AttackBuilder, bb_filter: SquareFilter) -> Self {
+    pub fn pawn_capture(typ: AttackBbGenBuilder, bb_filter: SquareFilter) -> Self {
         Self {
-            cylinder: false,
+            topology: Plane,
             build_col_relative: true,
             required: RequiredForAttack::PieceOnBoard,
-            typ,
+            attack_bb_gen: typ,
             condition: Always,
             bitboard_filter: vec![bb_filter],
             kind: Normal,
@@ -174,14 +288,14 @@ impl AttackKindBuilder {
     }
     pub fn drop(filter: Vec<SquareFilter>) -> Self {
         Self {
-            cylinder: false,
+            topology: Plane,
             build_col_relative: false,
             required: RequiredForAttack::PieceInHand,
             condition: Always,
             attack_mode: AttackMode::NoCaptures,
-            typ: AttackBuilder::Drop,
+            attack_bb_gen: AttackBbGenBuilder::Drop,
             bitboard_filter: filter,
-            kind: GenAttackKind::Drop,
+            kind: Drop,
             capture_condition: CaptureCondition::Never,
         }
     }
@@ -217,8 +331,8 @@ pub(super) struct PieceBuilder {
 }
 
 impl PieceBuilder {
-    pub fn build(&self, size: Size) -> Piece {
-        let attacks = self.attacks.iter().map(|a| a.build(size)).collect_vec();
+    pub fn build(&self, size: Size, cache: &mut PieceBuilderCache) -> Piece {
+        let attacks = self.attacks.iter().map(|a| a.build(size, cache)).collect_vec();
         Piece {
             name: self.name.clone(),
             uncolored: self.uncolored,
@@ -279,7 +393,12 @@ impl PieceBuilder {
         }
     }
 
-    pub fn new(name: &str, attacks: Vec<AttackBuilder>, ascii_char: char, unicode_chars: Option<[char; 3]>) -> Self {
+    pub fn new(
+        name: &str,
+        attacks: Vec<AttackBbGenBuilder>,
+        ascii_char: char,
+        unicode_chars: Option<[char; 3]>,
+    ) -> Self {
         let attacks = attacks.into_iter().map(AttackKindBuilder::simple).collect_vec();
         Self::new_for(name, attacks, ascii_char, unicode_chars)
     }
@@ -290,22 +409,15 @@ impl PieceBuilder {
     }
 
     fn chess_pawn_no_promo() -> Self {
-        let single_push = AttackKindBuilder::pawn_noncapture(AttackBuilder::range_hv(&[0], &[1]));
-        // let normal_black =
-        //     AttackKindBuilder::pawn_noncapture(AttackBuilder::range_hv(&[0], &[-1]), Player(Color::second()));
+        let single_push = AttackKindBuilder::pawn_noncapture(AttackBbGenBuilder::range_hv(&[0], &[1]));
         let capture =
-            AttackKindBuilder::pawn_capture(AttackBuilder::range_hv(&[-1, 1], &[1]), SquareFilter::PawnCapture);
-        // let black_capture = AttackKindBuilder::pawn_capture(
-        //     AttackBuilder::range_hv(&[-1, 1], &[-1]),
-        //     Player(Color::second()),
-        //     SquareFilter::PawnCapture,
-        // );
+            AttackKindBuilder::pawn_capture(AttackBbGenBuilder::range_hv(&[-1, 1], &[1]), SquareFilter::PawnCapture);
         // promotions are handled as effects instead of duplicating all normal and capture moves
         let white_double = AttackKindBuilder {
-            cylinder: false,
+            topology: Plane,
             build_col_relative: false,
             required: RequiredForAttack::PieceOnBoard,
-            typ: Slider(Vertical),
+            attack_bb_gen: Slider(Vertical),
             condition: OnRelativeRank(1, Color::first()),
             bitboard_filter: vec![EmptySquares, SquareFilter::Rank(3)],
             kind: DoublePawnPush,
@@ -313,10 +425,10 @@ impl PieceBuilder {
             capture_condition: CaptureCondition::Never,
         };
         let black_double = AttackKindBuilder {
-            cylinder: false,
+            topology: Plane,
             build_col_relative: false,
             required: RequiredForAttack::PieceOnBoard,
-            typ: Slider(Vertical),
+            attack_bb_gen: Slider(Vertical),
             condition: OnRelativeRank(1, Color::second()),
             bitboard_filter: vec![EmptySquares, RanksRelative(vec![3], PlayerCond::Second)],
             kind: DoublePawnPush,
@@ -332,16 +444,9 @@ impl PieceBuilder {
 
     // like the chess pawn, but without double pawn push and ep
     fn pawn_shatranj_no_promo() -> Self {
-        let normal_white = AttackKindBuilder::pawn_noncapture(AttackBuilder::range_hv(&[0], &[1]));
-        // let normal_black =
-        //     AttackKindBuilder::pawn_noncapture(AttackBuilder::range_hv(&[0], &[-1]));
+        let normal_white = AttackKindBuilder::pawn_noncapture(AttackBbGenBuilder::range_hv(&[0], &[1]));
         let white_capture =
-            AttackKindBuilder::pawn_capture(AttackBuilder::range_hv(&[-1, 1], &[1]), SquareFilter::Them);
-        // let black_capture = AttackKindBuilder::pawn_capture(
-        //     AttackBuilder::range_hv(&[-1, 1], &[-1]),
-        //     Player(Color::second()),
-        //     SquareFilter::Them,
-        // );
+            AttackKindBuilder::pawn_capture(AttackBbGenBuilder::range_hv(&[-1, 1], &[1]), SquareFilter::Them);
         Self {
             name: "pawn (shatranj)".to_string(),
             uncolored: false,
@@ -416,7 +521,7 @@ impl PieceBuilder {
     fn king_shatranj() -> Self {
         let mut res = Self::new(
             "king (shatranj)",
-            vec![AttackBuilder::radius_exact(1)],
+            vec![AttackBbGenBuilder::radius_exact(1)],
             'k',
             Some([UNICODE_WHITE_KING, UNICODE_BLACK_KING, UNICODE_NEUTRAL_KING]),
         );
@@ -425,8 +530,6 @@ impl PieceBuilder {
     }
 
     pub fn pieces() -> Vec<Self> {
-        // let not_their_rank =
-        //     move |rank: DimT| (!FairyBitboard::rank_for(size.height.get().saturating_sub(1 + rank), size)).raw();
         // order of leapers matters
         let mut leapers = vec![
             Self::leaper("wazir", 0, 1, None, Some(['🨠', '🨦', '🨬'])),
@@ -452,7 +555,7 @@ impl PieceBuilder {
             if max(n, m) == 1 {
                 continue; // already a normal chess piece (rook or bishop)
             }
-            let attacks = vec![AttackBuilder::Rider { n, m }];
+            let attacks = vec![AttackBbGenBuilder::Rider { n, m }];
             let name = leaper.name.clone() + "rider";
             let rider = Self::new(&name, attacks, name.chars().next().unwrap(), None);
             riders.push(rider);
@@ -461,23 +564,23 @@ impl PieceBuilder {
         let mut rest = vec![
             {
                 let castle_king_side = AttackKindBuilder {
-                    cylinder: false,
+                    topology: Plane,
                     build_col_relative: false,
                     required: RequiredForAttack::PieceOnBoard,
                     condition: CanCastle(Kingside),
                     attack_mode: AttackMode::NoCaptures,
-                    typ: Castling(Kingside),
+                    attack_bb_gen: Castling(Kingside),
                     bitboard_filter: vec![],
                     kind: Castle(Kingside),
                     capture_condition: CaptureCondition::Never,
                 };
                 let castle_queen_side = AttackKindBuilder {
-                    cylinder: false,
+                    topology: Plane,
                     build_col_relative: false,
                     required: RequiredForAttack::PieceOnBoard,
                     condition: CanCastle(Queenside),
                     attack_mode: AttackMode::NoCaptures,
-                    typ: Castling(Queenside),
+                    attack_bb_gen: Castling(Queenside),
                     bitboard_filter: vec![],
                     kind: Castle(Queenside),
                     capture_condition: CaptureCondition::Never,
@@ -498,10 +601,10 @@ impl PieceBuilder {
                 res.name = "pawn (horde)".to_string();
                 // double pushes from the backrank don't set the ep square, so their `kind` is `Normal` instead of `DoublePawnPush`
                 res.attacks.push(AttackKindBuilder {
-                    cylinder: false,
+                    topology: Plane,
                     build_col_relative: false,
                     required: RequiredForAttack::PieceOnBoard,
-                    typ: Slider(Vertical),
+                    attack_bb_gen: Slider(Vertical),
                     condition: OnRelativeRank(0, Color::first()),
                     bitboard_filter: vec![EmptySquares, SquareFilter::Rank(2)],
                     kind: Normal,
@@ -509,10 +612,10 @@ impl PieceBuilder {
                     capture_condition: CaptureCondition::Never,
                 });
                 res.attacks.push(AttackKindBuilder {
-                    cylinder: false,
+                    topology: Plane,
                     build_col_relative: false,
                     required: RequiredForAttack::PieceOnBoard,
-                    typ: Slider(Vertical),
+                    attack_bb_gen: Slider(Vertical),
                     condition: OnRelativeRank(0, Color::second()),
                     bitboard_filter: vec![EmptySquares, RanksRelative(vec![2], PlayerCond::Second)],
                     kind: Normal,
@@ -539,14 +642,14 @@ impl PieceBuilder {
                 promo_cowrie
             },
             {
-                let mut khon = Self::ferz();
+                let mut khon = Self::silver_no_drop();
                 khon.name = "khon".to_string();
                 khon.uncolored_symbol = ['S', 'S'];
                 khon.player_symbol = [['S', 'S'], ['s', 's']];
                 khon
             },
             {
-                let mut met = Self::silver_no_drop();
+                let mut met = Self::ferz();
                 met.name = "met".to_string();
                 met.uncolored_symbol = ['M', 'ค'];
                 met.player_symbol = [['M', 'M'], ['m', 'm']];
@@ -576,7 +679,7 @@ impl PieceBuilder {
                 shogi_pawn.uncolored_symbol[Unicode] = '歩';
                 shogi_pawn.player_symbol[Color::first()][Unicode] = '歩';
                 shogi_pawn.player_symbol[Color::second()][Unicode] = '歩';
-                let white_attacks = AttackBuilder::range_hv(&[0], &[1]);
+                let white_attacks = AttackBbGenBuilder::range_hv(&[0], &[1]);
                 // let black_attacks = AttackBuilder::range_hv(&[0], &[-1]);
                 shogi_pawn.attacks = vec![
                     AttackKindBuilder::simple(white_attacks),
@@ -598,7 +701,7 @@ impl PieceBuilder {
             Self::new_for(
                 "knight (shogi)",
                 vec![
-                    AttackKindBuilder::simple(AttackBuilder::range_hv(&[-1, 1], &[2])).side_relative(),
+                    AttackKindBuilder::simple(AttackBbGenBuilder::range_hv(&[-1, 1], &[2])).side_relative(),
                     AttackKindBuilder::drop(vec![EmptySquares, Not(Box::new(RanksRelative(vec![0, 1], Inactive)))]),
                 ],
                 'n',
@@ -615,7 +718,7 @@ impl PieceBuilder {
             ),
             Self::new(
                 "dragon king",
-                vec![Slider(Rook), AttackBuilder::range_hv(&[-1, 1], &[-1, 1])],
+                vec![Slider(Rook), AttackBbGenBuilder::range_hv(&[-1, 1], &[-1, 1])],
                 'd',
                 Some(['龍', '龍', '龍']),
             ),
@@ -666,11 +769,11 @@ impl PieceBuilder {
                 attacks: vec![
                     AttackKindBuilder::drop(vec![EmptySquares, SquareFilter::Neighbor(Box::new(SquareFilter::Us))]),
                     AttackKindBuilder {
-                        cylinder: false,
+                        topology: Plane,
                         required: RequiredForAttack::PieceOnBoard,
                         condition: Always,
                         attack_mode: AttackMode::All,
-                        typ: AttackBuilder::radius_exact(2),
+                        attack_bb_gen: AttackBbGenBuilder::radius_exact(2),
                         bitboard_filter: vec![EmptySquares],
                         kind: Normal,
                         capture_condition: CaptureCondition::Never,

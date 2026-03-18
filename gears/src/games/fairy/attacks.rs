@@ -17,27 +17,26 @@
  */
 
 use crate::games::fairy::Side::{Kingside, Queenside};
-use crate::games::fairy::attacks::AttackTypes::{Leaping, Rider};
-use crate::games::fairy::attacks::GenAttackKind::Normal;
+use crate::games::fairy::attacks::AttackBitboardGen::{Leaping, Rider};
 use crate::games::fairy::attacks::GenAttacksCondition::Always;
 use crate::games::fairy::moves::Move;
+use crate::games::fairy::piece_builder::Topology::Cylinder;
+use crate::games::fairy::piece_builder::{RayDescription, Topology};
 use crate::games::fairy::pieces::{ColoredPieceId, GenPromoMoves};
-use crate::games::fairy::rules::SquareFilter::{EmptySquares, NotUs};
 use crate::games::fairy::rules::{CheckCount, CheckingAttack, SquareFilter};
 use crate::games::fairy::{
     Bitboard, Board, CastlingMoveInfo, Color, FairyCastleInfo, Piece, RawBitboard, Side, Size, Square, UnverifiedBoard,
 };
 use crate::games::{
-    AbstractPieceType, ColorTrait, ColoredPieceTrait, ColoredPieceTypeTrait, CoordinatesTrait, DimT, NUM_COLORS,
-    SizeTrait, char_to_file,
+    AbstractPieceType, ColorTrait, ColoredPieceTrait, ColoredPieceTypeTrait, DimT, NUM_COLORS, SizeTrait, char_to_file,
 };
 use crate::general::bitboards::{BitboardTrait, ExtendedRawBitboard, RawBitboardTrait};
 use crate::general::board::{BitboardBoard, BoardHelpers, BoardTrait, PieceTypeOf, Strictness, UnverifiedBoardTrait};
 use crate::general::common::{Res, Tokens};
-use crate::general::hq::BitReverseSliderGenerator;
+use crate::general::hq::{BitReverseSliderGenerator, hq_right_horizontal_cylinder};
 use crate::general::move_list::MoveListTrait;
 use crate::general::squares::{CompactSquare, RectangularCoordinates, RectangularSize};
-use crate::{precompute_leaper_attacks, shift_left};
+use crate::{precompute_leaper_or_rider_attacks, shift_left};
 use anyhow::{anyhow, bail, ensure};
 use arbitrary::Arbitrary;
 use arrayvec::ArrayVec;
@@ -47,18 +46,19 @@ use std::sync::Arc;
 
 pub(super) type SliderGen<'a> = BitReverseSliderGenerator<'a, Square, Bitboard>;
 
-/// The general organization of movegen is that of a pipeline, where a stage communicates with the next through enums,
-/// which usually need the `rules()` to be interpreted correctly
+// TODO: replace with `RayDescription`?
 #[derive(Debug, Clone, Arbitrary)]
 pub enum SliderDirections {
     // TODO: Add Backward and make it not depend on the color, instead about increasing / decreasing the rank
+    // Or maybe remove altogether and use `Rider` instead
     Forward,
     Vertical,
     Rook,
     Bishop,
     Queen,
-    // a ray bitboard for each square
-    Rider { rays: Arc<[RawBitboard]> },
+    // TODO: Support attacks in a single direction, without the opposite direction (e.g. only forwards, or only to the right)
+    // A ray bitboard for each square
+    RiderRay { rays: Arc<[RawBitboard]> },
 }
 
 // not `const`, which allows using ranges and for loops
@@ -66,7 +66,7 @@ pub fn leaper_attack_range(
     iter: impl Iterator<Item = (isize, isize)>,
     square: Square,
     size: Size,
-    cylinder: bool,
+    topology: Topology,
 ) -> RawBitboard {
     let mut res = RawBitboard::default();
     let width = size.width().val() as isize;
@@ -75,13 +75,12 @@ pub fn leaper_attack_range(
         let res_x = square.file() as isize + dx;
         let shift = if res_x >= 0 && res_x < width {
             dx + dy * internal_width
-        } else if cylinder {
-            let res_x = (res_x % width + width) % width;
+        } else if topology == Cylinder {
+            let res_x = res_x.rem_euclid(width);
             (res_x - square.file() as isize) + dy * internal_width
         } else {
             continue;
         };
-        debug_assert!(square.file() as isize >= -dx && square.file() as isize + dx < width);
         let bb = Bitboard::single_piece_for(square, size);
         res |= shift_left!(bb.raw(), shift);
     }
@@ -90,45 +89,45 @@ pub fn leaper_attack_range(
 
 #[derive(Debug, Clone, Arbitrary)]
 /// Since some games like shogi have different pieces with the same attacks,
-/// we deduplicate the attack bitboards as an optimization (TODO: Make this work again).
+/// we deduplicate the attack bitboards as an optimization (TODO: Add a test that this actually works, by comparing pointers).
 /// Also, this makes it cheap to clone, which allows us to store a different instance per player, which
 /// reduces branches during movegen.
 pub struct LeapingBitboards(Arc<[RawBitboard]>);
 
-fn leaper(n: usize, m: usize, rider: bool, size: Size, cylinder: bool) -> Arc<[RawBitboard]> {
+fn leaper(n: usize, m: usize, size: Size, topology: Topology) -> Arc<[RawBitboard]> {
     let mut res = vec![RawBitboard::default(); size.num_squares()];
     let (n, m) = (n.min(m), n.max(m));
     for (idx, elem) in res.iter_mut().enumerate() {
-        let bb = precompute_leaper_attacks!(idx, n, m, rider, size.width.val(), cylinder, u128);
+        let bb = precompute_leaper_or_rider_attacks!(idx, n, m, false, size.width.val(), topology == Cylinder, u128);
+        *elem = bb;
+    }
+    Arc::from(res)
+}
+
+pub fn rider(ray: RayDescription) -> Arc<[RawBitboard]> {
+    let mut res = vec![RawBitboard::default(); ray.size.num_squares()];
+    let width = ray.size.width.val();
+    for (idx, elem) in res.iter_mut().enumerate() {
+        let bb = precompute_leaper_or_rider_attacks!(idx, ray.dx, ray.dy, true, width, ray.topology == Cylinder, u128);
+        debug_assert!(!bb.is_bit_set_at(idx));
         *elem = bb;
     }
     Arc::from(res)
 }
 
 impl LeapingBitboards {
-    pub(super) fn fixed_cylinder(n: usize, m: usize, size: Size, cylinder: bool) -> Self {
-        Self(leaper(n, m, false, size, cylinder))
+    pub(super) fn fixed_cylinder(n: usize, m: usize, size: Size, topology: Topology) -> Self {
+        Self(leaper(n, m, size, topology))
     }
 
-    pub(super) fn range(range: impl Iterator<Item = (isize, isize)> + Clone, size: Size, cylinder: bool) -> Self {
+    pub(super) fn range(range: impl Iterator<Item = (isize, isize)> + Clone, size: Size, topology: Topology) -> Self {
         let mut res = vec![RawBitboard::default(); size.num_squares()];
         for (idx, elem) in res.iter_mut().enumerate() {
             let sq = size.idx_to_coordinates(idx as DimT);
-            let bb = leaper_attack_range(range.clone(), sq, size, cylinder);
+            let bb = leaper_attack_range(range.clone(), sq, size, topology);
             *elem = bb;
         }
         LeapingBitboards(Arc::from(res))
-    }
-
-    pub(super) fn flip(&self, size: Size) -> Self {
-        let mut res = self.clone();
-        let res_mut = Arc::make_mut(&mut res.0);
-        for i in 0..size.num_squares() {
-            let sq = size.idx_to_coordinates(i as DimT);
-            let flipped_i = size.internal_key(sq.flip_up_down(size));
-            res_mut[flipped_i] = Bitboard::new(self.0[i], size).flip_up_down().raw();
-        }
-        res
     }
 }
 
@@ -147,29 +146,23 @@ impl AttackMode {
 
 #[must_use]
 #[derive(Debug, Clone, Arbitrary)]
-pub enum AttackTypes {
+pub enum AttackBitboardGen {
     // Leaping pieces, like knights and kings, only care about blockers on the square they're leaping to
     Leaping(LeapingBitboards),
     // Riders are generalized sliders
     Rider(SliderDirections),
+    // Dropping a piece, such as in m,n,k games or shogi
+    Drop,
     // Castling moves are special enough that it makes sense to handle them separately
     Castling(Side),
-    Drop,
+    // Horizontal attacks on a cylinder, including riders that jump over squares, can't be handled the usual rider way with hq
+    // because square indices along a ray aren't monotonic.
+    HorizontalCylinder(usize),
 }
 
-impl AttackTypes {
-    // TODO: Remove, replace wiht leaping_cylinder and rename
-    pub fn leaping(n: usize, m: usize, size: Size) -> Self {
-        Leaping(LeapingBitboards::fixed_cylinder(n, m, size, false))
-    }
-
-    pub fn leaping_cylinder(n: usize, m: usize, size: Size, cylinder: bool) -> Self {
-        Leaping(LeapingBitboards::fixed_cylinder(n, m, size, cylinder))
-    }
-
-    pub fn rider(n: usize, m: usize, size: Size, cylinder: bool) -> Self {
-        let bbs = leaper(n, m, true, size, cylinder);
-        Rider(SliderDirections::Rider { rays: bbs })
+impl AttackBitboardGen {
+    pub fn rider(rays: Arc<[RawBitboard]>) -> Self {
+        Rider(SliderDirections::RiderRay { rays })
     }
 }
 
@@ -204,7 +197,9 @@ pub enum RequiredForAttack {
 }
 
 /// Attacks are about bitboards for performance reasons, but there are also moves that aren't fully represented with bitboards.
-/// This struct is only about attacks, so there are move types that are generated separately
+/// This struct is only about attacks, so there are move types that are generated separately.
+/// An instance of this struct represents "similar" attacks of a given piece, for example normal king moves without castling,
+/// or all queen moves.
 #[must_use]
 #[derive(Debug, Clone, Arbitrary)]
 pub struct AttackKind {
@@ -214,8 +209,9 @@ pub struct AttackKind {
     pub condition: GenAttacksCondition,
     // and the attack kind may also be disabled based on the mode, for example pawn pushes don't capture
     pub attack_mode: AttackMode,
-    // then, the bitboard of attacks is generated
-    pub typ: [AttackTypes; NUM_COLORS],
+    // then, the bitboard of attacks is generated by taking the `bitor` of different attack generation primitives,
+    // such as moves along a ray, or static leaper bitboards
+    pub bb_gen: Vec<[AttackBitboardGen; NUM_COLORS]>,
     // it is then filtered (e.g., that's how pawn captures of opponent pieces and ep squares are done,
     // and also how double pawn pushes are generated: They're vertical sliders).
     // A square needs to pass all the filters, that is, the filters get combined using a `bitwise and`.
@@ -227,69 +223,6 @@ pub struct AttackKind {
 }
 
 impl AttackKind {
-    pub fn simple(typ: AttackTypes) -> Self {
-        let typ = [typ.clone(), typ];
-        Self {
-            required: RequiredForAttack::PieceOnBoard,
-            typ,
-            condition: Always,
-            bitboard_filter: vec![NotUs],
-            kind: Normal,
-            attack_mode: AttackMode::All,
-            capture_condition: CaptureCondition::DestOccupied,
-        }
-    }
-
-    pub fn simple_side_relative(leaping: LeapingBitboards, size: Size) -> Self {
-        let flipped_leaper = leaping.flip(size);
-        let typ = [Leaping(leaping), Leaping(flipped_leaper)];
-        Self {
-            required: RequiredForAttack::PieceOnBoard,
-            typ,
-            condition: Always,
-            bitboard_filter: vec![NotUs],
-            kind: Normal,
-            attack_mode: AttackMode::All,
-            capture_condition: CaptureCondition::DestOccupied,
-        }
-    }
-
-    pub fn pawn_noncapture(typ: AttackTypes, condition: GenAttacksCondition) -> Self {
-        let typ = [typ.clone(), typ];
-        Self {
-            required: RequiredForAttack::PieceOnBoard,
-            typ,
-            condition,
-            bitboard_filter: vec![EmptySquares],
-            kind: Normal,
-            attack_mode: AttackMode::NoCaptures,
-            capture_condition: CaptureCondition::Never,
-        }
-    }
-    pub fn pawn_capture(typ: AttackTypes, condition: GenAttacksCondition, bb_filter: SquareFilter) -> Self {
-        let typ = [typ.clone(), typ];
-        Self {
-            required: RequiredForAttack::PieceOnBoard,
-            typ,
-            condition,
-            bitboard_filter: vec![bb_filter],
-            kind: Normal,
-            attack_mode: AttackMode::Captures,
-            capture_condition: CaptureCondition::Always,
-        }
-    }
-    pub fn drop(filter: Vec<SquareFilter>) -> Self {
-        Self {
-            required: RequiredForAttack::PieceInHand,
-            condition: Always,
-            attack_mode: AttackMode::NoCaptures,
-            typ: [AttackTypes::Drop, AttackTypes::Drop],
-            bitboard_filter: filter,
-            kind: GenAttackKind::Drop,
-            capture_condition: CaptureCondition::Never,
-        }
-    }
-
     pub fn bb_filter(&self, us: Color, pos: &Board) -> RawBitboard {
         let mut res = pos.mask_bb();
         for filter in &self.bitboard_filter {
@@ -309,39 +242,56 @@ impl AttackKind {
         let piece_id = piece.symbol;
         let sq = piece.coordinates;
         let size = pos.size();
-        let res = match &self.typ[piece_id.color().unwrap_or_default()] {
-            Leaping(precomputed) => precomputed.0[size.internal_key(sq)],
-            Rider(sliding) => {
-                let res = match sliding {
-                    SliderDirections::Forward => {
-                        generator.forward_attacks(sq, !piece_id.color().unwrap_or_default().is_first())
-                    }
-                    SliderDirections::Vertical => generator.vertical_attacks(sq),
-                    SliderDirections::Rook => generator.rook_attacks(sq),
-                    SliderDirections::Bishop => generator.bishop_attacks(sq),
-                    SliderDirections::Queen => generator.queen_attacks(sq),
-                    SliderDirections::Rider { rays } => {
-                        let ray = Bitboard::new(rays[size.internal_key(sq)], size);
-                        // TODO: Also use gen, remove the fallback
-                        Bitboard::hyperbola_quintessence_fallback(
-                            size.internal_key(sq),
-                            pos.blocker_bb(),
-                            Bitboard::flip_up_down,
-                            ray,
-                        )
-                    }
-                };
-                res.raw()
-            }
-            &AttackTypes::Castling(side) => {
-                if let Some(sq) = pos.0.castling_info.player(piece_id.color().unwrap()).king_dest_sq(side) {
-                    Bitboard::single_piece_for(sq, size).raw()
-                } else {
-                    RawBitboard::default()
+        let mut res = 0;
+        for bb_gen in &self.bb_gen {
+            res |= match &bb_gen[piece_id.color().unwrap_or_default()] {
+                Leaping(precomputed) => precomputed.0[size.internal_key(sq)],
+                Rider(sliding) => {
+                    let res = match sliding {
+                        SliderDirections::Forward => {
+                            generator.forward_attacks(sq, !piece_id.color().unwrap_or_default().is_first())
+                        }
+                        SliderDirections::Vertical => generator.vertical_attacks(sq),
+                        SliderDirections::Rook => generator.rook_attacks(sq),
+                        SliderDirections::Bishop => generator.bishop_attacks(sq),
+                        SliderDirections::Queen => generator.queen_attacks(sq),
+                        SliderDirections::RiderRay { rays } => {
+                            let ray = Bitboard::new(rays[size.internal_key(sq)], size);
+                            // TODO: Also use gen, remove the fallback
+                            Bitboard::hyperbola_quintessence_fallback(
+                                size.internal_key(sq),
+                                pos.blocker_bb(),
+                                Bitboard::reverse,
+                                ray,
+                            )
+                        }
+                    };
+                    res.raw()
                 }
-            }
-            &AttackTypes::Drop => pos.mask_bb,
-        };
+                &AttackBitboardGen::Castling(side) => {
+                    if let Some(sq) = pos.0.castling_info.player(piece_id.color().unwrap()).king_dest_sq(side) {
+                        Bitboard::single_piece_for(sq, size).raw()
+                    } else {
+                        RawBitboard::default()
+                    }
+                }
+                &AttackBitboardGen::Drop => pos.mask_bb,
+                &AttackBitboardGen::HorizontalCylinder(step) => {
+                    let file = sq.file() as usize;
+                    let rank = sq.rank() as usize;
+                    let w = size.width.val();
+                    let all_blockers = pos.blocker_bb().raw();
+                    let blockers = all_blockers >> (rank * w);
+                    let right = hq_right_horizontal_cylinder(file, w, step, blockers);
+                    let rev_blockers = blockers.reverse_bits() >> (128 - w);
+                    let left =
+                        hq_right_horizontal_cylinder(w - 1 - file, w, step, rev_blockers).reverse_bits() >> (128 - w);
+                    let res = left | right;
+                    debug_assert_eq!(res & !0 << w, 0);
+                    res << (rank * w)
+                }
+            };
+        }
         PieceAttackBB {
             all_attacks: res & squares_mask,
             kind: self.kind,

@@ -355,7 +355,7 @@ impl<T: Debug> NamedEntity for GenericSelect<T> {
 
     fn matches(&self, name: &str) -> bool {
         name.eq_ignore_ascii_case(&self.name)
-            || self.alternative_name.as_ref().is_some_and(|n| name.eq_ignore_ascii_case(&n))
+            || self.alternative_name.as_ref().is_some_and(|n| name.eq_ignore_ascii_case(n))
     }
 }
 
@@ -395,7 +395,7 @@ fn error_msg<I: Iterator + Clone, F: Fn(&I::Item) -> String>(
             let near_matches = list
                 .clone()
                 .filter(|x| {
-                    edit_distance(&to_name(x).to_ascii_lowercase(), &format!("'{}'", name.to_ascii_lowercase().bold()))
+                    edit_distance(to_name(x).to_ascii_lowercase(), format!("'{}'", name.to_ascii_lowercase().bold()))
                         <= 3
                 })
                 .collect_vec();

@@ -127,6 +127,8 @@ mod tests {
                 vec![3, 17, 121, 611, 3501, 21338, 133_659, 1_059_417, 12_193_381],
             ),
             ("crazyhouse K1QQQQ1Q/Q7/Q7/6Q1/1Q6/7Q/Q6B/1QQQQQnk[PNBRQ] w - - 0 1", vec![444, 0, 0]),
+            ("makruk", vec![23, 529, 12012, 273_026, 6_223_994 /*, 14_2078_049*/]),
+            ("makruk 2rm2k1/2s2R1r/2p5/1p1nN1Pp/1P2N2P/2PP2S1/2S1K3/5R2 w - - 9 27", vec![49, 900, 37_585, 737_697]),
             ("shogi startpos", vec![30, 900, 25_470, 719_731, 19_861_490 /*, 547_581_517*/]),
             (
                 " shogi 8l/1l+R2P3/p2pBG1pp/kps1p4/Nn1P2G2/P1P1P2PP/1PS6/1KSG3+r1/LN2+p3L w Sbgn3p 124",

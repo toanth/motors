@@ -43,11 +43,10 @@ fn perft_tests() {
         if pos.cannot_call_movegen() {
             continue;
         }
-        let mov = pos.random_legal_move(&mut rng);
-        if mov.is_none() {
-            assert_eq!(perft_res[1], 0);
+        if let Some(mov) = pos.random_legal_move(&mut rng) {
+            assert!(pos.is_move_legal(mov), "{pos} {}", mov);
         } else {
-            assert!(pos.is_move_legal(mov.unwrap()), "{pos} {}", mov.unwrap());
+            assert_eq!(perft_res[1], 0);
         }
     }
 }

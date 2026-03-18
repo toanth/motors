@@ -1091,22 +1091,26 @@ impl<'a> MoveParser<'a> {
 
     fn additional_msg(&self, board: &Board, our_name: &ColoredString, our_piece: &ColoredString) -> String {
         let us = board.active;
-        let pinned = if self.target_rank.is_some() && self.target_file.is_some() {
-            board.all_attacking(
-                Square::from_rank_file(self.target_rank.unwrap(), self.target_file.unwrap()),
-                board.slider_generator(),
-            ) & board.pinned
+        let pinned = if let Some(rank) = self.target_rank
+            && let Some(file) = self.target_file
+        {
+            board.all_attacking(Square::from_rank_file(rank, file), board.slider_generator())
+                & board.pinned
                 & board.col_piece_bb(us, self.piece)
         } else {
             Bitboard::default()
         };
-        let target_sq = if self.target_rank.is_some() && self.target_file.is_some() {
-            Some(Square::from_rank_file(self.target_rank.unwrap(), self.target_file.unwrap()))
+        let target_sq = if let Some(rank) = self.target_rank
+            && let Some(file) = self.target_file
+        {
+            Some(Square::from_rank_file(rank, file))
         } else {
             None
         };
-        let start_sq = if self.start_rank.is_some() && self.start_file.is_some() {
-            Some(Square::from_rank_file(self.start_rank.unwrap(), self.start_file.unwrap()))
+        let start_sq = if let Some(rank) = self.start_rank
+            && let Some(file) = self.start_file
+        {
+            Some(Square::from_rank_file(rank, file))
         } else {
             None
         };

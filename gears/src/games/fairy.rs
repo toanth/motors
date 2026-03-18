@@ -768,7 +768,7 @@ impl BoardTrait for Board {
             "makruk 7r/3k4/1nsm1pp1/n1p5/4RM1N/P1S5/1NK5/3R4 b - - 0 38",
             "ataxx x5o/1x4o/3-3/2---2/3-x2/1o3x1/o5x o - - 0 3",
         ];
-        fens.into_iter()
+        fens.iter()
             .map(|fen| Self::from_fen(fen, Strict).unwrap())
             .chain(Self::name_to_pos_map().into_iter().map(|n| Self::from_name(n.name).unwrap()))
     }
@@ -1129,6 +1129,10 @@ impl Board {
     fn variants_for(protocol: Protocol) -> EntityList<NameToVariant> {
         vec![
             SimpleSelect { name: "chess", val: Box::new(|| RulesRef::new(RulesBuilder::chess().build())) },
+            SimpleSelect {
+                name: "cylinder_chess",
+                val: Box::new(|| RulesRef::new(RulesBuilder::cylinder_chess().build())),
+            },
             SimpleSelect { name: "atomic", val: Box::new(|| RulesRef::new(RulesBuilder::atomic().build())) },
             SimpleSelect {
                 name: "kingofthehill",

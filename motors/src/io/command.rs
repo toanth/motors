@@ -321,7 +321,7 @@ pub fn ugi_commands() -> CommandList {
         ),
         command!(bb | bitboard,
             Custom,
-            "Show a given bitboard",
+            "Show a given bitboard. Numbers are assumed to be hexadecimal.",
             |ugi, words, _| ugi.handle_bb(words),
             --> |state| state.bb_subcmds()
         ),
@@ -491,7 +491,7 @@ pub trait AbstractGoState: Debug {
 
 fn set_sm_or_em<B: BoardTrait>(pos: &B, words: &mut Tokens, name: &str) -> Res<Vec<B::Move>> {
     let mut moves = vec![];
-    while let Some(mov) = words.peek().and_then(|m| B::Move::from_text(m, &pos).ok()) {
+    while let Some(mov) = words.peek().and_then(|m| B::Move::from_text(m, pos).ok()) {
         _ = words.next().unwrap();
         moves.push(mov);
     }
