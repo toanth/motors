@@ -10,9 +10,7 @@ use crate::games::chess::Color::*;
 use crate::games::chess::castling::CastleRight::*;
 use crate::games::chess::pieces::ColoredPieceType;
 use crate::games::chess::pieces::PieceType::{King, Rook};
-use crate::games::chess::squares::{
-    A_FILE_NUM, C_FILE_NUM, D_FILE_NUM, E_FILE_NUM, F_FILE_NUM, G_FILE_NUM, H_FILE_NUM, NUM_COLUMNS, Square,
-};
+use crate::games::chess::squares::{A_FILE_NUM, D_FILE_NUM, E_FILE_NUM, F_FILE_NUM, H_FILE_NUM, NUM_COLUMNS, Square};
 use crate::games::chess::{Board, Color, Settings, UCI_CHESS960};
 use crate::games::{BoardTrait, ColorTrait, ColoredPieceTypeTrait, DimT, char_to_file, file_to_char};
 use crate::general::bitboards::RawBitboardTrait;
@@ -29,14 +27,6 @@ pub enum CastleRight {
 }
 
 impl CastleRight {
-    #[must_use]
-    pub fn king_dest_file(self) -> DimT {
-        match self {
-            Queenside => C_FILE_NUM,
-            Kingside => G_FILE_NUM,
-        }
-    }
-
     #[must_use]
     pub fn rook_dest_file(self) -> DimT {
         match self {

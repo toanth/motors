@@ -77,7 +77,7 @@ use gears::ugi::EngineOptionName::*;
 use gears::ugi::EngineOptionType::*;
 use gears::ugi::Protocol::{Interactive, UGI};
 use gears::ugi::{
-    EngineOption, EngineOptionName, EngineOptionNameForProto, Protocol, UgiCheck, UgiCombo, UgiSpin, UgiString,
+    EngineOption, EngineOptionName, EngineOptionNameForProtocol, Protocol, UgiCheck, UgiCombo, UgiSpin, UgiString,
     load_ugi_pos_simple,
 };
 use gears::{
@@ -568,7 +568,7 @@ impl<B: BoardTrait> EngineUGI<B> {
         )
     }
 
-    fn set_option(&mut self, name: EngineOptionNameForProto, value: String) -> Res<()> {
+    fn set_option(&mut self, name: EngineOptionNameForProtocol, value: String) -> Res<()> {
         match name.name {
             EngineOptionName::Ponder => {
                 self.allow_ponder = parse_bool_from_str(&value, "ponder")?;
@@ -641,7 +641,7 @@ impl<B: BoardTrait> EngineUGI<B> {
                 let mut words = tokens(&name);
                 let name = words.next().unwrap_or_default();
                 let value = words.join(" ");
-                let name = EngineOptionNameForProto::parse(name.trim(), self.protocol())?;
+                let name = EngineOptionNameForProtocol::parse(name.trim(), self.protocol())?;
                 return self.set_option(name, value);
             }
             if next_word.eq_ignore_ascii_case("value") {
@@ -657,7 +657,7 @@ impl<B: BoardTrait> EngineUGI<B> {
             }
             value = value + " " + next_word;
         }
-        let name = EngineOptionNameForProto::parse(name.trim(), self.protocol()).unwrap();
+        let name = EngineOptionNameForProtocol::parse(name.trim(), self.protocol()).unwrap();
         self.set_option(name, value)
     }
 
@@ -947,10 +947,11 @@ impl<B: BoardTrait> EngineUGI<B> {
     fn read_bb(&mut self, words: &mut Tokens) -> Res<B::RawBitboard> {
         let Some(name) = words.next() else { bail!("Missing bitboard after '{}' output", "bitboard".bold()) };
         let list = self.state.pos().bitboard_from_name();
-        let select = |bb| select_name_static(bb, list.iter(), "bitboard name", self.game_name(), WithDescription);
+        let select =
+            |bb| select_name_static(bb, list.iter(), "bitboard name", self.game_name(), WithDescription).map(|r| r.val);
         let bb = select(name);
         if let Ok(bb) = bb {
-            return Ok(bb.val);
+            return Ok(bb);
         }
         if name == "attacks_of" {
             let bb = self.read_bb(words)?;
@@ -964,13 +965,17 @@ impl<B: BoardTrait> EngineUGI<B> {
             self.write_ugi(&format_args!("Printing attacks of bitboard '{}':", format!("{bb:#x}").bold()));
             return Ok(res);
         }
-        if let Ok(val) = B::RawBitboard::from_str_radix(name.strip_prefix("0x").unwrap_or(name), 16) {
+        if let Some(val) = name.strip_prefix("0x").and_then(|name| B::RawBitboard::from_str_radix(name, 16).ok()) {
             return Ok(val);
+        }
+        let n = format!("square_{name}");
+        if let Ok(bb) = select(&n) {
+            return Ok(bb); // we accept 'a1', but we don't suggest it in autocompletion to avoid cluttering suggestions
         }
         if let Some(next) = words.next()
             && let Ok(bb) = select(&format!("{name} {next}"))
         {
-            Ok(bb.val)
+            Ok(bb)
         } else {
             bail!("'{}' is not a valid name of a bitboard or an integer representing a bitboard", name.red())
         }
@@ -1129,9 +1134,9 @@ impl<B: BoardTrait> EngineUGI<B> {
         // However, we make an exception for threads and hash
         self.state.engine = engine;
         // We set those options after changing the engine, so if we get an error this doesn't prevent us from using the new engine.
-        let h = EngineOptionNameForProto { name: Hash, proto: self.protocol() };
+        let h = EngineOptionNameForProtocol { name: Hash, proto: self.protocol() };
         self.state.engine.set_option(h, hash.to_string())?;
-        let t = EngineOptionNameForProto { name: Threads, proto: self.protocol() };
+        let t = EngineOptionNameForProtocol { name: Threads, proto: self.protocol() };
         self.state.engine.set_option(t, threads.to_string())?;
         self.write_engine_ascii_art();
         Ok(())
@@ -1250,7 +1255,7 @@ impl<B: BoardTrait> EngineUGI<B> {
                 }),
                 Other(_) => continue,
             };
-            let name = EngineOptionNameForProto { name: opt, proto: self.protocol() };
+            let name = EngineOptionNameForProtocol { name: opt, proto: self.protocol() };
             res.push(EngineOption { name, value });
         }
         res.extend(self.state.engine.get_engine_info().additional_options());
@@ -1580,7 +1585,7 @@ impl<B: BoardTrait> AbstractEngineUgiState for EngineUGI<B> {
     #[cold]
     fn handle_assist(&mut self, words: &mut Tokens) -> Res<()> {
         if let Some(next) = words.next() {
-            let opt = EngineOptionNameForProto { name: RespondToMove, proto: self.protocol() };
+            let opt = EngineOptionNameForProtocol { name: RespondToMove, proto: self.protocol() };
             self.set_option(opt, next.to_string())
         } else {
             self.play_engine_move(None)
@@ -2187,20 +2192,43 @@ fn splitperft_line<B: BoardTrait>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{list_chess_evals, list_chess_outputs, list_chess_searchers};
-    use gears::cli::Game::Chess;
+    use crate::{
+        list_chess_evals, list_chess_outputs, list_chess_searchers, list_fairy_evals, list_fairy_outputs,
+        list_fairy_searchers,
+    };
+    use gears::cli::Game::{Chess, Fairy};
     use gears::create_selected_output_builders;
-    use gears::games::chess::Board;
+    use gears::games::chess;
     use gears::games::chess::Color::Black;
+    use gears::games::fairy;
+    use gears::games::fairy::moves::Move;
     use gears::rand::prelude::SliceRandom;
     use gears::rand::rngs::StdRng;
     use gears::rand::{Rng, SeedableRng};
 
-    fn create_chess_game() -> Box<EngineUGI<Board>> {
+    fn create_chess_game() -> Box<EngineUGI<chess::Board>> {
         let outputs = list_chess_outputs();
         let searchers = list_chess_searchers();
         let evals = list_chess_evals();
         let opts = EngineOpts::for_game(Chess, true);
+        Box::new(
+            EngineUGI::create(
+                opts.clone(),
+                create_selected_output_builders(&opts.outputs, &outputs).unwrap(),
+                outputs,
+                searchers,
+                evals,
+            )
+            .unwrap(),
+        )
+    }
+
+    #[cfg(feature = "fairy")]
+    fn create_fairy_game() -> Box<EngineUGI<fairy::Board>> {
+        let outputs = list_fairy_outputs();
+        let searchers = list_fairy_searchers();
+        let evals = list_fairy_evals();
+        let opts = EngineOpts::for_game(Fairy, true);
         Box::new(
             EngineUGI::create(
                 opts.clone(),
@@ -2220,13 +2248,13 @@ mod tests {
         ugi.handle_input("idk").unwrap();
         ugi.handle_input("idk off").unwrap();
         let state = ugi.state.match_state.clone();
-        assert_eq!(state.pos_before_moves, Board::default());
+        assert_eq!(state.pos_before_moves, chess::Board::default());
         assert_eq!(state.pos().active_player(), Black);
         assert_eq!(state.mov_hist.len(), 1);
         assert_eq!(state.board_hist.len(), 1);
         assert_eq!(state.status, Run(NotStarted));
         ugi.handle_input("undo").unwrap();
-        assert_eq!(*ugi.state.pos(), Board::default());
+        assert_eq!(*ugi.state.pos(), chess::Board::default());
         assert_eq!(ugi.state.mov_hist.len(), 0);
         ugi.handle_input("kiwipete").unwrap();
         ugi.handle_input("position old e2e4").unwrap();
@@ -2248,6 +2276,7 @@ mod tests {
             "move_piece b2 b3",
             "help",
             "eval",
+            "bb attacks_of active",
         ];
         let seed = rng().random::<u64>();
         // let seed = 1880428284001215887;
@@ -2259,6 +2288,35 @@ mod tests {
             ugi.handle_input(c).unwrap();
         }
         sleep(Duration::from_millis(500));
+        ugi.quit().unwrap(); // can't use handle_input("quit") because that gets ignored in fuzzing mode
+        assert_eq!(ugi.state.status, Quit(QuitProgram));
+    }
+
+    #[test]
+    #[cfg(feature = "fairy")]
+    fn fairy_test() {
+        let mut ugi = create_fairy_game();
+        ugi.handle_input("variant crazyhouse").unwrap();
+        ugi.handle_input("sp 1").unwrap();
+        ugi.handle_input("place black knight g4").unwrap();
+        ugi.handle_input("move_piece d8 f3").unwrap();
+        ugi.handle_input("flip").unwrap();
+        ugi.handle_input("e").unwrap();
+        ugi.handle_input("listoptions").unwrap();
+        ugi.handle_input("debug off").unwrap();
+        let state = ugi.state.match_state.clone();
+        assert!(state.mov_hist.is_empty());
+        assert_eq!(state.pos().active_player(), fairy::Color::second());
+        assert_eq!(ugi.state.previous_states().len(), 3);
+        assert_eq!(state.status, Run(NotStarted));
+        ugi.handle_input("g inf m 1 d 5 n 3000 sn 2500 byoyomi 500 p c engine gaps h 1 mtg 42 mpv 2 t 1 winc 1 binc 1")
+            .unwrap();
+        ugi.handle_input("wait").unwrap();
+        let res = ugi.output.lock().unwrap().previous_search_res.clone();
+        let res = res.unwrap();
+        assert!(ugi.state.pos().is_move_legal(res.chosen_move));
+        println!("{}", res.chosen_move.to_extended_text(ugi.state.pos(), Standard));
+        assert_eq!(res.chosen_move, Move::from_text("Qxf2#", ugi.state.pos()).unwrap());
         ugi.quit().unwrap(); // can't use handle_input("quit") because that gets ignored in fuzzing mode
         assert_eq!(ugi.state.status, Quit(QuitProgram));
     }

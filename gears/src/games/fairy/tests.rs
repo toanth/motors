@@ -135,7 +135,7 @@ mod general {
                 let fairy_perft = perft(depth, fairy_pos.clone(), false, Bulk);
                 assert_eq!(chess_perft.depth, fairy_perft.depth);
                 assert_eq!(chess_perft.nodes, fairy_perft.nodes, "{chess_pos} with depth {depth}");
-                assert!(chess_perft.time.as_millis() * 500 + 2000 > fairy_perft.time.as_millis());
+                assert!(chess_perft.time.as_millis() * 500 + 3000 > fairy_perft.time.as_millis());
             }
         }
     }

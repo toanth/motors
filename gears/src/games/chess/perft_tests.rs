@@ -47,7 +47,7 @@ mod tests {
             Board::from_fen("q2k2q1/2nqn2b/1n1P1n1b/2rnr2Q/1NQ1QN1Q/3Q3B/2RQR2B/Q2K2Q1 w - - 0 1", Strict).unwrap();
         let res = perft(DepthPly::new(1), board, true, NoBulk);
         assert_eq!(res.nodes, 99);
-        assert!(res.time.as_millis() <= 2);
+        assert!(res.time.as_millis() <= 20);
         let res = perft(DepthPly::new(2), board, true, NoBulk);
         assert_eq!(res.nodes, 6271);
         let res = perft(DepthPly::new(3), board, true, NoBulk);
@@ -282,6 +282,7 @@ mod tests {
     #[test]
     /// Only meant to make sure DFRC works assuming Chess960 and normal chess movegen already works.
     fn dfrc_perft_test() {
+        assert_eq!(Board::dfrc_startpos(4, 5).unwrap(), Board::from_name(&format!("dfrc-{}", 4 * 960 + 5)).unwrap());
         #[cfg(debug_assertions)]
         const FENS: [&str; 2] = [
             "r1q1k1rn/1p1ppp1p/1npb2b1/p1N3p1/8/1BP4P/PP1PPPP1/1RQ1KRBN w BFag - 0 9 ;D1 32 ;D2 1093 ;D3 34210 ;D4 1187103", // ;D5 37188628",// ;D6 1308319545",

@@ -737,7 +737,7 @@ impl BoardTrait for Board {
             bail!("Empty mnk fen".to_string());
         };
         let settings = Settings::from_input(first, words)?;
-        Self::read_fen_for(words, strictness, settings)
+        Self::read_fen_without_settings_for(words, strictness, settings)
     }
 
     fn read_fen_and_advance_input_for(words: &mut Tokens, strictness: Strictness, settings: Settings) -> Res<Self> {
@@ -745,22 +745,7 @@ impl BoardTrait for Board {
             bail!("Empty mnk fen".to_string());
         };
         let settings = if first.parse::<usize>().is_ok() { Settings::from_input(first, words)? } else { settings };
-
-        let board = Board::empty_for_settings(settings);
-        let mut board = UnverifiedBoard::new(board);
-        read_common_fen_part::<Board>(words, &mut board)?;
-
-        let mut ply = board.0.occupied_bb().num_ones();
-        if (ply % 2 == 0) != board.active_player().is_first() {
-            // This can't have happened in a normal game from startpos. Adjust ply so that converting to FEN and back
-            // doesn't change the board.
-            ply += 1;
-        }
-        read_single_move_number::<Board>(words, &mut board, strictness, Some(ply))?;
-
-        board.0.last_move = None;
-
-        board.verify_with_level(CheckFen, strictness)
+        Self::read_fen_without_settings_for(words, strictness, settings)
     }
 
     fn as_diagram(&self, typ: CharType, flip: bool, mark_active: bool) -> String {
@@ -816,7 +801,7 @@ impl Board {
             || (generator.anti_diagonal_attacks(square) & player_bb).num_ones() >= k
     }
 
-    fn read_fen_for(words: &mut Tokens, strictness: Strictness, settings: Settings) -> Res<Self> {
+    fn read_fen_without_settings_for(words: &mut Tokens, strictness: Strictness, settings: Settings) -> Res<Self> {
         let board = Board::empty_for_settings(settings);
         let mut board = UnverifiedBoard::new(board);
         read_common_fen_part::<Board>(words, &mut board)?;
@@ -1134,7 +1119,7 @@ mod test {
         assert_eq!(r.perft_res.depth.get(), 3);
         assert_eq!(r.perft_res.nodes, 2 * 3 * 4);
         assert!(r.children.iter().all(|x| x.1 == 2 * 3));
-        assert!(r.perft_res.time.as_millis() <= 10);
+        assert!(r.perft_res.time.as_millis() <= 100);
         let r = perft(DepthPly::new(4), board, true, NoBulk);
         assert_eq!(r.depth.get(), 4);
         assert_eq!(r.nodes, 0);

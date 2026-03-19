@@ -44,7 +44,7 @@ use gears::score::{
 use gears::search::NodeType::*;
 use gears::search::*;
 use gears::ugi::EngineOptionName::*;
-use gears::ugi::{EngineOptionNameForProto, EngineOptionType};
+use gears::ugi::{EngineOptionNameForProtocol, EngineOptionType};
 
 /// By how much the fractional depth increases each ID iteration.
 const DEPTH_INCREMENT: usize = 128;
@@ -323,7 +323,7 @@ impl Engine<Board> for Caps {
 
     fn set_option(
         &mut self,
-        option: EngineOptionNameForProto,
+        option: EngineOptionNameForProtocol,
         _old_value: &mut EngineOptionType,
         value: String,
     ) -> Res<()> {

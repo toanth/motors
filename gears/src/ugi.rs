@@ -151,12 +151,12 @@ pub enum EngineOptionName {
 }
 
 #[derive(Debug, Clone, Eq, PartialEq, Hash)]
-pub struct EngineOptionNameForProto {
+pub struct EngineOptionNameForProtocol {
     pub name: EngineOptionName,
     pub proto: Protocol,
 }
 
-impl NamedEntity for EngineOptionNameForProto {
+impl NamedEntity for EngineOptionNameForProtocol {
     fn short_name(&self) -> String {
         self.name.name(self.proto).to_string()
     }
@@ -242,13 +242,13 @@ impl EngineOptionName {
     }
 }
 
-impl Display for EngineOptionNameForProto {
+impl Display for EngineOptionNameForProtocol {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.short_name())
     }
 }
 
-impl EngineOptionNameForProto {
+impl EngineOptionNameForProtocol {
     pub fn parse(s: &str, proto: Protocol) -> Res<Self> {
         let name = match s.to_ascii_lowercase().as_str() {
             "tt" => EngineOptionName::Hash,
@@ -257,13 +257,13 @@ impl EngineOptionNameForProto {
                 .find(|n| n.name(proto).eq_ignore_ascii_case(name))
                 .unwrap_or_else(|| EngineOptionName::Other(s.to_string())),
         };
-        Ok(EngineOptionNameForProto { name, proto })
+        Ok(EngineOptionNameForProtocol { name, proto })
     }
 }
 
 #[derive(Debug, Clone)]
 pub struct EngineOption {
-    pub name: EngineOptionNameForProto,
+    pub name: EngineOptionNameForProtocol,
     pub value: EngineOptionType,
 }
 
@@ -592,7 +592,7 @@ mod tests {
     #[cfg(feature = "chess")]
     #[test]
     fn test_chess_parsing() {
-        let input = "startpos moves e2e4 e7e5 yolo";
+        let input = "startpos moves 1.e2e4 e7e5 yolo";
         let mut pos = Board::startpos();
         assert!(load_ugi_pos_simple(input, Relaxed, &pos).is_err());
         assert!(only_load_ugi_position("position", &mut tokens(input), &pos, Strict, false, false).is_err());

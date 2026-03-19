@@ -1178,6 +1178,7 @@ impl Board {
         Ok((select_name_static(name, Self::variants_for(proto).iter(), "variant", "fairy", NoDescription)?.val)())
     }
 
+    /// Returns the startpos for the given variant
     pub fn variant_simple(name: &str) -> Res<Self> {
         Self::variant_for(name, &mut tokens(""), Protocol::Interactive)
     }

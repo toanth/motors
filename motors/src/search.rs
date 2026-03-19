@@ -25,7 +25,7 @@ use gears::rand::SeedableRng;
 use gears::rand::prelude::StdRng;
 use gears::score::{MAX_BETA, MIN_ALPHA, NO_SCORE_YET, SCORE_WON, Score, ScoreT};
 use gears::search::{Budget, DepthPly, NodeType, NodesLimit, SearchInfo, SearchLimit, SearchResult, TimeControl};
-use gears::ugi::{EngineOption, EngineOptionNameForProto, EngineOptionType};
+use gears::ugi::{EngineOption, EngineOptionNameForProtocol, EngineOptionType};
 use std::collections::HashMap;
 use std::fmt;
 use std::fmt::{Debug, Display, Formatter};
@@ -34,7 +34,7 @@ use std::hint::spin_loop;
 use std::marker::PhantomData;
 use std::num::NonZeroUsize;
 use std::ops::{Deref, DerefMut};
-use std::sync::atomic::Ordering::{Acquire, SeqCst};
+use std::sync::atomic::Ordering::{AcqRel, Acquire, SeqCst};
 use std::sync::{Arc, Mutex};
 use std::thread::spawn;
 use std::time::{Duration, Instant};
@@ -66,7 +66,7 @@ pub struct EngineInfo {
     version: String,
     default_bench_depth: DepthPly,
     default_bench_nodes: NodesLimit,
-    options: HashMap<EngineOptionNameForProto, EngineOptionType>,
+    options: HashMap<EngineOptionNameForProtocol, EngineOptionType>,
     max_threads: usize,
     pub internal_state_description: Option<String>,
 }
@@ -429,7 +429,7 @@ pub trait Engine<B: BoardTrait>: StaticallyNamedEntity + Send + 'static {
     /// Sets an option with the name 'option' to the value 'value'.
     fn set_option(
         &mut self,
-        option: EngineOptionNameForProto,
+        option: EngineOptionNameForProtocol,
         old_value: &mut EngineOptionType,
         value: String,
     ) -> Res<()> {
@@ -473,8 +473,8 @@ pub trait Engine<B: BoardTrait>: StaticallyNamedEntity + Send + 'static {
             after_setup.duration_since(before).as_micros(),
             total_elapsed
         );
-        let res = self.do_search();
-        self.search_state_mut_dyn().end_search(&res);
+        let mut res = self.do_search();
+        self.search_state_mut_dyn().end_search(&mut res);
         res
     }
 
@@ -691,7 +691,7 @@ impl<B: BoardTrait> SearchParams<B> {
     /// c) the search hasn't been cancelled yet. It will wait until the search has been cancelled.
     /// Auxiliary threads and ponder searches both return instantly from this function, without printing anything.
     /// If the search result has chosen a null move, this instead outputs a warning and a random legal move.
-    fn end_and_send(&self, res: &SearchResult<B>) {
+    fn end_and_send(&self, res: &mut SearchResult<B>) {
         let Main(data) = &self.thread_type else {
             self.atomic.set_searching(false);
             return;
@@ -707,9 +707,6 @@ impl<B: BoardTrait> SearchParams<B> {
         }
         let pos = &self.pos;
         let mut output = data.output.lock().unwrap();
-        // do this before sending 'bestmove' to avoid a race condition where we send bestmove, the gui sends a new 'go', the uci thread tries
-        // to start a new search, but the searching flag is still not unset, so it fails
-        self.atomic.set_searching(false);
         if res.chosen_move == B::Move::default() {
             let mut rng = StdRng::seed_from_u64(42); // keep everything deterministic
             let chosen_move = pos.random_legal_move(&mut rng).unwrap_or_default();
@@ -719,11 +716,18 @@ impl<B: BoardTrait> SearchParams<B> {
                     Warning,
                     &format_args!("Engine did not return a best move, playing a random move instead"),
                 );
-                output.write_search_res(&SearchResult::<B>::move_only(chosen_move, pos.clone()));
-                return;
+                *res = SearchResult::<B>::move_only(chosen_move, pos.clone());
             }
             output.write_message(Warning, &format_args!("search() called in a position with no legal moves"));
         }
+        // Do this before setting the searching flag so that we have a result when we claim to have finished.
+        // This is useful for being able to unit test search commands through the UCI interface.
+        output.previous_search_res = Some(res.clone());
+        // Do this before sending 'bestmove' to avoid a race condition:
+        // We send bestmove, the GUI sends a new 'go', the uci thread tries to start a new search,
+        // but the searching flag is still not unset, so it fails.
+        // We use a combined load and store with `AcqRel` to guarantee(?) the correct order.
+        _ = self.atomic.currently_searching.swap(false, AcqRel);
         debug_assert!(res.chosen_move == B::Move::default() || pos.is_move_legal(res.chosen_move));
 
         output.write_search_res(res);
@@ -809,7 +813,7 @@ impl<B: BoardTrait> PVData<B> {
 pub trait AbstractSearchState<B: BoardTrait> {
     fn forget(&mut self, hard: bool);
     fn new_search(&mut self, params: SearchParams<B>);
-    fn end_search(&mut self, res: &SearchResult<B>);
+    fn end_search(&mut self, res: &mut SearchResult<B>);
     fn search_params(&self) -> &SearchParams<B>;
     /// Returns the number of nodes looked at so far, including normal search and quiescent search.
     /// Can be called during search.
@@ -935,7 +939,7 @@ impl<B: BoardTrait, E: SearchStackEntry<B>, C: CustomInfo<B>> AbstractSearchStat
         // can already be set
     }
 
-    fn end_search(&mut self, res: &SearchResult<B>) {
+    fn end_search(&mut self, res: &mut SearchResult<B>) {
         self.statistics_mut().end_search();
         self.send_statistics();
         self.aggregate_match_statistics();

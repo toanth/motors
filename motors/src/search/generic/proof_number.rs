@@ -283,7 +283,7 @@ impl<B: BoardTrait> AbstractSearchState<B> for ProofNumberSearcher<B> {
         self.params = params;
     }
 
-    fn end_search(&mut self, res: &SearchResult<B>) {
+    fn end_search(&mut self, res: &mut SearchResult<B>) {
         // normal searchers spin until they receive an explicit `stop` when asked to do an infinite search,
         // but this isn't useful for a proof number search.
         self.params.atomic.set_stop(true);

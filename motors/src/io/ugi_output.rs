@@ -290,6 +290,7 @@ pub struct UgiOutput<B: BoardTrait> {
     pub(super) additional_outputs: Vec<OutputBox<B>>,
     previous_exact_pv: Option<Vec<B::Move>>,
     top_moves: Vec<(B::Move, Score)>,
+    pub previous_search_res: Option<SearchResult<B>>,
     pub show_refutation: bool,
     pub show_currline: bool,
     pub currline_null_moves: bool,
@@ -309,6 +310,7 @@ impl<B: BoardTrait> Default for UgiOutput<B> {
             top_moves: vec![],
             show_debug_output: false,
             minimal: false,
+            previous_search_res: None,
         }
     }
 }

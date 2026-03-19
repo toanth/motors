@@ -24,7 +24,7 @@ use gears::score::{SCORE_LOST, SCORE_WON, Score, ScoreT};
 use gears::search::{Budget, DepthPly, NodeType, NodesLimit, SearchInfo, SearchLimit};
 use gears::ugi::EngineOptionType::*;
 use gears::ugi::Protocol::Interactive;
-use gears::ugi::{EngineOption, EngineOptionNameForProto, UgiCheck, UgiCombo, UgiSpin, UgiString};
+use gears::ugi::{EngineOption, EngineOptionNameForProtocol, UgiCheck, UgiCombo, UgiSpin, UgiString};
 use gears::{AdjudicationReason, GameOver, GameOverReason, MatchStatus, PlayerResult, player_res_to_match_res};
 // TODO: Does not currently handle engines that simply don't terminate the search (unless the user inputs 'stop')
 // (not receiving ugiok/uiok is handled, as is losing on time with a bestmove response,
@@ -605,7 +605,7 @@ impl<B: BoardTrait> InputThread<B> {
         }
         // TODO: Technically, the spec demands to accept multi-token names
         let Some(name) = option.next() else { bail!("Line ended after 'name', missing the option name") };
-        let name = EngineOptionNameForProto::parse(name, Interactive)?;
+        let name = EngineOptionNameForProtocol::parse(name, Interactive)?;
         let Some(typ) = option.next() else { bail!("Line ended after option name, missing 'type'") };
         if typ != "type" {
             bail!("Expected 'type' after option name, got {typ}")

@@ -497,6 +497,10 @@ impl<B: BoardTrait> MatchState<B> {
         &self.current.board
     }
 
+    pub fn previous_states(&self) -> &[UgiPosState<B>] {
+        &self.state_hist
+    }
+
     pub fn set_status(&mut self, status: ProgramStatus) {
         self.current.status = status;
     }

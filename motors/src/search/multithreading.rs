@@ -17,7 +17,7 @@ use gears::output::Message::*;
 use gears::score::{NO_SCORE_YET, Score};
 use gears::search::{DepthPly, SearchLimit};
 use gears::ugi::EngineOptionName::{Hash, Threads};
-use gears::ugi::EngineOptionNameForProto;
+use gears::ugi::EngineOptionNameForProtocol;
 use std::fmt;
 use std::hint::spin_loop;
 use std::marker::PhantomData;
@@ -34,7 +34,7 @@ pub enum EngineReceives<B: BoardTrait> {
     // joins the thread
     Quit,
     Forget,
-    SetOption(EngineOptionNameForProto, String, Arc<Mutex<EngineInfo>>),
+    SetOption(EngineOptionNameForProtocol, String, Arc<Mutex<EngineInfo>>),
     Search(SearchParams<B>),
     SetEval(Box<dyn Eval<B>>),
     Print(Arc<Mutex<EngineInfo>>, B),
@@ -294,6 +294,9 @@ impl<B: BoardTrait> EngineThread<B> {
 
     fn handle_input(&mut self, received: EngineReceives<B>) -> Res<bool> {
         match received {
+            Search(params) => {
+                self.search(params);
+            }
             Quit => {
                 return Ok(true);
             }
@@ -315,9 +318,6 @@ impl<B: BoardTrait> EngineThread<B> {
                     self.engine.set_option(opt, val, value)?
                 }
             },
-            Search(params) => {
-                self.search(params);
-            }
             SetEval(eval) => self.engine.set_eval(eval),
             Print(engine_info, pos) => {
                 let state_info = self.engine.search_state_dyn().write_internal_info(&pos);
@@ -491,6 +491,8 @@ impl<B: BoardTrait> EngineWrapper<B> {
 
     fn start_search_with(&mut self, params: SearchParams<B>, threads: usize) -> Res<()> {
         assert_eq!(self.main_thread_data.atomic_search_data.len(), self.auxiliary.len() + 1);
+        // Make sure that a `wait` command immediately following this `go` command will block until the search has finished.
+        params.atomic.set_searching(true);
         for (i, o) in &mut self.auxiliary.iter_mut().enumerate().take(threads - 1) {
             Self::send_start_search(o, params.auxiliary(self.main_thread_data.atomic_search_data[i + 1].clone()))?;
         }
@@ -518,7 +520,7 @@ impl<B: BoardTrait> EngineWrapper<B> {
         self.main_thread_data.atomic_search_data.resize_with(count, || Arc::new(AtomicSearchState::default()));
     }
 
-    pub fn set_option(&mut self, opt: EngineOptionNameForProto, value: String) -> Res<()> {
+    pub fn set_option(&mut self, opt: EngineOptionNameForProtocol, value: String) -> Res<()> {
         if opt.name == Threads {
             let count: usize = parse_int_from_str(&value, "num threads")?;
             let max = self.get_engine_info().max_threads;
@@ -633,10 +635,11 @@ mod tests {
     fn start_search_test() {
         let opts = EngineOpts::for_game(Game::default(), false);
         let mut ugi = create_match(opts).unwrap();
+        _ = ugi.handle_input("go mate 9999999").unwrap_err();
         ugi.handle_input("go").unwrap();
         ugi.handle_input("random_pos").unwrap();
         ugi.handle_input("stop").unwrap();
-        ugi.handle_input("go").unwrap();
+        ugi.handle_input("go mate 789").unwrap();
         let res = ugi.handle_input("go");
         assert!(res.is_err());
         ugi.handle_input("stop").unwrap();

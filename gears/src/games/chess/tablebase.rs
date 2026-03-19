@@ -1443,6 +1443,7 @@ fn force_dtz_table(mut pieces: PieceCounts) -> &'static [Entry] {
 
 // TODO: Use compact table insteda of the intermediate tables created during construction
 fn probe_dtz(mut pos: Board) -> i8 {
+    // TODO: Testcase for this
     if let Some(sq) = pos.ep_square {
         pos.ep_square = None;
         let pawn = sq.pawn_advance_unchecked(!pos.active);

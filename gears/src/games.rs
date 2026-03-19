@@ -94,11 +94,7 @@ pub trait ColorTrait: Debug + Default + Copy + Clone + PartialEq + Eq + Send + H
             if let Some(c) = chars.next()
                 && chars.next().is_none()
             {
-                if c.eq_ignore_ascii_case(&Self::first().to_char(settings)) {
-                    return Some(Self::first());
-                } else if c.eq_ignore_ascii_case(&Self::second().to_char(settings)) {
-                    return Some(Self::second());
-                }
+                return Self::from_char(c, settings);
             }
             None
         }

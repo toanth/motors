@@ -607,6 +607,7 @@ impl Board {
     }
 
     #[must_use]
+    #[allow(unused)]
     pub fn yet_another_fen_format(&self) -> String {
         let mut res = String::new();
         res.push(self.active.to_char(&Settings).to_ascii_uppercase());
