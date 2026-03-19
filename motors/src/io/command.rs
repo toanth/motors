@@ -228,7 +228,7 @@ pub fn ugi_commands() -> CommandList {
             --> |state| state.option_subcmds(false)
         ),
         command!(
-            uginewgame | ucinewgame | uainewgame | clear,
+            uginewgame | ucinewgame | uainewgame | clear | forget,
             All,
             "Resets the internal engine state (doesn't reset engine options)",
             |ugi, _, _| ugi.handle_uginewgame()

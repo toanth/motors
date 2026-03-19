@@ -21,7 +21,7 @@ mod tests {
     use gears::games::chess::moves::{Move, MoveFlags};
     use gears::games::chess::pieces::ColoredPieceType::BlackKnight;
     use gears::games::chess::pieces::Piece;
-    use gears::games::chess::pieces::PieceType::Bishop;
+    use gears::games::chess::pieces::PieceType::{Bishop, Knight};
     use gears::games::chess::squares::Square;
     use gears::games::{BoardHistDyn, ZobristHistory, n_fold_repetition};
     use gears::general::board::Strictness::{Relaxed, Strict};
@@ -110,6 +110,8 @@ mod tests {
         println!("{}", i.elapsed().as_millis());
         mate_beats_repetition(&mut engine);
         println!("{}", i.elapsed().as_millis());
+        underpromo(&mut engine);
+        println!("{}", i.elapsed().as_millis());
 
         two_threads_test::<E>();
         println!("{}", i.elapsed().as_millis());
@@ -148,6 +150,28 @@ mod tests {
         let score = res.score;
         assert_eq!(score.plies_until_game_won(), Some(1), "{score}");
         assert_eq!(res.chosen_move, Move::from_text("d2a2", &pos).unwrap());
+    }
+
+    fn underpromo<E: Engine<Board>>(engine: &mut E) {
+        let random = engine.engine_info().eval.unwrap().short == "random";
+        let pos = Board::from_fen("8/k1P5/1pP5/1P6/8/1p6/pP6/K7 w - - 0 1", Strict).unwrap();
+        let res = engine.search_with_new_tt(pos, SearchLimit::depth(engine.default_bench_depth()));
+        let score = res.score;
+        assert!(res.chosen_move.is_promotion());
+        if random {
+            // technically, we would expect even a random eval to give a root score > 0, but it's not entirely guaranteed
+            return;
+        }
+        assert!(score > Score(0), "{score}");
+        assert!([Knight, Bishop].contains(&res.chosen_move.promo_piece()));
+
+        let pos = Board::from_fen("8/8/8/8/K2b4/8/kp6/3N4 b - - 0 1", Strict).unwrap();
+        let res = engine.search_with_new_tt(pos, SearchLimit::depth(engine.default_bench_depth()));
+        let score = res.score;
+        assert!(random || score > Score(0), "{score}");
+        assert!(res.chosen_move.is_promotion());
+        // only a bishop promo wins, but we don't expect the engine to see that so quickly
+        assert!([Knight, Bishop].contains(&res.chosen_move.promo_piece()));
     }
 
     fn two_threads_test<E: Engine<Board>>() {

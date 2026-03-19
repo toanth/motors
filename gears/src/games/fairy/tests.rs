@@ -16,7 +16,7 @@
  *  along with Gears. If not, see <https://www.gnu.org/licenses/>.
  */
 #[cfg(test)]
-mod atomic_tests;
+mod atomic_chess_tests;
 #[cfg(test)]
 mod chess_tests;
 
