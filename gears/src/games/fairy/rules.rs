@@ -16,11 +16,14 @@
  *  along with Gears. If not, see <https://www.gnu.org/licenses/>.
  */
 use crate::PlayerResult;
-use crate::games::fairy::attacks::{Dir, EffectRules};
+use crate::games::fairy::attacks::{Dir, EffectRules, Modality};
+use crate::games::fairy::config::n_m_to_ray_dirs;
 use crate::games::fairy::effects::Observers;
 use crate::games::fairy::moves::Move;
 use crate::games::fairy::piece_builder::Topology::Cylinder;
-use crate::games::fairy::piece_builder::{AttackKindBuilder, PieceBuilder, PieceBuilderCache};
+use crate::games::fairy::piece_builder::{
+    AttackBBGenBuilder, AttackKindBuilder, PieceBuilder, PieceBuilderCache, RayBBBuilder,
+};
 use crate::games::fairy::pieces::{CHESS_KING_IDX, PAWN_IDX, Piece, PieceId};
 use crate::games::fairy::rules::GameEndEager::{
     AdditionalCounter, And, CanAchieve, DrawCounter, InsufficientMaterial, NoPiece, Not, Repetition,
@@ -33,8 +36,8 @@ use crate::games::fairy::rules::NoMovesCondition::{Always, InCheck, NotInCheck};
 use crate::games::fairy::rules::NumRoyals::{BetweenInclusive, Exactly};
 use crate::games::fairy::rules::PieceCond::{AnyPiece, Royal};
 use crate::games::fairy::{
-    AdditionalCtrT, Bitboard, Board, Color, ColorInfo, FairyCastleInfo, MAX_NUM_PIECE_TYPES, MoveList, RawBitboard,
-    Size, UnverifiedBoard,
+    AdditionalCtrT, Bitboard, Board, CastlingMoveInfo, Color, ColorInfo, FairyCastleInfo, MAX_NUM_PIECE_TYPES,
+    MoveList, RawBitboard, Size, UnverifiedBoard,
 };
 use crate::games::{
     BoardHistory, ColorTrait, DimT, NUM_COLORS, PosHash, SettingsTrait, ataxx, chess, mnk, n_fold_repetition,
@@ -186,6 +189,7 @@ impl PieceCond {
 #[must_use]
 pub enum SquareFilter {
     NoSquares,
+    AllSquares,
     EmptySquares,
     Them,
     Us,
@@ -210,6 +214,7 @@ impl SquareFilter {
     pub fn bb(&self, us: Color, pos: &Board) -> Bitboard {
         match self {
             SquareFilter::NoSquares => pos.zero_bitboard(),
+            SquareFilter::AllSquares => Bitboard::new(pos.valid_squares_bb(), pos.size()),
             SquareFilter::EmptySquares => pos.empty_bb(),
             SquareFilter::Them => pos.player_bb(!us),
             SquareFilter::Us => pos.player_bb(us),
@@ -831,6 +836,67 @@ fn generic_empty_board(rules: &RulesRef) -> UnverifiedBoard {
     }
 }
 
+// TODO: Only use this in RulesBuilder, or also in Rules?
+#[derive(Debug, Arbitrary)]
+pub(super) struct PawnInfo {
+    pub(super) double_steps: SquareFilter,
+    pub(super) triple_steps: SquareFilter, // required to handle the corresponding fairysf option
+    pub(super) promo: SquareFilter,
+    pub(super) promo_pieces: Vec<String>,
+    pub(super) ep: SquareFilter,
+    pub(super) ep_types: Vec<String>,
+}
+
+impl PawnInfo {
+    pub(super) fn chess(color: Color) -> Self {
+        if color.is_first() {
+            Self {
+                double_steps: SquareFilter::Rank(1),
+                triple_steps: SquareFilter::NoSquares,
+                promo: SquareFilter::Rank(7),
+                promo_pieces: vec!["n".to_string(), "b".to_string(), "r".to_string(), "q".to_string()],
+                ep: SquareFilter::AllSquares,
+                ep_types: vec!["p".to_string()],
+            }
+        } else {
+            Self {
+                double_steps: SquareFilter::Rank(6),
+                triple_steps: SquareFilter::NoSquares,
+                promo: SquareFilter::Rank(0),
+                promo_pieces: vec!["n".to_string(), "b".to_string(), "r".to_string(), "q".to_string()],
+                ep: SquareFilter::AllSquares,
+                ep_types: vec!["p".to_string()],
+            }
+        }
+    }
+
+    pub(super) fn none() -> Self {
+        Self {
+            double_steps: SquareFilter::NoSquares,
+            triple_steps: SquareFilter::NoSquares,
+            promo: SquareFilter::NoSquares,
+            promo_pieces: vec![],
+            ep: SquareFilter::NoSquares,
+            ep_types: vec![],
+        }
+    }
+}
+
+pub(super) struct CastlingInfo {
+    allow_dropped: bool,
+    queenside_file: DimT,
+    a: CastlingMoveInfo, //     CastlingDroppedPiece,
+                         //     CastlingKingsideFile(SquareFilter),
+                         //     CastlingQueensideFile(SquareFilter),
+                         //     CastlingRank(SquareFilter),
+                         //     CastlingKingFile(SquareFilter),
+                         //     CastlingKingPiece(PieceName),
+                         //     CastlingRookKingsideFile(SquareFilter),
+                         //     CastlingRookQueensideFile(SquareFilter),
+                         //     CastlingRookPieces(PieceName),
+                         //     OppositeCastling,
+}
+
 #[must_use]
 #[derive(Debug, Arbitrary)]
 pub(super) struct RulesBuilder {
@@ -857,6 +923,7 @@ pub(super) struct RulesBuilder {
     pub(super) name: String,
     pub(super) num_royals: [NumRoyals; NUM_COLORS],
     pub(super) must_preserve_own_king: [bool; NUM_COLORS],
+    pub(super) pawn_info: [PawnInfo; NUM_COLORS],
     pub(super) observers: Observers,
 }
 
@@ -933,6 +1000,7 @@ impl RulesBuilder {
             name: "chess".to_string(),
             num_royals: [Exactly(1); NUM_COLORS],
             must_preserve_own_king: [true; NUM_COLORS],
+            pawn_info: [PawnInfo::chess(Color::first()), PawnInfo::chess(Color::second())],
             observers: Observers::chess(),
         }
     }
@@ -1216,6 +1284,7 @@ impl RulesBuilder {
             name: "ataxx".to_string(),
             num_royals: [Exactly(0); NUM_COLORS],
             must_preserve_own_king: [false; NUM_COLORS],
+            pawn_info: [PawnInfo::none(), PawnInfo::none()],
             observers: Observers::default(),
             moves_filter: FilterMovesCondition::NoFilter,
         }
@@ -1275,6 +1344,7 @@ impl RulesBuilder {
             name: "mnk".to_string(),
             num_royals: [Exactly(0); NUM_COLORS],
             must_preserve_own_king: [false; NUM_COLORS],
+            pawn_info: [PawnInfo::none(), PawnInfo::none()],
             observers: Observers::mnk(),
             moves_filter: FilterMovesCondition::NoFilter,
         }
@@ -1291,7 +1361,29 @@ impl RulesBuilder {
     pub fn make_cylindrical(mut self) -> Self {
         for p in &mut self.pieces {
             for a in &mut p.attacks {
-                a.topology = Cylinder;
+                match &mut a.attack_bb_gen {
+                    AttackBBGenBuilder::Leaper(l) => l.topology = Cylinder,
+                    AttackBBGenBuilder::Rider(r) => r.topology = Cylinder,
+                    AttackBBGenBuilder::PlaneBishop
+                    | AttackBBGenBuilder::PlaneRook
+                    | AttackBBGenBuilder::PlaneQueen => {
+                        let mut steps = vec![];
+                        if !matches!(a.attack_bb_gen, AttackBBGenBuilder::PlaneBishop) {
+                            steps = n_m_to_ray_dirs(1, 0);
+                        }
+                        if !matches!(a.attack_bb_gen, AttackBBGenBuilder::PlaneRook) {
+                            steps.extend_from_slice(&n_m_to_ray_dirs(1, 1))
+                        }
+                        let ray_builder = RayBBBuilder {
+                            ray_steps: steps,
+                            limit: None,
+                            topology: Cylinder,
+                            modality: Modality::default(),
+                        };
+                        a.attack_bb_gen = AttackBBGenBuilder::Rider(ray_builder)
+                    }
+                    AttackBBGenBuilder::Castle(_) | AttackBBGenBuilder::Drop => { /*nothing to do*/ }
+                }
             }
         }
         self

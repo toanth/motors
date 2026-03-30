@@ -1143,12 +1143,12 @@ macro_rules! do_shift {
 // can be called at compile time or when constructing fairy chess rules
 // width is the internal width, so boards with a width less than 8, but height <= 8 can simply use 8 as the width
 #[macro_export]
-macro_rules! precompute_leaper_or_rider_attacks {
-    ($square_idx: expr, $diff_1: expr, $diff_2: expr, $build_rider: expr, $width: expr, $is_cylinder: expr, $typ: ty) => {{
+macro_rules! precompute_leaper_attacks {
+    ($square_idx: expr, $diff_1: expr, $diff_2: expr, $width: expr, $typ: ty) => {{
         let diff_1 = $diff_1 as isize;
         let diff_2 = $diff_2 as isize;
         let width = $width as isize;
-        assert!($build_rider || diff_1 <= diff_2); // an (a, b) leaper is the same as an (b, a) leaper
+        assert!(diff_1 >= diff_2); // an (a, b) leaper is the same as an (b, a) leaper
         let this_piece: $typ = 1 << $square_idx;
         let file = $square_idx as isize % width;
         let mut attacks: $typ = 0;
@@ -1157,43 +1157,12 @@ macro_rules! precompute_leaper_or_rider_attacks {
         while i < 4 {
             let horizontal_dir = i / 2 * 2 - 1;
             let vertical_dir = i % 2 * 2 - 1;
-            let mut horizontal_offset = horizontal_dir;
-            let mut vertical_offset = vertical_dir;
-            let mut repetition = 0;
-            loop {
-                attacks |= $crate::do_shift!(
-                    diff_1 * horizontal_offset,
-                    diff_2 * vertical_offset,
-                    width,
-                    file,
-                    this_piece,
-                    $is_cylinder,
-                    $typ
-                );
-                if !$build_rider {
-                    attacks |= $crate::do_shift!(
-                        diff_2 * horizontal_offset,
-                        diff_1 * vertical_offset,
-                        width,
-                        file,
-                        this_piece,
-                        $is_cylinder,
-                        $typ
-                    );
-                }
-                if !$build_rider || repetition > $width {
-                    // TODO: max(width, height)
-                    break;
-                }
-                horizontal_offset += horizontal_dir;
-                vertical_offset += vertical_dir;
-                repetition += 1;
-            }
-            if $build_rider {
-                i += 3;
-            } else {
-                i += 1;
-            }
+            attacks |=
+                $crate::do_shift!(diff_1 * horizontal_dir, diff_2 * vertical_dir, width, file, this_piece, false, $typ);
+            attacks |=
+                $crate::do_shift!(diff_2 * horizontal_dir, diff_1 * vertical_dir, width, file, this_piece, false, $typ);
+
+            i += 1;
         }
         attacks
     }};
@@ -1212,7 +1181,7 @@ pub mod chessboard {
         let mut res: [Bitboard; 64] = [Bitboard::new(0); 64];
         let mut i = 0;
         while i < 64 {
-            res[i] = Bitboard::new(precompute_leaper_or_rider_attacks!(i, 1, 2, false, 8, false, u64));
+            res[i] = Bitboard::new(precompute_leaper_attacks!(i, 2, 1, 8, u64));
             i += 1;
         }
         res
@@ -1222,8 +1191,7 @@ pub mod chessboard {
         let mut res = [Bitboard::new(0); 64];
         let mut i = 0;
         while i < 64 {
-            let bb = precompute_leaper_or_rider_attacks!(i, 1, 1, false, 8, false, u64)
-                | precompute_leaper_or_rider_attacks!(i, 0, 1, false, 8, false, u64);
+            let bb = precompute_leaper_attacks!(i, 1, 1, 8, u64) | precompute_leaper_attacks!(i, 1, 0, 8, u64);
             res[i] = Bitboard::new(bb);
             i += 1;
         }
@@ -1262,9 +1230,9 @@ pub mod chessboard {
         let mut res = [Bitboard::new(0); 64];
         let mut i = 0;
         while i < 64 {
-            let bb = precompute_leaper_or_rider_attacks!(i, 2, 2, false, 8, false, u64)
-                | precompute_leaper_or_rider_attacks!(i, 1, 2, false, 8, false, u64)
-                | precompute_leaper_or_rider_attacks!(i, 0, 2, false, 8, false, u64);
+            let bb = precompute_leaper_attacks!(i, 2, 2, 8, u64)
+                | precompute_leaper_attacks!(i, 2, 1, 8, u64)
+                | precompute_leaper_attacks!(i, 2, 0, 8, u64);
             res[i] = Bitboard::new(bb);
             i += 1;
         }
@@ -1380,7 +1348,7 @@ mod tests {
         let size = GridSize::new(Height::new(11), Width::new(9));
         for i in 0..99 {
             let origin = SmallGridSquare::<11, 9, 9>::from_bb_idx(i);
-            let attacks = precompute_leaper_or_rider_attacks!(i, 1, 2, false, 9, false, u128)
+            let attacks = precompute_leaper_attacks!(i, 2, 1, 9, u128)
                 & DynamicallySizedBitboard::<ExtendedRawBitboard, GridCoordinates>::valid_squares_for_size(size).raw();
             for sq in attacks.one_indices() {
                 let sq = SmallGridSquare::<11, 9, 9>::from_bb_idx(sq);
@@ -1390,8 +1358,8 @@ mod tests {
                 s.sort();
                 assert_eq!(s, [1, 2]);
             }
-            let neighbors = (precompute_leaper_or_rider_attacks!(i, 0, 1, false, 9, false, u128)
-                ^ precompute_leaper_or_rider_attacks!(i, 1, 1, false, 9, false, u128))
+            let neighbors = (precompute_leaper_attacks!(i, 1, 0, 9, u128)
+                ^ precompute_leaper_attacks!(i, 1, 1, 9, u128))
                 | (1 << i);
             assert_eq!(
                 neighbors,

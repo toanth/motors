@@ -39,6 +39,7 @@ anyhow = { workspace = true }
 crossterm = { workspace = true }
 colorgrad = "0.7.0"
 rayon = { workspace = true }
+configparser = "3.1.0"
 # removing the regex dependency by replacing the single instance of using a regex improved compile times from ~30 to ~20 seconds
 
 [features]

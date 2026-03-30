@@ -17,6 +17,7 @@
  */
 mod algebraic_notation;
 mod attacks;
+mod config;
 mod effects;
 pub mod moves;
 mod perft_tests;
@@ -148,6 +149,7 @@ pub enum Side {
     Queenside,
 }
 
+// TODO: Some of this can be moved to Rules
 #[derive(Debug, Copy, Clone, Eq, Arbitrary)]
 #[must_use]
 struct CastlingMoveInfo {

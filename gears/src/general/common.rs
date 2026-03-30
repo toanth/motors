@@ -192,6 +192,7 @@ pub fn parse_duration_ms(words: &mut Tokens, name: &str) -> Res<Duration> {
 }
 
 /// Apparently, this will soon be unnecessary. Remove once stable Rust implements trait upcasting
+// TODO: Remove
 pub trait AsNamedEntity {
     fn upcast(&self) -> &dyn NamedEntity;
 }

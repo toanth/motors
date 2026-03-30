@@ -89,7 +89,7 @@ mod general {
             let roundtrip = Board::from_fen(&new_pos.as_fen(), Strict).unwrap();
             assert_eq!(roundtrip.compute_hash(), new_pos.compute_hash());
             assert_eq!(new_pos, roundtrip);
-            assert_eq!(chess_pos.num_legal_moves(), new_pos.num_legal_moves());
+            assert_eq!(chess_pos.num_legal_moves(), new_pos.num_legal_moves(), "{new_pos}");
         }
     }
 

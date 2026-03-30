@@ -113,13 +113,13 @@ impl Board {
         self.all_attacking(square, slider_gen).intersects(self.player_bb(us.other()))
     }
 
-    pub(super) fn gen_pseudolegal_moves<const ONLY_TACTICAL: bool>(
+    pub(super) fn gen_pseudolegal_moves<const IS_ONLY_TACTICAL: bool>(
         &self,
         callback: &mut impl FnMut(Move),
         mut filter: Bitboard,
     ) {
         let slider_generator = self.slider_generator();
-        self.gen_king_moves(callback, filter, ONLY_TACTICAL);
+        self.gen_king_moves(callback, filter, IS_ONLY_TACTICAL);
         let mut check_ray = !Bitboard::default();
         match self.checkers.num_ones() {
             0 => {}
@@ -135,7 +135,7 @@ impl Board {
         self.gen_slider_moves::<{ Rook as usize }>(callback, filter, &slider_generator);
         self.gen_slider_moves::<{ Queen as usize }>(callback, filter, &slider_generator);
         self.gen_knight_moves(callback, filter);
-        self.gen_pawn_moves::<ONLY_TACTICAL>(callback, check_ray);
+        self.gen_pawn_moves::<IS_ONLY_TACTICAL>(callback, check_ray);
     }
 
     fn gen_pawn_moves<const ONLY_TACTICAL: bool>(&self, callback: &mut impl FnMut(Move), filter: Bitboard) {
@@ -186,6 +186,7 @@ impl Board {
         let bb = regular_pawn_moves.0;
         for to in bb {
             let from = Square::from_bb_idx((to.to_u8() as isize - regular_pawn_moves.1) as usize);
+            // TODO: Move this `if` out of the loop. Same for ep checks and capture promos above
             if to.is_backrank() {
                 callback(Move::new(from, to, PromoQueen));
                 callback(Move::new(from, to, PromoKnight));

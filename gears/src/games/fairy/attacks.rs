@@ -15,13 +15,12 @@
  *  You should have received a copy of the GNU General Public License
  *  along with Gears. If not, see <https://www.gnu.org/licenses/>.
  */
-
 use crate::games::fairy::Side::{Kingside, Queenside};
 use crate::games::fairy::attacks::AttackBitboardGen::{Leaping, Rider};
 use crate::games::fairy::attacks::GenAttacksCondition::Always;
 use crate::games::fairy::moves::Move;
 use crate::games::fairy::piece_builder::Topology::Cylinder;
-use crate::games::fairy::piece_builder::{RayDescription, Topology};
+use crate::games::fairy::piece_builder::{RayDescription, RayDir, Topology};
 use crate::games::fairy::pieces::{ColoredPieceId, GenPromoMoves};
 use crate::games::fairy::rules::{CheckCount, CheckingAttack, SquareFilter};
 use crate::games::fairy::{
@@ -36,11 +35,13 @@ use crate::general::common::{Res, Tokens};
 use crate::general::hq::{BitReverseSliderGenerator, hq_right_horizontal_cylinder};
 use crate::general::move_list::MoveListTrait;
 use crate::general::squares::{CompactSquare, RectangularCoordinates, RectangularSize};
-use crate::{precompute_leaper_or_rider_attacks, shift_left};
+use crate::{do_shift, shift_left};
 use anyhow::{anyhow, bail, ensure};
 use arbitrary::Arbitrary;
 use arrayvec::ArrayVec;
 use colored::Colorize;
+use std::cmp::max;
+use std::num::NonZero;
 use std::str::FromStr;
 use std::sync::Arc;
 
@@ -56,22 +57,45 @@ pub enum SliderDirections {
     Rook,
     Bishop,
     Queen,
-    // TODO: Support attacks in a single direction, without the opposite direction (e.g. only forwards, or only to the right)
     // A ray bitboard for each square
     RiderRay { rays: Arc<[RawBitboard]> },
 }
 
-// not `const`, which allows using ranges and for loops
-pub fn leaper_attack_range(
-    iter: impl Iterator<Item = (isize, isize)>,
-    square: Square,
-    size: Size,
-    topology: Topology,
-) -> RawBitboard {
+fn precompute_rider_attacks(sq_idx: usize, ray: RayDescription) -> RawBitboard {
+    let width = ray.size.width.val() as isize;
+    let max_steps = ray.limit_steps.unwrap_or(1000).min(max(width as usize, ray.size.height.val()));
+    let this_piece = 1 << sq_idx;
+    let file = sq_idx as isize % width;
+    let mut attacks = 0;
+    let mut dx = ray.dir.dx;
+    let mut dy = ray.dir.dy;
+    for _ in 0..max_steps {
+        attacks |= do_shift!(dx, dy, width, file, this_piece, ray.topology == Cylinder, RawBitboard);
+        if ray.with_reverse {
+            attacks |= do_shift!(-dx, -dy, width, file, this_piece, ray.topology == Cylinder, RawBitboard);
+        }
+
+        dx += ray.dir.dx;
+        dy += ray.dir.dy;
+    }
+    attacks
+}
+
+pub fn rider(ray: RayDescription) -> Arc<[RawBitboard]> {
+    let mut res = vec![RawBitboard::default(); ray.size.num_squares()];
+    for (idx, elem) in res.iter_mut().enumerate() {
+        let bb = precompute_rider_attacks(idx, ray);
+        debug_assert!(!bb.is_bit_set_at(idx));
+        *elem = bb;
+    }
+    Arc::from(res)
+}
+
+fn precompute_single_leaper_attacks(offsets: &[RayDir], square: Square, size: Size, topology: Topology) -> RawBitboard {
     let mut res = RawBitboard::default();
     let width = size.width().val() as isize;
     let internal_width = size.internal_width() as isize;
-    for (dx, dy) in iter {
+    for RayDir { dx, dy } in offsets {
         let res_x = square.file() as isize + dx;
         let shift = if res_x >= 0 && res_x < width {
             dx + dy * internal_width
@@ -87,6 +111,7 @@ pub fn leaper_attack_range(
     res
 }
 
+// TODO: Move the following to fairy piece_builder, clean up
 #[derive(Debug, Clone, Arbitrary)]
 /// Since some games like shogi have different pieces with the same attacks,
 /// we deduplicate the attack bitboards as an optimization (TODO: Add a test that this actually works, by comparing pointers).
@@ -94,70 +119,56 @@ pub fn leaper_attack_range(
 /// reduces branches during movegen.
 pub struct LeapingBitboards(Arc<[RawBitboard]>);
 
-fn leaper(n: usize, m: usize, size: Size, topology: Topology) -> Arc<[RawBitboard]> {
-    let mut res = vec![RawBitboard::default(); size.num_squares()];
-    let (n, m) = (n.min(m), n.max(m));
-    for (idx, elem) in res.iter_mut().enumerate() {
-        let bb = precompute_leaper_or_rider_attacks!(idx, n, m, false, size.width.val(), topology == Cylinder, u128);
-        *elem = bb;
-    }
-    Arc::from(res)
-}
-
-pub fn rider(ray: RayDescription) -> Arc<[RawBitboard]> {
-    let mut res = vec![RawBitboard::default(); ray.size.num_squares()];
-    let width = ray.size.width.val();
-    for (idx, elem) in res.iter_mut().enumerate() {
-        let bb = precompute_leaper_or_rider_attacks!(idx, ray.dx, ray.dy, true, width, ray.topology == Cylinder, u128);
-        debug_assert!(!bb.is_bit_set_at(idx));
-        *elem = bb;
-    }
-    Arc::from(res)
-}
-
 impl LeapingBitboards {
-    pub(super) fn fixed_cylinder(n: usize, m: usize, size: Size, topology: Topology) -> Self {
-        Self(leaper(n, m, size, topology))
-    }
-
-    pub(super) fn range(range: impl Iterator<Item = (isize, isize)> + Clone, size: Size, topology: Topology) -> Self {
+    pub(super) fn new(offsets: &[RayDir], size: Size, topology: Topology) -> Self {
         let mut res = vec![RawBitboard::default(); size.num_squares()];
         for (idx, elem) in res.iter_mut().enumerate() {
             let sq = size.idx_to_coordinates(idx as DimT);
-            let bb = leaper_attack_range(range.clone(), sq, size, topology);
+            let bb = precompute_single_leaper_attacks(offsets, sq, size, topology);
             *elem = bb;
         }
         LeapingBitboards(Arc::from(res))
     }
 }
 
-#[derive(Debug, Copy, Clone, Eq, PartialEq, Arbitrary)]
-pub enum AttackMode {
-    All,
-    Captures,
-    NoCaptures,
+#[derive(Debug, Default, Copy, Clone, Eq, PartialEq, Hash, Arbitrary)]
+pub enum Modality {
+    #[default]
+    Both = 0b11,
+    Capture = 0b10,
+    NonCapture = 0b01,
 }
 
-impl AttackMode {
-    pub fn generate_for_mode(self, other: Self) -> bool {
-        self == other || self == AttackMode::All || other == AttackMode::All
+impl Modality {
+    pub fn betza_char(&self) -> char {
+        match self {
+            Modality::Both => ' ',
+            Modality::Capture => 'c',
+            Modality::NonCapture => 'm',
+        }
+    }
+
+    pub fn should_generate_for(self, other: Self) -> bool {
+        self as usize & other as usize != 0
     }
 }
 
 #[must_use]
 #[derive(Debug, Clone, Arbitrary)]
 pub enum AttackBitboardGen {
-    // Leaping pieces, like knights and kings, only care about blockers on the square they're leaping to
+    /// Leaping pieces, like knights and kings, only care about blockers on the square they're leaping to.
+    /// Implemented by precomputing a bitboard for every square
     Leaping(LeapingBitboards),
-    // Riders are generalized sliders
+    /// Riders are generalized sliders. For every square, there is a ray bitboard which contains the squares this
+    /// rider could move to on an empty board.
     Rider(SliderDirections),
-    // Dropping a piece, such as in m,n,k games or shogi
+    /// Dropping a piece, such as in m,n,k games or shogi.
     Drop,
-    // Castling moves are special enough that it makes sense to handle them separately
+    /// Castling moves are special enough that it makes sense to handle them separately.
     Castling(Side),
-    // Horizontal attacks on a cylinder, including riders that jump over squares, can't be handled the usual rider way with hq
-    // because square indices along a ray aren't monotonic.
-    HorizontalCylinder(usize),
+    /// Horizontal attacks on a cylinder, including riders that jump over squares, can't be handled the usual rider way with hq
+    /// because square indices along a ray aren't monotonic.
+    HorizontalCylinder { step_left: Option<NonZero<usize>>, step_right: Option<NonZero<usize>> },
 }
 
 impl AttackBitboardGen {
@@ -187,7 +198,7 @@ impl GenAttackKind {
     }
 }
 
-#[derive(Debug, Copy, Clone, Arbitrary)]
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Arbitrary)]
 #[must_use]
 pub enum RequiredForAttack {
     PieceOnBoard,
@@ -207,8 +218,8 @@ pub struct AttackKind {
     pub required: RequiredForAttack,
     // then, the condition is checked (e.g., pawns can only double push on their start rank)
     pub condition: GenAttacksCondition,
-    // and the attack kind may also be disabled based on the mode, for example pawn pushes don't capture
-    pub attack_mode: AttackMode,
+    // and the attack kind may also be disabled based on the modality, for example pawn pushes don't capture
+    pub modality: Modality,
     // then, the bitboard of attacks is generated by taking the `bitor` of different attack generation primitives,
     // such as moves along a ray, or static leaper bitboards
     pub bb_gen: Vec<[AttackBitboardGen; NUM_COLORS]>,
@@ -276,17 +287,23 @@ impl AttackKind {
                     }
                 }
                 &AttackBitboardGen::Drop => pos.mask_bb,
-                &AttackBitboardGen::HorizontalCylinder(step) => {
+                &AttackBitboardGen::HorizontalCylinder { step_left, step_right } => {
                     let file = sq.file() as usize;
                     let rank = sq.rank() as usize;
                     let w = size.width.val();
                     let all_blockers = pos.blocker_bb().raw();
                     let blockers = all_blockers >> (rank * w);
-                    let right = hq_right_horizontal_cylinder(file, w, step, blockers);
-                    let rev_blockers = blockers.reverse_bits() >> (128 - w);
-                    let left =
-                        hq_right_horizontal_cylinder(w - 1 - file, w, step, rev_blockers).reverse_bits() >> (128 - w);
-                    let res = left | right;
+                    let mut res = 0;
+                    if let Some(step) = step_right {
+                        res = hq_right_horizontal_cylinder(file, w, step.get(), blockers);
+                    }
+                    if let Some(step) = step_left {
+                        let rev_blockers = blockers.reverse_bits() >> (128 - w);
+                        let left = hq_right_horizontal_cylinder(w - 1 - file, w, step.get(), rev_blockers)
+                            .reverse_bits()
+                            >> (128 - w);
+                        res |= left;
+                    }
                     debug_assert_eq!(res & !0 << w, 0);
                     res << (rank * w)
                 }
@@ -301,8 +318,8 @@ impl AttackKind {
         }
     }
 
-    fn check_conditions(&self, piece: Piece, pos: &Board, mode: AttackMode) -> bool {
-        if !self.attack_mode.generate_for_mode(mode) {
+    fn check_conditions(&self, piece: Piece, pos: &Board, modality: Modality) -> bool {
+        if !self.modality.should_generate_for(modality) {
             return false;
         }
         match self.condition {
@@ -318,8 +335,14 @@ impl AttackKind {
         }
     }
 
-    pub fn attacks(&self, piece: Piece, pos: &Board, mode: AttackMode, generator: &SliderGen) -> Option<PieceAttackBB> {
-        if !self.check_conditions(piece, pos, mode) {
+    pub fn attacks(
+        &self,
+        piece: Piece,
+        pos: &Board,
+        modality: Modality,
+        generator: &SliderGen,
+    ) -> Option<PieceAttackBB> {
+        if !self.check_conditions(piece, pos, modality) {
             return None;
         }
         let filter = self.bb_filter(piece.color().unwrap(), pos);
@@ -425,12 +448,12 @@ impl Dir {
 }
 
 #[must_use]
-#[derive(Debug, Copy, Clone, Arbitrary)]
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Arbitrary)]
 pub enum GenAttacksCondition {
     Always,
-    Player(Color), // TODO: Remove? Only makes sense for asymetric games anyway
+    Player(Color), // TODO: Remove? Only makes sense for asymmetric games anyway
     CanCastle(Side),
-    OnRelativeRank(DimT, Color),
+    OnRelativeRank(DimT, Color), // TODO: Use Bitboard instead?
 }
 
 #[derive(Debug, Default, Copy, Clone, Eq, PartialEq, Hash, Arbitrary)]
@@ -565,7 +588,7 @@ impl Board {
                 res |= bb.all_attacks
             }
         };
-        self.gen_attacks_impl(f, color, AttackMode::Captures);
+        self.gen_attacks_impl(f, color, Modality::Capture);
         Bitboard::new(res, self.size())
     }
 
@@ -573,11 +596,11 @@ impl Board {
         let f = |piece: Piece, bb: &PieceAttackBB, pos: &Board| {
             bb.insert_moves(moves, pos, piece);
         };
-        self.gen_attacks_impl(f, self.active_player(), AttackMode::All);
+        self.gen_attacks_impl(f, self.active_player(), Modality::Both);
         self.rules().moves_filter.apply(moves, self);
     }
 
-    fn gen_attacks_impl<F: FnMut(Piece, &PieceAttackBB, &Board)>(&self, mut f: F, color: Color, mode: AttackMode) {
+    fn gen_attacks_impl<F: FnMut(Piece, &PieceAttackBB, &Board)>(&self, mut f: F, color: Color, modality: Modality) {
         // TODO: Precomputed rays
         let generator = SliderGen::new(self.blocker_bb(), None);
         for (id, piece_type) in self.rules().pieces() {
@@ -587,7 +610,7 @@ impl Board {
                         let bb = self.col_piece_bb(color, id);
                         for start in bb.ones() {
                             let piece = Piece { symbol: ColoredPieceId::new(color, id), coordinates: start };
-                            if let Some(bb) = attack_kind.attacks(piece, self, mode, &generator) {
+                            if let Some(bb) = attack_kind.attacks(piece, self, modality, &generator) {
                                 f(piece, &bb, self);
                             }
                         }
@@ -596,7 +619,7 @@ impl Board {
                         if self.0.in_hand[color][id.val()] > 0 {
                             let piece =
                                 Piece { symbol: ColoredPieceId::new(color, id), coordinates: Square::no_coordinates() };
-                            if let Some(bb) = attack_kind.attacks(piece, self, mode, &generator) {
+                            if let Some(bb) = attack_kind.attacks(piece, self, modality, &generator) {
                                 f(piece, &bb, self);
                             }
                         }
@@ -616,7 +639,7 @@ impl Board {
             let Some(bb) = attack_kind.attacks(
                 self.piece_on(sq),
                 self,
-                AttackMode::Captures,
+                Modality::Capture,
                 &SliderGen::new(self.blocker_bb(), None),
             ) else {
                 continue;
