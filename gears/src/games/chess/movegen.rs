@@ -135,11 +135,20 @@ impl Board {
         self.gen_slider_moves::<{ Rook as usize }>(callback, filter, &slider_generator);
         self.gen_slider_moves::<{ Queen as usize }>(callback, filter, &slider_generator);
         self.gen_knight_moves(callback, filter);
-        self.gen_pawn_moves::<IS_ONLY_TACTICAL>(callback, check_ray);
+        if self.active.is_first() {
+            self.gen_pawn_moves::<IS_ONLY_TACTICAL, true>(callback, check_ray);
+        } else {
+            self.gen_pawn_moves::<IS_ONLY_TACTICAL, false>(callback, check_ray);
+        }
     }
 
-    fn gen_pawn_moves<const ONLY_TACTICAL: bool>(&self, callback: &mut impl FnMut(Move), filter: Bitboard) {
-        let us = self.active;
+    fn gen_pawn_moves<const ONLY_TACTICAL: bool, const IS_WHITE: bool>(
+        &self,
+        callback: &mut impl FnMut(Move),
+        filter: Bitboard,
+    ) {
+        debug_assert_eq!(IS_WHITE, self.active == White);
+        let us = if IS_WHITE { White } else { Black };
         let pawns = self.col_piece_bb(us, Pawn);
         let free = !self.occupied_bb();
         let mut free_filter = free & filter;
@@ -151,61 +160,61 @@ impl Board {
         let double_pawn_moves;
         let left_pawn_captures;
         let right_pawn_captures;
-        let capturable = opponent | self.ep_square.map(Square::bb).unwrap_or_default();
-        if us == White {
+        if IS_WHITE {
             regular_pawn_moves = (pawns.north() & free_filter, 8);
             double_pawn_moves = (((pawns & Bitboard::rank(1)) << 16) & free.north() & free_filter, 16);
-            right_pawn_captures = (pawns.north_east() & capturable, 9);
-            left_pawn_captures = (pawns.north_west() & capturable, 7);
+            right_pawn_captures = (pawns.north_east() & opponent, 9);
+            left_pawn_captures = (pawns.north_west() & opponent, 7);
         } else {
             regular_pawn_moves = (pawns.south() & free_filter, -8);
             double_pawn_moves = (((pawns & Bitboard::rank(6)) >> 16) & free.south() & free_filter, -16);
-            right_pawn_captures = (pawns.south_west() & capturable, -9);
-            left_pawn_captures = (pawns.south_east() & capturable, -7);
+            right_pawn_captures = (pawns.south_west() & opponent, -9);
+            left_pawn_captures = (pawns.south_east() & opponent, -7);
         }
-        for capture in [right_pawn_captures, left_pawn_captures] {
-            let bb = capture.0;
-            for to in bb {
-                let from = Square::from_bb_idx((to.to_u8() as isize - capture.1) as usize);
-                if self.ep_square.is_some_and(|sq| sq == to) {
-                    callback(Move::new(from, to, EnPassant));
-                } else if !to.is_backrank() {
-                    callback(Move::new(from, to, NormalMove));
-                } else {
-                    callback(Move::new(from, to, PromoQueen));
-                    callback(Move::new(from, to, PromoKnight));
-                    // even a capturing rook or bishop promo is not considered tactical
-                    if !ONLY_TACTICAL {
-                        callback(Move::new(from, to, PromoRook));
-                        callback(Move::new(from, to, PromoBishop));
-                    }
-                    continue;
-                }
+        if let Some(ep) = self.ep_square {
+            for from in ep.bb().pawn_attacks(!us) & pawns {
+                callback(Move::new(from, ep, EnPassant));
             }
         }
-        let bb = regular_pawn_moves.0;
-        for to in bb {
-            let from = Square::from_bb_idx((to.to_u8() as isize - regular_pawn_moves.1) as usize);
-            // TODO: Move this `if` out of the loop. Same for ep checks and capture promos above
-            if to.is_backrank() {
+        for (mut bb, offset) in [right_pawn_captures, left_pawn_captures] {
+            for to in bb & Bitboard::backranks() {
+                let from = Square::from_bb_idx((to.as_u8() as isize - offset) as usize);
                 callback(Move::new(from, to, PromoQueen));
                 callback(Move::new(from, to, PromoKnight));
+                // even a capturing rook or bishop promo is not considered tactical
                 if !ONLY_TACTICAL {
                     callback(Move::new(from, to, PromoRook));
                     callback(Move::new(from, to, PromoBishop));
                 }
-            } else {
-                debug_assert!(!ONLY_TACTICAL);
+            }
+            bb &= !Bitboard::backranks();
+            for to in bb {
+                let from = Square::from_bb_idx((to.as_u8() as isize - offset) as usize);
                 callback(Move::new(from, to, NormalMove));
             }
         }
+        let bb = regular_pawn_moves.0;
+        for to in bb & Bitboard::backranks() {
+            let from = Square::from_bb_idx((to.as_u8() as isize - regular_pawn_moves.1) as usize);
+            callback(Move::new(from, to, PromoQueen));
+            callback(Move::new(from, to, PromoKnight));
+            if !ONLY_TACTICAL {
+                callback(Move::new(from, to, PromoRook));
+                callback(Move::new(from, to, PromoBishop));
+            }
+        }
         if !ONLY_TACTICAL {
+            for to in bb & !Bitboard::backranks() {
+                let from = Square::from_bb_idx((to.as_u8() as isize - regular_pawn_moves.1) as usize);
+                callback(Move::new(from, to, NormalMove));
+            }
             for to in double_pawn_moves.0 {
-                let from = Square::from_bb_idx((to.to_u8() as isize - double_pawn_moves.1) as usize);
+                let from = Square::from_bb_idx((to.as_u8() as isize - double_pawn_moves.1) as usize);
                 callback(Move::new(from, to, NormalMove));
             }
         }
     }
+
     pub(super) fn pawn_advance_dests(&self) -> Bitboard {
         let us = self.active;
         let pawns = self.col_piece_bb(us, Pawn);

@@ -250,7 +250,7 @@ impl MoveTrait<Board> for Move {
         let first_square = Square::from_str(first_square)?;
         let second_square = s.get(2..4).and_then(|s| Square::from_str(s).ok());
         let (remaining, from, to_square) = if let Some(sq) = second_square {
-            (&s[4..], first_square.to_u8(), sq)
+            (&s[4..], first_square.as_u8(), sq)
         } else {
             (&s[2..], u8::MAX, first_square)
         };
@@ -279,7 +279,7 @@ impl MoveTrait<Board> for Move {
     }
 
     fn to_underlying(self) -> Self::Underlying {
-        (u16::from(self.source) << 8) | u16::from(self.target.to_u8())
+        (u16::from(self.source) << 8) | u16::from(self.target.as_u8())
     }
 }
 
@@ -299,7 +299,7 @@ impl Move {
     }
 
     pub fn leaping(source: Square, target: Square) -> Self {
-        Self { source: source.to_u8(), target }
+        Self { source: source.as_u8(), target }
     }
 
     pub fn typ(self) -> AtaxxMoveType {
