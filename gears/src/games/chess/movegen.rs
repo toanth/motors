@@ -226,6 +226,9 @@ impl Board {
 
     fn is_castling_pseudolegal(&self, side: CastleRight) -> bool {
         let color = self.active;
+        if !self.castling.can_castle(color, side) {
+            return false;
+        }
         let king_square = self.king_sq(color);
         let king = self.col_piece_bb(color, King);
         // Castling, handling the general (D)FRC case.
@@ -280,14 +283,12 @@ impl Board {
                 KING_KINGSIDE_BB[king_file] << (color as usize * 7 * 8),
             ),
         };
-        if self.castling.can_castle(color, side) {
-            let rook = self.rook_start_square(color, side);
-            if ((self.occupied_bb() ^ rook.bb()) & king_free_bb).is_zero()
-                && ((self.occupied_bb() ^ king) & rook_free_bb).is_zero()
-            {
-                debug_assert_eq!(self.colored_piece_on(rook).symbol, ColoredPieceType::new(color, Rook));
-                return true;
-            }
+        let rook = self.rook_start_square(color, side);
+        if ((self.occupied_bb() ^ rook.bb()) & king_free_bb).is_zero()
+            && ((self.occupied_bb() ^ king) & rook_free_bb).is_zero()
+        {
+            debug_assert_eq!(self.colored_piece_on(rook).symbol, ColoredPieceType::new(color, Rook));
+            return true;
         }
         false
     }
@@ -296,10 +297,9 @@ impl Board {
         let filter = filter & !self.threats;
         let us = self.active;
         let king_square = self.king_sq(us);
-        let mut attacks = Self::normal_king_attacks_from(king_square) & filter;
-        while attacks.has_any() {
-            let target = attacks.pop_lsb();
-            callback(Move::new(king_square, Square::from_bb_idx(target), NormalMove));
+        let attacks = Self::normal_king_attacks_from(king_square) & filter;
+        for target in attacks {
+            callback(Move::new(king_square, target, NormalMove));
         }
         if only_captures {
             return;
@@ -425,7 +425,9 @@ impl Board {
         let bishop_sliders = self.piece_bb(Bishop) | self.piece_bb(Queen);
         let rook_sliders = self.piece_bb(Rook) | self.piece_bb(Queen);
         let us = self.player_bb(player);
-        let empty = self.empty_bb();
+        // remove the opponent's king from the blocker bb so that it's easy to test whether a pseudolegal king move is legal:
+        // it's legal if the dest square is not threatened (without this trick a move along a checking ray would pass this test)
+        let empty = self.empty_bb() | self.col_piece_bb(!player, King);
         res |= all_rook_attacks(rook_sliders & us, empty);
         res |= all_bishop_attacks(bishop_sliders & us, empty);
         res |= self.col_piece_bb(player, Pawn).pawn_attacks(player);
@@ -494,22 +496,13 @@ impl Board {
                 return (king_ray & self.threats).is_zero() && !self.pinned.has(dest);
             }
             debug_assert!(!self.threats.has(dest));
-            if self.checkers().is_zero() {
-                return true;
-            }
-            let slider_gen = ChessSliderGenerator::new(self.occupied_bb() ^ self.col_piece_bb(self.active, King));
-            let rook_sliders = (self.piece_bb(Rook) | self.piece_bb(Queen)) & self.inactive_player_bb();
-            let bishop_sliders = (self.piece_bb(Bishop) | self.piece_bb(Queen)) & self.inactive_player_bb();
-            return ((rook_sliders & slider_gen.rook_attacks(dest))
-                | (bishop_sliders & slider_gen.bishop_attacks(dest)))
-            .is_zero();
+            return true;
         }
         let king_sq = self.king_sq(self.active);
         debug_assert!(!self.checkers().more_than_one_bit_set());
         // no need to special case ep: If the capturing pawn is pinned, either the ep square isn't set or it's the same logic
         // as with non-ep moves
         if self.checkers().has_any() {
-            debug_assert!(self.checkers.is_single_piece());
             if self.pinned.has(src) {
                 return false;
             }
@@ -541,7 +534,8 @@ mod tests {
         for pos in Board::bench_positions() {
             for mov in pos.legal_moves_slow() {
                 let child = pos.make_move(mov).unwrap();
-                let slider_gen = child.slider_generator();
+                let slider_gen =
+                    ChessSliderGenerator::new(child.occupied_bb() ^ child.col_piece_bb(child.active_player(), King));
                 let mut threats = Bitboard::default();
                 for sq in Square::iter() {
                     let attacks = child.all_attacking(sq, slider_gen);
