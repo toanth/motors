@@ -615,11 +615,11 @@ impl BoardTrait for Board {
     }
 
     fn gen_pseudolegal(&self, mut callback: impl FnMut(Move)) {
-        self.gen_pseudolegal_moves::<false>(&mut callback, !self.player_bb(self.active))
+        self.gen_moves::<false>(&mut callback, !self.player_bb(self.active))
     }
 
     fn gen_tactical_pseudolegal(&self, mut callback: impl FnMut(Move)) {
-        self.gen_pseudolegal_moves::<true>(&mut callback, self.player_bb(self.active.other()))
+        self.gen_moves::<true>(&mut callback, self.player_bb(self.active.other()))
     }
 
     fn has_no_legal_moves(&self) -> bool {
@@ -639,8 +639,7 @@ impl BoardTrait for Board {
     }
 
     fn random_legal_move<T: Rng>(&self, rng: &mut T) -> Option<Self::Move> {
-        let moves = self.legal_moves_slow();
-        moves.into_iter().choose(rng)
+        self.random_pseudolegal_move(rng)
     }
 
     fn random_pseudolegal_move<R: Rng>(&self, rng: &mut R) -> Option<Self::Move> {
@@ -649,11 +648,7 @@ impl BoardTrait for Board {
     }
 
     fn make_move(self, mov: Self::Move) -> Option<Self> {
-        debug_assert!(self.is_move_pseudolegal_impl(mov), "{self} {mov:?}");
-        if !self.is_pseudolegal_move_legal(mov) {
-            return None;
-        }
-        Some(self.make_move_impl(mov))
+        Some(self.play(mov))
     }
 
     fn make_nullmove(mut self) -> Option<Self> {
@@ -673,15 +668,15 @@ impl BoardTrait for Board {
     }
 
     fn is_generated_move_pseudolegal(&self, mov: Move) -> bool {
-        self.is_move_pseudolegal_impl(mov)
+        self.is_move_legal_impl(mov)
     }
 
     fn is_move_pseudolegal(&self, mov: Move) -> bool {
-        self.is_move_pseudolegal_impl(mov)
+        self.is_move_legal_impl(mov)
     }
 
-    fn is_pseudolegal_move_legal(&self, mov: Self::Move) -> bool {
-        self.is_pseudolegal_legal_impl(mov)
+    fn is_pseudolegal_move_legal(&self, _mov: Self::Move) -> bool {
+        true
     }
 
     fn player_result_no_movegen<H: BoardHistory>(&self, history: &H) -> Option<PlayerResult> {
@@ -695,7 +690,7 @@ impl BoardTrait for Board {
         if let Some(res) = self.player_result_no_movegen(history) {
             return Some(res);
         }
-        let no_moves = self.legal_moves_slow().is_empty();
+        let no_moves = self.legal_moves().is_empty();
         if no_moves { self.no_moves_result() } else { None }
     }
 
@@ -957,7 +952,7 @@ impl Board {
     }
 
     pub fn gives_check(&self, mov: Move) -> bool {
-        self.make_move(mov).is_some_and(|b| b.is_in_check())
+        self.play(mov).is_in_check()
     }
 
     fn chess960_startpos_white(mut num: usize, color: Color, mut board: UnverifiedBoard) -> Res<UnverifiedBoard> {
@@ -1231,7 +1226,7 @@ mod tests {
         assert_eq!(board.as_fen(), START_FEN);
         let moves = board.pseudolegal_moves();
         assert_eq!(moves.len(), 20);
-        let legal_moves = board.legal_moves_slow();
+        let legal_moves = board.legal_moves();
         assert_eq!(legal_moves.len(), moves.len());
         assert!(legal_moves.into_iter().sorted().eq(moves.into_iter().sorted()));
     }
@@ -1301,8 +1296,8 @@ mod tests {
         let pos =
             Board::from_fen("r2k3r/ppp1pp1p/2nqb1Nn/3P4/4P3/2PP4/PR1NBPPP/R2NKRQ1 w KQkq - 1 5", Relaxed).unwrap();
         _ = pos.debug_verify_invariants(Relaxed).unwrap();
-        for mov in pos.legal_moves_slow() {
-            let new_pos = pos.make_move(mov).unwrap_or(pos);
+        for mov in pos.legal_moves() {
+            let new_pos = pos.play(mov);
             _ = new_pos.debug_verify_invariants(Relaxed).unwrap();
         }
         let mov = Move::from_text("sB3x", &pos);
@@ -1394,7 +1389,7 @@ mod tests {
             let checkmates =
                 mov.piece_type(&board) == Rook && mov.dest_square() == Square::from_rank_file(7, G_FILE_NUM);
             assert_eq!(board.is_game_won_after_slow(mov, NoHistory::default()), checkmates);
-            let new_board = board.make_move(mov).unwrap();
+            let new_board = board.play(mov);
             assert_eq!(new_board.is_game_lost_slow(&NoHistory::default()), checkmates);
             assert_eq!(new_board.is_checkmate_slow(), checkmates);
             assert!(!board.is_checkmate_slow());
@@ -1421,7 +1416,7 @@ mod tests {
     #[test]
     fn fifty_mr_test() {
         let board = Board::from_fen("1r2k3/P5R1/2P5/8/8/8/8/1R1K3R w BHb - 99 51", Strict).unwrap();
-        let moves = board.legal_moves_slow();
+        let moves = board.legal_moves();
         assert_eq!(moves.len(), 48);
         let mut mate_ctr = 0;
         let mut draw_ctr = 0;
@@ -1430,7 +1425,7 @@ mod tests {
             .map(|str| Move::from_text(str, &board).unwrap())
             .collect_vec();
         for m in moves {
-            let new_pos = board.make_move(m).unwrap();
+            let new_pos = board.play(m);
             if resetting.contains(&m) {
                 assert_eq!(new_pos.ply_draw_clock(), 0);
                 if !["b1b8", "a7b8q", "a7b8r"].contains(&m.compact_formatter(&board).to_string().as_str()) {
@@ -1467,7 +1462,7 @@ mod tests {
             assert_eq!(i == 8, board.player_result_no_movegen(&hist).is_some_and(|r| r == Draw));
             hist.push(hash);
             let mov = Move::from_compact_text(mov, &board).unwrap();
-            board = board.make_move(mov).unwrap();
+            board = board.play(mov);
             assert_eq!(
                 n_fold_repetition(3, &hist, board.hash_pos(), board.ply_draw_clock()),
                 board.is_3fold_repetition(&hist)
@@ -1479,7 +1474,7 @@ mod tests {
         let hash = board.hash_pos();
         let moves = ["c1b1", "a2c2", "b1e1", "c2a2", "e1c1"];
         for mov in moves {
-            board = board.make_move(Move::from_compact_text(mov, &board).unwrap()).unwrap();
+            board = board.play(Move::from_compact_text(mov, &board).unwrap());
             assert_ne!(board.hash_pos(), hash);
             assert!(!n_fold_repetition(2, &hist, board.hash_pos(), 12345));
         }
@@ -1503,7 +1498,7 @@ mod tests {
         assert!(pos.is_in_check_on_square(White, pos.king_sq(White)));
         let moves = pos.pseudolegal_moves();
         assert!(moves.is_empty()); // we don't even generate moves anymore here
-        let moves = pos.legal_moves_slow();
+        let moves = pos.legal_moves();
         assert!(moves.is_empty());
         assert!(pos.is_checkmate_slow());
         assert_eq!(pos.player_result_slow(&NoHistory::default()), Some(Lose));
@@ -1514,8 +1509,8 @@ mod tests {
         assert!(pos.match_result_slow(&NoHistory::default()).is_none());
         let mut draws = 0;
         let mut wins = 0;
-        for mov in pos.legal_moves_slow() {
-            let new_pos = pos.make_move(mov).unwrap();
+        for mov in pos.legal_moves() {
+            let new_pos = pos.play(mov);
             if let Some(res) = new_pos.player_result_slow(&NoHistory::default()) {
                 match res {
                     PlayerResult::Win => {
@@ -1547,20 +1542,20 @@ mod tests {
         assert!(board.pseudolegal_moves().len() <= 3);
         let mut rng = rng();
         let mov = board.random_legal_move(&mut rng).unwrap();
-        let board = board.make_move(mov).unwrap();
+        let board = board.play(mov);
         assert_eq!(board.pseudolegal_moves().len(), 2);
         let fen = "B4Q1b/8/8/8/2K3P1/5k2/8/b4RNB b - - 0 1"; // far too many checks, but we still accept it
         assert!(Board::from_fen(fen, Strict).is_err());
         let board = Board::from_fen(fen, Relaxed).unwrap();
         assert!(board.pseudolegal_moves().len() <= 3 + 2 * 6);
-        assert_eq!(board.legal_moves_slow().len(), 3);
+        assert_eq!(board.legal_moves().len(), 3);
         // maximum number of legal moves in any position reachable from startpos
         let fen = "R6R/3Q4/1Q4Q1/4Q3/2Q4Q/Q4Q2/pp1Q4/kBNN1KB1 w - - 0 1";
         let board = Board::from_fen(fen, Strict).unwrap();
-        assert_eq!(board.legal_moves_slow().len(), 218);
+        assert_eq!(board.legal_moves().len(), 218);
         assert!(board.debug_verify_invariants(Strict).is_ok());
         let board = board.make_nullmove().unwrap();
-        assert!(board.legal_moves_slow().is_empty());
+        assert!(board.legal_moves().is_empty());
         assert_eq!(board.player_result_slow(&NoHistory::default()), Some(Draw));
         // chess960 castling rights encoded using X-FEN
         let fen = "1rbq1krb/ppp1pppp/1n1n4/3p4/3P4/2PN4/PP2PPPP/NRBQ1KRB w KQkq - 3 4";
@@ -1570,7 +1565,7 @@ mod tests {
         // Another X-FEN, which is often misinterpreted by engines
         let fen = " rk2rqnb/1b6/2n5/pppppppp/PPPPPP2/B1NQ4/6PP/1K1RR1NB w Kk - 8 14";
         let board = Board::from_fen(fen, Relaxed).unwrap();
-        assert_eq!(board.legal_moves_slow().len(), 42);
+        assert_eq!(board.legal_moves().len(), 42);
         assert_eq!(board.castling.rook_start_file(White, Kingside), char_to_file('e'));
         // this is a valid disambiguated X-FEN, but it will still be parsed as Shredder FEN
         let fen = "8/2k5/8/8/8/8/8/RR1K1R1R w KB - 0 1";
@@ -1588,7 +1583,7 @@ mod tests {
         // only legal move is to castle
         let fen = "8/8/8/8/4k3/7p/4q2P/6KR w K - 0 1";
         let pos = Board::from_fen(fen, Relaxed).unwrap();
-        let moves = pos.legal_moves_slow();
+        let moves = pos.legal_moves();
         assert_eq!(moves.len(), 1);
         assert!(moves[0].is_castle());
     }
@@ -1638,7 +1633,7 @@ mod tests {
     fn castling_attack_test() {
         let fen = "8/8/8/8/8/8/3♚4/♖♔6 b A - 0 1";
         let pos = Board::from_fen(fen, Relaxed).unwrap();
-        let moves = pos.legal_moves_slow();
+        let moves = pos.legal_moves();
         // check that castling moves don't count as attacking squares
         assert!(pos.castling.can_castle(White, Queenside));
         assert_eq!(moves.len(), 6);

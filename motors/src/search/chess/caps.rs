@@ -1043,9 +1043,7 @@ impl Caps {
             if root && self.excluded_moves.contains(&mov) {
                 continue;
             }
-            let Some(new_pos) = pos.make_move(mov) else {
-                continue; // illegal pseudolegal move
-            };
+            let new_pos = pos.play(mov);
             #[cfg(debug_assertions)]
             let debug_history_len = self.params.history.len();
             self.record_move(mov, pos, ply, MainSearch, move_score);
@@ -1416,9 +1414,7 @@ impl Caps {
             if hist_score < MoveScore(-500) {
                 break;
             }
-            let Some(new_pos) = pos.make_move(mov) else {
-                continue;
-            };
+            let new_pos = pos.play(mov);
             // check nodes in qsearch to allow `go nodes n` to go exactly `n` nodes. Do this check here to avoid counting
             // falling into qsearch as two nodes
             if self.count_node_and_test_stop() {
@@ -1761,7 +1757,7 @@ mod tests {
     fn depth_1_nodes_test(engine: &mut dyn Engine<Board>, tt: Option<TT>) {
         for pos in Board::bench_positions() {
             let _ = engine.search_with_tt(pos, SearchLimit::depth_(1), tt.clone().unwrap_or_default());
-            if pos.legal_moves_slow().is_empty() {
+            if pos.legal_moves().is_empty() {
                 continue;
             }
             let mut root_entry = TTEntry::<Board>::default();
@@ -1771,13 +1767,13 @@ mod tests {
                 assert_eq!(root_entry.bound(), Exact);
                 assert!(root_entry.mov(&pos).is_some());
             }
-            let moves = pos.legal_moves_slow();
+            let moves = pos.legal_moves();
             let nodes = engine.search_state_dyn().uci_nodes() as usize;
             let num_moves = moves.len();
             assert!(nodes > num_moves, "{nodes} {num_moves} {pos}"); // > because of extensions and re-searches
             if let Some(tt) = tt.clone() {
                 for m in moves {
-                    let new_pos = pos.make_move(m).unwrap();
+                    let new_pos = pos.play(m);
                     let entry = tt.load::<Board>(new_pos.hash_pos(), 1);
                     let Some(entry) = entry else {
                         continue; // it's possible that a position is not in the TT because qsearch didn't save it

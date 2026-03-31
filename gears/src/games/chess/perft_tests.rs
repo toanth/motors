@@ -136,6 +136,7 @@ mod tests {
             // EP - pinned vertical
             ("k7/8/4r3/3pP3/8/8/8/4K3 w - d6 0 1", vec![1, 5, 70]),
             ("k3K3/8/8/3pP3/8/8/8/4r3 w - d6 0 1", vec![1, 6, 91]),
+            ("br1knbqr/pp2p1pp/1n6/2p5/3pPpP1/2PQ3B/PP1P1P1P/BRNKN2R b HBhb e3 0 11", vec![1, 30, 866]),
             // EP - in check
             ("4k3/8/8/4pP2/3K4/8/8/8 w - e6 0 1", vec![1, 9, 49]),
             ("8/8/8/4k3/5Pp1/8/8/3K4 b - f3 0 1", vec![1, 9, 50]),
@@ -208,6 +209,9 @@ mod tests {
 
     #[test]
     fn perft_dfrc() {
+        let pos = Board::from_fen("1r4kr/8/8/8/8/8/2R5/RK6 w Ah - 2 2", Strict).unwrap();
+        let mov = Move::from_text("0-0-0", &pos);
+        assert!(mov.is_err());
         let tests = [
             ("2r1kr2/8/8/8/8/8/8/1R2K1R1 w GBfc - 0 1", [1, 22, 501, 11459]),
             ("rkr5/8/8/8/8/8/8/5RKR w HFca - 0 1", [1, 22, 442, 10217]),
@@ -219,11 +223,6 @@ mod tests {
             ("4k3/8/8/8/8/8/8/2R1K3 w C - 0 1", [1, 16, 71, 1277]),
             ("2r1k3/8/8/8/8/8/8/4K3 w c - 0 1", [1, 5, 80, 448]),
         ];
-        let pos = Board::from_fen("1r4kr/8/8/8/8/8/2R5/RK6 w Ah - 2 2", Strict).unwrap();
-        let mov = Move::from_text("0-0-0", &pos).unwrap();
-        assert!(pos.is_generated_move_pseudolegal(mov));
-        assert!(!pos.is_pseudolegal_move_legal(mov));
-
         for (fen, results) in tests {
             let pos = Board::from_fen(fen, Relaxed).unwrap();
             for (idx, &expected) in results.iter().enumerate() {
@@ -338,7 +337,7 @@ mod tests {
                             assert_eq!(strictness, Relaxed);
                             assert!(Board::from_fen(expected.fen, Strict).is_err());
                             assert!(board.pseudolegal_moves().iter().any(|m| m.is_ep()));
-                            assert!(!board.legal_moves_slow().iter().any(|m| m.is_ep()));
+                            assert!(!board.legal_moves().iter().any(|m| m.is_ep()));
                         }
                         for (depth, expected_count) in
                             expected.res.iter().enumerate().filter(|(_depth, x)| **x != INVALID)

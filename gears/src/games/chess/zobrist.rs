@@ -150,15 +150,15 @@ mod tests {
         let hash = position.hash_pos();
         let mut hashes = HashMap::new();
         let mut collisions = HashMap::new();
-        for mov in position.legal_moves_slow() {
-            let new_board = position.make_move(mov).unwrap();
+        for mov in position.legal_moves() {
+            let new_board = position.play(mov);
             assert_ne!(new_board.hash_pos(), hash);
             let previous = hashes.insert(new_board.hash_pos().0, new_board);
             assert!(previous.is_none());
             let different_bits = (new_board.hash_pos().0 ^ hash.0).count_ones();
             assert!((16..=48).contains(&different_bits));
             for mov in new_board.legal_moves_slow() {
-                let new_board = new_board.make_move(mov).unwrap();
+                let new_board = new_board.play(mov);
                 let previous = hashes.insert(new_board.hash_pos().0, new_board);
                 if let Some(old_board) = previous {
                     println!(
@@ -187,7 +187,7 @@ mod tests {
             Square::from_rank_file(3, E_FILE_NUM),
             MoveFlags::NormalMove,
         );
-        let new_pos = position.make_move(mov).unwrap();
+        let new_pos = position.play(mov);
         assert_eq!(new_pos.hashes, new_pos.compute_zobrist());
         assert_eq!(new_pos.ep_square, Some(Square::from_str("e3").unwrap()));
         let ep_move = Move::new(
@@ -195,7 +195,7 @@ mod tests {
             Square::from_rank_file(2, E_FILE_NUM),
             MoveFlags::EnPassant,
         );
-        let after_ep = new_pos.make_move(ep_move).unwrap();
+        let after_ep = new_pos.play(ep_move);
         assert_eq!(after_ep.hashes, after_ep.compute_zobrist());
     }
 
@@ -203,9 +203,7 @@ mod tests {
     fn zobrist_after_move_test() {
         for pos in Board::bench_positions() {
             for m in pos.pseudolegal_moves() {
-                let Some(new_pos) = pos.make_move(m) else {
-                    continue;
-                };
+                let new_pos = pos.play(m);
                 assert!(new_pos.debug_verify_invariants(Strict).is_ok(), "{pos} {}", m.compact_formatter(&pos));
                 if !(m.is_capture(&pos)
                     || m.is_promotion()

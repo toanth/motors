@@ -31,7 +31,7 @@ fuzz_target!(|data: &str| {
     };
     for line in lines {
         if let Ok(mov) = Move::from_text(line, &pos) {
-            pos = pos.make_move(mov).unwrap_or(pos);
+            pos = pos.play(mov);
         }
     }
     _ = pos.debug_verify_invariants(Relaxed).unwrap();

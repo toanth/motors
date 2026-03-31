@@ -519,7 +519,7 @@ mod tests {
         let mut parser: PgnParser<'_, Board> = PgnParser::new(pgn);
         let data = parser.parse(Relaxed).unwrap();
         let pos = Board::default();
-        let pos = pos.make_move(Move::from_text("e4", &pos).unwrap()).unwrap();
+        let pos = pos.play(Move::from_text("e4", &pos).unwrap());
         assert_eq!(data.game.pos_before_moves, Board::default());
         assert_eq!(data.game.mov_hist.len(), 1);
         assert_eq!(data.game.board, pos);
@@ -534,8 +534,8 @@ mod tests {
 
         let data = parser.parse(Relaxed).unwrap();
         let pos = Board::default();
-        let pos = pos.make_move(Move::from_text("e4", &pos).unwrap()).unwrap();
-        let pos = pos.make_move(Move::from_text("d5", &pos).unwrap()).unwrap();
+        let pos = pos.play(Move::from_text("e4", &pos).unwrap());
+        let pos = pos.play(Move::from_text("d5", &pos).unwrap());
         assert_eq!(data.game.mov_hist.len(), 2);
         assert_eq!(data.game.pos_before_moves, Board::default());
         assert_eq!(data.game.board, pos);
@@ -610,7 +610,7 @@ Nf2 42.g4 Bd3 43.Re6 1/2-1/2"#;
         assert_ne!(info.game.pos_before_moves, Board::default());
         assert_eq!(
             info.game.pos_before_moves,
-            Board::default().make_move(Move::from_text("e4", &Board::default()).unwrap()).unwrap()
+            Board::default().play(Move::from_text("e4", &Board::default()).unwrap())
         );
         assert_eq!(info.game.mov_hist.len(), 19 * 2 - 1 - 1);
         assert_eq!(

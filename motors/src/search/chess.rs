@@ -258,13 +258,13 @@ mod tests {
         for _ in 0..2 {
             for mov in movelist {
                 let mov = Move::from_extended_text(mov, &board).unwrap();
-                board = board.make_move(mov).unwrap();
+                board = board.play(mov);
                 assert!(board.player_result_slow(&hist).is_none());
                 hist.push(board.hash_pos());
             }
         }
         let mov = Move::from_extended_text(movelist[0], &board).unwrap();
-        let new_board = board.make_move(mov).unwrap();
+        let new_board = board.play(mov);
         assert!(new_board.is_in_check());
         assert!(new_board.is_3fold_repetition(&hist));
         assert!(new_board.player_result_slow(&hist).is_some_and(|r| r == Draw));

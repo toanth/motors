@@ -940,6 +940,7 @@ impl BoardTrait for Board {
         moves.contains(&mov)
     }
 
+    // TODO: Maybe we can use the fact that some games have an easy way to check for pseudolegal moves
     fn is_pseudolegal_move_legal(&self, mov: Self::Move) -> bool {
         self.clone().make_move(mov).is_some()
     }

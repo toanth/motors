@@ -1,5 +1,4 @@
 use anyhow::{anyhow, bail};
-use std::backtrace::Backtrace;
 use std::fmt;
 use std::fmt::{Debug, Formatter};
 use std::str::FromStr;
@@ -29,7 +28,6 @@ use crate::general::board::{BitboardBoard, BoardHelpers};
 use crate::general::common::Res;
 use crate::general::hq::ChessSliderGenerator;
 use crate::general::moves::ExtendedFormat::Standard;
-use crate::general::moves::Legality::PseudoLegal;
 use crate::general::moves::{ExtendedFormat, Legality, MoveTrait, UntrustedMove};
 use crate::general::squares::RectangularCoordinates;
 
@@ -194,7 +192,7 @@ impl MoveTrait<Board> for Move {
 
     #[inline]
     fn legality(_: &Settings) -> Legality {
-        PseudoLegal
+        Legality::Legal
     }
 
     #[inline]
@@ -271,13 +269,7 @@ impl MoveTrait<Board> for Move {
         all_legals: Option<&[Move]>,
     ) -> fmt::Result {
         let add_check_mate_suffix = |f: &mut Formatter| {
-            let Some(board) = board.make_move(self) else {
-                panic!(
-                    "Internal error, tried to play '{0}' in '{board}':'n{1}",
-                    self.compact_formatter(board),
-                    Backtrace::force_capture()
-                );
-            };
+            let board = board.play(self);
             if board.is_checkmate_slow() {
                 write!(f, "#")?;
             } else if board.is_in_check() {
@@ -301,7 +293,7 @@ impl MoveTrait<Board> for Move {
         let moves = if let Some(moves) = all_legals {
             moves.iter().filter(matches).copied().collect_vec()
         } else {
-            board.legal_moves_slow().iter().filter(matches).copied().collect_vec()
+            board.legal_moves().iter().filter(matches).copied().collect_vec()
         };
         if moves.is_empty() {
             return write!(f, "<Illegal move {}>", self.compact_formatter(board));
@@ -457,11 +449,10 @@ impl Board {
         self.hash_pos() ^ delta ^ ZOBRIST_KEYS.side_to_move_key
     }
 
-    /// Is only ever called on a copy of the board, so no need to undo the changes when a move gets aborted due to pseudo-legality.
     #[allow(clippy::too_many_lines)]
-    pub(super) fn make_move_impl(mut self, mov: Move) -> Self {
+    pub fn play(mut self, mov: Move) -> Self {
+        debug_assert!(self.is_move_legal_impl(mov), "{self} {mov:?}");
         let piece = mov.piece_type(&self);
-        debug_assert_eq!(piece, self.piece_type_on(mov.src_square()));
         let us = self.active;
         let them = us.other();
         let from = mov.src_square();
@@ -474,7 +465,6 @@ impl Board {
         self.ep_square = None;
         if mov.is_non_ep_capture(&self) {
             let captured = self.piece_type_on(to);
-            assert!(self.colored_piece_on(to).color().is_some(), "{to} {self} {mov:?} {captured}");
             debug_assert_eq!(self.colored_piece_on(to).color().unwrap(), them, "{self} {mov:?} {captured}");
             debug_assert_ne!(captured, King);
             self.remove_piece_impl(to, captured, them);
@@ -556,7 +546,7 @@ impl Board {
         self
     }
 
-    /// Called at the end of [`Self::make_nullmove`] and [`Self::make_move`].
+    /// Called at the end of [`Self::make_nullmove`] and [`Self::play`].
     pub(super) fn flip_side_to_move(&mut self) {
         self.ply += 1;
         debug_assert!(!self.is_in_check_on_square(self.active, self.king_sq(self.active)), "{self}");
@@ -1232,7 +1222,7 @@ mod tests {
         {
             let pos = pos.make_move_from_str("Rb8").unwrap();
             assert!(pos.checkers.has_any());
-            assert!(!pos.legal_moves_slow().is_empty());
+            assert!(!pos.legal_moves().is_empty());
         }
         for (input, output) in transformations {
             let mov = Move::from_extended_text(input, &pos).unwrap();
@@ -1328,7 +1318,7 @@ mod tests {
                 let mov = Move::from_text(mov, pos).unwrap();
                 assert!(mov.is_castle());
                 assert!(!mov.is_capture(pos));
-                let _ = pos.make_move(mov).unwrap().debug_verify_invariants(Strict).unwrap();
+                let _ = pos.play(mov).debug_verify_invariants(Strict).unwrap();
                 assert_eq!(pos.piece_type_on(mov.dest_square()), PieceType::Rook);
                 assert_eq!(i != 0, pos.settings.is_set(Settings::dfrc_flag()));
                 assert_eq!(*pos == p, pos.settings.is_set(Settings::shredder_fen_flag()));
@@ -1340,7 +1330,7 @@ mod tests {
         let mov = Move::from_text("0-0", &pos).unwrap();
         assert_eq!(mov.extended_formatter(&pos, Standard, None).to_string(), "O-O+");
         let castling = |pos: Board| {
-            pos.legal_moves_slow()
+            pos.legal_moves()
                 .iter()
                 .filter_map(|m| if m.is_castle() { Some(m.compact_formatter(&pos).to_string()) } else { None })
                 .sorted()

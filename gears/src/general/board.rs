@@ -159,7 +159,7 @@ where
 
     /// Verifies that the position is legal. This function is meant to be used in `assert!`s,
     /// for validating input, such as FENs, and for allowing a user to programmatically set up custom positions and then
-    /// verify that they are legal. Iy should not be used for filtering positions after a call to `make_move`
+    /// verify that they are legal. It should not be used for filtering positions after a call to `make_move`
     /// (it should already be ensured through other means that the move results in a legal position or `None`).
     /// If `checks` is `Assertion`, this performs internal validity checks, which is useful for asserting that there are no
     /// bugs in the implementation, but unnecessary if this function is only called to check the validity of a FEN.
