@@ -70,7 +70,7 @@ fn parse_depth(args: &mut ArgIter) -> Res<Option<DepthPly>> {
             if args.peek().is_some_and(|a| a != "default") {
                 return Ok(Some(DepthPly::try_new(get_next_int(args, "depth")?)?));
             }
-        } else if let Ok(val) = parse_int_from_str(next, "bench depth") {
+        } else if let Ok(val) = parse_int_from_str(next, "depth") {
             _ = args.next();
             return Ok(Some(DepthPly::try_new(val)?));
         }
@@ -147,7 +147,7 @@ fn print_help() {
     and `random` sets the engine to be a random mover. Obviously, the engine must be valid for the selected game.\
     \n--{position} sets the position. Accepts the same syntax as UGI commands, e.g. 'position kiwipete' or 'p f <fen> m e2e4'. Ignored for 'bench'.\
     Use quotes around the argument.\
-    \n--{command} makes the engine execute a command immediately\
+    \n--{command} makes the engine execute a command immediately. Use `;` to separate multiple commands, e.g. 'perft 6; quit'\
     \n--{debug} turns on debug mode, which makes the engine continue on errors and log all communications.\
     \n--{ni} makes the engine start in non-interactive mode. Try this if the engine can't be used with a GUI. Setting the NO_COLOR environment variable also does this.\
     \n--{add_outputs} can be used to determine how the engine prints extra information; it's mostly useful for development but can also be used to export PGNs, for example.\

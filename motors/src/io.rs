@@ -427,7 +427,9 @@ impl<B: BoardTrait> EngineUGI<B> {
             res.handle_debug(&mut tokens(""))?;
         }
         if let Some(cmd) = opts.cmd {
-            res.handle_input(&cmd)?;
+            for line in cmd.split(';') {
+                res.handle_input(&line)?;
+            }
         }
         Ok(res)
     }
