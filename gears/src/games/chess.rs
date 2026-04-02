@@ -3,6 +3,7 @@ use crate::PlayerResult::{Draw, Lose};
 use crate::games::chess::Color::{Black, White};
 use crate::games::chess::castling::CastleRight::*;
 use crate::games::chess::castling::{CastleRight, CastlingFlags};
+use crate::games::chess::movegen::CountMoves;
 use crate::games::chess::moves::Move;
 use crate::games::chess::pieces::PieceType::*;
 use crate::games::chess::pieces::{ColoredPieceType, NUM_CHESS_PIECES, Piece, PieceType};
@@ -620,6 +621,12 @@ impl BoardTrait for Board {
 
     fn gen_tactical_pseudolegal(&self, mut callback: impl FnMut(Move)) {
         self.gen_moves::<true>(&mut callback, self.player_bb(self.active.other()))
+    }
+
+    fn num_pseudolegal_moves(&self) -> usize {
+        let mut ctr = 0;
+        self.gen_moves::<false>(&mut CountMoves { ctr: &mut ctr }, !self.player_bb(self.active));
+        ctr
     }
 
     fn has_no_legal_moves(&self) -> bool {

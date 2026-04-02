@@ -5,18 +5,65 @@ use crate::games::chess::moves::MoveFlags::*;
 use crate::games::chess::moves::{Move, MoveFlags};
 use crate::games::chess::pieces::PieceType::*;
 use crate::games::chess::pieces::{ColoredPieceType, PieceType};
-use crate::games::chess::squares::{C_FILE_NUM, ChessboardSize, G_FILE_NUM, Square};
+use crate::games::chess::squares::{ChessboardSize, Square};
 use crate::games::chess::{Board, ChessBitboardTrait, Color, MoveList, PAWN_CAPTURES};
-use crate::games::{BoardTrait, ColorTrait, ColoredPieceTypeTrait, DimT};
+use crate::games::{BoardTrait, ColorTrait, ColoredPieceTypeTrait};
 use crate::general::bitboards::chessboard::{BISHOPS, Bitboard, INFINITE_RAYS, KINGS, KNIGHTS, RAYS_INCLUSIVE, ROOKS};
 use crate::general::bitboards::{BitboardTrait, KnownSizeBitboard, RawBitboardTrait};
 use crate::general::board::BitboardBoard;
 use crate::general::hq::{ChessSliderGenerator, all_bishop_attacks, all_rook_attacks};
 use crate::general::squares::RectangularCoordinates;
 
+pub(super) trait GenMoveCallback {
+    fn gen_move(&mut self, mov: Move);
+
+    fn gen_moves_for(&mut self, from: Square, attacks: Bitboard, flags: MoveFlags) {
+        for to in attacks {
+            self.gen_move(Move::new(from, to, flags));
+        }
+    }
+
+    fn only_count(&self) -> bool {
+        false
+    }
+}
+
+impl<F: FnMut(Move)> GenMoveCallback for F {
+    fn gen_move(&mut self, mov: Move) {
+        self(mov);
+    }
+}
+
+pub(super) struct CountMoves<'a> {
+    pub(super) ctr: &'a mut usize,
+}
+
+impl<'a> GenMoveCallback for CountMoves<'a> {
+    fn gen_move(&mut self, _mov: Move) {
+        *self.ctr += 1;
+    }
+
+    fn gen_moves_for(&mut self, _from: Square, attacks: Bitboard, _flags: MoveFlags) {
+        *self.ctr += attacks.num_ones();
+    }
+
+    fn only_count(&self) -> bool {
+        true
+    }
+}
+
 impl Board {
     pub fn slider_generator(&self) -> ChessSliderGenerator {
         ChessSliderGenerator::new(self.occupied_bb())
+    }
+
+    pub(super) fn pawn_advance_dests(&self) -> Bitboard {
+        let us = self.active;
+        let pawns = self.col_piece_bb(us, Pawn);
+        let empty = self.empty_bb();
+        let res = pawns.pawn_advance(us);
+        let res = res | (res & Bitboard::pawn_ranks() & empty).pawn_advance(us);
+        res & empty
     }
 
     fn single_pawn_moves(color: Color, square: Square, capture_filter: Bitboard, push_filter: Bitboard) -> Bitboard {
@@ -116,127 +163,6 @@ impl Board {
         self.all_attacking(square, slider_gen).intersects(self.player_bb(us.other()))
     }
 
-    /// The core function of legal movegen.
-    pub(super) fn gen_moves<const IS_ONLY_TACTICAL: bool>(
-        &self,
-        callback: &mut impl FnMut(Move),
-        mut filter: Bitboard,
-    ) {
-        let slider_generator = self.slider_generator();
-        self.gen_king_moves(callback, filter, IS_ONLY_TACTICAL);
-        let mut check_ray = !Bitboard::default();
-        match self.checkers.num_ones() {
-            0 => {}
-            1 => {
-                let checker = Square::from_bb_idx(self.checkers().pop_lsb());
-                check_ray = Bitboard::ray_inclusive(self.king_sq(self.active), checker, ChessboardSize::default());
-                filter &= check_ray;
-            }
-            // in a double check, only generate king moves. We support loading FENs with more than 2 checkers.
-            _ => return,
-        }
-        self.gen_slider_moves::<{ Bishop as usize }>(callback, filter, &slider_generator);
-        self.gen_slider_moves::<{ Rook as usize }>(callback, filter, &slider_generator);
-        self.gen_slider_moves::<{ Queen as usize }>(callback, filter, &slider_generator);
-        self.gen_knight_moves(callback, filter);
-        if self.active.is_first() {
-            self.gen_pawn_moves::<IS_ONLY_TACTICAL, true>(callback, check_ray);
-        } else {
-            self.gen_pawn_moves::<IS_ONLY_TACTICAL, false>(callback, check_ray);
-        }
-    }
-
-    fn gen_pawn_moves<const ONLY_TACTICAL: bool, const IS_WHITE: bool>(
-        &self,
-        callback: &mut impl FnMut(Move),
-        filter: Bitboard,
-    ) {
-        debug_assert_eq!(IS_WHITE, self.active == White);
-        let us = if IS_WHITE { White } else { Black };
-        let pawns = self.col_piece_bb(us, Pawn);
-        let free = !self.occupied_bb();
-        let mut free_filter = free & filter;
-        if ONLY_TACTICAL {
-            free_filter &= Bitboard::backranks();
-        }
-        let opponent = self.player_bb(!us) & filter;
-        let regular_pawn_moves;
-        let double_pawn_moves;
-        let left_pawn_captures;
-        let right_pawn_captures;
-        let king_file = Bitboard::file(self.king_sq(us).file());
-        let king_diag = Bitboard::diagonal(self.king_sq(us));
-        let king_anti_diag = Bitboard::anti_diagonal(self.king_sq(us));
-        let normal_non_pinned = pawns & (!self.pinned | king_file);
-        let diag_non_pinned = pawns & (!self.pinned | king_diag);
-        let anti_diag_non_pinned = pawns & (!self.pinned | king_anti_diag);
-        if IS_WHITE {
-            regular_pawn_moves = (normal_non_pinned.north() & free_filter, 8);
-            double_pawn_moves = (((normal_non_pinned & Bitboard::rank(1)) << 16) & free.north() & free_filter, 16);
-            right_pawn_captures = (diag_non_pinned.north_east() & opponent, 9);
-            left_pawn_captures = (anti_diag_non_pinned.north_west() & opponent, 7);
-        } else {
-            regular_pawn_moves = (normal_non_pinned.south() & free_filter, -8);
-            double_pawn_moves = (((normal_non_pinned & Bitboard::rank(6)) >> 16) & free.south() & free_filter, -16);
-            right_pawn_captures = (diag_non_pinned.south_west() & opponent, -9);
-            left_pawn_captures = (anti_diag_non_pinned.south_east() & opponent, -7);
-        }
-        if let Some(ep) = self.ep_square
-            && filter.intersects(ep.bb().pawn_advance(!us))
-        {
-            for from in ep.bb().pawn_attacks(!us) & pawns {
-                if !self.pinned.has(from) || Bitboard::new(INFINITE_RAYS[self.king_sq(us)][from]).has(ep) {
-                    callback(Move::new(from, ep, EnPassant));
-                }
-            }
-        }
-        for (bb, offset) in [right_pawn_captures, left_pawn_captures] {
-            for to in bb & Bitboard::backranks() {
-                let from = Square::from_bb_idx((to.as_u8() as isize - offset) as usize);
-                callback(Move::new(from, to, PromoQueen));
-                callback(Move::new(from, to, PromoKnight));
-                // even a capturing rook or bishop promo is not considered tactical
-                if !ONLY_TACTICAL {
-                    callback(Move::new(from, to, PromoRook));
-                    callback(Move::new(from, to, PromoBishop));
-                }
-            }
-            for to in bb & !Bitboard::backranks() {
-                let from = Square::from_bb_idx((to.as_u8() as isize - offset) as usize);
-                callback(Move::new(from, to, NormalMove));
-            }
-        }
-        let bb = regular_pawn_moves.0;
-        for to in bb & Bitboard::backranks() {
-            let from = Square::from_bb_idx((to.as_u8() as isize - regular_pawn_moves.1) as usize);
-            callback(Move::new(from, to, PromoQueen));
-            callback(Move::new(from, to, PromoKnight));
-            if !ONLY_TACTICAL {
-                callback(Move::new(from, to, PromoRook));
-                callback(Move::new(from, to, PromoBishop));
-            }
-        }
-        if !ONLY_TACTICAL {
-            for to in bb & !Bitboard::backranks() {
-                let from = Square::from_bb_idx((to.as_u8() as isize - regular_pawn_moves.1) as usize);
-                callback(Move::new(from, to, NormalMove));
-            }
-            for to in double_pawn_moves.0 {
-                let from = Square::from_bb_idx((to.as_u8() as isize - double_pawn_moves.1) as usize);
-                callback(Move::new(from, to, NormalMove));
-            }
-        }
-    }
-
-    pub(super) fn pawn_advance_dests(&self) -> Bitboard {
-        let us = self.active;
-        let pawns = self.col_piece_bb(us, Pawn);
-        let empty = self.empty_bb();
-        let res = pawns.pawn_advance(us);
-        let res = res | (res & Bitboard::pawn_ranks() & empty).pawn_advance(us);
-        res & empty
-    }
-
     fn is_castling_legal(&self, side: CastleRight) -> bool {
         let color = self.active;
         if !self.castling.can_castle(color, side) || self.checkers.has_any() {
@@ -306,41 +232,158 @@ impl Board {
         !king_free_bb.intersects(self.threats) && !self.pinned.has(rook)
     }
 
-    fn gen_king_moves(&self, callback: &mut impl FnMut(Move), filter: Bitboard, only_captures: bool) {
+    /// The core function of legal movegen.
+    pub(super) fn gen_moves<const IS_ONLY_TACTICAL: bool>(
+        &self,
+        callback: &mut impl GenMoveCallback,
+        mut filter: Bitboard,
+    ) {
+        let slider_generator = self.slider_generator();
+        self.gen_king_moves(callback, filter, IS_ONLY_TACTICAL);
+        let mut check_ray = !Bitboard::default();
+        match self.checkers.num_ones() {
+            0 => {}
+            1 => {
+                let checker = Square::from_bb_idx(self.checkers().pop_lsb());
+                check_ray = Bitboard::ray_inclusive(self.king_sq(self.active), checker, ChessboardSize::default());
+                filter &= check_ray;
+            }
+            // in a double check, only generate king moves. We support loading FENs with more than 2 checkers.
+            _ => return,
+        }
+        self.gen_slider_moves::<{ Bishop as usize }>(callback, filter, &slider_generator);
+        self.gen_slider_moves::<{ Rook as usize }>(callback, filter, &slider_generator);
+        self.gen_slider_moves::<{ Queen as usize }>(callback, filter, &slider_generator);
+        self.gen_knight_moves(callback, filter);
+        if self.active.is_first() {
+            self.gen_pawn_moves::<IS_ONLY_TACTICAL, true>(callback, check_ray);
+        } else {
+            self.gen_pawn_moves::<IS_ONLY_TACTICAL, false>(callback, check_ray);
+        }
+    }
+
+    fn gen_pawn_moves<const ONLY_TACTICAL: bool, const IS_WHITE: bool>(
+        &self,
+        callback: &mut impl GenMoveCallback,
+        filter: Bitboard,
+    ) {
+        debug_assert_eq!(IS_WHITE, self.active == White);
+        let us = if IS_WHITE { White } else { Black };
+        let pawns = self.col_piece_bb(us, Pawn);
+        let free = !self.occupied_bb();
+        let mut free_filter = free & filter;
+        if ONLY_TACTICAL {
+            free_filter &= Bitboard::backranks();
+        }
+        let opponent = self.player_bb(!us) & filter;
+        let regular_pawn_moves;
+        let double_pawn_moves;
+        let left_pawn_captures;
+        let right_pawn_captures;
+        let king_file = Bitboard::file(self.king_sq(us).file());
+        let king_diag = Bitboard::diagonal(self.king_sq(us));
+        let king_anti_diag = Bitboard::anti_diagonal(self.king_sq(us));
+        let normal_non_pinned = pawns & (!self.pinned | king_file);
+        let diag_non_pinned = pawns & (!self.pinned | king_diag);
+        let anti_diag_non_pinned = pawns & (!self.pinned | king_anti_diag);
+        if IS_WHITE {
+            regular_pawn_moves = (normal_non_pinned.north() & free_filter, 8);
+            double_pawn_moves = (((normal_non_pinned & Bitboard::rank(1)) << 16) & free.north() & free_filter, 16);
+            right_pawn_captures = (diag_non_pinned.north_east() & opponent, 9);
+            left_pawn_captures = (anti_diag_non_pinned.north_west() & opponent, 7);
+        } else {
+            regular_pawn_moves = (normal_non_pinned.south() & free_filter, -8);
+            double_pawn_moves = (((normal_non_pinned & Bitboard::rank(6)) >> 16) & free.south() & free_filter, -16);
+            right_pawn_captures = (diag_non_pinned.south_west() & opponent, -9);
+            left_pawn_captures = (anti_diag_non_pinned.south_east() & opponent, -7);
+        }
+        if let Some(ep) = self.ep_square
+            && filter.intersects(ep.bb().pawn_advance(!us))
+        {
+            for from in ep.bb().pawn_attacks(!us) & pawns {
+                if !self.pinned.has(from) || Bitboard::new(INFINITE_RAYS[self.king_sq(us)][from]).has(ep) {
+                    callback.gen_move(Move::new(from, ep, EnPassant));
+                }
+            }
+        }
+        for (bb, offset) in [right_pawn_captures, left_pawn_captures] {
+            for to in bb & Bitboard::backranks() {
+                let from = Square::from_bb_idx((to.as_u8() as isize - offset) as usize);
+                callback.gen_move(Move::new(from, to, PromoQueen));
+                callback.gen_move(Move::new(from, to, PromoKnight));
+                // even a capturing rook or bishop promo is not considered tactical
+                if !ONLY_TACTICAL {
+                    callback.gen_move(Move::new(from, to, PromoRook));
+                    callback.gen_move(Move::new(from, to, PromoBishop));
+                }
+            }
+            if callback.only_count() {
+                callback.gen_moves_for(Square::no_coordinates_const(), bb & !Bitboard::backranks(), NormalMove);
+            } else {
+                for to in bb & !Bitboard::backranks() {
+                    let from = Square::from_bb_idx((to.as_u8() as isize - offset) as usize);
+                    callback.gen_move(Move::new(from, to, NormalMove));
+                }
+            }
+        }
+        let pawn_push = regular_pawn_moves.0;
+        for to in pawn_push & Bitboard::backranks() {
+            let from = Square::from_bb_idx((to.as_u8() as isize - regular_pawn_moves.1) as usize);
+            callback.gen_move(Move::new(from, to, PromoQueen));
+            callback.gen_move(Move::new(from, to, PromoKnight));
+            if !ONLY_TACTICAL {
+                callback.gen_move(Move::new(from, to, PromoRook));
+                callback.gen_move(Move::new(from, to, PromoBishop));
+            }
+        }
+        if !ONLY_TACTICAL {
+            if callback.only_count() {
+                let bb = (pawn_push & !Bitboard::backranks()) | double_pawn_moves.0;
+                callback.gen_moves_for(Square::no_coordinates_const(), bb, NormalMove);
+            } else {
+                for to in pawn_push & !Bitboard::backranks() {
+                    let from = Square::from_bb_idx((to.as_u8() as isize - regular_pawn_moves.1) as usize);
+                    callback.gen_move(Move::new(from, to, NormalMove));
+                }
+                for to in double_pawn_moves.0 {
+                    let from = Square::from_bb_idx((to.as_u8() as isize - double_pawn_moves.1) as usize);
+                    callback.gen_move(Move::new(from, to, NormalMove));
+                }
+            }
+        }
+    }
+
+    fn gen_king_moves(&self, callback: &mut impl GenMoveCallback, filter: Bitboard, only_captures: bool) {
         let filter = filter & !self.threats;
         let us = self.active;
         let king = self.king_sq(us);
         let attacks = Self::normal_king_attacks_from(king) & filter;
-        for target in attacks {
-            callback(Move::new(king, target, NormalMove));
-        }
+        callback.gen_moves_for(king, attacks, NormalMove);
         if only_captures {
             return;
         }
         // Castling, handling the general (D)FRC case.
         if self.is_castling_legal(Queenside) {
             let rook = self.rook_start_square(us, Queenside);
-            callback(Move::new(king, rook, CastleQueenside));
+            callback.gen_move(Move::new(king, rook, CastleQueenside));
         }
         if self.is_castling_legal(Kingside) {
             let rook = self.rook_start_square(us, Kingside);
-            callback(Move::new(king, rook, CastleKingside));
+            callback.gen_move(Move::new(king, rook, CastleKingside));
         }
     }
 
-    fn gen_knight_moves(&self, callback: &mut impl FnMut(Move), filter: Bitboard) {
+    fn gen_knight_moves(&self, callback: &mut impl GenMoveCallback, filter: Bitboard) {
         let knights = self.col_piece_bb(self.active, Knight) & !self.pinned;
         for from in knights {
             let attacks = Self::knight_attacks_from(from) & filter;
-            for to in attacks {
-                callback(Move::new(from, to, NormalMove));
-            }
+            callback.gen_moves_for(from, attacks, NormalMove);
         }
     }
 
     fn gen_slider_moves<const SLIDER: usize>(
         &self,
-        callback: &mut impl FnMut(Move),
+        callback: &mut impl GenMoveCallback,
         filter: Bitboard,
         generator: &ChessSliderGenerator,
     ) {
@@ -354,21 +397,20 @@ impl Board {
         };
         let color = self.active;
         let pieces = self.col_piece_bb(color, piece);
-        for from in pieces {
-            let filter = if self.pinned.has(from) {
-                filter & Bitboard::new(INFINITE_RAYS[self.king_sq(self.active)][from])
-            } else {
-                filter
-            };
+        let mut gen_attacks = |from: Square, filter: Bitboard| {
             let attacks = match piece {
                 Bishop => generator.bishop_attacks(from),
                 Rook => generator.rook_attacks(from),
                 _ => generator.queen_attacks(from),
             };
-            let attacks = attacks & filter;
-            for to in attacks {
-                callback(Move::new(from, to, NormalMove));
-            }
+            callback.gen_moves_for(from, attacks & filter, NormalMove);
+        };
+        for from in pieces & !self.pinned {
+            gen_attacks(from, filter);
+        }
+        for from in pieces & self.pinned {
+            let filter = filter & Bitboard::new(INFINITE_RAYS[self.king_sq(self.active)][from]);
+            gen_attacks(from, filter);
         }
     }
 
