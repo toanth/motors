@@ -91,7 +91,8 @@ impl ChessSliderGenerator {
     pub fn horizontal_attacks(&self, square: Square) -> Bitboard {
         let idx = square.bb_idx();
         let rank_shift = idx & 0b111_000;
-        let shifted = (self.blockers.bb() >> rank_shift) & (2 * 63);
+        // TODO: Probably better to not use an sse instruction for this; keep a separate blocker bb?
+        let shifted = (self.blockers.bb() >> rank_shift) & 0b0111_1110;
         let res = RANK_LOOKUP[(4 * shifted) as usize + (idx & 0b000_111)] as u64;
         Bitboard::new(res << rank_shift)
     }
@@ -121,6 +122,7 @@ impl ChessSliderGenerator {
         self.vertical_attacks(square) | self.horizontal_attacks(square)
     }
 
+    // TODO: Can probably use 256 bit SIMD to calculate diagonals and anti diagonals in parallel
     pub fn bishop_attacks(&self, square: Square) -> Bitboard {
         let idx = square.bb_idx();
         let res = self.hq(Diagonal, &CHESS_HQ_DATA[idx]) | self.hq(AntiDiagonal, &CHESS_HQ_DATA[idx]);
@@ -293,8 +295,6 @@ impl<'a, C: RectangularCoordinates, B: BitboardTrait<ExtendedRawBitboard, C>> Bi
 pub trait WithRev: Debug + Copy + Clone + BitAnd<Output = Self> + BitOr<Output = Self> + WrappingSub {
     type RawBitboard: RawBitboardTrait;
 
-    fn new(bb: Self::RawBitboard, reversed_bb: Self::RawBitboard) -> Self;
-
     fn bb(&self) -> Self::RawBitboard;
 
     fn rev_bb(&self) -> Self::RawBitboard;
@@ -305,77 +305,188 @@ pub trait WithRev: Debug + Copy + Clone + BitAnd<Output = Self> + BitOr<Output =
     }
 }
 
-// Sometimes (e.g. bishop attack gen), this gets auto vectorized
-#[derive(Debug, Default, Clone, Copy)]
-#[repr(align(16))]
-pub struct U64AndRev([RawStandardBitboard; 2]);
+#[cfg(all(feature = "unsafe", target_arch = "x86_64", target_feature = "sse2"))]
+mod sse2 {
+    use super::*;
+    use std::arch::x86_64::__m128i;
+    #[allow(unused_imports)]
+    use std::arch::x86_64::{
+        _mm_and_si128, _mm_cvtsi128_si64, _mm_or_si128, _mm_set_epi64x, _mm_shuffle_epi8, _mm_sub_epi64, _mm_xor_si128,
+    };
+    use std::mem::transmute;
 
-impl WithRev for U64AndRev {
-    type RawBitboard = RawStandardBitboard;
+    #[derive(Debug, Clone, Copy)]
+    pub struct U64AndRev(__m128i);
 
-    fn new(bb: RawStandardBitboard, reversed: RawStandardBitboard) -> Self {
-        Self([bb, reversed])
+    impl WithRev for U64AndRev {
+        type RawBitboard = RawStandardBitboard;
+
+        #[inline]
+        fn bb(&self) -> RawStandardBitboard {
+            unsafe { _mm_cvtsi128_si64(self.0) as RawStandardBitboard }
+        }
+
+        #[inline]
+        fn rev_bb(&self) -> Self::RawBitboard {
+            unreachable!("Should not need to be called for this implementation")
+        }
+
+        #[cfg(target_feature = "ssse3")]
+        fn finish(&self, _rev: impl FnOnce(Self::RawBitboard) -> Self::RawBitboard) -> Self::RawBitboard {
+            unsafe {
+                let byteswap_reverse = _mm_set_epi64x(i64::MAX, 0x08_09_0a_0b_0c_0d_0e_0f);
+                let reverse = _mm_shuffle_epi8(self.0, byteswap_reverse);
+                let r = _mm_xor_si128(self.0, reverse);
+                _mm_cvtsi128_si64(r) as RawStandardBitboard
+            }
+        }
+
+        #[cfg(not(target_feature = "ssse3"))]
+        fn finish(&self, rev: impl FnOnce(Self::RawBitboard) -> Self::RawBitboard) -> Self::RawBitboard {
+            // SAFETY: alignment isn't a concern for transmute
+            unsafe {
+                let [bb, reversed] = transmute(self.0);
+                bb ^ rev(reversed)
+            }
+        }
     }
 
-    #[inline]
-    fn bb(&self) -> RawStandardBitboard {
-        self.0[0]
+    impl U64AndRev {
+        pub const fn new(bb: RawStandardBitboard, reversed: RawStandardBitboard) -> Self {
+            // unsafe {
+            //     let bb = _mm_cvtsi64_si128(bb as i64);
+            //     let reversed = _mm_cvtsi64_si128(reversed as i64);
+            //     Self(x86_64::_mm_unpacklo_epi64(bb, reversed))
+            // }
+
+            // intrinsics aren't const yet in stable rust
+            // SAFETY: __m128i is simply a "bag of bits" and alignment doesn't matter for transmute
+            unsafe { Self(transmute([bb, reversed])) }
+        }
     }
 
-    #[inline]
-    fn rev_bb(&self) -> Self::RawBitboard {
-        self.0[1]
+    impl Sub for U64AndRev {
+        type Output = Self;
+
+        #[inline]
+        fn sub(self, rhs: Self) -> Self::Output {
+            unsafe { Self(_mm_sub_epi64(self.0, rhs.0)) }
+        }
+    }
+
+    impl WrappingSub for U64AndRev {
+        #[inline]
+        fn wrapping_sub(&self, rhs: &Self) -> Self {
+            unsafe { Self(_mm_sub_epi64(self.0, rhs.0)) }
+        }
+    }
+
+    impl BitXor for U64AndRev {
+        type Output = Self;
+
+        #[inline]
+        fn bitxor(self, rhs: Self) -> Self::Output {
+            unsafe { Self(_mm_xor_si128(self.0, rhs.0)) }
+        }
+    }
+
+    impl BitAnd for U64AndRev {
+        type Output = Self;
+
+        #[inline]
+        fn bitand(self, rhs: Self) -> Self::Output {
+            unsafe { Self(_mm_and_si128(self.0, rhs.0)) }
+        }
+    }
+
+    impl BitOr for U64AndRev {
+        type Output = Self;
+
+        #[inline]
+        fn bitor(self, rhs: Self) -> Self::Output {
+            unsafe { Self(_mm_or_si128(self.0, rhs.0)) }
+        }
     }
 }
 
-impl U64AndRev {
-    pub const fn unreversed(bb: RawStandardBitboard) -> Self {
-        Self([bb, bb])
+mod fallback {
+    use super::*;
+
+    #[derive(Debug, Default, Clone, Copy)]
+    #[repr(align(16))]
+    #[allow(unused)]
+    pub struct U64AndRev([RawStandardBitboard; 2]);
+
+    impl WithRev for U64AndRev {
+        type RawBitboard = RawStandardBitboard;
+
+        #[inline]
+        fn bb(&self) -> RawStandardBitboard {
+            self.0[0]
+        }
+
+        #[inline]
+        fn rev_bb(&self) -> Self::RawBitboard {
+            self.0[1]
+        }
+    }
+
+    impl U64AndRev {
+        #[allow(unused)]
+        pub const fn new(bb: RawStandardBitboard, reversed: RawStandardBitboard) -> Self {
+            Self([bb, reversed])
+        }
+    }
+
+    impl Sub for U64AndRev {
+        type Output = Self;
+
+        #[inline]
+        fn sub(self, rhs: Self) -> Self::Output {
+            Self([self.0[0] - rhs.0[0], self.0[1] - rhs.0[1]])
+        }
+    }
+
+    impl WrappingSub for U64AndRev {
+        #[inline]
+        fn wrapping_sub(&self, v: &Self) -> Self {
+            Self([self.0[0].wrapping_sub(v.0[0]), self.0[1].wrapping_sub(v.0[1])])
+        }
+    }
+
+    impl BitXor for U64AndRev {
+        type Output = Self;
+
+        #[inline]
+        fn bitxor(self, rhs: Self) -> Self::Output {
+            Self([self.0[0] ^ rhs.0[0], self.0[1] ^ rhs.0[1]])
+        }
+    }
+
+    impl BitAnd for U64AndRev {
+        type Output = Self;
+
+        #[inline]
+        fn bitand(self, rhs: Self) -> Self::Output {
+            Self([self.0[0] & rhs.0[0], self.0[1] & rhs.0[1]])
+        }
+    }
+
+    impl BitOr for U64AndRev {
+        type Output = Self;
+
+        #[inline]
+        fn bitor(self, rhs: Self) -> Self::Output {
+            Self([self.0[0] | rhs.0[0], self.0[1] | rhs.0[1]])
+        }
     }
 }
 
-impl Sub for U64AndRev {
-    type Output = Self;
+#[cfg(not(all(feature = "unsafe", target_arch = "x86_64", target_feature = "sse2")))]
+pub type U64AndRev = fallback::U64AndRev;
 
-    #[inline]
-    fn sub(self, rhs: Self) -> Self::Output {
-        Self([self.0[0] - rhs.0[0], self.0[1] - rhs.0[1]])
-    }
-}
-
-impl WrappingSub for U64AndRev {
-    #[inline]
-    fn wrapping_sub(&self, v: &Self) -> Self {
-        Self([self.0[0].wrapping_sub(v.0[0]), self.0[1].wrapping_sub(v.0[1])])
-    }
-}
-
-impl BitXor for U64AndRev {
-    type Output = Self;
-
-    #[inline]
-    fn bitxor(self, rhs: Self) -> Self::Output {
-        Self([self.0[0] ^ rhs.0[0], self.0[1] ^ rhs.0[1]])
-    }
-}
-
-impl BitAnd for U64AndRev {
-    type Output = Self;
-
-    #[inline]
-    fn bitand(self, rhs: Self) -> Self::Output {
-        Self([self.0[0] & rhs.0[0], self.0[1] & rhs.0[1]])
-    }
-}
-
-impl BitOr for U64AndRev {
-    type Output = Self;
-
-    #[inline]
-    fn bitor(self, rhs: Self) -> Self::Output {
-        Self([self.0[0] | rhs.0[0], self.0[1] | rhs.0[1]])
-    }
-}
+#[cfg(all(feature = "unsafe", target_arch = "x86_64", target_feature = "sse2"))]
+pub type U64AndRev = sse2::U64AndRev;
 
 #[derive(Debug, Default, Copy, Clone)]
 pub struct U128AndRev([ExtendedRawBitboard; 2]);
@@ -383,6 +494,10 @@ pub struct U128AndRev([ExtendedRawBitboard; 2]);
 impl U128AndRev {
     const fn bit_reversed(bb: ExtendedRawBitboard) -> Self {
         Self([bb, bb.reverse_bits()])
+    }
+
+    const fn new(bb: ExtendedRawBitboard, reversed_bb: ExtendedRawBitboard) -> Self {
+        Self([bb, reversed_bb])
     }
 }
 
@@ -419,10 +534,6 @@ impl Sub<Self> for U128AndRev {
 impl WithRev for U128AndRev {
     type RawBitboard = ExtendedRawBitboard;
 
-    fn new(bb: Self::RawBitboard, reversed_bb: Self::RawBitboard) -> Self {
-        Self([bb, reversed_bb])
-    }
-
     fn bb(&self) -> Self::RawBitboard {
         self.0[0]
     }
@@ -436,10 +547,10 @@ impl WithRev for U128AndRev {
 /// `static` instead of `const` because it's relatively large and used in multiple places
 #[allow(unused)]
 static CHESS_HQ_DATA: [HqDataByteswap<u64>; 64] = {
-    let zero = HqDataByteswap { square: U64AndRev::unreversed(0), rays: [U64AndRev::unreversed(0); 3] };
+    let zero = HqDataByteswap { square: U64AndRev::new(0, 0), rays: [U64AndRev::new(0, 0); 3] };
     let mut res = [zero; 64];
     const fn byteswapped(bb: RawStandardBitboard) -> U64AndRev {
-        U64AndRev([bb, bb.swap_bytes()])
+        U64AndRev::new(bb, bb.swap_bytes())
     }
     let mut i = 0;
     while i < 64 {

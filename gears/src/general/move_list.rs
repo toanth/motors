@@ -20,7 +20,7 @@ pub trait MoveListTrait<B: BoardTrait>:
 
     fn remove(&mut self, to_remove: B::Move);
 
-    fn filter_moves(&mut self, predicate: impl Fn(&mut B::Move) -> bool);
+    fn filter_moves(&mut self, predicate: impl FnMut(&mut B::Move) -> bool);
 }
 
 #[allow(type_alias_bounds)]
@@ -53,7 +53,7 @@ impl<B: BoardTrait, const N: usize> MoveListTrait<B> for InplaceMoveList<B, N> {
         }
     }
 
-    fn filter_moves(&mut self, predicate: impl Fn(&mut B::Move) -> bool) {
+    fn filter_moves(&mut self, predicate: impl FnMut(&mut B::Move) -> bool) {
         self.retain(predicate)
     }
 }
@@ -84,7 +84,10 @@ impl<B: BoardTrait, const N: usize> MoveListTrait<B> for SboMoveList<B, N> {
         }
     }
 
-    fn filter_moves(&mut self, predicate: impl Fn(&mut B::Move) -> bool) {
-        self.retain(predicate)
+    fn filter_moves(&mut self, mut predicate: impl FnMut(&mut B::Move) -> bool) {
+        self.retain(|m| {
+            let mut m = *m;
+            predicate(&mut m)
+        })
     }
 }

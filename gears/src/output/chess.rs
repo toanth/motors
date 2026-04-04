@@ -83,6 +83,7 @@ pub fn guess_colorgrad_color(color: colored::Color) -> colorgrad::Color {
         colored::Color::White => "white",
         colored::Color::BrightWhite => "grey",
         colored::Color::TrueColor { r, g, b } => return colorgrad::Color::from([r, g, b]),
+        colored::Color::AnsiColor(_) => return colorgrad::Color::default(), // TODO: Guess
     };
     colorgrad::Color::from_html(name).expect("incorrect color name")
 }

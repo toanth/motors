@@ -17,8 +17,18 @@
  */
 
 fn main() {
+    eprintln!("--------------");
+    // print all cargo flags on stderr for debugging.
+    // requires passing `--verbose` / `-v` twice to be shown
+    for (key, value) in std::env::vars() {
+        if key.starts_with("CARGO") {
+            eprintln!("{key}: {value}");
+        }
+    }
+    eprintln!("--------------");
     // disable backtraces in anyhow, which greatly speeds up tests that construct a lot of Errors/
     // panics still print backtraces
+
     println!("cargo:rustc-env=RUST_BACKTRACE=1");
     println!("cargo:rustc-env=RUST_LIB_BACKTRACE=0");
 }

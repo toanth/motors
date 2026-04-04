@@ -364,7 +364,32 @@ pub fn create_match(args: EngineOpts) -> Res<AnyRunnable> {
     }
 }
 
+fn version_string() -> String {
+    let mut res = "Motors-".to_string();
+    res += std::env::consts::ARCH;
+    // currently, we're not using any intrinsics more modern than ssse3 apart from pext/pdep, but in practice most cpus should
+    // support avx2 or even avx512. Rust even enables sse2 by default, so it's unlikely we'll get the -compat case.
+    if cfg!(target_feature = "avx512f") {
+        res += "-avx512"
+    } else if cfg!(target_feature = "avx2") {
+        res += "-avx2"
+    } else if cfg!(target_feature = "avx") {
+        res += "-avx"
+    } else if cfg!(target_feature = "ssse3") {
+        res += "-ssse3"
+    } else if cfg!(target_feature = "sse2") {
+        res += "-sse2";
+    } else {
+        res += "-compat";
+    }
+    if cfg!(debug_assertions) {
+        res += " (debug version)";
+    }
+    res
+}
+
 pub fn run_program_with_args(args: ArgIter) -> Res<()> {
+    println!("{}", version_string());
     let args = parse_cli(args).map_err(|err| anyhow!("Failed to parse command line arguments: {err}"))?;
     let mode = args.mode;
     let mut the_match = create_match(args).map_err(|err| anyhow!("Couldn't start the {mode}: {err}"))?;

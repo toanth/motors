@@ -36,7 +36,7 @@ proof_number = []
 gaps = []
 caps = ["chess"] # enabling the caps feature also enables the chess feature
 statistics = []
-unsafe = []
+unsafe = ["gears/unsafe"]
 fuzzing = []
 spsa = ["unsafe"] # the implementation uses "unsafe"
 
