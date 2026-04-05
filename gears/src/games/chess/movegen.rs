@@ -11,7 +11,7 @@ use crate::games::{BoardTrait, ColorTrait, ColoredPieceTypeTrait};
 use crate::general::bitboards::chessboard::{BISHOPS, Bitboard, INFINITE_RAYS, KINGS, KNIGHTS, RAYS_INCLUSIVE, ROOKS};
 use crate::general::bitboards::{BitboardTrait, KnownSizeBitboard, RawBitboardTrait};
 use crate::general::board::BitboardBoard;
-use crate::general::hq::{ChessSliderGenerator, all_bishop_attacks, all_rook_attacks};
+use crate::general::hq::{ChessSliderGenerator, all_slider_attacks};
 use crate::general::squares::RectangularCoordinates;
 
 pub(super) trait GenMoveCallback {
@@ -488,8 +488,7 @@ impl Board {
         // remove the opponent's king from the blocker bb so that it's easy to test whether a pseudolegal king move is legal:
         // it's legal if the dest square is not threatened (without this trick a move along a checking ray would pass this test)
         let empty = self.empty_bb() | self.col_piece_bb(!player, King);
-        res |= all_rook_attacks(rook_sliders & us, empty);
-        res |= all_bishop_attacks(bishop_sliders & us, empty);
+        res |= all_slider_attacks(bishop_sliders & us, rook_sliders & us, empty);
         res |= self.col_piece_bb(player, Pawn).pawn_attacks(player);
         res
     }

@@ -385,6 +385,9 @@ fn version_string() -> String {
     if cfg!(debug_assertions) {
         res += " (debug version)";
     }
+    if !cfg!(feature = "unsafe") {
+        res += " [unsafe features disabled]";
+    }
     res
 }
 
