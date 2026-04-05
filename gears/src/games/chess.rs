@@ -1132,7 +1132,8 @@ pub trait ChessBitboardTrait: KnownSizeBitboard<RawStandardBitboard, Square> {
         }
     }
 
-    // For attacks of a single pawn, there's a precomputed table
+    // Only considers potential captures, not pushes.
+    // For attacks of a single pawn, there's a precomputed table.
     fn pawn_attacks(self, color: Color) -> Self {
         let advanced = self.pawn_advance(color);
         advanced.east() | advanced.west()

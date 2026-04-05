@@ -28,8 +28,10 @@ use crate::general::bitboards::{
 use crate::general::squares::RectangularCoordinates;
 use crate::general::squares::RectangularSize;
 use num::traits::WrappingSub;
+use std::arch::x86_64::{_mm_slli_epi64, _mm_sllv_epi64, _mm_srlv_epi64};
 use std::fmt::Debug;
 use std::marker::PhantomData;
+use std::mem::transmute;
 use std::ops::{BitAnd, BitOr, BitXor, Sub};
 
 /// See <https://www.chessprogramming.org/SSSE3#SSSE3Version>, peshkov's optimization
@@ -139,6 +141,7 @@ impl ChessSliderGenerator {
     }
 }
 
+#[cfg(not(all(feature = "unsafe", target_arch = "x86_64", target_feature = "sse2")))]
 /// See <https://www.chessprogramming.org/Kogge-Stone_Algorithm>
 pub fn kogge_stone<const DIR: usize>(
     sliders: Bitboard,
@@ -163,6 +166,46 @@ pub fn kogge_stone<const DIR: usize>(
     ((forward << DIR) & fwd_filter) | ((backward >> DIR) & bwd_filter)
 }
 
+#[cfg(all(feature = "unsafe", target_arch = "x86_64", target_feature = "sse2"))]
+/// executes two instances of [`kogge_stone`] in parallel, which means a single call calculates all rook or bishop attacks
+pub fn kogge_stone_pair(
+    sliders: Bitboard,
+    empty: Bitboard,
+    filter1: [Bitboard; 2],
+    filter2: [Bitboard; 2],
+    dir1: usize,
+    dir2: usize,
+) -> Bitboard {
+    unsafe {
+        use sse2::U64X2;
+        let sliders = U64X2::new(sliders.0, sliders.0);
+        let fwd_filters = U64X2::new(filter1[0].0, filter2[0].0);
+        let bwd_filters = U64X2::new(filter1[1].0, filter2[1].0);
+        let empty = U64X2::new(empty.0, empty.0);
+        let mut forward = sliders;
+        let mut backward = sliders;
+        let mut shift = U64X2::new(dir1 as RawStandardBitboard, dir2 as RawStandardBitboard);
+        let shift_once = shift;
+        let mut fwd_allowed;
+        let mut bwd_allowed;
+        fwd_allowed = empty & fwd_filters;
+        bwd_allowed = empty & bwd_filters;
+        forward |= fwd_allowed & (forward << shift);
+        backward |= bwd_allowed & (backward >> shift);
+        for _ in 0..2 {
+            fwd_allowed &= fwd_allowed << shift;
+            bwd_allowed &= bwd_allowed >> shift;
+            shift = U64X2(_mm_slli_epi64::<1>(shift.0));
+            forward |= fwd_allowed & (forward << shift);
+            backward |= bwd_allowed & (backward >> shift);
+        }
+        let res = ((forward << shift_once) & fwd_filters) | ((backward >> shift_once) & bwd_filters);
+        let [a, b]: [RawStandardBitboard; 2] = transmute(res);
+        Bitboard::new(a | b)
+    }
+}
+
+#[cfg(not(all(feature = "unsafe", target_arch = "x86_64", target_feature = "sse2")))]
 pub fn all_rook_attacks(sliders: Bitboard, empty: Bitboard) -> Bitboard {
     let all = Bitboard::new(!0);
     let vertical = kogge_stone::<8>(sliders, empty, all, all);
@@ -170,12 +213,26 @@ pub fn all_rook_attacks(sliders: Bitboard, empty: Bitboard) -> Bitboard {
     horizontal | vertical
 }
 
+#[cfg(all(feature = "unsafe", target_arch = "x86_64", target_feature = "sse2"))]
+pub fn all_rook_attacks(sliders: Bitboard, empty: Bitboard) -> Bitboard {
+    let all = Bitboard::new(!0);
+    kogge_stone_pair(sliders, empty, [all, all], [!Bitboard::file_0(), !Bitboard::file(7)], 8, 1)
+}
+
+#[cfg(not(all(feature = "unsafe", target_arch = "x86_64", target_feature = "sse2")))]
 pub fn all_bishop_attacks(sliders: Bitboard, empty: Bitboard) -> Bitboard {
     let not_a_file = !Bitboard::file_0();
     let not_h_file = !Bitboard::file(7);
     let diagonal = kogge_stone::<9>(sliders, empty, not_a_file, not_h_file);
     let anti_diagonal = kogge_stone::<7>(sliders, empty, not_h_file, not_a_file);
     diagonal | anti_diagonal
+}
+
+#[cfg(all(feature = "unsafe", target_arch = "x86_64", target_feature = "sse2"))]
+pub fn all_bishop_attacks(sliders: Bitboard, empty: Bitboard) -> Bitboard {
+    let not_a_file = !Bitboard::file_0();
+    let not_h_file = !Bitboard::file(7);
+    kogge_stone_pair(sliders, empty, [not_a_file, not_h_file], [not_h_file, not_a_file], 9, 7)
 }
 
 // Factoring out the similarities with `ChessSliderGenerator` into a trait doesn't really reduce the amount of boilerplate
@@ -314,11 +371,12 @@ mod sse2 {
         _mm_and_si128, _mm_cvtsi128_si64, _mm_or_si128, _mm_set_epi64x, _mm_shuffle_epi8, _mm_sub_epi64, _mm_xor_si128,
     };
     use std::mem::transmute;
+    use std::ops::{BitAndAssign, BitOrAssign, Shl, Shr};
 
     #[derive(Debug, Clone, Copy)]
-    pub struct U64AndRev(__m128i);
+    pub struct U64X2(pub(super) __m128i);
 
-    impl WithRev for U64AndRev {
+    impl WithRev for U64X2 {
         type RawBitboard = RawStandardBitboard;
 
         #[inline]
@@ -351,7 +409,7 @@ mod sse2 {
         }
     }
 
-    impl U64AndRev {
+    impl U64X2 {
         pub const fn new(bb: RawStandardBitboard, reversed: RawStandardBitboard) -> Self {
             // unsafe {
             //     let bb = _mm_cvtsi64_si128(bb as i64);
@@ -365,7 +423,7 @@ mod sse2 {
         }
     }
 
-    impl Sub for U64AndRev {
+    impl Sub for U64X2 {
         type Output = Self;
 
         #[inline]
@@ -374,14 +432,14 @@ mod sse2 {
         }
     }
 
-    impl WrappingSub for U64AndRev {
+    impl WrappingSub for U64X2 {
         #[inline]
         fn wrapping_sub(&self, rhs: &Self) -> Self {
             unsafe { Self(_mm_sub_epi64(self.0, rhs.0)) }
         }
     }
 
-    impl BitXor for U64AndRev {
+    impl BitXor for U64X2 {
         type Output = Self;
 
         #[inline]
@@ -390,7 +448,7 @@ mod sse2 {
         }
     }
 
-    impl BitAnd for U64AndRev {
+    impl BitAnd for U64X2 {
         type Output = Self;
 
         #[inline]
@@ -399,12 +457,40 @@ mod sse2 {
         }
     }
 
-    impl BitOr for U64AndRev {
+    impl BitAndAssign for U64X2 {
+        fn bitand_assign(&mut self, rhs: Self) {
+            *self = *self & rhs;
+        }
+    }
+
+    impl BitOr for U64X2 {
         type Output = Self;
 
         #[inline]
         fn bitor(self, rhs: Self) -> Self::Output {
             unsafe { Self(_mm_or_si128(self.0, rhs.0)) }
+        }
+    }
+
+    impl BitOrAssign for U64X2 {
+        fn bitor_assign(&mut self, rhs: Self) {
+            *self = *self | rhs;
+        }
+    }
+
+    impl Shl for U64X2 {
+        type Output = Self;
+
+        fn shl(self, rhs: Self) -> Self {
+            unsafe { U64X2(_mm_sllv_epi64(self.0, rhs.0)) }
+        }
+    }
+
+    impl Shr for U64X2 {
+        type Output = Self;
+
+        fn shr(self, rhs: Self) -> Self {
+            unsafe { U64X2(_mm_srlv_epi64(self.0, rhs.0)) }
         }
     }
 }
@@ -486,7 +572,7 @@ mod fallback {
 pub type U64AndRev = fallback::U64AndRev;
 
 #[cfg(all(feature = "unsafe", target_arch = "x86_64", target_feature = "sse2"))]
-pub type U64AndRev = sse2::U64AndRev;
+pub type U64AndRev = sse2::U64X2;
 
 #[derive(Debug, Default, Copy, Clone)]
 pub struct U128AndRev([ExtendedRawBitboard; 2]);
