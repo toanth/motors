@@ -11,7 +11,7 @@ use crate::games::{BoardTrait, ColorTrait, ColoredPieceTypeTrait};
 use crate::general::bitboards::chessboard::{BISHOPS, Bitboard, INFINITE_RAYS, KINGS, KNIGHTS, RAYS_INCLUSIVE, ROOKS};
 use crate::general::bitboards::{BitboardTrait, KnownSizeBitboard, RawBitboardTrait};
 use crate::general::board::BitboardBoard;
-use crate::general::hq::{ChessSliderGenerator, all_slider_attacks};
+use crate::general::hq::{ChessSliderGenerator, all_knight_and_slider_attacks};
 use crate::general::squares::RectangularCoordinates;
 
 pub(super) trait GenMoveCallback {
@@ -478,17 +478,15 @@ impl Board {
     /// Calculate a bitboard of all squares that are attacked by the given player.
     /// This only counts hypothetical captures, so no pawn pushes or castling moves.
     pub(super) fn calc_threats_of(&self, player: Color) -> Bitboard {
-        let mut res = Self::normal_king_attacks_from(self.king_sq(player));
-        for knight in self.col_piece_bb(player, Knight) {
-            res |= Self::knight_attacks_from(knight);
-        }
+        let us = self.player_bb(player);
+        let knights = self.col_piece_bb(player, Knight);
         let bishop_sliders = self.piece_bb(Bishop) | self.piece_bb(Queen);
         let rook_sliders = self.piece_bb(Rook) | self.piece_bb(Queen);
-        let us = self.player_bb(player);
         // remove the opponent's king from the blocker bb so that it's easy to test whether a pseudolegal king move is legal:
         // it's legal if the dest square is not threatened (without this trick a move along a checking ray would pass this test)
         let empty = self.empty_bb() | self.col_piece_bb(!player, King);
-        res |= all_slider_attacks(bishop_sliders & us, rook_sliders & us, empty);
+        let mut res = Self::normal_king_attacks_from(self.king_sq(player));
+        res |= all_knight_and_slider_attacks(knights, bishop_sliders & us, rook_sliders & us, empty);
         res |= self.col_piece_bb(player, Pawn).pawn_attacks(player);
         res
     }
@@ -506,37 +504,26 @@ impl Board {
         let occupied = our_bb | their_bb;
         let rook_sliders = self.piece_bb(Rook) | self.piece_bb(Queen);
         let bishop_sliders = self.piece_bb(Bishop) | self.piece_bb(Queen);
-        let king = self.king_sq(us);
-        self.checkers = ((Self::knight_attacks_from(king) & self.piece_bb(Knight))
-            | Self::single_pawn_captures(us, king) & self.col_piece_bb(!us, Pawn))
+        let our_king = self.king_sq(us);
+        self.checkers = ((Self::knight_attacks_from(our_king) & self.piece_bb(Knight))
+            | Self::single_pawn_captures(us, our_king) & self.piece_bb(Pawn))
             & their_bb;
         self.pinned = Bitboard::default();
-        let mut update = |slider: Square| {
-            let ray = Bitboard::ray_exclusive(slider, king, ChessboardSize::default());
+        for slider in their_bb & ((rook_sliders & ROOKS[our_king]) | (bishop_sliders & BISHOPS[our_king])) {
+            let ray = Bitboard::ray_exclusive(slider, our_king, ChessboardSize::default());
             if !ray.intersects(occupied) {
                 self.checkers |= slider.bb();
             } else if !ray.intersects(their_bb) && (ray & our_bb).is_single_piece() {
                 self.pinned |= ray & our_bb;
             }
-        };
-        for slider in rook_sliders & their_bb & ROOKS[king] {
-            update(slider);
         }
-        for slider in bishop_sliders & their_bb & BISHOPS[king] {
-            update(slider);
-        }
-        let king = self.king_sq(!us);
-        let mut update_our_pinned = |slider: Square| {
-            let ray = Bitboard::ray_exclusive(slider, king, ChessboardSize::default());
+        let their_king = self.king_sq(!us);
+        for slider in our_bb & ((rook_sliders & ROOKS[their_king]) | (bishop_sliders & BISHOPS[their_king])) {
+            let ray = Bitboard::ray_exclusive(slider, their_king, ChessboardSize::default());
+            debug_assert!(ray.intersects(occupied));
             if !ray.intersects(our_bb) && (ray & their_bb).is_single_piece() {
                 self.pinned |= ray & their_bb;
             }
-        };
-        for slider in rook_sliders & our_bb & ROOKS[king] {
-            update_our_pinned(slider);
-        }
-        for slider in bishop_sliders & our_bb & BISHOPS[king] {
-            update_our_pinned(slider);
         }
     }
 

@@ -427,7 +427,10 @@ fn parse_short_promo_piece(s: &str) -> Option<(MoveFlags, usize)> {
 
 impl Board {
     pub fn backrank(color: Color) -> DimT {
-        7 * color as DimT
+        match color {
+            White => 0,
+            Black => 7,
+        }
     }
 
     pub fn rook_start_file(&self, color: Color, side: CastleRight) -> DimT {
@@ -495,7 +498,6 @@ impl Board {
                     debug_assert_eq!(self.colored_piece_on(taken_pawn).symbol, ColoredPieceType::new(them, Pawn));
                     self.remove_piece_impl(taken_pawn, Pawn, them);
                     self.hashes.pawns ^= ZOBRIST_KEYS.piece_key(Pawn, them, taken_pawn);
-                    self.ply_100_ctr = 0;
                 } else if mov.is_promotion() {
                     let piece = mov.flags().promo_piece();
                     let bb = to.bb();
@@ -523,10 +525,12 @@ impl Board {
                 self.hashes.knb ^= hash_delta;
             }
             Rook => {
-                if from == self.rook_start_square(us, Queenside) {
-                    self.castling.unset_castle_right(us, Queenside);
-                } else if from == self.rook_start_square(us, Kingside) {
-                    self.castling.unset_castle_right(us, Kingside);
+                if from.rank() == Self::backrank(us) {
+                    if from.file() == self.rook_start_file(us, Queenside) {
+                        self.castling.unset_castle_right(us, Queenside);
+                    } else if from.file() == self.rook_start_file(us, Kingside) {
+                        self.castling.unset_castle_right(us, Kingside);
+                    }
                 }
             }
             _ => {}
@@ -534,10 +538,12 @@ impl Board {
         if us == White {
             special_hash ^= ZOBRIST_KEYS.side_to_move_key;
         }
-        if to == self.rook_start_square(them, Queenside) {
-            self.castling.unset_castle_right(them, Queenside);
-        } else if to == self.rook_start_square(them, Kingside) {
-            self.castling.unset_castle_right(them, Kingside);
+        if to.rank() == Self::backrank(them) {
+            if to.file() == self.rook_start_file(them, Queenside) {
+                self.castling.unset_castle_right(them, Queenside);
+            } else if to.file() == self.rook_start_file(them, Kingside) {
+                self.castling.unset_castle_right(them, Kingside);
+            }
         }
         special_hash ^= ZOBRIST_KEYS.castle_keys[self.castling.allowed_castling_directions()];
         self.hashes.total = special_hash ^ self.hashes.pawns ^ self.hashes.nonpawns[0] ^ self.hashes.nonpawns[1];

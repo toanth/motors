@@ -21,6 +21,8 @@ use crate::games::chess::squares::Square;
 use crate::general::bitboards::RayDirections::{AntiDiagonal, Diagonal, Horizontal, Vertical};
 #[cfg(feature = "chess")]
 use crate::general::bitboards::chessboard::Bitboard;
+#[allow(unused)]
+use crate::general::bitboards::chessboard::KNIGHTS;
 use crate::general::bitboards::{
     ANTI_DIAGONALS_U64, ANTI_DIAGONALS_U128, BitboardTrait, DIAGONALS_U64, DIAGONALS_U128, ExtendedRawBitboard,
     KnownSizeBitboard, MAX_WIDTH, RawBitboardTrait, RawStandardBitboard, RayDirections, STEPS_U64, STEPS_U128,
@@ -144,7 +146,7 @@ impl ChessSliderGenerator {
 }
 
 #[cfg(not(all(feature = "unsafe", target_arch = "x86_64", target_feature = "sse2")))]
-/// See <https://www.chessprogramming.org/Kogge-Stone_Algorithm>
+/// See <https://www.chessprogramming.org/Kogge-Stone_Algorithm>; calculates all slider attacks along a direction and its reverse
 pub fn kogge_stone<const DIR: usize>(
     sliders: Bitboard,
     empty: Bitboard,
@@ -218,7 +220,7 @@ pub fn kogge_stone_sliders(
     fwd_filters: [Bitboard; 4],
     bwd_filter: [Bitboard; 4],
     dirs: [usize; 4],
-) -> Bitboard {
+) -> U64x4 {
     use std::arch::x86_64::_mm256_slli_epi64;
     unsafe {
         let sliders = U64x4::new([bishop_sliders, bishop_sliders, rook_sliders, rook_sliders]);
@@ -242,9 +244,7 @@ pub fn kogge_stone_sliders(
             forward |= fwd_allowed & (forward << shift);
             backward |= bwd_allowed & (backward >> shift);
         }
-        let res = ((forward << shift_once) & fwd_filters) | ((backward >> shift_once) & bwd_filters);
-        let [rook_fwd, rook_bwd, bishop_fwd, bishop_bwd]: [u64; 4] = transmute(res);
-        Bitboard::new(rook_fwd | rook_bwd | bishop_fwd | bishop_bwd)
+        ((forward << shift_once) & fwd_filters) | ((backward >> shift_once) & bwd_filters)
     }
 }
 
@@ -283,19 +283,61 @@ fn all_bishop_attacks(sliders: Bitboard, empty: Bitboard) -> Bitboard {
 }
 
 #[cfg(not(all(feature = "unsafe", target_arch = "x86_64", target_feature = "avx2")))]
-pub fn all_slider_attacks(bishop_sliders: Bitboard, rook_sliders: Bitboard, empty: Bitboard) -> Bitboard {
-    all_bishop_attacks(bishop_sliders, empty) | all_rook_attacks(rook_sliders, empty)
+pub fn all_knight_and_slider_attacks(
+    knights: Bitboard,
+    bishop_sliders: Bitboard,
+    rook_sliders: Bitboard,
+    empty: Bitboard,
+) -> Bitboard {
+    let mut knight_attacks = Bitboard::default();
+    for knight in knights {
+        knight_attacks |= KNIGHTS[knight];
+    }
+    knight_attacks | all_bishop_attacks(bishop_sliders, empty) | all_rook_attacks(rook_sliders, empty)
 }
 
 #[cfg(all(feature = "unsafe", target_arch = "x86_64", target_feature = "avx2"))]
-pub fn all_slider_attacks(bishop_sliders: Bitboard, rook_sliders: Bitboard, empty: Bitboard) -> Bitboard {
+pub fn all_knight_and_slider_attacks(
+    knights: Bitboard,
+    bishop_sliders: Bitboard,
+    rook_sliders: Bitboard,
+    empty: Bitboard,
+) -> Bitboard {
     let not_a_file = !Bitboard::file_0();
     let not_h_file = !Bitboard::file(7);
     let all = Bitboard::new(!0);
     let fwd_filters = [not_a_file, not_h_file, all, not_a_file];
     let bwd_filters = [not_h_file, not_a_file, all, not_h_file];
     let dirs = [9, 7, 8, 1];
-    kogge_stone_sliders(bishop_sliders, rook_sliders, empty, fwd_filters, bwd_filters, dirs)
+    let knights = all_knight_attacks_avx2(knights);
+    let sliders = kogge_stone_sliders(bishop_sliders, rook_sliders, empty, fwd_filters, bwd_filters, dirs);
+    let res = knights | sliders;
+    unsafe {
+        let [a, b, c, d]: [u64; 4] = transmute(res);
+        Bitboard::new(a | b | c | d)
+    }
+}
+
+#[cfg(all(feature = "unsafe", target_arch = "x86_64", target_feature = "avx2"))]
+#[inline]
+pub fn all_knight_attacks_avx2(knights: Bitboard) -> U64x4 {
+    use std::arch::x86_64::_mm256_setr_epi64x;
+    unsafe {
+        let knights = U64x4::new([knights; 4]);
+        let masks = [
+            !Bitboard::file(0),
+            !(Bitboard::file(0) | Bitboard::file(1)),
+            !Bitboard::file(7),
+            !(Bitboard::file(6) | Bitboard::file(7)),
+        ];
+        let masks = U64x4::new(masks);
+        let knights = knights & masks;
+        let shifts_up = U64x4(_mm256_setr_epi64x(2 * 8 - 1, 8 - 2, 2 * 8 + 1, 8 + 2));
+        let shifts_down = U64x4(_mm256_setr_epi64x(2 * 8 + 1, 8 + 2, 2 * 8 - 1, 8 - 2));
+        let mut res = knights << shifts_up;
+        res |= knights >> shifts_down;
+        res
+    }
 }
 
 // Factoring out the similarities with `ChessSliderGenerator` into a trait doesn't really reduce the amount of boilerplate
@@ -958,8 +1000,22 @@ mod tests {
         let bishops = Bitboard::new(0x420000004);
         let rooks = Bitboard::new(0x2120000000);
         let free = Bitboard::new(0x7f95ffdadf6dfffb);
-        let attacks = all_slider_attacks(bishops, rooks, free);
+        let attacks = all_knight_and_slider_attacks(Bitboard::default(), bishops, rooks, free);
         let expected = Bitboard::new(0x2335abfeff71ab21);
+        assert_eq!(attacks, expected);
+    }
+
+    #[test]
+    fn test_all_knight_attacks() {
+        let empty = Bitboard::default();
+        let knight = Bitboard::new(0x100);
+        let expected = Bitboard::new(0x2040004);
+        let attacks = all_knight_and_slider_attacks(knight, empty, empty, empty);
+        assert_eq!(attacks, expected);
+
+        let knights = Bitboard::new(0x2000008001000200);
+        let expected = Bitboard::new(0xc87204254c0208);
+        let attacks = all_knight_and_slider_attacks(knights, empty, empty, empty);
         assert_eq!(attacks, expected);
     }
 
