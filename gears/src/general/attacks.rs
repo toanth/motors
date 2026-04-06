@@ -18,6 +18,8 @@
 use crate::games::SizeTrait;
 #[cfg(feature = "chess")]
 use crate::games::chess::squares::Square;
+#[cfg(all(feature = "unsafe", target_arch = "x86_64", target_feature = "avx2"))]
+use crate::general::attacks::avx2::U64x4;
 use crate::general::bitboards::RayDirections::{AntiDiagonal, Diagonal, Horizontal, Vertical};
 #[cfg(feature = "chess")]
 use crate::general::bitboards::chessboard::Bitboard;
@@ -27,8 +29,6 @@ use crate::general::bitboards::{
     ANTI_DIAGONALS_U64, ANTI_DIAGONALS_U128, BitboardTrait, DIAGONALS_U64, DIAGONALS_U128, ExtendedRawBitboard,
     KnownSizeBitboard, MAX_WIDTH, RawBitboardTrait, RawStandardBitboard, RayDirections, STEPS_U64, STEPS_U128,
 };
-#[cfg(all(feature = "unsafe", target_arch = "x86_64", target_feature = "avx2"))]
-use crate::general::hq::avx2::U64x4;
 use crate::general::squares::RectangularCoordinates;
 use crate::general::squares::RectangularSize;
 use num::traits::WrappingSub;

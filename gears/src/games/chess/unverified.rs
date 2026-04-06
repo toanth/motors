@@ -23,6 +23,7 @@ use crate::games::chess::pieces::{ColoredPieceType, Piece, PieceType};
 use crate::games::chess::squares::{ChessboardSize, Square};
 use crate::games::chess::{Board, Color, Settings};
 use crate::games::{ColorTrait, ColoredPieceTrait, ColoredPieceTypeTrait, CoordinatesTrait, DimT, PosHash};
+use crate::general::attacks::ChessSliderGenerator;
 use crate::general::bitboards::chessboard::Bitboard;
 use crate::general::bitboards::{BitboardTrait, KnownSizeBitboard, RawBitboardTrait};
 use crate::general::board::SelfChecks::{Assertion, CheckFen};
@@ -31,7 +32,6 @@ use crate::general::board::{
     BitboardBoard, BoardHelpers, BoardTrait, SelfChecks, Strictness, Symmetry, UnverifiedBoardTrait,
 };
 use crate::general::common::{Res, ith_one_u64};
-use crate::general::hq::ChessSliderGenerator;
 use crate::general::squares::RectangularCoordinates;
 use anyhow::{bail, ensure};
 use rand::Rng;

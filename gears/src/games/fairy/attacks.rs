@@ -29,10 +29,10 @@ use crate::games::fairy::{
 use crate::games::{
     AbstractPieceType, ColorTrait, ColoredPieceTrait, ColoredPieceTypeTrait, DimT, NUM_COLORS, SizeTrait, char_to_file,
 };
+use crate::general::attacks::{BitReverseSliderGenerator, hq_right_horizontal_cylinder};
 use crate::general::bitboards::{BitboardTrait, ExtendedRawBitboard, RawBitboardTrait};
 use crate::general::board::{BitboardBoard, BoardHelpers, BoardTrait, PieceTypeOf, Strictness, UnverifiedBoardTrait};
 use crate::general::common::{Res, Tokens};
-use crate::general::hq::{BitReverseSliderGenerator, hq_right_horizontal_cylinder};
 use crate::general::move_list::MoveListTrait;
 use crate::general::squares::{CompactSquare, RectangularCoordinates, RectangularSize};
 use crate::{do_shift, shift_left};

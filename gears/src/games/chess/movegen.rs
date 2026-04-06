@@ -8,10 +8,10 @@ use crate::games::chess::pieces::{ColoredPieceType, PieceType};
 use crate::games::chess::squares::{ChessboardSize, Square};
 use crate::games::chess::{Board, ChessBitboardTrait, Color, MoveList, PAWN_CAPTURES};
 use crate::games::{BoardTrait, ColorTrait, ColoredPieceTypeTrait};
+use crate::general::attacks::{ChessSliderGenerator, all_knight_and_slider_attacks};
 use crate::general::bitboards::chessboard::{BISHOPS, Bitboard, INFINITE_RAYS, KINGS, KNIGHTS, RAYS_INCLUSIVE, ROOKS};
 use crate::general::bitboards::{BitboardTrait, KnownSizeBitboard, RawBitboardTrait};
 use crate::general::board::BitboardBoard;
-use crate::general::hq::{ChessSliderGenerator, all_knight_and_slider_attacks};
 use crate::general::squares::RectangularCoordinates;
 
 pub(super) trait GenMoveCallback {

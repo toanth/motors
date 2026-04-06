@@ -22,11 +22,11 @@ use crate::games::{
     AbstractPieceType, BoardTrait, CharType, ColorTrait, ColoredPieceTrait, ColoredPieceTypeTrait, DimT, NoHistory,
     PosHash, char_to_file, file_to_char,
 };
+use crate::general::attacks::ChessSliderGenerator;
 use crate::general::bitboards::chessboard::{Bitboard, INFINITE_RAYS};
 use crate::general::bitboards::{BitboardTrait, KnownSizeBitboard, RawBitboardTrait};
 use crate::general::board::{BitboardBoard, BoardHelpers};
 use crate::general::common::Res;
-use crate::general::hq::ChessSliderGenerator;
 use crate::general::moves::ExtendedFormat::Standard;
 use crate::general::moves::{ExtendedFormat, Legality, MoveTrait, UntrustedMove};
 use crate::general::squares::RectangularCoordinates;

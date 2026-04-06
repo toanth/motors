@@ -12,6 +12,7 @@ use crate::PlayerResult;
 use crate::PlayerResult::{Draw, Lose};
 use crate::games::mnk::PieceType::{Empty, O, X};
 use crate::games::*;
+use crate::general::attacks::BitReverseSliderGenerator;
 use crate::general::bitboards::{
     BitboardTrait, DynamicallySizedBitboard, ExtendedRawBitboard, MAX_WIDTH, RawBitboardTrait,
 };
@@ -23,7 +24,6 @@ use crate::general::board::{
     simple_fen,
 };
 use crate::general::common::*;
-use crate::general::hq::BitReverseSliderGenerator;
 use crate::general::move_list::InplaceMoveList;
 use crate::general::moves::Legality::Legal;
 use crate::general::moves::{Legality, MoveTrait, UntrustedMove};

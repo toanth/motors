@@ -17,8 +17,8 @@ use std::str::FromStr;
 use strum_macros::EnumIter;
 
 use crate::games::{DimT, KnownSize, SizeTrait};
+use crate::general::attacks::{U64AndRev, U128AndRev, WithRev};
 use crate::general::bitboards::chessboard::{Bitboard, RAYS_EXCLUSIVE, RAYS_INCLUSIVE};
-use crate::general::hq::{U64AndRev, U128AndRev, WithRev};
 use crate::general::squares::{RectangularCoordinates, RectangularSize, SmallGridSize, SmallGridSquare};
 
 /// Remove all `1` bits in `bb` strictly above the given `idx`, where `bb` is the type, like `u64`,

@@ -27,11 +27,11 @@ use crate::games::chess::squares::{
 use crate::games::chess::unverified::UnverifiedBoard;
 use crate::games::chess::{Board, ChessBitboardTrait, Color, EDGE_SQUARES, PAWN_CAPTURES};
 use crate::games::{ColorTrait, ColoredPieceTypeTrait, CoordinatesTrait, DimT, NUM_COLORS};
+use crate::general::attacks::ChessSliderGenerator;
 use crate::general::bitboards::chessboard::{Bitboard, KINGS, KNIGHTS};
 use crate::general::bitboards::{BitboardTrait, KnownSizeBitboard, RawBitboardTrait};
 use crate::general::board::Strictness::Strict;
 use crate::general::board::{BitboardBoard, BoardTrait, SelfChecks, Strictness, UnverifiedBoardTrait};
-use crate::general::hq::ChessSliderGenerator;
 use crate::general::squares::RectangularCoordinates;
 use itertools::Itertools;
 use rayon::iter::IntoParallelIterator;

@@ -5,10 +5,10 @@ use crate::games::chess::pieces::{NUM_CHESS_PIECES, PieceType};
 use crate::games::chess::squares::{ChessboardSize, Square};
 use crate::games::chess::{Board, PAWN_CAPTURES};
 use crate::games::{AbstractPieceType, BoardTrait};
+use crate::general::attacks::ChessSliderGenerator;
 use crate::general::bitboards::chessboard::Bitboard;
 use crate::general::bitboards::{BitboardTrait, KnownSizeBitboard, RawBitboardTrait};
 use crate::general::board::BitboardBoard;
-use crate::general::hq::ChessSliderGenerator;
 use derive_more::{Add, AddAssign, Neg, Sub, SubAssign};
 use std::mem::swap;
 
