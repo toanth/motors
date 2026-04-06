@@ -608,7 +608,9 @@ impl BoardTrait for Board {
 
     // doesn't return pawn pushes and castling moves
     fn attacks_of(&self, sq: Square) -> RawStandardBitboard {
-        self.attacks_of_impl(sq).raw()
+        let piece = self.colored_piece_on(sq).symbol;
+        Self::threatening_attacks(sq, piece.uncolor(), piece.color().unwrap_or_default(), &self.slider_generator())
+            .raw()
     }
 
     fn default_perft_depth(&self) -> DepthPly {

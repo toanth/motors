@@ -477,8 +477,8 @@ impl<B: BoardTrait> EngineUGI<B> {
             let res = handle_ugi_input(self, tokens(&input), &game_name);
             match res {
                 Ok(()) => {
-                    if let Quit(quitting) = &self.state.status {
-                        return *quitting;
+                    if let &Quit(quitting) = &self.state.status {
+                        return quitting;
                     }
                 }
                 Err(err) => {

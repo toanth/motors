@@ -448,18 +448,6 @@ impl Board {
         }
     }
 
-    pub(super) fn attacks_of_impl(&self, sq: Square) -> Bitboard {
-        match self.piece_type_on(sq) {
-            Pawn => PAWN_CAPTURES[self.colored_piece_on(sq).symbol.color().unwrap()][sq],
-            Knight => KNIGHTS[sq],
-            Bishop => self.slider_generator().bishop_attacks(sq),
-            Rook => self.slider_generator().rook_attacks(sq),
-            Queen => self.slider_generator().queen_attacks(sq),
-            King => KINGS[sq],
-            Empty => Bitboard::default(),
-        }
-    }
-
     pub fn all_attacking(&self, square: Square, slider_gen: ChessSliderGenerator) -> Bitboard {
         let rook_sliders = self.piece_bb(Rook) | self.piece_bb(Queen);
         let bishop_sliders = self.piece_bb(Bishop) | self.piece_bb(Queen);

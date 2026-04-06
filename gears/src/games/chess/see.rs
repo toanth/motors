@@ -34,9 +34,8 @@ pub fn piece_see_value(piece: PieceType) -> SeeScore {
 impl Board {
     fn next_see_attacker(&self, our_remaining_attackers: Bitboard) -> Option<(PieceType, Square)> {
         for piece in PieceType::pieces() {
-            let mut current_attackers = self.piece_bb(piece) & our_remaining_attackers;
-            if current_attackers.has_any() {
-                return Some((piece, Square::from_bb_idx(current_attackers.pop_lsb())));
+            if let Some(next) = (self.piece_bb(piece) & our_remaining_attackers).next() {
+                return Some((piece, next));
             };
         }
         None
@@ -61,12 +60,12 @@ impl Board {
             Bitboard::ray_exclusive(square, self.king_sq(White), size),
             Bitboard::ray_exclusive(square, self.king_sq(Black), size),
         ];
-        let mut remaining_attackers = self.all_attacking(square, generator);
+        let mut attackers = self.all_attacking(square, generator);
         // don't consider pinned pieces unless they're moving along the pin ray. Idea from pawnocchio.
-        let pinned =
-            self.pinned & !(self.player_bb(White) & king_rays[White]) & !(self.player_bb(Black) & king_rays[Black]);
-        remaining_attackers &= !pinned;
-        let mut remaining_blockers = self.occupied_bb();
+        let not_pinned =
+            !self.pinned | (self.player_bb(White) & king_rays[White]) | (self.player_bb(Black) & king_rays[Black]);
+        attackers &= not_pinned;
+        let mut blockers = self.occupied_bb();
         let mut their_victim = original_moving_piece;
         let mut eval = SeeScore(0);
         if mov.is_promotion() {
@@ -77,34 +76,30 @@ impl Board {
             let bb = mov.square_of_pawn_taken_by_ep().unwrap().bb();
             debug_assert_eq!(bb & !self.occupied_bb(), Bitboard::default());
             let generator = ChessSliderGenerator::new(self.occupied_bb() ^ bb);
-            remaining_attackers |= generator.vertical_attacks(square) & (self.piece_bb(Rook) | self.piece_bb(Queen));
+            attackers |= generator.vertical_attacks(square) & (self.piece_bb(Rook) | self.piece_bb(Queen));
         }
         if !mov.is_castle() {
             eval += piece_see_value(our_victim)
         };
 
-        // testing if eval - max recapture score was >= beta caused a decently large bench performance regression,
-        // so let's not do that. This also significantly simplifies the code, because the max recapture score can be larger
-        // than the captured piece value in case of promotions.
-
-        let mut see_attack = |attacker: Square, all_remaining_attackers: &mut Bitboard, piece: PieceType| {
+        let mut see_attack = |attacker: Square, remaining_attackers: &mut Bitboard, piece: PieceType| {
             let removed = Bitboard::single_piece(attacker);
-            debug_assert!(removed.intersects(remaining_blockers));
+            debug_assert!(removed.intersects(blockers));
             // `&= !` instead of `^` because in the case of a regular pawn move, the moving pawn wasn't part of the attacker bb.
-            *all_remaining_attackers &= !removed;
-            remaining_blockers ^= removed;
+            *remaining_attackers &= !removed;
+            blockers ^= removed;
             // xrays for sliders
-            let ray_attacks = self.ray_attacks(square, attacker, remaining_blockers) & !pinned;
-            let new_attack = ray_attacks & remaining_blockers;
-            debug_assert!((new_attack & !*all_remaining_attackers).count_ones() <= 1);
-            *all_remaining_attackers |= new_attack;
+            let ray_attacks = self.ray_attacks(square, attacker, blockers) & not_pinned;
+            let new_attack = ray_attacks & blockers;
+            debug_assert!((new_attack & !*remaining_attackers).count_ones() <= 1);
+            *remaining_attackers |= new_attack;
             if piece == Pawn && square.is_backrank() {
                 (piece_see_value(Queen) - piece_see_value(Pawn), Queen)
             } else {
                 (SeeScore(0), piece)
             }
         };
-        _ = see_attack(mov.src_square(), &mut remaining_attackers, original_moving_piece);
+        _ = see_attack(mov.src_square(), &mut attackers, original_moving_piece);
 
         loop {
             us = !us;
@@ -116,11 +111,11 @@ impl Board {
             } else if eval > alpha {
                 alpha = eval;
             }
-            let our_remaining_attackers = remaining_attackers & self.player_bb(us);
-            let Some((piece, attacker_src_square)) = self.next_see_attacker(our_remaining_attackers) else {
+            let our_remaining_attackers = attackers & self.player_bb(us);
+            let Some((piece, src_square)) = self.next_see_attacker(our_remaining_attackers) else {
                 return if us == self.active { eval.max(alpha) } else { -eval.max(alpha) };
             };
-            let (additional_score, piece) = see_attack(attacker_src_square, &mut remaining_attackers, piece);
+            let (additional_score, piece) = see_attack(src_square, &mut attackers, piece);
             eval += piece_see_value(our_victim) + additional_score;
             their_victim = piece;
         }
