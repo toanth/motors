@@ -7,7 +7,7 @@ use crate::games::chess::{Board, PAWN_CAPTURES};
 use crate::games::{AbstractPieceType, BoardTrait};
 use crate::general::attacks::ChessSliderGenerator;
 use crate::general::bitboards::chessboard::Bitboard;
-use crate::general::bitboards::{BitboardTrait, KnownSizeBitboard, RawBitboardTrait};
+use crate::general::bitboards::{BitboardTrait, KnownSizeBitboard};
 use crate::general::board::BitboardBoard;
 use derive_more::{Add, AddAssign, Neg, Sub, SubAssign};
 use std::mem::swap;

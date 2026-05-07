@@ -64,11 +64,10 @@ pub enum Bulkness {
     NoBulk,
 }
 
-fn do_perft<B: BoardTrait>(depth: usize, pos: B, pseudo_bulk: Bulkness) -> u64 {
-    if pseudo_bulk == NoBulk && depth == 0 {
+fn do_perft<B: BoardTrait>(depth: usize, pos: B, pseudo_bulk: Bulkness, parallelize: bool) -> u64 {
+    if depth == 0 {
         return 1;
     }
-    let mut nodes = 0;
     // We don't want to check for all game-over conditions, e.g. chess doesn't care about insufficient material, 50mr, or 3fold repetition.
     // However, some conditions do need to be checked in perft, e.g. mnk winning. This is done here.
     if pos.cannot_call_movegen() {
@@ -78,30 +77,29 @@ fn do_perft<B: BoardTrait>(depth: usize, pos: B, pseudo_bulk: Bulkness) -> u64 {
         return pos.num_legal_moves() as u64;
     }
     let mut has_children = false;
-    pos.gen_pseudolegal(|m| {
-        let Some(new_pos) = pos.clone().make_move(m) else { return };
-        nodes += do_perft(depth - 1, new_pos, pseudo_bulk);
-        has_children = true;
-    });
-    // Unlike the other move generation functions, `gen_pseudolegal` doesn't deal with forced passing moves,
-    // so we have to do that here ourselves
-    if !has_children && pos.no_moves_result().is_none() {
-        nodes += do_perft(depth - 1, pos.make_nullmove().unwrap(), pseudo_bulk);
+    if depth + 2 > pos.default_perft_depth().get() && parallelize {
+        pos.children().par_bridge().map(|pos| do_perft(depth - 1, pos, pseudo_bulk, parallelize)).sum()
+    } else {
+        let mut nodes = 0;
+        pos.gen_pseudolegal(|m| {
+            let Some(new_pos) = pos.clone().make_move(m) else { return };
+            nodes += do_perft(depth - 1, new_pos, pseudo_bulk, parallelize);
+            has_children = true;
+        });
+        // Unlike the other move generation functions, `gen_pseudolegal` doesn't deal with forced passing moves,
+        // so we have to do that here ourselves
+        if !has_children && pos.no_moves_result().is_none() {
+            nodes += do_perft(depth - 1, pos.make_nullmove().unwrap(), pseudo_bulk, parallelize);
+        }
+        nodes
     }
     // no need to handle the case of no legal moves, since `children()` and `num_legal_moves()`
     // already take care of forced passing moves.
-    nodes
 }
 
 pub fn perft<B: BoardTrait>(depth: DepthPly, pos: B, parallelize: bool, pseudo_bulk: Bulkness) -> PerftRes {
     let start = Instant::now();
-    let nodes = if depth.get() == 0 {
-        1
-    } else if depth.get() > 2 && parallelize {
-        pos.children().par_bridge().map(|pos| do_perft(depth.get() - 1, pos, pseudo_bulk)).sum()
-    } else {
-        do_perft(depth.get(), pos, pseudo_bulk)
-    };
+    let nodes = do_perft(depth.get(), pos, pseudo_bulk, parallelize);
     let time = start.elapsed();
 
     PerftRes { time, nodes, depth }
@@ -123,7 +121,8 @@ pub fn split_perft<B: BoardTrait>(
             .collect_vec()
             .par_iter()
             .map(|&mov| {
-                let child_nodes = do_perft(depth.get() - 1, pos.clone().make_move(mov).unwrap(), pseudo_bulk);
+                let child_nodes =
+                    do_perft(depth.get() - 1, pos.clone().make_move(mov).unwrap(), pseudo_bulk, parallelize);
                 (mov, child_nodes)
             })
             .collect_into_vec(&mut children);
@@ -131,7 +130,8 @@ pub fn split_perft<B: BoardTrait>(
     } else {
         for mov in pos.legal_moves_slow() {
             let new_pos = pos.clone().make_move(mov).expect("playing a legal move cannot fail");
-            let child_nodes = if depth.get() == 1 { 1 } else { do_perft(depth.get() - 1, new_pos, pseudo_bulk) };
+            let child_nodes =
+                if depth.get() == 1 { 1 } else { do_perft(depth.get() - 1, new_pos, pseudo_bulk, parallelize) };
             children.push((mov, child_nodes));
             nodes += child_nodes;
         }
