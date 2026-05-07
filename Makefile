@@ -30,6 +30,7 @@ bench: release
 	./caps bench
 
 release:
+	export RUSTFLAGS='-C target-cpu=native' && \
 	cargo build --release --package motors --bin motors
 
 debug:
