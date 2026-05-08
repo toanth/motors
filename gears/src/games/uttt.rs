@@ -549,6 +549,18 @@ impl Board {
         self.open.is_bit_set_at(square.bb_idx())
     }
 
+    pub fn valid_dests_bb(&self) -> RawBitboard {
+        debug_assert!(!self.last_move_won_game());
+        if self.last_move != Move::NULL {
+            let sub_board = self.last_move.dest_square().sub_square();
+            if self.is_sub_board_open(sub_board) {
+                debug_assert!(!self.is_sub_board_won(X, sub_board) && !self.is_sub_board_won(O, sub_board));
+                return self.open & ((Self::SUB_BOARD_MASK as RawBitboard) << (sub_board.bb_idx() * 9));
+            }
+        }
+        self.open_bb()
+    }
+
     pub fn last_move_won_game(&self) -> bool {
         if self.last_move.is_null() {
             false
@@ -1028,7 +1040,13 @@ impl BoardTrait for Board {
             GenericSelect::full("empty", None, "Empty squares", self.all_empty_squares_bb()),
             GenericSelect::full("occupied", None, "Squares that aren't empty", self.occupied_bb()),
             GenericSelect::full("all", None, "All squares", Self::BOARD_BB),
-            GenericSelect::full("can_move_to", Some("open"), "Squares where a stone can be placed", self.open_bb()),
+            GenericSelect::full(
+                "can_move_to",
+                None,
+                "Squares where a stone can be placed right now",
+                self.valid_dests_bb(),
+            ),
+            GenericSelect::full("open", None, "Squares where a stone can still be placed", self.open_bb()),
             GenericSelect::full("closed", None, "Squares in subboards that are closed", closed_subboards),
         ]
     }
