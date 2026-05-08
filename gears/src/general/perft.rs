@@ -1,6 +1,6 @@
 use crate::general::board::{BoardHelpers, BoardTrait};
 use crate::general::moves::MoveTrait;
-use crate::general::perft::Bulkness::{Bulk, NoBulk};
+use crate::general::perft::Bulkness::Bulk;
 use crate::search::DepthPly;
 use colored::Colorize;
 use itertools::Itertools;
@@ -76,10 +76,10 @@ fn do_perft<B: BoardTrait>(depth: usize, pos: B, pseudo_bulk: Bulkness, parallel
     if pseudo_bulk == Bulk && depth == 1 {
         return pos.num_legal_moves() as u64;
     }
-    let mut has_children = false;
     if depth + 2 > pos.default_perft_depth().get() && parallelize {
         pos.children().par_bridge().map(|pos| do_perft(depth - 1, pos, pseudo_bulk, parallelize)).sum()
     } else {
+        let mut has_children = false;
         let mut nodes = 0;
         pos.gen_pseudolegal(|m| {
             let Some(new_pos) = pos.clone().make_move(m) else { return };
@@ -263,6 +263,7 @@ mod tests {
     use super::*;
     use crate::games::{ataxx, chess, fairy, mnk};
     use crate::general::board::Strictness::Strict;
+    use crate::general::perft::Bulkness::NoBulk;
 
     #[test]
     fn all_positions_at_mnk_test() {

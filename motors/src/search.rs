@@ -53,7 +53,7 @@ pub(super) mod tt;
 macro_rules! send_debug_msg {
     ($state: expr, $($args: tt)*) => {
         if $state.should_show_debug_msg() {
-            $state.send_non_ugi(Message::Debug, &format_args!($($args)*))
+            $state.send_non_ugi(gears::output::Message::Debug, &format_args!($($args)*))
         }
     };
 }

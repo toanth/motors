@@ -1,5 +1,8 @@
 use std::cmp::min;
+use std::fmt::Display;
+use std::hash::{Hash, Hasher};
 use std::mem::take;
+use std::ops::{Deref, DerefMut};
 use std::sync::atomic::Ordering::Relaxed;
 use std::time::{Duration, Instant};
 
@@ -14,11 +17,15 @@ use crate::search::move_picker::MovePicker;
 use crate::search::statistics::SearchType;
 use crate::search::statistics::SearchType::{MainSearch, Qsearch};
 use crate::search::tt::{TTEntry, ttc};
-use crate::search::*;
+use crate::search::{
+    AbstractSearchState, CustomInfo, DEFAULT_CHECK_TIME_INTERVAL, Engine, EngineInfo, MoveScore, MoveScorer,
+    NormalEngine, PVData, Pv, SearchStackEntry, SearchState, SearchStateFor,
+};
 use crate::send_debug_msg;
 use gears::PlayerResult;
 use gears::PlayerResult::{Lose, Win};
 use gears::arrayvec::ArrayVec;
+use gears::colored::Colorize;
 use gears::games::chess::bitbase::{Bitbase, PAWN_V_KING_TABLE};
 use gears::games::chess::moves::Move;
 use gears::games::chess::pieces::PieceType::Pawn;
@@ -27,10 +34,10 @@ use gears::games::chess::squares::NUM_SQUARES;
 use gears::games::chess::upcoming_repetition::{UPCOMING_REPETITION_TABLE, UpcomingRepetitionTable};
 use gears::games::chess::zobrist::ZOBRIST_KEYS;
 use gears::games::chess::{Board, Color, MAX_CHESS_MOVES_IN_POS, unverified::UnverifiedBoard};
-use gears::games::{ZobristHistory, n_fold_repetition};
+use gears::games::{BoardHistDyn, ZobristHistory, n_fold_repetition};
 use gears::general::bitboards::RawBitboardTrait;
 use gears::general::board::Strictness::Strict;
-use gears::general::board::{BitboardBoard, UnverifiedBoardTrait};
+use gears::general::board::{BitboardBoard, BoardTrait, UnverifiedBoardTrait};
 use gears::general::common::Description::NoDescription;
 use gears::general::common::{Res, StaticallyNamedEntity, parse_int_from_str, select_name_static};
 use gears::general::move_list::InplaceMoveList;
@@ -39,7 +46,7 @@ use gears::itertools::Itertools;
 use gears::num::traits::WrappingAdd;
 use gears::score::{
     BITBASE_LOSS, BITBASE_WIN, MAX_BETA, MAX_NORMAL_SCORE, MAX_SCORE_LOST, MIN_ALPHA, MIN_NORMAL_SCORE, NO_SCORE_YET,
-    SCORE_LOST, ScoreT, game_result_to_score,
+    SCORE_LOST, SCORE_WON, Score, ScoreT, game_result_to_score,
 };
 use gears::search::NodeType::*;
 use gears::search::*;
@@ -1653,14 +1660,14 @@ mod tests {
     use gears::general::moves::UntrustedMove;
     use gears::search::NodesLimit;
 
+    use super::*;
     use crate::eval::chess::lite::{KingGambot, LiTEval};
     use crate::eval::chess::material_only::MaterialOnlyEval;
     use crate::eval::chess::piston::PistonEval;
     use crate::eval::rand_eval::RandEval;
     use crate::search::generic::gaps::Gaps;
     use crate::search::tests::generic_engine_test;
-
-    use super::*;
+    use crate::search::tt::{Age, TT};
 
     #[test]
     fn mate_in_one_test() {
