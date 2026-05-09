@@ -890,6 +890,13 @@ impl BoardTrait for Board {
         moves
     }
 
+    fn quiet_pseudolegal(&self) -> MoveList {
+        let mut moves = MoveList::new();
+        self.gen_pseudolegal_impl(&mut moves);
+        MoveListTrait::<Board>::filter_moves(&mut moves, |m: &mut Move| !m.is_tactical(self));
+        moves
+    }
+
     fn num_pseudolegal_moves(&self) -> usize {
         let mut ctr = 0;
         self.gen_pseudolegal(|_| ctr += 1);
@@ -913,6 +920,17 @@ impl BoardTrait for Board {
         self.gen_pseudolegal_impl(&mut moves);
         for m in moves {
             if m.is_tactical(self) {
+                callback(m);
+            }
+        }
+    }
+
+    // Implemented by simply filtering all pseudolegal moves
+    fn gen_quiet_pseudolegal(&self, mut callback: impl FnMut(Move)) {
+        let mut moves = MoveList::new();
+        self.gen_pseudolegal_impl(&mut moves);
+        for m in moves {
+            if !m.is_tactical(self) {
                 callback(m);
             }
         }

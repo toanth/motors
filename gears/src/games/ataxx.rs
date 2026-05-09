@@ -355,6 +355,10 @@ impl BoardTrait for Board {
         // currently, no moves are considered tactical
     }
 
+    fn gen_quiet_pseudolegal(&self, callback: impl FnMut(Self::Move)) {
+        self.gen_pseudolegal(callback)
+    }
+
     fn num_pseudolegal_moves(&self) -> usize {
         self.num_moves()
     }

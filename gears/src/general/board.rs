@@ -477,15 +477,27 @@ pub trait BoardTrait:
         moves
     }
 
+    /// Returns a list of pseudo legal moves that are considered "quiet", i.e. not "tactical".
+    fn quiet_pseudolegal(&self) -> Self::MoveList {
+        let mut moves = Self::MoveList::default();
+        self.gen_quiet_pseudolegal(|m| moves.add_move(m));
+        moves
+    }
+
     /// Generate pseudolegal moves and calls the provided callable for each move.
     /// This doesn't handle a forced passing move in case of no legal moves, unlike
     /// [`Self::pseudolegal_moves`]. It should therefore be considered a very low-level function.
     fn gen_pseudolegal(&self, callback: impl FnMut(Self::Move));
 
-    /// Generate moves that are considered "tactical" into the supplied move list.
-    /// Generic over the move list, like [`Self::gen_pseudolegal`].
+    /// Generate moves that are considered "tactical" and calls the provided callable for each move.
     /// Note that some games don't consider any moves tactical, so this function may have no effect.
     fn gen_tactical_pseudolegal(&self, callback: impl FnMut(Self::Move));
+
+    /// Generate moves that are *not* considered "tactical" into the supplied move list.
+    /// Every move is either tactical or quiet, so calling [`Self::gen_tactical_pseudolegal`] and [`Self::gen_quiet_pseudolegal`]
+    /// must result in the same moves as [`Self::gen_pseudolegal`] (but possibly in a different order).
+    /// Many games don't consider any moves tactical, which means this function is the same as `[Self::gen_pseudolegal]`.
+    fn gen_quiet_pseudolegal(&self, callback: impl FnMut(Self::Move));
 
     /// Returns a list of legal moves, that is, moves that can be played using `make_move`
     /// and will not return `None`.

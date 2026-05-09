@@ -3,6 +3,7 @@
 use crate::games::{ColorTrait, ColoredPieceTrait, CoordinatesTrait, PosHash, SizeTrait};
 use crate::general::board::Strictness::{Relaxed, Strict};
 use crate::general::board::{BoardHelpers, BoardTrait, UnverifiedBoardTrait};
+use crate::general::move_list::MoveListTrait;
 use crate::general::moves::ExtendedFormat::{Alternative, Standard};
 use crate::general::moves::Legality::Legal;
 use crate::general::moves::MoveTrait;
@@ -129,7 +130,8 @@ impl<B: BoardTrait> GenericTests<B> {
             for mov in pos.legal_moves_slow() {
                 assert!(pos.is_move_legal(mov));
             }
-            for mov in pos.pseudolegal_moves() {
+            let moves = pos.pseudolegal_moves();
+            for mov in moves.iter_moves() {
                 assert!(pos.is_move_pseudolegal(mov));
                 let new_pos = pos.clone().make_move(mov);
                 assert_eq!(new_pos.is_some(), pos.is_pseudolegal_move_legal(mov));
@@ -156,6 +158,13 @@ impl<B: BoardTrait> GenericTests<B> {
                 assert!(!hashes.contains(&new_pos.hash_pos().0));
                 _ = hashes.insert(new_pos.hash_pos().0);
             }
+            let quiet = pos.quiet_pseudolegal();
+            let tactical = pos.tactical_pseudolegal();
+            let mut moves = moves.iter_moves().collect::<HashSet<_>>();
+            for m in quiet.iter_moves().chain(tactical.iter_moves()) {
+                assert!(moves.remove(&m), "{m:?} {pos}");
+            }
+            assert!(moves.is_empty(), "{pos}\n{moves:?}");
         }
     }
 

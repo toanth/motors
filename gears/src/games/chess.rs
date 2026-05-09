@@ -618,22 +618,27 @@ impl BoardTrait for Board {
     }
 
     fn gen_pseudolegal(&self, mut callback: impl FnMut(Move)) {
-        self.gen_moves::<false>(&mut callback, !self.player_bb(self.active))
+        self.gen_moves::<false, false>(&mut callback, !self.player_bb(self.active))
     }
 
     fn gen_tactical_pseudolegal(&self, mut callback: impl FnMut(Move)) {
-        self.gen_moves::<true>(&mut callback, self.player_bb(self.active.other()))
+        self.gen_moves::<true, false>(&mut callback, self.player_bb(self.active.other()))
+    }
+
+    fn gen_quiet_pseudolegal(&self, mut callback: impl FnMut(Move)) {
+        self.gen_moves::<false, true>(&mut callback, self.empty_bb())
     }
 
     fn num_pseudolegal_moves(&self) -> usize {
         let mut ctr = 0;
-        self.gen_moves::<false>(&mut CountMoves { ctr: &mut ctr }, !self.player_bb(self.active));
+        self.gen_moves::<false, false>(&mut CountMoves { ctr: &mut ctr }, !self.player_bb(self.active));
         ctr
     }
 
     fn has_no_legal_moves(&self) -> bool {
         let us = self.active;
         let king = self.king_sq(us);
+        // TODO: !self.is_in_check() shouldn't be necessary anymore
         if !self.is_in_check()
             && (KINGS[king].intersects(!(self.player_bb(us) | self.threats))
                 || (self.col_piece_bb(us, Pawn) & !self.pinned).pawn_advance(us).intersects(!self.occupied_bb()))

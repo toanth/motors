@@ -655,6 +655,10 @@ impl BoardTrait for Board {
         // currently, no moves are considered tactical
     }
 
+    fn gen_quiet_pseudolegal(&self, callback: impl FnMut(FillSquare)) {
+        self.gen_pseudolegal(callback)
+    }
+
     fn num_pseudolegal_moves(&self) -> usize {
         debug_assert!(!self.last_move_won_game(), "{self}");
         self.empty_bb().num_ones()

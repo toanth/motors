@@ -233,13 +233,13 @@ impl Board {
     }
 
     /// The core function of legal movegen.
-    pub(super) fn gen_moves<const IS_ONLY_TACTICAL: bool>(
+    pub(super) fn gen_moves<const ONLY_TACTICAL: bool, const ONLY_QUIET: bool>(
         &self,
         callback: &mut impl GenMoveCallback,
         mut filter: Bitboard,
     ) {
         let slider_generator = self.slider_generator();
-        self.gen_king_moves(callback, filter, IS_ONLY_TACTICAL);
+        self.gen_king_moves(callback, filter, ONLY_TACTICAL);
         let mut check_ray = !Bitboard::default();
         match self.checkers.num_ones() {
             0 => {}
@@ -256,36 +256,39 @@ impl Board {
         self.gen_slider_moves::<{ Queen as usize }>(callback, filter, &slider_generator);
         self.gen_knight_moves(callback, filter);
         if self.active.is_first() {
-            self.gen_pawn_moves::<IS_ONLY_TACTICAL, true>(callback, check_ray);
+            self.gen_pawn_moves::<ONLY_TACTICAL, ONLY_QUIET, true>(callback, check_ray);
         } else {
-            self.gen_pawn_moves::<IS_ONLY_TACTICAL, false>(callback, check_ray);
+            self.gen_pawn_moves::<ONLY_TACTICAL, ONLY_QUIET, false>(callback, check_ray);
         }
     }
 
-    fn gen_pawn_moves<const ONLY_TACTICAL: bool, const IS_WHITE: bool>(
+    fn gen_pawn_moves<const ONLY_TACTICAL: bool, const ONLY_QUIET: bool, const IS_WHITE: bool>(
         &self,
         callback: &mut impl GenMoveCallback,
-        filter: Bitboard,
+        mut filter: Bitboard,
     ) {
         debug_assert_eq!(IS_WHITE, self.active == White);
+        debug_assert!(!ONLY_QUIET || !ONLY_TACTICAL);
         let us = if IS_WHITE { White } else { Black };
         let pawns = self.col_piece_bb(us, Pawn);
         let free = !self.occupied_bb();
         let mut free_filter = free & filter;
         if ONLY_TACTICAL {
             free_filter &= Bitboard::backranks();
+        } else if ONLY_QUIET {
+            filter |= Bitboard::backranks();
         }
         let opponent = self.player_bb(!us) & filter;
-        let regular_pawn_moves;
-        let double_pawn_moves;
-        let left_pawn_captures;
-        let right_pawn_captures;
         let king_file = Bitboard::file(self.king_sq(us).file());
         let king_diag = Bitboard::diagonal(self.king_sq(us));
         let king_anti_diag = Bitboard::anti_diagonal(self.king_sq(us));
         let normal_non_pinned = pawns & (!self.pinned | king_file);
         let diag_non_pinned = pawns & (!self.pinned | king_diag);
         let anti_diag_non_pinned = pawns & (!self.pinned | king_anti_diag);
+        let regular_pawn_moves;
+        let double_pawn_moves;
+        let left_pawn_captures;
+        let right_pawn_captures;
         if IS_WHITE {
             regular_pawn_moves = (normal_non_pinned.north() & free_filter, 8);
             double_pawn_moves = (((normal_non_pinned & Bitboard::rank(1)) << 16) & free.north() & free_filter, 16);
@@ -297,7 +300,8 @@ impl Board {
             right_pawn_captures = (diag_non_pinned.south_west() & opponent, -9);
             left_pawn_captures = (anti_diag_non_pinned.south_east() & opponent, -7);
         }
-        if let Some(ep) = self.ep_square
+        if !ONLY_QUIET
+            && let Some(ep) = self.ep_square
             && filter.intersects(ep.bb().pawn_advance(!us))
         {
             for from in ep.bb().pawn_attacks(!us) & pawns {
@@ -309,13 +313,18 @@ impl Board {
         for (bb, offset) in [right_pawn_captures, left_pawn_captures] {
             for to in bb & Bitboard::backranks() {
                 let from = Square::from_bb_idx((to.as_u8() as isize - offset) as usize);
-                callback.gen_move(Move::new(from, to, PromoQueen));
-                callback.gen_move(Move::new(from, to, PromoKnight));
+                if !ONLY_QUIET {
+                    callback.gen_move(Move::new(from, to, PromoQueen));
+                    callback.gen_move(Move::new(from, to, PromoKnight));
+                }
                 // even a capturing rook or bishop promo is not considered tactical
                 if !ONLY_TACTICAL {
                     callback.gen_move(Move::new(from, to, PromoRook));
                     callback.gen_move(Move::new(from, to, PromoBishop));
                 }
+            }
+            if ONLY_QUIET {
+                continue;
             }
             if callback.only_count() {
                 callback.gen_moves_for(Square::no_coordinates_const(), bb & !Bitboard::backranks(), NormalMove);
@@ -329,26 +338,29 @@ impl Board {
         let pawn_push = regular_pawn_moves.0;
         for to in pawn_push & Bitboard::backranks() {
             let from = Square::from_bb_idx((to.as_u8() as isize - regular_pawn_moves.1) as usize);
-            callback.gen_move(Move::new(from, to, PromoQueen));
-            callback.gen_move(Move::new(from, to, PromoKnight));
+            if !ONLY_QUIET {
+                callback.gen_move(Move::new(from, to, PromoQueen));
+                callback.gen_move(Move::new(from, to, PromoKnight));
+            }
             if !ONLY_TACTICAL {
                 callback.gen_move(Move::new(from, to, PromoRook));
                 callback.gen_move(Move::new(from, to, PromoBishop));
             }
         }
-        if !ONLY_TACTICAL {
-            if callback.only_count() {
-                let bb = (pawn_push & !Bitboard::backranks()) | double_pawn_moves.0;
-                callback.gen_moves_for(Square::no_coordinates_const(), bb, NormalMove);
-            } else {
-                for to in pawn_push & !Bitboard::backranks() {
-                    let from = Square::from_bb_idx((to.as_u8() as isize - regular_pawn_moves.1) as usize);
-                    callback.gen_move(Move::new(from, to, NormalMove));
-                }
-                for to in double_pawn_moves.0 {
-                    let from = Square::from_bb_idx((to.as_u8() as isize - double_pawn_moves.1) as usize);
-                    callback.gen_move(Move::new(from, to, NormalMove));
-                }
+        if ONLY_TACTICAL {
+            return;
+        }
+        if callback.only_count() {
+            let bb = (pawn_push & !Bitboard::backranks()) | double_pawn_moves.0;
+            callback.gen_moves_for(Square::no_coordinates_const(), bb, NormalMove);
+        } else {
+            for to in pawn_push & !Bitboard::backranks() {
+                let from = Square::from_bb_idx((to.as_u8() as isize - regular_pawn_moves.1) as usize);
+                callback.gen_move(Move::new(from, to, NormalMove));
+            }
+            for to in double_pawn_moves.0 {
+                let from = Square::from_bb_idx((to.as_u8() as isize - double_pawn_moves.1) as usize);
+                callback.gen_move(Move::new(from, to, NormalMove));
             }
         }
     }

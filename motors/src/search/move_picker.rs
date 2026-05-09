@@ -34,13 +34,11 @@ impl<B: BoardTrait> ScoredMove<B> {
     }
 
     pub fn mov(&self) -> B::Move {
-        // self.1
         B::Move::from_u64_unchecked((self.0 & 0xff_ff) as u64).trust_unchecked()
     }
 
     pub fn score(&self) -> MoveScore {
         MoveScore(((self.0 >> 16) as i16).wrapping_add(i16::MIN))
-        // self.0
     }
 }
 
