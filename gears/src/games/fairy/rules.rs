@@ -1168,7 +1168,7 @@ impl RulesBuilder {
         rules.pieces = PieceBuilder::shatranj_pieces();
         let bare_king = NoPiece(PieceCond::NonRoyal, PlayerCond::Active);
         rules.game_end_eager = vec![
-            draw_ctr_chess(100),
+            draw_ctr_chess(140),
             (Repetition(3), Draw),
             (bare_king.clone(), GameEndRes::loss().but(Draw).if_a_move_achieves(bare_king)),
         ];
