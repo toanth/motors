@@ -507,7 +507,7 @@ pub trait NormalEngine<B: BoardTrait>: Engine<B> {
         let limit = self.limit();
         // Do the less expensive checks first to avoid querying the time in each node, but also
         // to ensure the game is reproducible
-        if nodes >= limit.nodes.get() || state.stop_flag() {
+        if nodes >= limit.nodes.get() || (state.stop_flag() && state.atomic().iterations().get() > 1) {
             self.search_state().stop_search();
             return true;
         }
@@ -709,16 +709,19 @@ impl<B: BoardTrait> SearchParams<B> {
         let mut output = data.output.lock().unwrap();
         if res.chosen_move == B::Move::default() {
             let mut rng = StdRng::seed_from_u64(42); // keep everything deterministic
-            let chosen_move = pos.random_legal_move(&mut rng).unwrap_or_default();
-            if chosen_move != B::Move::default() {
-                debug_assert!(pos.is_move_legal(chosen_move), "{} {pos}", chosen_move.compact_formatter(pos));
-                output.write_message(
-                    Warning,
-                    &format_args!("Engine did not return a best move, playing a random move instead"),
-                );
-                *res = SearchResult::<B>::move_only(chosen_move, pos.clone());
+            match pos.random_legal_move(&mut rng) {
+                None => {
+                    output.write_message(Warning, &format_args!("search() called in a position with no legal moves"))
+                }
+                Some(chosen_move) => {
+                    debug_assert!(pos.is_move_legal(chosen_move), "{} {pos}", chosen_move.compact_formatter(pos));
+                    output.write_message(
+                        Warning,
+                        &format_args!("Engine did not return a best move, playing a random move instead"),
+                    );
+                    *res = SearchResult::<B>::move_only(chosen_move, pos.clone());
+                }
             }
-            output.write_message(Warning, &format_args!("search() called in a position with no legal moves"));
         }
         // Do this before setting the searching flag so that we have a result when we claim to have finished.
         // This is useful for being able to unit test search commands through the UCI interface.
