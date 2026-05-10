@@ -638,14 +638,13 @@ impl BoardTrait for Board {
     fn has_no_legal_moves(&self) -> bool {
         let us = self.active;
         let king = self.king_sq(us);
-        // TODO: !self.is_in_check() shouldn't be necessary anymore
-        if !self.is_in_check()
-            && (KINGS[king].intersects(!(self.player_bb(us) | self.threats))
-                || (self.col_piece_bb(us, Pawn) & !self.pinned).pawn_advance(us).intersects(!self.occupied_bb()))
+        if KINGS[king].intersects(!(self.player_bb(us) | self.threats))
+            || (!self.is_in_check()
+                && (self.col_piece_bb(us, Pawn) & !self.pinned).pawn_advance(us).intersects(!self.occupied_bb()))
         {
             // Happy path: There's a square we can move our king to, or we're not in check and can push a non-pinned pawn.
             // So we have at least one legal move and can avoid doing movegen.
-            // In most positions where we're not in check, one of these conditions should be true
+            // In most positions, one of these conditions should be true
             false
         } else {
             self.num_legal_moves() == 0
