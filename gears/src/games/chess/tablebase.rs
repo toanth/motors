@@ -878,8 +878,11 @@ fn value_after<const PAWNS: bool>(
     debug_assert!(p.bbs[i].has(src));
     let mut old_bb = p.bbs[i];
     let unscaled_delta = if t.num_pieces[i] == 1 {
-        let res = dest.bb_idx() as isize - src.bb_idx() as isize;
-        if t.piece_types[i] == WhitePawn { -res } else { res }
+        if t.piece_types[i] != WhitePawn {
+            dest.bb_idx() as isize - src.bb_idx() as isize
+        } else {
+            -8 * (dest.rank() as isize - src.rank() as isize) + (dest.file() as isize - src.file() as isize)
+        }
     } else {
         let mut new_bb = old_bb ^ src.bb() ^ dest.bb();
         if t.piece_types[i] == WhitePawn {
@@ -899,7 +902,7 @@ fn value_after<const PAWNS: bool>(
         debug_assert_eq!(
             new_idx,
             expected,
-            "{delta} {unscaled_delta} {0} {src}{dest} {old_bb} {new_bb} {new_p:?}",
+            "{delta} {unscaled_delta} {0} {i} {src}{dest}\n{p:?}\n{new_p:?} {old_bb} {new_bb}",
             expected - idx
         );
     }
@@ -1849,7 +1852,7 @@ mod tests {
     #[test]
     #[ignore]
     fn piece_vs_2pieces_test() {
-        let t = TableData::<false>::new([[0, 1, 1, 0, 0], [0, 0, 0, 1, 0]]);
+        let t = TableData::<false>::new([[0, 0, 0, 1, 0], [0, 1, 1, 0, 0]]);
         let table = force_dtz_table(t.piece_counts);
         let mut pos = Board::from_fen("8/7r/8/8/8/1KN5/1B6/1k6 b - - 0 1", Strict).unwrap();
         let p = PosIdx::<NO_PAWNS>::from_chessboard(&pos, &t);

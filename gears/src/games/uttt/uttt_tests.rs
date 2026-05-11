@@ -20,6 +20,7 @@ use crate::games::uttt::Color::*;
 use crate::games::uttt::ColoredPieceType::{OStone, XStone};
 use crate::games::uttt::uttt_square::Square;
 use crate::games::uttt::{Board, Move, SubSquare, UnverifiedBoard};
+use crate::general::bitboards::RawBitboardTrait;
 use crate::general::board::Strictness::Strict;
 use crate::general::board::{BoardHelpers, BoardTrait, UnverifiedBoardTrait};
 use crate::general::perft::Bulkness::Bulk;
@@ -87,4 +88,9 @@ fn sub_board_won_test() {
     let pos = pos.remove_piece(Square::new(sub_board, SubSquare::unchecked(3))).unwrap().verify(Strict).unwrap();
     assert!(!pos.is_sub_board_won(X, sub_board));
     assert!(pos.is_sub_board_open(sub_board));
+    for sq in pos.all_empty_squares_bb().one_indices() {
+        let sq = Square::from_bb_idx(sq);
+        let mov = Move(sq);
+        assert_eq!(pos.is_move_pseudolegal(mov), pos.is_sub_board_open(sq.sub_board()));
+    }
 }
