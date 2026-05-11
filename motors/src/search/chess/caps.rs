@@ -882,7 +882,7 @@ impl Caps {
             }
 
             if depth <= cc::rfp_max_depth() && eval >= beta + Score(margin) {
-                return Some(eval);
+                return Some((eval * 3 + beta) / 4);
             }
 
             // Razoring. If the position appears hopeless, drop into qsearch immediately.

@@ -352,7 +352,7 @@ mod tests {
                 pv_data[1].pv.list.first() == Some(&second_best_move),
                 pv_data[1].score == game_result_to_score(Win, 3)
             );
-            assert!(pv_data[2].score >= Score(1000));
+            assert!(pv_data[2].score >= Score(700));
             assert!(!pv_data[2].pv.list.is_empty());
         }
     }
