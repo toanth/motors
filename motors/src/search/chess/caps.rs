@@ -882,6 +882,8 @@ impl Caps {
             }
 
             if depth <= cc::rfp_max_depth() && eval >= beta + Score(margin) {
+                // fail firm:  Interpolate between the static eval and beta because we don't trust the static eval enough
+                // and we can also assume scores to be somewhat close to (alpha, beta).
                 return Some((eval * 3 + beta) / 4);
             }
 
@@ -1001,9 +1003,8 @@ impl Caps {
             let mov = sm.mov();
             let move_score = sm.score();
             self.tt().prefetch(pos.approx_hash_after(mov));
+            // Move loop pruning: At lower depths, don't even look at all the moves.
             if best_score > MAX_SCORE_LOST && !in_check && !root {
-                // LMP (Late Move Pruning): Trust the move ordering and assume that moves ordered late aren't very interesting,
-                // so don't even bother looking at them in the last few layers.
                 // FP (Futility Pruning): If eval is far below alpha,
                 // then it's unlikely that a quiet move can raise alpha: We've probably blundered at some prior point in search,
                 // so cut our losses and return. This has the potential of missing sacrificing mate combinations, though.
@@ -1012,19 +1013,22 @@ impl Caps {
                 } else {
                     cc::fp_base() + cc::fp_scale() * depth
                 } / 1024;
+                if depth <= cc::max_fp_depth() && eval + Score(fp_margin as ScoreT) < alpha && move_score < KILLER_SCORE
+                {
+                    break;
+                }
+                // LMP (Late Move Pruning): Trust the move ordering and assume that moves ordered late aren't very interesting,
+                // so don't even bother looking at them in the last few layers.
                 let mut lmp_threshold = if we_blundered {
-                    cc::lmp_blunder_base() + cc::lmp_blunder_scale() * depth
+                    cc::lmp_blunder_base() + cc::lmp_blunder_scale() * depth * depth / 128
                 } else {
-                    cc::lmp_base() + cc::lmp_scale() * depth
+                    cc::lmp_base() + cc::lmp_scale() * depth * depth / 128
                 } / 1024;
                 // LMP faster if we expect to fail low anyway
                 if expected_node_type == FailLow {
                     lmp_threshold -= lmp_threshold / cc::lmp_fail_low_div();
                 }
-                if depth <= cc::max_move_loop_pruning_depth()
-                    && (num_uninteresting_visited >= lmp_threshold
-                        || (eval + Score(fp_margin as ScoreT) < alpha && move_score < KILLER_SCORE))
-                {
+                if num_uninteresting_visited >= lmp_threshold {
                     break;
                 }
                 // History Pruning: At very low depth, don't play quiet moves with bad history scores. Skipping bad captures too gained elo.

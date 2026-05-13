@@ -64,12 +64,12 @@ spsa_params![
     fp_blunder_scale: isize = 37 * 8; 1..=256 * 8; step=16;
     fp_base: isize = 288 * 1024; 0..=800 * 1024; step=32 * 1024;
     fp_scale: isize = 58 * 8; 1..=512 * 8; step=16;
-    lmp_blunder_base: isize = 2048; 0..=32 * 1024; step=512;
-    lmp_blunder_scale: isize = 8; 0..=128; step=4;
-    lmp_base: isize = 4096; 0..=64 * 1024; step=512;
-    lmp_scale: isize = 40; 0..=128; step=4;
+    lmp_blunder_base: isize = 3072; 0..=32 * 1024; step=512;
+    lmp_blunder_scale: isize = 6; 0..=128; step=4;
+    lmp_base: isize = 5120; 0..=64 * 1024; step=512;
+    lmp_scale: isize = 24; 0..=128; step=4;
     lmp_fail_low_div: isize = 2; 2..=16; step=1;
-    max_move_loop_pruning_depth: isize = 6 * 128; 1..=16_384; step=64;
+    max_fp_depth: isize = 6 * 128; 1..=16_384; step=64;
     hist_pruning_max_depth: isize = 3 * 128; 128..=2048; step=32;
     max_see_pruning_depth: isize = 1024; 128..=2048; step=64;
     first_child_reduction: isize = 0; -64..=128; step=8;
