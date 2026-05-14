@@ -2205,8 +2205,8 @@ mod tests {
     use gears::games::fairy;
     use gears::games::fairy::moves::Move;
     use gears::rand::prelude::SliceRandom;
-    use gears::rand::rngs::StdRng;
-    use gears::rand::{Rng, SeedableRng};
+    use gears::rand::rngs::SmallRng;
+    use gears::rand::{RngExt, SeedableRng};
 
     fn create_chess_game() -> Box<EngineUGI<chess::Board>> {
         let outputs = list_chess_outputs();
@@ -2283,7 +2283,7 @@ mod tests {
         let seed = rng().random::<u64>();
         // let seed = 1880428284001215887;
         eprintln!("Seed: {seed}");
-        let mut rng = StdRng::seed_from_u64(seed);
+        let mut rng = SmallRng::seed_from_u64(seed);
         cmds.shuffle(&mut rng);
         for c in cmds {
             eprintln!("<EXECUTING> {c}");

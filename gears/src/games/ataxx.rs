@@ -33,6 +33,7 @@ use crate::search::DepthPly;
 use anyhow::{bail, ensure};
 use arbitrary::Arbitrary;
 use rand::Rng;
+use rand::RngExt;
 use rand::prelude::IndexedRandom;
 use std::cmp::Ordering;
 use std::fmt::{Display, Formatter};

@@ -11,7 +11,7 @@ use itertools::Itertools;
 use num::ToPrimitive;
 use proptest::proptest;
 use rand::SeedableRng;
-use rand::rngs::StdRng;
+use rand::prelude::SmallRng;
 use std::collections::{HashSet, VecDeque};
 use std::marker::PhantomData;
 
@@ -169,7 +169,7 @@ impl<B: BoardTrait> GenericTests<B> {
     }
 
     fn unverified_tests() {
-        let mut rng = StdRng::seed_from_u64(123);
+        let mut rng = SmallRng::seed_from_u64(123);
         for pos in B::bench_positions() {
             let ply = pos.halfmove_ctr_since_start();
             if let Ok(p2) = pos

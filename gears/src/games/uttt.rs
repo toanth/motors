@@ -55,7 +55,7 @@ use crate::search::DepthPly;
 use anyhow::bail;
 use arbitrary::Arbitrary;
 use colored::Colorize;
-use rand::Rng;
+use rand::{Rng, RngExt};
 use std::fmt::{Display, Formatter};
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::num::NonZeroUsize;

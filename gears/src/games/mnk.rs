@@ -1,7 +1,7 @@
 use anyhow::{anyhow, bail, ensure};
 use colored::Colorize;
 use itertools::Itertools;
-use rand::Rng;
+use rand::{Rng, RngExt};
 use std::cmp::min;
 use std::fmt::{self, Debug, Display, Formatter};
 use std::hash::{DefaultHasher, Hash, Hasher};

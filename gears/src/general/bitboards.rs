@@ -1330,8 +1330,8 @@ mod tests {
     use crate::games::{Height, Width, mnk};
     use crate::general::bitboards::chessboard::{ATAXX_LEAPERS, Bitboard, KINGS};
     use crate::general::squares::{GridCoordinates, GridSize};
-    use rand::rngs::StdRng;
-    use rand::{Rng, SeedableRng, random};
+    use rand::prelude::SmallRng;
+    use rand::{RngExt, SeedableRng, random};
 
     #[test]
     fn precomputed_test() {
@@ -1411,7 +1411,7 @@ mod tests {
     #[test]
     fn files_ranks_containing_test() {
         let seed = random();
-        let mut rng = StdRng::seed_from_u64(seed);
+        let mut rng = SmallRng::seed_from_u64(seed);
         let size = GridSize::new(Height(rng.random_range(3..=12)), Width(rng.random_range(2..=10)));
         let bb = rng.random::<u128>()
             & rng.random::<u128>()

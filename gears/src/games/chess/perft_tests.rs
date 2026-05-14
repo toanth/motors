@@ -11,9 +11,8 @@ mod tests {
     use crate::general::perft::perft;
     use crate::search::DepthPly;
     use itertools::Itertools;
-    use rand::prelude::SliceRandom;
-    use rand::rngs::StdRng;
-    use rand::{Rng, SeedableRng, rng};
+    use rand::prelude::{SliceRandom, SmallRng};
+    use rand::{RngExt, SeedableRng, rng};
     use std::io::{Write, stdout};
     use std::num::NonZeroUsize;
     use std::sync::atomic::{AtomicU64, Ordering};
@@ -309,7 +308,7 @@ mod tests {
         // routine testing. Shuffle to ensure that all positions have a chance of being tested.
         let seed = rng().random_range(..=u64::MAX);
         println!("\nSEED: {seed}\n");
-        let mut rng = StdRng::seed_from_u64(seed);
+        let mut rng = SmallRng::seed_from_u64(seed);
         fens.shuffle(&mut rng);
         let testcases_per_thread = (num_fens + num_threads.get() - 1) / num_threads;
         let thread_data = fens.iter().chunks(testcases_per_thread);

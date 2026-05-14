@@ -480,7 +480,7 @@ pub fn nonzero_u64(val: u64, name: &str) -> Res<NonZeroU64> {
 
 #[cfg(test)]
 mod tests {
-    use rand::{Rng, rng};
+    use rand::{RngExt, rng};
 
     use crate::general::common::{ith_one_u64, ith_one_u128};
     // TODO: Test this on bitboards instead

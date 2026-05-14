@@ -1503,7 +1503,7 @@ mod tests {
     use crate::general::board::BoardHelpers;
     use rand::SeedableRng;
     use rand::distr::{Distribution, Uniform};
-    use rand::rngs::StdRng;
+    use rand::prelude::SmallRng;
     use std::sync::atomic::AtomicBool;
 
     #[test]
@@ -1786,7 +1786,7 @@ mod tests {
 
     fn test_consistency<const PAWNS: bool>(t: &TableData<PAWNS>, table: &[Entry]) {
         let seed = 42;
-        let mut rng = StdRng::seed_from_u64(seed);
+        let mut rng = SmallRng::seed_from_u64(seed);
         let dist = Uniform::new(0, table.len()).unwrap();
         for _ in 0..5_000_000 {
             let idx = dist.sample(&mut rng);

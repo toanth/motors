@@ -30,7 +30,7 @@ mod tests {
     use gears::general::moves::MoveTrait;
     use gears::output::pgn::parse_pgn;
     use gears::parse_ugi_pos_and_hist;
-    use gears::rand::rngs::StdRng;
+    use gears::rand::prelude::SmallRng;
     use gears::score::{NO_SCORE_YET, SCORE_LOST, SCORE_WON, Score, game_result_to_score};
     use gears::search::{DepthPly, NodesLimit, SearchLimit};
     use gears::ugi::load_ugi_pos_simple;
@@ -55,7 +55,7 @@ mod tests {
 
     #[test]
     fn random_mover_test() {
-        game_over_test(&mut RandomMover::<Board, StdRng>::default());
+        game_over_test(&mut RandomMover::<Board, SmallRng>::default());
     }
 
     fn game_over_test<E: Engine<Board>>(engine: &mut E) {

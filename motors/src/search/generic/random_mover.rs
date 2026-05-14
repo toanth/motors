@@ -3,7 +3,7 @@ use std::fmt::{Debug, Display, Formatter};
 use std::time::Duration;
 
 use gears::general::board::BoardTrait;
-use gears::rand::{Rng, RngCore, SeedableRng, rng};
+use gears::rand::{Rng, RngExt, SeedableRng, rng};
 
 use crate::eval::Eval;
 use crate::eval::rand_eval::RandEval;

@@ -528,6 +528,7 @@ fn write_with_suffix(val: u64, dimmed: bool) -> String {
 pub fn score_gradient() -> LinearGradient {
     colorgrad::GradientBuilder::new()
         .html_colors(&["red", "gold", "green"])
+        // .html_colors(&["#ff0000", "#ffd700", "#008000"])
         .domain(&[0.0, 1.0])
         .build::<LinearGradient>()
         .unwrap()

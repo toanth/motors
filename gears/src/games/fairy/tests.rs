@@ -44,7 +44,7 @@ mod general {
     use crate::{GameOverReason, GameResult, MatchResult};
     use itertools::Itertools;
     use rand::SeedableRng;
-    use rand::rngs::StdRng;
+    use rand::prelude::SmallRng;
     use std::str::FromStr;
 
     #[test]
@@ -182,7 +182,7 @@ mod general {
         pos = pos.make_move_from_str("e8f8").unwrap();
         assert_eq!(pos.player_result_slow(&hist), Some(Draw));
         let fen = "chess 8/3k4/7p/2p3pP/1pPp1pP1/pP1PpP2/P3P3/2K5 w - - 57 1";
-        let mut rng = StdRng::seed_from_u64(42);
+        let mut rng = SmallRng::seed_from_u64(42);
         let mut pos = Board::from_fen(fen, Strict).unwrap();
         for i in 0..42 {
             assert_eq!(pos.draw_counter, 57 + i);

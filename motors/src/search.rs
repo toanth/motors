@@ -22,7 +22,7 @@ use gears::itertools::Itertools;
 use gears::output::Message;
 use gears::output::Message::Warning;
 use gears::rand::SeedableRng;
-use gears::rand::prelude::StdRng;
+use gears::rand::prelude::SmallRng;
 use gears::score::{MAX_BETA, MIN_ALPHA, NO_SCORE_YET, SCORE_WON, Score, ScoreT};
 use gears::search::{Budget, DepthPly, NodeType, NodesLimit, SearchInfo, SearchLimit, SearchResult, TimeControl};
 use gears::ugi::{EngineOption, EngineOptionNameForProtocol, EngineOptionType};
@@ -708,7 +708,7 @@ impl<B: BoardTrait> SearchParams<B> {
         let pos = &self.pos;
         let mut output = data.output.lock().unwrap();
         if res.chosen_move == B::Move::default() {
-            let mut rng = StdRng::seed_from_u64(42); // keep everything deterministic
+            let mut rng = SmallRng::seed_from_u64(42); // keep everything deterministic
             match pos.random_legal_move(&mut rng) {
                 None => {
                     output.write_message(Warning, &format_args!("search() called in a position with no legal moves"))

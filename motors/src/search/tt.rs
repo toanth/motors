@@ -457,7 +457,7 @@ mod test {
     use gears::games::ZobristHistory;
     use gears::games::chess::moves::Move;
     use gears::rand::distr::Uniform;
-    use gears::rand::{Rng, RngCore, rng};
+    use gears::rand::{Rng, RngExt, rng};
     use gears::score::{MAX_NORMAL_SCORE, MIN_NORMAL_SCORE};
     use gears::search::NodeType::{Exact, FailHigh, FailLow};
     use gears::search::{DepthPly, SearchLimit};

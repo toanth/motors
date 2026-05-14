@@ -4,7 +4,6 @@ use std::marker::PhantomData;
 use std::sync::{Arc, Mutex};
 
 use gears::dyn_clone::clone_box;
-use gears::rand::rngs::StdRng;
 
 use crate::Mode::{Bench, Perft};
 
@@ -61,6 +60,7 @@ use gears::general::perft::Bulkness::Bulk;
 use gears::general::perft::{perft, split_perft};
 use gears::itertools::Itertools;
 use gears::output::normal_outputs;
+use gears::rand::prelude::SmallRng;
 use gears::search::{DepthPly, SearchLimit};
 use gears::ugi::load_ugi_pos_simple;
 use gears::{AbstractRun, AnyRunnable, OutputArgs, Quitting, create_selected_output_builders};
@@ -305,7 +305,7 @@ pub fn list_fairy_evals() -> EvalList<fairy::Board> {
 #[must_use]
 pub fn generic_searchers<B: BoardTrait>() -> SearcherList<B> {
     vec![
-        Box::new(SearcherBuilder::<B, RandomMover<B, StdRng>>::default()),
+        Box::new(SearcherBuilder::<B, RandomMover<B, SmallRng>>::default()),
         #[cfg(feature = "proof_number")]
         Box::new(SearcherBuilder::<B, ProofNumberSearcher<B>>::default()),
         #[cfg(feature = "gaps")]

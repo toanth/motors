@@ -27,7 +27,7 @@ use crate::general::perft::Bulkness::Bulk;
 use crate::general::perft::perft;
 use crate::search::DepthPly;
 use rand::SeedableRng;
-use rand::rngs::StdRng;
+use rand::prelude::SmallRng;
 
 #[test]
 fn perft_tests() {
@@ -40,7 +40,7 @@ fn perft_tests() {
             let res = perft(DepthPly::new(depth), pos, false, Bulk);
             assert_eq!(res.nodes, *nodes, "{fen}, depth {depth}: {0} should be {1}", res.nodes, *nodes);
         }
-        let mut rng = StdRng::seed_from_u64(seed);
+        let mut rng = SmallRng::seed_from_u64(seed);
         if pos.cannot_call_movegen() {
             continue;
         }

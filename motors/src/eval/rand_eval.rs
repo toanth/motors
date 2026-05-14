@@ -1,5 +1,5 @@
 use gears::general::board::BoardTrait;
-use gears::rand::{Rng, rng};
+use gears::rand::{RngExt, rng};
 use std::fmt::Display;
 
 use crate::eval::Eval;

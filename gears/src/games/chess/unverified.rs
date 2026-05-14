@@ -34,7 +34,7 @@ use crate::general::board::{
 use crate::general::common::{Res, ith_one_u64};
 use crate::general::squares::RectangularCoordinates;
 use anyhow::{bail, ensure};
-use rand::Rng;
+use rand::{Rng, RngExt};
 use std::ops::Not;
 use strum::IntoEnumIterator;
 
@@ -414,12 +414,12 @@ mod tests {
     use crate::general::board::Strictness::Relaxed;
     use proptest::proptest;
     use rand::SeedableRng;
-    use rand::rngs::StdRng;
+    use rand::prelude::SmallRng;
 
     proptest! {
         #[test]
         fn random_unverified(seed in 0..=u64::MAX, strictness in 0..2, symmetry in 0..=Symmetry::iter().count()) {
-            let mut rng = StdRng::seed_from_u64(seed);
+            let mut rng = SmallRng::seed_from_u64(seed);
             let symmetry = Symmetry::iter().nth(symmetry);
             let strictness = if strictness == 0 { Strict } else { Relaxed };
             let res = UnverifiedBoard::random_unverified_pos(&mut rng, strictness, symmetry);

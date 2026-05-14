@@ -36,7 +36,7 @@ use gears::general::moves::MoveTrait;
 use gears::itertools::Itertools;
 use gears::output::{Message, OutputBuilder, OutputOpts};
 use gears::rand::prelude::IndexedRandom;
-use gears::rand::{Rng, rng};
+use gears::rand::{RngExt, rng};
 use gears::ugi::EngineOption;
 use gears::{ProgramStatus, Quitting};
 use inquire::autocompletion::Replacement;

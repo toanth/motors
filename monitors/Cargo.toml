@@ -11,8 +11,8 @@ rand = { workspace = true }
 crossbeam-utils = { workspace = true }
 dyn-clone = { workspace = true }
 itertools = { workspace = true }
-whoami = "2.0.0-pre.0"
-lazy_static = "1.5.0"
+whoami = "2.1"
+lazy_static = "1.5"
 motors = { path = "../motors", optional = true, default-features = false }
 
 [features]
