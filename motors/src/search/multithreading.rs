@@ -92,10 +92,11 @@ fn set_num_threads<B: BoardTrait>(count: usize, max_threads: usize, output: &Arc
     ensure!(count > 0, "The number of threads should be between 1 and {max_threads}, not zero");
     if count > max_threads {
         output.lock().unwrap().write_message(Warning, &format_args!(
-            "Setting the number of threads to {count} even though this engine on this machine can only make use of {max_threads} parallel thread(s)"
+            "Setting the number of threads to {count} even though this searcher on this machine can only make use of {max_threads} parallel thread(s)"
         ));
     }
-    Ok(count.min(1 << 20))
+    let clamp = if cfg!(feature = "fuzzing") { max_threads * 3 } else { 1 << 20 };
+    Ok(count.min(clamp))
 }
 
 #[derive(Debug, Default)]

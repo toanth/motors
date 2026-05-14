@@ -571,6 +571,9 @@ impl<B: BoardTrait> EngineUGI<B> {
     }
 
     fn set_option(&mut self, name: EngineOptionNameForProtocol, value: String) -> Res<()> {
+        if value.trim().is_empty() {
+            bail!("Missing value for '{}' in setoption command", name.to_string().bold());
+        }
         match name.name {
             EngineOptionName::Ponder => {
                 self.allow_ponder = parse_bool_from_str(&value, "ponder")?;
@@ -637,29 +640,31 @@ impl<B: BoardTrait> EngineUGI<B> {
         }
         let mut name = String::default();
         loop {
-            let next_word = words.next().unwrap_or_default();
-            if next_word.is_empty() {
+            let Some(next_word) = words.next() else {
                 // input didn't contain 'value', so assume the first token is the name and the rest is the value
                 let mut words = tokens(&name);
-                let name = words.next().unwrap_or_default();
+                let Some(name) = words.next() else { bail!("Missing name in setoption command") };
                 let value = words.join(" ");
                 let name = EngineOptionNameForProtocol::parse(name.trim(), self.protocol())?;
                 return self.set_option(name, value);
-            }
+            };
             if next_word.eq_ignore_ascii_case("value") {
+                if name.trim().is_empty() {
+                    bail!("Missing name in setoption command");
+                }
                 break;
             }
             name = name + " " + next_word;
         }
-        let mut value = words.next().unwrap().to_string();
+        let Some(value) = words.next() else { bail!("Missing value after '{}' in setoption command", "value".bold()) };
+        let mut value = value.to_string();
         loop {
-            let next_word = words.next().unwrap_or_default();
-            if next_word.is_empty() {
+            let Some(next_word) = words.next() else {
                 break;
-            }
+            };
             value = value + " " + next_word;
         }
-        let name = EngineOptionNameForProtocol::parse(name.trim(), self.protocol()).unwrap();
+        let name = EngineOptionNameForProtocol::parse(name.trim(), self.protocol())?;
         self.set_option(name, value)
     }
 

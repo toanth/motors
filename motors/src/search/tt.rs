@@ -259,7 +259,10 @@ impl TT {
         Self::new_with_bytes(size_in_mib * (1 << 20))
     }
 
-    fn new_with_bytes(size_in_bytes: usize) -> Self {
+    fn new_with_bytes(mut size_in_bytes: usize) -> Self {
+        if cfg!(feature = "fuzzing") {
+            size_in_bytes = size_in_bytes.min(1 << 28);
+        }
         let new_size = 1.max(size_in_bytes / (size_of::<AtomicTTEntry>() * NUM_ENTRIES_IN_BUCKET));
         let tt = if cfg!(feature = "unsafe") && size_in_bytes > 1024 * 1024 * 16 {
             let mut arr = Box::new_uninit_slice(new_size);

@@ -1307,8 +1307,8 @@ fn read_position_fen_impl<B: RectangularBoard>(
                 })?;
                 shogi_promo = false;
             }
-
-            board.place_piece(board.size().idx_to_coordinates(square as DimT).flip_up_down(board.size()), symbol);
+            let sq = board.size().idx_to_coordinates(square as DimT).flip_up_down(board.size());
+            board.try_place_piece(B::Piece::new(symbol, sq))?;
             square += 1;
         }
         handle_skipped(digit_start, line.len(), &mut square)?;
