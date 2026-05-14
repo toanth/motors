@@ -119,6 +119,7 @@ impl<B: BoardTrait> TTEntry<B> {
         let hash_and_move =
             (mov.to_underlying().into() << (64 - B::Move::num_bits())) | PosHashPart::<B>::new(hash.0).0;
         debug_assert!(!eval.is_won_or_lost());
+        debug_assert!(score.plies_until_game_over().unwrap_or_default() < 500, "{score} {eval} {depth}");
         Self {
             score: score.compact(),
             eval: eval.compact(),

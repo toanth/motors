@@ -53,6 +53,7 @@ spsa_params![
     rfp_tt_upper_bound: ScoreT = 256; 0..=1024; step=64;
     rfp_noisy_pos: ScoreT = 1024; 0..=2048; step=128;
     rfp_max_depth: isize = 6 * 128; 128..=1024; step=32;
+    rf_fail_firm_factor: ScoreT = 768; 0..=1024; step=32;
     razor_max_depth: isize = 256; 64..=1024; step=64;
     razor_depth_mult: isize = 4096; 256..32768; step=512;
     nmp_min_depth: isize = 128; 128..=1024; step=32;
