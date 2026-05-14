@@ -932,7 +932,8 @@ impl Caps {
                 // TODO: Change order of multiplication and division (changes bench), use * 1024 instead of * 128 for depth div
                 let reduction = cc::nmp_base()
                     + depth / cc::nmp_depth_div() * 128
-                    + isize::from(they_blundered) * cc::nmp_blunder();
+                    + isize::from(they_blundered) * cc::nmp_blunder()
+                    + (eval - nmp_threshold + 1).0.ilog2().saturating_sub(8) as isize * 128;
                 // the child node is expected to fail low, leading to a fail high in this node
                 let nmp_res = self.negamax(&new_pos, ply + 1, depth - reduction, -beta, -beta + 1, FailLow);
                 _ = self.search_stack[ply].tried_moves.pop();
@@ -1039,7 +1040,7 @@ impl Caps {
                 // PVS SEE pruning: Don't play moves with bad SEE scores at low depth.
                 // Be less aggressive with pruning captures to avoid overlooking tactics.
                 let bad_tactical = move_score < MoveScore(-HIST_DIVISOR * 8);
-                // TODO: Tunable constants, different divisors (changaes bench)
+                // TODO: Tunable constants, different divisors (changes bench)
                 let see_threshold =
                     if bad_tactical { (-depth * depth * 50 / (128 * 128)) as i32 } else { (-depth * 80 / 128) as i32 };
                 if move_score < KILLER_SCORE
@@ -1642,7 +1643,7 @@ impl MoveScorer<Board, Caps> for CapsMoveScorer<'_> {
             let score = main_hist_score * cc::main_hist_weight() / 1024
                 + countermove_score * cc::countermove_weight() / 1024
                 + follow_up_score * cc::follow_up_weight() / 1024;
-            MoveScore((score) as HistScoreT)
+            MoveScore(score as HistScoreT)
         }
     }
 
