@@ -7,19 +7,16 @@ default-members = ["motors"]
 [workspace.dependencies]
 num = "0.4"
 rand = "0.10.1"
-# Technically, crossterm already provides coloring functionality.
-# However, colored simply does this a lot better.
 colored = "3.1"
 strum = "0.28"
 strum_macros = "0.28"
-derive_more = { version = "2.1", features = ["full"] }
+derive_more = { version = "2.1", features = ["display", "add", "add_assign", "mul", "mul_assign", "not", "from_str", "deref", "deref_mut", "index", "index_mut"] }
 itertools = "0.14"
-chrono = "0.4"
+chrono = { version = "0.4", default-features = false, features = ["std", "now"] }
 dyn-clone = "1.0"
 arrayvec = "0.7"
 # don't use the backtrace feature because that makes creating errors much slower
 anyhow = { version = "1.0", default-features = false, features = ["std"] }
-crossterm = "0.29"
 crossbeam-utils = "0.8"
 rayon = "1.12"
 

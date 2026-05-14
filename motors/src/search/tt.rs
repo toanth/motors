@@ -8,8 +8,7 @@ use gears::general::moves::{MoveTrait, UntrustedMove};
 use gears::itertools::Itertools;
 use gears::score::{CompactScoreT, SCORE_WON, Score, ScoreT};
 use gears::search::NodeType;
-use rayon::iter::ParallelIterator;
-use rayon::prelude::IntoParallelRefMutIterator;
+use rayon::prelude::*;
 #[cfg(all(feature = "unsafe", target_arch = "x86_64", target_feature = "sse"))]
 use std::arch::x86_64::{_MM_HINT_T1, _mm_prefetch};
 use std::fmt::{Display, Formatter};

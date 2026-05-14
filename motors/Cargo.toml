@@ -23,10 +23,10 @@ derive_more = { workspace = true }
 # TODO: Remove crossbeam?
 crossbeam-channel = "0.5.15"
 rayon = { workspace = true }
-inquire = { version = "0.9", features = ["editor"] }
+inquire = { version = "0.9", default-features = false, features = ["crossterm", "editor"] }
 # TODO: Should probably move autocompletion to gears? Then this dependency would be unnecessary
 edit-distance = "2.2"
-indicatif = "0.18"
+indicatif = { version = "0.18", default-features = false, features = ["unicode-width"] }
 
 
 [features]

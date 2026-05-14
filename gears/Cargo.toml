@@ -20,9 +20,6 @@ proptest = "1.11"
 [dependencies]
 num = { workspace = true }
 rand = { workspace = true }
-# bitintr is bugged and unmaintained
-# Technically, crossterm already provides coloring functionality.
-# However, colored simply does this a lot better.
 colored = { workspace = true }
 strum = { workspace = true }
 strum_macros = { workspace = true }
@@ -35,11 +32,9 @@ smallvec = "2.0.0-alpha.12"
 edit-distance = "2.2"
 arbitrary = { version = "1.4.2", features = ["derive"] }
 anyhow = { workspace = true }
-crossterm = { workspace = true }
 colorgrad = { version = "0.8", features = ["named-colors"] }
 rayon = { workspace = true }
 configparser = "3.1"
-# removing the regex dependency by replacing the single instance of using a regex improved compile times from ~30 to ~20 seconds
 
 [features]
 default = ["chess", "mnk", "ataxx", "uttt", "fairy", "unsafe"]

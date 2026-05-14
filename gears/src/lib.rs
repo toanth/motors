@@ -25,7 +25,6 @@ pub use arrayvec;
 pub use colored;
 use colored::Colorize;
 pub use colorgrad;
-pub use crossterm;
 pub use dyn_clone;
 pub use itertools;
 use itertools::Itertools;
