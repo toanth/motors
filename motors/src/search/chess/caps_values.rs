@@ -20,8 +20,8 @@ use crate::spsa_params;
 spsa_params![
     cc,
     start_depth: usize = 128; 0..=512; step=16;
-    // min_depth_incremenet: isize = 128; 32..=256; step=2;
-    // max_depth_incremenet: isize = 172; 32..=512; step=2;
+    // min_depth_increment: isize = 128; 32..=256; step=2;
+    // max_depth_increment: isize = 172; 32..=512; step=2;
     soft_limit_div: u32 = 30; 5..=60; step=1;
     inv_soft_limit_div_clamp: u32 = 256; 1..=750; step=10;
     inv_hard_limit_div: usize = 512; 1..=750; step=10;
@@ -47,7 +47,8 @@ spsa_params![
     rfr_reduction: isize = 256; 64..=512; step=32;
     iir_min_depth: isize = 512; 128..=32_768; step=32;
     iir_reduction: isize = 128; 0..=256; step=16;
-    hindsight_threshold: isize = 512; 0..=1024; step = 32;
+    hindsight_min_reduction: isize = 512; 0..=1024; step = 32;
+    hindsight_eval_diff: ScoreT = 20; -64..=256; step = 32;
     hindsight_lmr: isize = 128; 0..=512; step=15;
     rfp_base: ScoreT = 158; 0..=900; step=15;
     rfp_blunder: ScoreT = 48; 0..=512; step=8;
