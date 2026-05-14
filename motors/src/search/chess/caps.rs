@@ -850,7 +850,8 @@ impl Caps {
         let we_blundered = ply >= 2 && eval - self.search_stack[ply - 2].eval < Score(cc::we_blundered_threshold());
 
         // Hindsight Reduction: If we LMR'ed the previous move a lot, but our eval isn't looking worse, take back some of the reduction.
-        if ply > 0
+        if depth >= cc::hindsight_min_depth()
+            && ply > 0
             && self.search_stack[ply - 1].lm_reduction >= cc::hindsight_min_reduction()
             && eval - -self.search_stack[ply - 1].eval <= Score(cc::hindsight_eval_diff())
         {

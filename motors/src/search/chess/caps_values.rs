@@ -47,6 +47,7 @@ spsa_params![
     rfr_reduction: isize = 256; 64..=512; step=32;
     iir_min_depth: isize = 512; 128..=32_768; step=32;
     iir_reduction: isize = 128; 0..=256; step=16;
+    hindsight_min_depth: isize = 384; 0..=2048; step = 64;
     hindsight_min_reduction: isize = 512; 0..=1024; step = 32;
     hindsight_eval_diff: ScoreT = 20; -64..=256; step = 32;
     hindsight_lmr: isize = 128; 0..=512; step=15;
