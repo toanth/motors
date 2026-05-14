@@ -47,6 +47,8 @@ spsa_params![
     rfr_reduction: isize = 256; 64..=512; step=32;
     iir_min_depth: isize = 512; 128..=32_768; step=32;
     iir_reduction: isize = 128; 0..=256; step=16;
+    hindsight_threshold: isize = 512; 0..=1024; step = 32;
+    hindsight_lmr: isize = 128; 0..=512; step=15;
     rfp_base: ScoreT = 158; 0..=900; step=15;
     rfp_blunder: ScoreT = 48; 0..=512; step=8;
     rfp_fail_high_div: ScoreT = 3; 1..=10; step=1;

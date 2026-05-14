@@ -157,6 +157,7 @@ pub struct CapsSearchStackEntry {
     move_score: MoveScore,
     pos: Board,
     eval: Score,
+    lm_reduction: isize,
 }
 
 impl SearchStackEntry<Board> for CapsSearchStackEntry {
@@ -740,7 +741,9 @@ impl Caps {
         }
         // limit.mate() is the min of the original limit.mate and DEPTH_HARD_LIMIT
         if depth <= 0 || ply >= self.ply_hard_limit {
-            return self.qsearch(pos, alpha, beta, ply, pv_node);
+            let s = self.qsearch(pos, alpha, beta, ply, pv_node);
+            debug_assert!(s.is_none_or(|s| s.plies_until_game_over().unwrap_or_default() < 500));
+            return s;
         }
 
         let can_prune = !pv_node && !in_check;
@@ -845,6 +848,11 @@ impl Caps {
         // a prediction for how the eval is going to evolve, while these variables are more about cutting early after bad moves.
         let they_blundered = ply >= 2 && eval - self.search_stack[ply - 2].eval > Score(cc::they_blundered_threshold());
         let we_blundered = ply >= 2 && eval - self.search_stack[ply - 2].eval < Score(cc::we_blundered_threshold());
+
+        // Hindsight Reduction: If we LMR'ed the previous move a lot, but our eval isn't looking worse, take back some of the reduction.
+        if !they_blundered && ply > 1 && self.search_stack[ply - 1].lm_reduction >= cc::hindsight_threshold() {
+            depth += cc::hindsight_lmr();
+        }
 
         // *********************************************************
         // ***** Pre-move loop pruning (other than TT cutoffs) *****
@@ -1145,8 +1153,10 @@ impl Caps {
                 }
                 // this ensures that check extensions prevent going into qsearch while in check
                 reduction = reduction.min(child_depth).max(0);
-
+                self.search_stack[ply].lm_reduction = reduction;
                 score = -self.negamax(&new_pos, ply + 1, child_depth - reduction, child_alpha, child_beta, FailHigh)?;
+                self.search_stack[ply].lm_reduction = 0;
+
                 // If the score turned out to be better than expected (at least `alpha`), this might just be because
                 // of the reduced depth. So do a full-depth search first, but don't use the full window quite yet.
                 if alpha < score && reduction >= cc::min_reduction_research() {
@@ -1572,6 +1582,7 @@ impl Caps {
         self.search_stack[ply].pos = *pos;
         self.search_stack[ply].eval = eval;
         self.search_stack[ply].tried_moves.clear();
+        self.search_stack[ply].lm_reduction = 0;
     }
 
     fn record_move(&mut self, mov: Move, old_pos: &Board, ply: usize, typ: SearchType, move_score: MoveScore) {
