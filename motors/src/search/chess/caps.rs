@@ -853,7 +853,7 @@ impl Caps {
         if depth >= cc::hindsight_min_depth()
             && ply > 0
             && self.search_stack[ply - 1].lm_reduction >= cc::hindsight_min_reduction()
-            && eval - -self.search_stack[ply - 1].eval >= Score(cc::hindsight_eval_diff())
+            && -eval - self.search_stack[ply - 1].eval >= Score(cc::hindsight_eval_diff())
         {
             depth += cc::hindsight_lmr();
         }
