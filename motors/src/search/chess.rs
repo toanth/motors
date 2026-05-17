@@ -1,7 +1,164 @@
+use crate::search::chess::histories::{
+    CaptHist, ContHist, CorrHist, HIST_DIVISOR, HistoryHeuristic, write_single_hist_table,
+};
+use crate::search::{CustomInfo, MoveScore, Pv, SearchStackEntry, SearchState};
+use gears::arrayvec::ArrayVec;
+use gears::games::ZobristHistory;
+use gears::games::chess::moves::Move;
+use gears::games::chess::squares::NUM_SQUARES;
+use gears::games::chess::{Board, Color, MAX_CHESS_MOVES_IN_POS};
+use gears::general::board::BoardTrait;
+use gears::score::Score;
+use gears::search::DepthPly;
+use std::hash::{Hash, Hasher};
+
 #[cfg(feature = "caps")]
 pub mod caps;
 mod caps_values;
 mod histories;
+mod move_picker;
+
+/// By how much the fractional depth increases each ID iteration.
+const DEPTH_INCREMENT: usize = 128;
+
+/// The maximum value of the uci `depth` parameter, i.e. the maximum number of Iterative Deepening iterations
+const ID_ITERS_SOFT_LIMIT: DepthPly = DepthPly::new(225);
+/// The maximum value of the `ply` parameter in main search, i.e. the maximum depth (in plies) before qsearch is reached
+const PLY_HARD_LIMIT: usize = 255;
+
+/// Qsearch can go more than 30 plies deeper than the depth hard limit if ther's more material on the board; in that case we simply
+/// return the static eval.
+const SEARCH_STACK_LEN: usize = PLY_HARD_LIMIT + 30;
+
+/// The TT move and good captures have a higher score, all other moves have a lower score.
+const KILLER_SCORE: MoveScore = MoveScore(8 * HIST_DIVISOR);
+
+#[derive(Debug, Default, Clone)]
+pub struct CapsSearchStackEntry {
+    killer: Move,
+    pv: Pv<Board, SEARCH_STACK_LEN>,
+    tried_moves: ArrayVec<Move, MAX_CHESS_MOVES_IN_POS>,
+    move_score: MoveScore,
+    pos: Board,
+    eval: Score,
+}
+
+impl SearchStackEntry<Board> for CapsSearchStackEntry {
+    fn forget(&mut self) {
+        self.killer = Move::default();
+        self.pv.list.clear();
+        self.tried_moves.clear();
+        self.move_score = MoveScore(0);
+        self.pos = Board::default();
+        self.eval = Score::default();
+    }
+
+    fn pv(&self) -> Option<&[Move]> {
+        Some(self.pv.list.as_slice())
+    }
+
+    fn last_played_move(&self) -> Option<Move> {
+        self.tried_moves.last().copied()
+    }
+
+    fn hash(&self, hasher: &mut impl Hasher) {
+        self.killer.hash(hasher);
+        self.tried_moves.hash(hasher);
+        self.move_score.0.hash(hasher);
+        self.eval.hash(hasher);
+        self.pos.hash_pos().0.hash(hasher);
+    }
+}
+
+impl CapsSearchStackEntry {
+    /// If this entry has a lower ply number than the current node, this is the tree edge that leads towards the current node.
+    fn last_tried_move(&self) -> Move {
+        *self.tried_moves.last().unwrap()
+    }
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct CapsCustomInfo {
+    history: HistoryHeuristic,
+    /// Many moves have a "natural" response, so use that for move ordering:
+    /// Instead of only learning which quiet moves are good, learn which quiet moves are good after our
+    /// opponent played a given move.
+    countermove_hist: ContHist,
+    /// Often, a move works because it is immediately followed by some other move, which completes the tactic.
+    /// Keep track of such quiet follow-up moves. This is exactly the same as the countermove history, but considers
+    /// our previous move instead of the opponent's previous move, i.e. the move 2 plies ago instead of 1 ply ago.
+    follow_up_move_hist: ContHist,
+    capt_hist: CaptHist,
+    corr_hist: CorrHist,
+    original_board_hist: ZobristHistory,
+    nmp_disabled: [bool; 2],
+    ply_hard_limit: usize,
+    root_move_nodes: RootMoveNodes,
+}
+
+impl CapsCustomInfo {
+    fn nmp_disabled_for(&mut self, color: Color) -> &mut bool {
+        &mut self.nmp_disabled[color]
+    }
+}
+
+impl CustomInfo<Board> for CapsCustomInfo {
+    fn new_search(&mut self) {
+        debug_assert!(!self.nmp_disabled[0]);
+        debug_assert!(!self.nmp_disabled[1]);
+        // don't update history values, malus and gravity already take care of that
+        self.root_move_nodes.clear();
+    }
+
+    fn hard_forget_except_tt(&mut self) {
+        for value in self.history.iter_mut().flatten() {
+            *value = 0;
+        }
+        self.capt_hist.reset();
+        for value in self.countermove_hist.iter_mut() {
+            *value = 0;
+        }
+        for value in self.follow_up_move_hist.iter_mut() {
+            *value = 0;
+        }
+        self.corr_hist.reset();
+        self.root_move_nodes.clear();
+    }
+
+    fn write_internal_info(&self, pos: &Board) -> Option<String> {
+        Some(
+            write_single_hist_table(&self.history, pos, false)
+                + "\n"
+                + &write_single_hist_table(&self.history, pos, true),
+        )
+    }
+}
+
+#[derive(Debug, Clone)]
+struct RootMoveNodes(Box<[[u64; NUM_SQUARES]; NUM_SQUARES]>);
+
+impl Default for RootMoveNodes {
+    fn default() -> Self {
+        RootMoveNodes(Box::new([[0; NUM_SQUARES]; NUM_SQUARES]))
+    }
+}
+
+impl RootMoveNodes {
+    fn clear(&mut self) {
+        for elem in self.0.iter_mut() {
+            *elem = [0; NUM_SQUARES];
+        }
+    }
+    fn update(&mut self, mov: Move, nodes: u64) {
+        self.0[mov.src_square().bb_idx()][mov.dest_square().bb_idx()] += nodes;
+    }
+
+    fn frac_1024(&self, best_move: Move, total_nodes: u64) -> u64 {
+        self.0[best_move.src_square().bb_idx()][best_move.dest_square().bb_idx()] * 1024 / total_nodes
+    }
+}
+
+pub type CapsState = SearchState<Board, CapsSearchStackEntry, CapsCustomInfo>;
 
 #[cfg(test)]
 mod tests {

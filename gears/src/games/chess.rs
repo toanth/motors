@@ -159,9 +159,10 @@ impl PartialEq for Settings {
 
 impl Eq for Settings {}
 
-pub const MAX_CHESS_MOVES_IN_POS: usize = 300;
+// 271 is the maximum number of legal moves in a (possibly not reachable) position, see
+// <https://lichess.org/@/Tobs40/blog/why-a-reachable-position-can-have-at-most-218-playable-moves/a5xdxeqs>
+pub const MAX_CHESS_MOVES_IN_POS: usize = 271;
 
-// for some reason, Chessboard::MoveList can be ambiguous? This should fix that
 pub type MoveList = InplaceMoveList<Board, MAX_CHESS_MOVES_IN_POS>;
 
 impl SettingsTrait for Settings {}
@@ -230,9 +231,13 @@ impl ColorTrait for Color {
 
 #[derive(Debug, Default, Eq, PartialEq, Copy, Clone, Arbitrary)]
 struct Hashes {
+    // hash of only the pawn bitboards
     pawns: PosHash,
+    // hash of all bitboards except for pawns, per side
     nonpawns: [PosHash; NUM_COLORS],
+    // hash of king, knight and bishop bitboards
     knb: PosHash,
+    // hash of the entire position
     total: PosHash,
 }
 

@@ -42,7 +42,6 @@ use std::time::{Duration, Instant};
 #[cfg(feature = "chess")]
 pub mod chess;
 pub mod generic;
-mod move_picker;
 pub mod multithreading;
 pub(crate) mod spsa_param;
 pub mod statistics;
@@ -555,23 +554,6 @@ pub struct MoveScore(pub i16);
 
 impl MoveScore {
     const MAX: MoveScore = MoveScore(i16::MAX);
-}
-
-pub trait MoveScorer<B: BoardTrait, E: Engine<B>>: Debug {
-    /// This gets called when inserting a move into the move list
-    fn score_move_eager_part(&self, mov: B::Move, state: &SearchStateFor<B, E>) -> MoveScore;
-    /// This gets called upon choosing the next move, and if it returns `false`, the move is deferred until all moves
-    /// where this returned `true` have been tried. This results in a bucketed sort, where this function determines the bucket.
-    /// Because most nodes never look at most moves, this lazy computation can be a speedup.
-    fn defer_playing_move(&self, mov: B::Move) -> bool;
-
-    fn complete_move_score(&self, mov: B::Move, state: &SearchStateFor<B, E>) -> MoveScore {
-        let eager = self.score_move_eager_part(mov, state);
-        if self.defer_playing_move(mov) { eager + Self::DEFERRED_OFFSET } else { eager }
-    }
-
-    /// Negative value that gets added to the score of deferred moves
-    const DEFERRED_OFFSET: MoveScore;
 }
 
 /// A struct bundling parameters that modify the core search.
