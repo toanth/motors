@@ -273,12 +273,12 @@ impl Board {
         let pawns = self.col_piece_bb(us, Pawn);
         let free = !self.occupied_bb();
         let mut free_filter = free & filter;
+        let mut opponent = self.player_bb(!us) & filter;
         if ONLY_TACTICAL {
             free_filter &= Bitboard::backranks();
         } else if ONLY_QUIET {
-            filter |= Bitboard::backranks();
+            opponent &= Bitboard::backranks();
         }
-        let opponent = self.player_bb(!us) & filter;
         let king_file = Bitboard::file(self.king_sq(us).file());
         let king_diag = Bitboard::diagonal(self.king_sq(us));
         let king_anti_diag = Bitboard::anti_diagonal(self.king_sq(us));

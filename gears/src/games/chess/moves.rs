@@ -207,7 +207,10 @@ impl MoveTrait<Board> for Move {
 
     #[inline]
     fn is_tactical(self, board: &Board) -> bool {
-        self.is_capture(board) || self.flags() == PromoQueen || self.flags() == PromoKnight
+        // TODO: Make this operation more efficient by storing a quiet_move flag directly
+        self.flags() != PromoRook
+            && self.flags() != PromoBishop
+            && (self.is_capture(board) || self.flags() == PromoQueen || self.flags() == PromoKnight)
     }
 
     fn description(self, board: &Board) -> String {
