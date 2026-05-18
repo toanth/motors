@@ -35,7 +35,7 @@ use crate::io::ugi_output::{
     AbstractUgiOutput, UgiOutput, color_for_score, pretty_score, pretty_variation_simple, score_gradient, suffix_for,
 };
 use crate::search::multithreading::EngineWrapper;
-use crate::search::tt::{DEFAULT_HASH_SIZE_MB, EndTTPvMove, TT, TTEntry};
+use crate::search::tt::{DEFAULT_HASH_SIZE_MIB, EndTTPvMove, TT, TTEntry};
 use crate::search::{EvalList, SearchParams, SearcherList, run_bench_with};
 use crate::{create_engine_box_from_str, create_engine_from_str, create_eval_from_str, create_match};
 use gears::MatchStatus::*;
@@ -1192,7 +1192,7 @@ impl<B: BoardTrait> EngineUGI<B> {
             let value = match opt {
                 Hash => Spin(UgiSpin {
                     val: self.state.engine.next_tt().size_in_mib() as i64,
-                    default: Some(DEFAULT_HASH_SIZE_MB as i64),
+                    default: Some(DEFAULT_HASH_SIZE_MIB as i64),
                     min: Some(0),
                     max: Some(10_000_000), // use at most 10 terabytes (should be enough for anybody™)
                 }),

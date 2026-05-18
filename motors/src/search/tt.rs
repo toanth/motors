@@ -229,7 +229,7 @@ const _: () = assert!(size_of::<TTEntry<Board>>() == 16);
 #[cfg(feature = "chess")]
 const _: () = assert!(size_of::<TTEntry<Board>>() == size_of::<AtomicTTEntry>());
 
-pub const DEFAULT_HASH_SIZE_MB: usize = 16;
+pub const DEFAULT_HASH_SIZE_MIB: usize = 16;
 
 spsa_params![ttc,
 age_diff_mult: isize = 4; 0..=128; step=4;
@@ -244,7 +244,7 @@ pub struct TT {
 
 impl Default for TT {
     fn default() -> Self {
-        Self::new_with_bytes(DEFAULT_HASH_SIZE_MB * 1_000_000)
+        Self::new_with_mib(DEFAULT_HASH_SIZE_MIB)
     }
 }
 
@@ -263,20 +263,36 @@ impl TT {
         if cfg!(feature = "fuzzing") {
             size_in_bytes = size_in_bytes.min(1 << 28);
         }
-        let new_size = 1.max(size_in_bytes / (size_of::<AtomicTTEntry>() * NUM_ENTRIES_IN_BUCKET));
-        let tt = if cfg!(feature = "unsafe") && size_in_bytes > 1024 * 1024 * 16 {
-            let mut arr = Box::new_uninit_slice(new_size);
-            arr.par_iter_mut().for_each(|elem| {
+        let bytes_in_bucket = size_of::<TTBucket>();
+        size_in_bytes -= size_in_bytes % bytes_in_bucket;
+        let new_size = 1.max(size_in_bytes / bytes_in_bucket);
+        let tt = if cfg!(feature = "unsafe") && size_in_bytes >= 1 << 21 {
+            assert!(size_in_bytes.is_multiple_of(size_of::<TTBucket>()));
+            let mut arr = Arc::new_uninit_slice(new_size);
+            #[cfg(target_os = "linux")]
+            // TODO: This doesn't do anything if the array isn't sufficiently aligned, but that appears impossible to ensure with stable Arc.
+            // Using Box instead of Arc would solve this issue, but would require some restructuring of the code
+            // SAFETY: madvise and MADV_HUGEPAGE exist on linux and we're calling madvise with correct arguments
+            unsafe {
+                let ptr = Arc::get_mut(&mut arr).unwrap().as_mut_ptr().cast();
+                _ = libc::madvise(ptr, size_in_bytes, libc::MADV_HUGEPAGE);
+            }
+            // Large TTs can take a while to initialize, so this gets multithreaded.
+            // We want to explicitly write now so that all pages get loaded before the first search starts
+            // (otherwise, we would have to pay for that on first access, while our timer is running during search).
+            Arc::get_mut(&mut arr).unwrap().par_iter_mut().for_each(|elem| {
                 _ = elem.write(TTBucket::default());
             });
             // SAFETY: The entire array just got initialized
             unsafe { arr.assume_init() }
         } else {
+            // This potentially copies the TT twice; first from a Vec to a Box, then from a Box to an Arc.
+            // But afaik this is the only safe and stable way to do this.
             let mut arr = Vec::with_capacity(new_size);
             arr.resize_with(new_size, TTBucket::default);
-            arr.into_boxed_slice()
+            arr.into_boxed_slice().into()
         };
-        Self { tt: tt.into(), age: Age::default() }
+        Self { tt, age: Age::default() }
     }
 
     pub fn size_in_buckets(&self) -> usize {

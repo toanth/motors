@@ -485,8 +485,6 @@ impl<B: BoardTrait> EngineWrapper<B> {
             thread_data.atomic_search_data[0].clone(),
             Main(thread_data),
         );
-        // reset `stop` first such that a finished ponder command won't print anything
-        // self.search_sender().new_search(params.limit.is_infinite());
         self.start_search_with(params, threads)
     }
 

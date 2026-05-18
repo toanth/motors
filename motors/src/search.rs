@@ -406,7 +406,13 @@ pub trait Engine<B: BoardTrait>: StaticallyNamedEntity + Send + 'static {
 
     /// Reset the engine into a fresh state, e.g. by clearing the TT and various heuristics.
     fn forget(&mut self) {
+        let start = Instant::now();
         self.search_state_mut_dyn().forget(true);
+        send_debug_msg!(
+            self.search_state_dyn(),
+            "Forgetting all search state took {} microseconds",
+            start.elapsed().as_micros()
+        );
     }
     /// Returns information about this engine, such as the name, version and default bench depth.
     fn engine_info(&self) -> EngineInfo;
@@ -869,7 +875,7 @@ impl<B: BoardTrait, E: SearchStackEntry<B>, C: CustomInfo<B>> DerefMut for Searc
 }
 
 impl<B: BoardTrait, E: SearchStackEntry<B>, C: CustomInfo<B>> AbstractSearchState<B> for SearchState<B, E, C> {
-    // `hard` is false when starting a new search and true when receiving ucinewgame
+    // `hard` is false when starting a new search and true when receiving `ucinewgame`
     fn forget(&mut self, hard: bool) {
         self.last_msg_time = Instant::now();
         self.execution_start_time = self.last_msg_time;
