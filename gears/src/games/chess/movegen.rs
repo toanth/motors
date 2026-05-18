@@ -265,7 +265,7 @@ impl Board {
     fn gen_pawn_moves<const ONLY_TACTICAL: bool, const ONLY_QUIET: bool, const IS_WHITE: bool>(
         &self,
         callback: &mut impl GenMoveCallback,
-        mut filter: Bitboard,
+        filter: Bitboard,
     ) {
         debug_assert_eq!(IS_WHITE, self.active == White);
         debug_assert!(!ONLY_QUIET || !ONLY_TACTICAL);

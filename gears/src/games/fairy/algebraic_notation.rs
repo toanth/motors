@@ -214,9 +214,6 @@ impl<'a> MoveParser<'a> {
             parser.parse_check_mate();
             parser.parse_annotation();
             if !board.is_move_legal(mov) {
-                for m in board.legal_moves_slow() {
-                    println!("{}", m.compact_formatter(board));
-                }
                 // can't use `to_extended_text` because that requires pseudolegal moves.
                 bail!(
                     "Castling move '{}' is not legal in the current position",
@@ -972,7 +969,7 @@ mod tests {
         ];
         let pos = Board::from_fen_for("chess", CHESS_TEST_POS, Strict).unwrap();
         for (input, output) in transformations {
-            println!("{input}, {output}");
+            eprintln!("{input}, {output}");
             let mov = Move::from_extended_text(input, &pos).unwrap();
             let extended = mov.to_extended_text(&pos, Standard);
             assert_eq!(extended, output);

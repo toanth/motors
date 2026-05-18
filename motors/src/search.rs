@@ -215,7 +215,6 @@ impl<B: BoardTrait, const LIMIT: usize> Pv<B, LIMIT> {
         self.list.is_empty()
     }
 
-    #[cold]
     pub fn clear(&mut self) {
         self.list.clear();
     }
@@ -461,17 +460,21 @@ pub trait Engine<B: BoardTrait>: StaticallyNamedEntity + Send + 'static {
     /// Start a new search and return the best move and score.
     /// 'parameters' contains information like the board history and allows the search to output intermediary results.
     fn search(&mut self, search_params: SearchParams<B>) -> SearchResult<B> {
-        let before = Instant::now();
-        self.search_state_mut_dyn().new_search(search_params);
-        let after_setup = Instant::now();
-        let total_elapsed =
-            after_setup.duration_since(self.search_state_dyn().search_params().limit.start_time).as_micros();
-        send_debug_msg!(
-            self.search_state_dyn().search_params(),
-            "Preparing the search state for a new search took {0} microseconds, {1} have elapsed since the search request",
-            after_setup.duration_since(before).as_micros(),
-            total_elapsed
-        );
+        if !self.search_state_dyn().should_show_debug_msg() {
+            self.search_state_mut_dyn().new_search(search_params);
+        } else {
+            let before = Instant::now();
+            self.search_state_mut_dyn().new_search(search_params);
+            let after_setup = Instant::now();
+            let total_elapsed =
+                after_setup.duration_since(self.search_state_dyn().search_params().limit.start_time).as_micros();
+            send_debug_msg!(
+                self.search_state_dyn().search_params(),
+                "Preparing the search state for a new search took {0} microseconds, {1} have elapsed since the search request",
+                after_setup.duration_since(before).as_micros(),
+                total_elapsed
+            );
+        }
         let mut res = self.do_search();
         self.search_state_mut_dyn().end_search(&mut res);
         res
@@ -811,6 +814,9 @@ pub trait AbstractSearchState<B: BoardTrait> {
     fn to_search_info(&self, final_info: bool) -> SearchInfo<'_, B>;
     fn aggregated_statistics(&self) -> Statistics;
     fn send_search_info(&self, final_info: bool);
+    fn should_show_debug_msg(&self) -> bool {
+        self.search_params().thread_type.output().is_some_and(|o| o.show_debug_output)
+    }
     fn output_minimal(&self) -> bool {
         self.search_params().thread_type.output().is_some_and(|o| o.minimal)
     }
@@ -863,6 +869,7 @@ impl<B: BoardTrait, E: SearchStackEntry<B>, C: CustomInfo<B>> DerefMut for Searc
 }
 
 impl<B: BoardTrait, E: SearchStackEntry<B>, C: CustomInfo<B>> AbstractSearchState<B> for SearchState<B, E, C> {
+    // `hard` is false when starting a new search and true when receiving ucinewgame
     fn forget(&mut self, hard: bool) {
         self.last_msg_time = Instant::now();
         self.execution_start_time = self.last_msg_time;
