@@ -866,11 +866,10 @@ impl<B: BoardTrait, E: SearchStackEntry<B>, C: CustomInfo<B>> AbstractSearchStat
     fn forget(&mut self, hard: bool) {
         self.last_msg_time = Instant::now();
         self.execution_start_time = self.last_msg_time;
-        // TODO: Remove or at least only do if `hard` is true
-        for e in &mut self.search_stack {
-            e.forget();
-        }
         if hard {
+            for e in &mut self.search_stack {
+                e.forget();
+            }
             self.custom.hard_forget_except_tt();
             self.params.atomic.reset(false);
         } else {
