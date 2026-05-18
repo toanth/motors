@@ -50,9 +50,9 @@ pub(super) mod tt;
 // only evaluate the debug message if debug mode is actually enabled
 #[macro_export]
 macro_rules! send_debug_msg {
-    ($state: expr, $($args: tt)*) => {
-        if $state.should_show_debug_msg() {
-            $state.send_non_ugi(gears::output::Message::Debug, &format_args!($($args)*))
+    ($params: expr, $($args: tt)*) => {
+        if let Some(mut output) = $params.thread_type.output() && output.show_debug_output {
+            output.write_message(gears::output::Message::Debug, &format_args!($($args)*));
         }
     };
 }
@@ -467,7 +467,7 @@ pub trait Engine<B: BoardTrait>: StaticallyNamedEntity + Send + 'static {
         let total_elapsed =
             after_setup.duration_since(self.search_state_dyn().search_params().limit.start_time).as_micros();
         send_debug_msg!(
-            self.search_state_mut_dyn(),
+            self.search_state_dyn().search_params(),
             "Preparing the search state for a new search took {0} microseconds, {1} have elapsed since the search request",
             after_setup.duration_since(before).as_micros(),
             total_elapsed
@@ -811,9 +811,6 @@ pub trait AbstractSearchState<B: BoardTrait> {
     fn to_search_info(&self, final_info: bool) -> SearchInfo<'_, B>;
     fn aggregated_statistics(&self) -> Statistics;
     fn send_search_info(&self, final_info: bool);
-    fn should_show_debug_msg(&self) -> bool {
-        self.search_params().thread_type.output().is_some_and(|o| o.show_debug_output)
-    }
     fn output_minimal(&self) -> bool {
         self.search_params().thread_type.output().is_some_and(|o| o.minimal)
     }
@@ -892,6 +889,11 @@ impl<B: BoardTrait, E: SearchStackEntry<B>, C: CustomInfo<B>> AbstractSearchStat
     fn new_search(&mut self, mut parameters: SearchParams<B>) {
         parameters.atomic.set_searching(true);
         self.forget(false);
+        send_debug_msg!(
+            &parameters,
+            "Forgot the old search state {0} microseconds after starting to set up a new search",
+            self.execution_start_time.elapsed().as_micros()
+        );
         let moves = parameters.pos.legal_moves_slow();
         let num_moves = moves.num_moves();
         self.age = parameters.tt.age;
@@ -915,6 +917,11 @@ impl<B: BoardTrait, E: SearchStackEntry<B>, C: CustomInfo<B>> AbstractSearchStat
         if num_moves == 1 && parameters.limit.is_only_time_based() {
             parameters.limit.depth = DepthPly::new(1);
         }
+        send_debug_msg!(
+            &parameters,
+            "Adjusted search moves and multi pv {0} microseconds after starting to set up a new search",
+            self.execution_start_time.elapsed().as_micros()
+        );
         if let Some(mut output) = self.params.thread_type.output() {
             output.new_search();
         }
@@ -929,7 +936,7 @@ impl<B: BoardTrait, E: SearchStackEntry<B>, C: CustomInfo<B>> AbstractSearchStat
         self.send_statistics();
         self.aggregate_match_statistics();
         send_debug_msg!(
-            self,
+            self.search_params(),
             "Ending a search that took {0} microseconds ({1} microseconds since starting searching in this thread)",
             self.start_time().elapsed().as_micros(),
             self.execution_start_time.elapsed().as_micros()
@@ -938,7 +945,7 @@ impl<B: BoardTrait, E: SearchStackEntry<B>, C: CustomInfo<B>> AbstractSearchStat
         // the search result and so that we avoid race conditions.
         self.params.end_and_send(res);
         send_debug_msg!(
-            self,
+            self.search_params(),
             "Finished writing the search res {0} microseconds after getting a search command",
             self.start_time().elapsed().as_micros(),
         );

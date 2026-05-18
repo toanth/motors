@@ -242,7 +242,7 @@ impl Engine<Board> for Caps {
         self.params.limit = limit;
 
         send_debug_msg!(
-            self.state,
+            self.search_params(),
             "Starting search with limit {time} microseconds, {incr}ms increment, max {fixed}ms, mate in {mate} plies, max depth {depth}, \
             max {nodes} nodes, soft limit {soft}ms, {ignored} ignored moves. {elapsed} microseconds have already elapsed ({e2} since starting the search in this thread)",
             time = limit.tc.remaining.as_micros(),
@@ -420,15 +420,23 @@ impl Caps {
                 self.statistics.soft_limit_stop();
                 // increase the node counter by one to ensure the game is reproducible
                 _ = self.atomic().count_node();
-                send_debug_msg!(self, "Not starting negamax after {} microseconds", elapsed.as_micros());
+                send_debug_msg!(
+                    self.search_params(),
+                    "Not starting negamax after {} microseconds",
+                    elapsed.as_micros()
+                );
                 return (false, false, None);
             }
-            send_debug_msg!(self, "Starting new aspiration window search after {} microseconds", elapsed.as_micros());
+            send_debug_msg!(
+                self.search_params(),
+                "Starting new aspiration window search after {} microseconds",
+                elapsed.as_micros()
+            );
 
             let asp_start_time = Instant::now();
             let Some(pv_score) = self.negamax(pos, 0, aw_budget, alpha, beta, Exact) else {
                 send_debug_msg!(
-                    self.state,
+                    self.search_params(),
                     "Exiting aw window after reaching a stop condition in negamax, after {} microseconds",
                     self.start_time().elapsed().as_micros()
                 );
@@ -436,7 +444,7 @@ impl Caps {
             };
 
             send_debug_msg!(
-                self.state,
+                self.search_params(),
                 "depth {budget}, score {0}, radius {1}, interval ({2}, {3}) nodes {4}, elapsed microseconds: {5}",
                 pv_score.0,
                 window_radius.0,
