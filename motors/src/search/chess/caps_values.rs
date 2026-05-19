@@ -53,7 +53,7 @@ spsa_params![
     rfp_tt_upper_bound: ScoreT = 256; 0..=1024; step=64;
     rfp_noisy_pos: ScoreT = 1024; 0..=2048; step=128;
     rfp_max_depth: isize = 6 * 128; 128..=1024; step=32;
-    rf_fail_firm_factor: ScoreT = 768; 0..=1024; step=32;
+    rfp_fail_firm_factor: ScoreT = 768; 0..=1024; step=32;
     razor_max_depth: isize = 256; 64..=1024; step=64;
     razor_depth_mult: isize = 4096; 256..32768; step=512;
     nmp_min_depth: isize = 128; 128..=1024; step=32;
@@ -104,6 +104,7 @@ spsa_params![
     third_search_reduction: isize = 0; -64..=128; step=8;
     alpha_raise_reduction_min_depth: isize = 256; 128..=1024; step=16;
     alpha_raise_reduction: isize = 128; 32..=512; step=8;
+    qsearch_fail_firm_factor: ScoreT = 768; 0..=1024; step=32;
     hist_depth_bonus: isize = 128; 4..=512; step=32;
     hist_bonus_offset: isize = 0; -256..=256; step=8;
     hist_bonus_eval_diff: u32 = 8; 0..=16; step=1;

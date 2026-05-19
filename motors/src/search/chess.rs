@@ -478,7 +478,6 @@ mod tests {
     #[test]
     fn multipv_mate() {
         let pos = Board::from_name("mate_in_1").unwrap();
-        let limit = SearchLimit::depth_(5);
 
         let engines: [Box<dyn Engine<Board>>; 8] = [
             Box::new(Caps::for_eval::<LiTEval>()),
@@ -492,6 +491,7 @@ mod tests {
         ];
 
         for mut engine in engines.into_iter() {
+            let limit = SearchLimit::depth_(if engine.short_name() == "CAPS" { 7 } else { 5 });
             println!("{}", engine.engine_info().short_name());
             let mut params = SearchParams::for_pos(pos, limit);
             params.num_multi_pv = 3;

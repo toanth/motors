@@ -739,7 +739,7 @@ impl Caps {
             if depth <= cc::rfp_max_depth() && eval >= beta + Score(margin) {
                 // Fail firm: Static eval isn't super trustworthy, and we can assume that scores are close to (alpha, beta).
                 // So interpolate between eval and beta, which should lead to more stable scores.
-                let s = (eval * cc::rf_fail_firm_factor() + beta * (1024 - cc::rf_fail_firm_factor())) / 1024;
+                let s = (eval * cc::rfp_fail_firm_factor() + beta * (1024 - cc::rfp_fail_firm_factor())) / 1024;
                 return Some(if s.is_won_or_lost() { eval } else { s });
             }
 
@@ -1247,10 +1247,15 @@ impl Caps {
         let mut best_score = eval;
         // Saving to the TT is probably unnecessary since the score is either from the TT or just the static eval,
         // which is not very valuable. Also, the fact that there's no best move might have unfortunate interactions with
-        // IIR, because it will make this fail-high node appear like a fail-low node. TODO: Test regardless, but probably
-        // only after aging
-        if best_score >= beta || ply >= SEARCH_STACK_LEN {
-            return Some(best_score);
+        // IIR, because it will make this fail-high node appear like a fail-low node. TODO: Test regardless
+        if eval >= beta || ply >= SEARCH_STACK_LEN {
+            let stand_pat = if eval.is_won_or_lost() || beta.is_won_or_lost() {
+                eval
+            } else {
+                // fail firm: Interpolate between static eval and beta
+                (eval * cc::qsearch_fail_firm_factor() + beta * (1024 - cc::qsearch_fail_firm_factor())) / 1024
+            };
+            return Some(stand_pat);
         }
 
         if best_score > alpha {
@@ -1269,7 +1274,7 @@ impl Caps {
             debug_assert!(mov.is_tactical(pos) || pos.is_in_check());
             self.tt().prefetch(pos.approx_hash_after(mov));
             if !eval.is_game_lost_score() && move_score < MoveScore(0) || children_visited >= 3 {
-                // qsearch see pruning and qsearch late move  pruning (lmp):
+                // qsearch see pruning and qsearch late move pruning (lmp):
                 // If the move has a negative SEE score or if we've already looked at enough moves, don't even bother playing it in qsearch.
                 break;
             }
