@@ -242,7 +242,7 @@ impl Engine<Board> for Caps {
         self.params.limit = limit;
 
         send_debug_msg!(
-            self.state,
+            self,
             "Starting search with limit {time} microseconds, {incr}ms increment, max {fixed}ms, mate in {mate} plies, max depth {depth}, \
             max {nodes} nodes, soft limit {soft}ms, {ignored} ignored moves. {elapsed} microseconds have already elapsed ({e2} since starting the search in this thread)",
             time = limit.tc.remaining.as_micros(),
@@ -428,7 +428,7 @@ impl Caps {
             let asp_start_time = Instant::now();
             let Some(pv_score) = self.negamax(pos, 0, aw_budget, alpha, beta, Exact) else {
                 send_debug_msg!(
-                    self.state,
+                    self,
                     "Exiting aw window after reaching a stop condition in negamax, after {} microseconds",
                     self.start_time().elapsed().as_micros()
                 );
@@ -436,7 +436,7 @@ impl Caps {
             };
 
             send_debug_msg!(
-                self.state,
+                self,
                 "depth {budget}, score {0}, radius {1}, interval ({2}, {3}) nodes {4}, elapsed microseconds: {5}",
                 pv_score.0,
                 window_radius.0,

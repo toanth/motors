@@ -51,8 +51,8 @@ pub(super) mod tt;
 #[macro_export]
 macro_rules! send_debug_msg {
     ($state: expr, $($args: tt)*) => {
-        if $state.should_show_debug_msg() {
-            $state.send_non_ugi(gears::output::Message::Debug, &format_args!($($args)*))
+        if let Some(mut output) = $state.search_params().thread_type.output() && output.show_debug_output {
+            output.write_message(gears::output::Message::Debug, &format_args!($($args)*));
         }
     };
 }
@@ -215,7 +215,6 @@ impl<B: BoardTrait, const LIMIT: usize> Pv<B, LIMIT> {
         self.list.is_empty()
     }
 
-    #[cold]
     pub fn clear(&mut self) {
         self.list.clear();
     }
@@ -407,7 +406,13 @@ pub trait Engine<B: BoardTrait>: StaticallyNamedEntity + Send + 'static {
 
     /// Reset the engine into a fresh state, e.g. by clearing the TT and various heuristics.
     fn forget(&mut self) {
+        let start = Instant::now();
         self.search_state_mut_dyn().forget(true);
+        send_debug_msg!(
+            self.search_state_dyn(),
+            "Forgetting all search state took {} microseconds",
+            start.elapsed().as_micros()
+        );
     }
     /// Returns information about this engine, such as the name, version and default bench depth.
     fn engine_info(&self) -> EngineInfo;
@@ -461,17 +466,21 @@ pub trait Engine<B: BoardTrait>: StaticallyNamedEntity + Send + 'static {
     /// Start a new search and return the best move and score.
     /// 'parameters' contains information like the board history and allows the search to output intermediary results.
     fn search(&mut self, search_params: SearchParams<B>) -> SearchResult<B> {
-        let before = Instant::now();
-        self.search_state_mut_dyn().new_search(search_params);
-        let after_setup = Instant::now();
-        let total_elapsed =
-            after_setup.duration_since(self.search_state_dyn().search_params().limit.start_time).as_micros();
-        send_debug_msg!(
-            self.search_state_mut_dyn(),
-            "Preparing the search state for a new search took {0} microseconds, {1} have elapsed since the search request",
-            after_setup.duration_since(before).as_micros(),
-            total_elapsed
-        );
+        if !self.search_state_dyn().should_show_debug_msg() {
+            self.search_state_mut_dyn().new_search(search_params);
+        } else {
+            let before = Instant::now();
+            self.search_state_mut_dyn().new_search(search_params);
+            let after_setup = Instant::now();
+            let total_elapsed =
+                after_setup.duration_since(self.search_state_dyn().search_params().limit.start_time).as_micros();
+            send_debug_msg!(
+                self.search_state_dyn(),
+                "Preparing the search state for a new search took {0} microseconds, {1} have elapsed since the search request",
+                after_setup.duration_since(before).as_micros(),
+                total_elapsed
+            );
+        }
         let mut res = self.do_search();
         self.search_state_mut_dyn().end_search(&mut res);
         res
@@ -866,14 +875,14 @@ impl<B: BoardTrait, E: SearchStackEntry<B>, C: CustomInfo<B>> DerefMut for Searc
 }
 
 impl<B: BoardTrait, E: SearchStackEntry<B>, C: CustomInfo<B>> AbstractSearchState<B> for SearchState<B, E, C> {
+    // `hard` is false when starting a new search and true when receiving `ucinewgame`
     fn forget(&mut self, hard: bool) {
         self.last_msg_time = Instant::now();
         self.execution_start_time = self.last_msg_time;
-        // TODO: Remove or at least only do if `hard` is true
-        for e in &mut self.search_stack {
-            e.forget();
-        }
         if hard {
+            for e in &mut self.search_stack {
+                e.forget();
+            }
             self.custom.hard_forget_except_tt();
             self.params.atomic.reset(false);
         } else {

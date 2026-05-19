@@ -35,7 +35,7 @@ use crate::io::ugi_output::{
     AbstractUgiOutput, UgiOutput, color_for_score, pretty_score, pretty_variation_simple, score_gradient, suffix_for,
 };
 use crate::search::multithreading::EngineWrapper;
-use crate::search::tt::{DEFAULT_HASH_SIZE_MB, EndTTPvMove, TT, TTEntry};
+use crate::search::tt::{DEFAULT_HASH_SIZE_MIB, EndTTPvMove, TT, TTEntry};
 use crate::search::{EvalList, SearchParams, SearcherList, run_bench_with};
 use crate::{create_engine_box_from_str, create_engine_from_str, create_eval_from_str, create_match};
 use gears::MatchStatus::*;
@@ -330,8 +330,8 @@ fn handle_ugi_input(ugi: &mut dyn AbstractEngineUgi, mut words: Tokens, game_nam
             // This allows precomputing commands, resolves potential conflicts with commands, and speeds up autocompletion
             if ugi.handle_move_fen_or_pgn(first_word, words)? {
                 return Ok(());
-            } else if first_word.eq_ignore_ascii_case("barbecue") {
-                ugi.write_ugi_msg(&print_as_ascii_art("lol", 2));
+            } else if first_word.eq_ignore_ascii_case("barbeque") {
+                ugi.write_ugi_msg(&print_as_ascii_art("barbeque!", 2));
             }
             ugi.write_message(
                 Warning,
@@ -424,7 +424,7 @@ impl<B: BoardTrait> EngineUGI<B> {
             failed_cmd: None,
         };
         if res.debug_mode() {
-            res.handle_debug(&mut tokens(""))?;
+            res.handle_debug_impl(&mut tokens(""), false)?;
         }
         if let Some(cmd) = opts.cmd {
             for line in cmd.split(';') {
@@ -1023,7 +1023,7 @@ impl<B: BoardTrait> EngineUGI<B> {
     }
 
     #[cold]
-    fn handle_output_impl(&mut self, words: &mut Tokens) -> Res<()> {
+    fn handle_output_impl(&mut self, words: &mut Tokens, show: bool) -> Res<()> {
         let mut next = words.next().unwrap_or_default();
         let output_ptr = self.output.clone();
         let mut output = output_ptr.lock().unwrap();
@@ -1047,7 +1047,7 @@ impl<B: BoardTrait> EngineUGI<B> {
                     })?
                     .for_engine(&self.state)?,
             );
-            if self.is_interactive() {
+            if show {
                 drop(output);
                 self.print_board(OutputOpts::default());
             }
@@ -1056,16 +1056,18 @@ impl<B: BoardTrait> EngineUGI<B> {
     }
 
     #[cold]
-    fn handle_debug_impl(&mut self, words: &mut Tokens) -> Res<()> {
+    fn handle_debug_impl(&mut self, words: &mut Tokens, show: bool) -> Res<()> {
         match words.next().unwrap_or("on") {
             "on" => {
                 self.state.debug_mode = true;
                 // make sure to print all the messages that can be sent (adding an existing output is a no-op)
-                self.handle_output(&mut tokens("error"))?;
-                self.handle_output(&mut tokens("debug"))?;
-                self.handle_output(&mut tokens("info"))?;
+                self.handle_output_impl(&mut tokens("error"), false)?;
+                self.handle_output_impl(&mut tokens("debug"), false)?;
+                self.handle_output_impl(&mut tokens("info"), false)?;
                 self.output().set_debug(true);
-                self.print_board(OutputOpts::default());
+                if show {
+                    self.print_board(OutputOpts::default());
+                }
                 self.write_message(Debug, &format_args!("Debug mode enabled"));
                 // don't change the log stream if it's already set
                 if self.output().additional_outputs.iter().any(|o| o.is_logger()) {
@@ -1190,7 +1192,7 @@ impl<B: BoardTrait> EngineUGI<B> {
             let value = match opt {
                 Hash => Spin(UgiSpin {
                     val: self.state.engine.next_tt().size_in_mib() as i64,
-                    default: Some(DEFAULT_HASH_SIZE_MB as i64),
+                    default: Some(DEFAULT_HASH_SIZE_MIB as i64),
                     min: Some(0),
                     max: Some(10_000_000), // use at most 10 terabytes (should be enough for anybody™)
                 }),
@@ -1475,7 +1477,7 @@ impl<B: BoardTrait> AbstractEngineUgiState for EngineUGI<B> {
     }
 
     fn handle_debug(&mut self, words: &mut Tokens) -> Res<()> {
-        self.handle_debug_impl(words)
+        self.handle_debug_impl(words, true)
     }
 
     fn handle_log(&mut self, words: &mut Tokens) -> Res<()> {
@@ -1483,7 +1485,7 @@ impl<B: BoardTrait> AbstractEngineUgiState for EngineUGI<B> {
     }
 
     fn handle_output(&mut self, words: &mut Tokens) -> Res<()> {
-        self.handle_output_impl(words)
+        self.handle_output_impl(words, self.is_interactive())
     }
 
     fn handle_print(&mut self, words: &mut Tokens, opts: OutputOpts) -> Res<()> {

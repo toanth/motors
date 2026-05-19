@@ -27,6 +27,7 @@ inquire = { version = "0.9", default-features = false, features = ["crossterm", 
 # TODO: Should probably move autocompletion to gears? Then this dependency would be unnecessary
 edit-distance = "2.2"
 indicatif = { version = "0.18", default-features = false, features = ["unicode-width"] }
+libc = "1.0.0-alpha.3"
 
 
 [features]

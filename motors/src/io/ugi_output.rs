@@ -36,7 +36,6 @@ use gears::search::{Budget, DepthPly, MpvType, NodeType, NodesLimit, SearchInfo,
 use gears::{GameState, colored, colorgrad};
 use indicatif::{ProgressBar, ProgressStyle};
 use std::fmt::Write;
-use std::io::stdout;
 use std::time::Duration;
 use std::{fmt, mem};
 
@@ -262,14 +261,16 @@ pub trait AbstractUgiOutput {
 
 impl<B: BoardTrait> AbstractUgiOutput for UgiOutput<B> {
     fn write_ugi(&mut self, message: &fmt::Arguments) {
-        use std::io::Stdout;
         use std::io::Write;
         // UGI is always done through stdin and stdout, no matter what the UI is.
         // TODO: Keep stdout mutex? Might make printing slightly faster and prevents everyone else from
         // accessing stdout, which is probably a good thing because it prevents sending invalid UCI commands
-        println!("{message}");
-        // Currently, `println` always flushes, but this behaviour should not be relied upon.
-        _ = Stdout::flush(&mut stdout());
+        {
+            let mut lock = std::io::stdout().lock();
+            _ = writeln!(lock, "{message}");
+            // Currently, writing a newline to stdout always flushes, but this behavior should not be relied upon.
+            _ = lock.flush();
+        }
         for output in &mut self.additional_outputs {
             output.write_ugi_output(message, None);
         }
