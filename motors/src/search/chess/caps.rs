@@ -1266,7 +1266,7 @@ impl Caps {
         while let Some(sm) = move_picker.next(&self.state) {
             let mov = sm.mov();
             let move_score = sm.score();
-            debug_assert!(mov.is_tactical(pos) || pos.is_in_check());
+            debug_assert!(mov.is_tactical(pos) || pos.is_in_check(), "{mov:?} {pos}");
             self.tt().prefetch(pos.approx_hash_after(mov));
             if !eval.is_game_lost_score() && move_score < MoveScore(0) || children_visited >= 3 {
                 // qsearch see pruning and qsearch late move  pruning (lmp):

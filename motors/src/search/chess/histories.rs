@@ -22,7 +22,7 @@ use crate::search::chess::caps_values::cc::corrhist_max;
 use derive_more::{Deref, DerefMut, Index, IndexMut};
 use gears::colored::Colorize;
 use gears::games::chess::moves::Move;
-use gears::games::chess::moves::MoveFlags::NormalMove;
+use gears::games::chess::moves::MoveFlags::NormalQuiet;
 use gears::games::chess::pieces::{NUM_CHESS_PIECES, PieceType};
 use gears::games::chess::squares::{NUM_SQUARES, Square};
 use gears::games::chess::{Board, Color};
@@ -253,7 +253,7 @@ pub(super) fn write_single_hist_table(table: &HistoryHeuristic, pos: &Board, fli
     let show_square = |from: Square| {
         let sum: i32 = Square::iter()
             .map(|to| {
-                let mov = if flip { Move::new(to, from, NormalMove) } else { Move::new(from, to, NormalMove) };
+                let mov = if flip { Move::new(to, from, NormalQuiet) } else { Move::new(from, to, NormalQuiet) };
                 table.score(mov, pos.threats()) as i32
             })
             .sum();
