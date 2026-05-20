@@ -704,11 +704,11 @@ impl BoardTrait for Board {
         None
     }
 
-    fn player_result_slow<H: BoardHistory>(&self, history: &H) -> Option<PlayerResult> {
+    fn calc_player_result<H: BoardHistory>(&self, history: &H) -> Option<PlayerResult> {
         if let Some(res) = self.player_result_no_movegen(history) {
             return Some(res);
         }
-        let no_moves = self.legal_moves().is_empty();
+        let no_moves = self.has_no_legal_moves();
         if no_moves { self.no_moves_result() } else { None }
     }
 
@@ -1448,7 +1448,7 @@ mod tests {
             if resetting.contains(&m) {
                 assert_eq!(new_pos.ply_draw_clock(), 0);
                 if !["b1b8", "a7b8q", "a7b8r"].contains(&m.compact_formatter(&board).to_string().as_str()) {
-                    assert!(new_pos.player_result_slow(&NoHistory::default()).is_none(), "{m:?}");
+                    assert!(new_pos.calc_player_result(&NoHistory::default()).is_none(), "{m:?}");
                 } else {
                     assert!(new_pos.is_checkmate_slow());
                     mate_ctr += 1;
@@ -1520,7 +1520,7 @@ mod tests {
         let moves = pos.legal_moves();
         assert!(moves.is_empty());
         assert!(pos.is_checkmate_slow());
-        assert_eq!(pos.player_result_slow(&NoHistory::default()), Some(Lose));
+        assert_eq!(pos.calc_player_result(&NoHistory::default()), Some(Lose));
         assert!(!pos.is_stalemate_slow());
         assert!(pos.make_nullmove().is_none());
         // this position can be claimed as a draw according to FIDE rules but it's also a mate in 1
@@ -1530,7 +1530,7 @@ mod tests {
         let mut wins = 0;
         for mov in pos.legal_moves() {
             let new_pos = pos.play(mov);
-            if let Some(res) = new_pos.player_result_slow(&NoHistory::default()) {
+            if let Some(res) = new_pos.calc_player_result(&NoHistory::default()) {
                 match res {
                     PlayerResult::Win => {
                         unreachable!("The other player can't win through one of our moves")
@@ -1575,7 +1575,7 @@ mod tests {
         assert!(board.debug_verify_invariants(Strict).is_ok());
         let board = board.make_nullmove().unwrap();
         assert!(board.legal_moves().is_empty());
-        assert_eq!(board.player_result_slow(&NoHistory::default()), Some(Draw));
+        assert_eq!(board.calc_player_result(&NoHistory::default()), Some(Draw));
         // chess960 castling rights encoded using X-FEN
         let fen = "1rbq1krb/ppp1pppp/1n1n4/3p4/3P4/2PN4/PP2PPPP/NRBQ1KRB w KQkq - 3 4";
         let board = Board::from_fen(fen, Relaxed).unwrap();

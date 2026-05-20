@@ -464,7 +464,7 @@ impl Caps {
 
             if cfg!(debug_assertions) {
                 let pv = &self.search_stack[0].pv;
-                if pos.player_result_slow(&self.params.history).is_some() {
+                if pos.calc_player_result(&self.params.history).is_some() {
                     assert!(pv.len() <= 1); // only check/stalemates are checked at the root
                 } else {
                     match node_type {

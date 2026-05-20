@@ -345,7 +345,7 @@ pub fn ugi_commands() -> CommandList {
             --> |state| state.engine_subcmds()
         ),
         command!(
-            set_eval | se,
+            set_eval | SetEval | se,
             Custom,
             "Sets the eval for the current engine. Doesn't reset the internal engine state",
             |ugi, words, _| ugi.handle_set_eval(words),

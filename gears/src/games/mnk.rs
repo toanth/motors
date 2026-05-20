@@ -714,7 +714,7 @@ impl BoardTrait for Board {
         }
     }
 
-    fn player_result_slow<H: BoardHistory>(&self, history: &H) -> Option<PlayerResult> {
+    fn calc_player_result<H: BoardHistory>(&self, history: &H) -> Option<PlayerResult> {
         self.player_result_no_movegen(history)
     }
 
@@ -1281,7 +1281,7 @@ mod test {
         let new_pos = pos.make_move(mov).unwrap();
         assert!(new_pos.last_move_won_game());
         assert_eq!(new_pos.last_move, Some(mov));
-        assert_eq!(new_pos.player_result_slow(&NoHistory::default()), Some(Lose));
+        assert_eq!(new_pos.calc_player_result(&NoHistory::default()), Some(Lose));
         assert_eq!(new_pos.active_player_bb(), Bitboard::new(0, pos.size()));
     }
 }

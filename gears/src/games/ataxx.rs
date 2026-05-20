@@ -413,14 +413,14 @@ impl BoardTrait for Board {
         })
     }
 
-    fn player_result_slow<H: BoardHistory>(&self, history: &H) -> Option<PlayerResult> {
+    fn calc_player_result<H: BoardHistory>(&self, history: &H) -> Option<PlayerResult> {
         self.player_result_no_movegen(history)
     }
 
     /// If a player has no legal moves, a null move is generated, so this doesn't require any special handling during search.
     /// But if there are no pieces left, the player loses the game.
     fn no_moves_result(&self) -> Option<PlayerResult> {
-        self.player_result_slow(&NoHistory::default())
+        self.calc_player_result(&NoHistory::default())
     }
 
     fn can_reasonably_win(&self, _player: Color) -> bool {

@@ -300,14 +300,14 @@ fn fifty_mr_test() {
         if resetting.contains(&m) {
             assert_eq!(new_pos.ply_draw_clock(), 0);
             if !["b1b8", "a7b8q", "a7b8r"].contains(&m.compact_formatter(&board).to_string().as_str()) {
-                assert!(new_pos.player_result_slow(&NoHistory::default()).is_none(), "{m:?}");
+                assert!(new_pos.calc_player_result(&NoHistory::default()).is_none(), "{m:?}");
             } else {
                 assert!(new_pos.is_game_lost_slow(&NoHistory::default()));
                 mate_ctr += 1;
             }
         } else {
             assert_eq!(new_pos.ply_draw_clock(), 100);
-            let res = new_pos.player_result_slow(&NoHistory::default());
+            let res = new_pos.calc_player_result(&NoHistory::default());
             if let Some(Lose) = res {
                 mate_ctr += 1;
             } else {
@@ -370,7 +370,7 @@ fn checkmate_test() {
     let moves = pos.legal_moves_slow();
     assert!(moves.is_empty());
     assert!(pos.is_game_lost_slow(&NoHistory::default()));
-    assert_eq!(pos.player_result_slow(&NoHistory::default()), Some(Lose));
+    assert_eq!(pos.calc_player_result(&NoHistory::default()), Some(Lose));
     assert!(!pos.is_draw_slow(&NoHistory::default()));
     assert!(pos.make_nullmove().is_none());
     // this position can be claimed as a draw according to FIDE rules but it's also a mate in 1
@@ -380,7 +380,7 @@ fn checkmate_test() {
     let mut wins = 0;
     for mov in pos.legal_moves_slow() {
         let new_pos = pos.clone().make_move(mov).unwrap();
-        if let Some(res) = new_pos.player_result_slow(&NoHistory::default()) {
+        if let Some(res) = new_pos.calc_player_result(&NoHistory::default()) {
             match res {
                 PlayerResult::Win => {
                     unreachable!("The other player can't win through one of our moves")
@@ -424,7 +424,7 @@ fn weird_position_test() {
     assert!(board.clone().debug_verify_invariants(Strict).is_ok());
     let board = board.make_nullmove().unwrap();
     assert!(board.legal_moves_slow().is_empty());
-    assert_eq!(board.player_result_slow(&NoHistory::default()), Some(Draw));
+    assert_eq!(board.calc_player_result(&NoHistory::default()), Some(Draw));
     // unlike the Chessboard, the Fairyboard currently doesn't support X-FEN, so those tests are missing here
     // An ep capture is pseudolegal but not legal
     let fen = "1nbqkbnr/ppp1pppp/8/r2pP2K/8/8/PPPP1PPP/RNBQ1BNR w k d6 0 2";
