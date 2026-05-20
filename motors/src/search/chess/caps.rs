@@ -621,6 +621,7 @@ impl Caps {
         let mut best_move = Move::default();
         // Don't initialize eval just yet to save work in case we get a TT cutoff
         let raw_eval;
+        let static_eval;
         let mut eval;
         // the TT entry at the root is useless when doing an actual multipv search
         let ignore_tt_entry = root && self.multi_pvs.len() > 1;
@@ -671,20 +672,23 @@ impl Caps {
                 }
             }
             raw_eval = tt_entry.raw_eval();
-            eval = self.state.custom.corr_hist.correct(pos, continued, raw_eval);
+            static_eval = self.state.custom.corr_hist.correct(pos, continued, raw_eval);
             // The TT score is backed by a search, so it should be more trustworthy than a simple call to static eval.
             // Note that the TT score may be a mate score, so `eval` can also be a mate score. This doesn't currently
             // create any problems, but should be kept in mind.
-            if tt_bound == Exact
-                || (tt_bound == NodeType::lower_bound() && tt_score >= eval)
-                || (tt_bound == NodeType::upper_bound() && tt_score <= eval)
+            eval = if tt_bound == Exact
+                || (tt_bound == NodeType::lower_bound() && tt_score >= static_eval)
+                || (tt_bound == NodeType::upper_bound() && tt_score <= static_eval)
             {
-                eval = tt_score;
-            }
+                tt_score
+            } else {
+                static_eval
+            };
         } else {
             self.state.statistics.tt_miss(MainSearch);
             raw_eval = self.eval(pos, ply);
-            eval = self.state.custom.corr_hist.correct(pos, continued, raw_eval);
+            static_eval = self.state.custom.corr_hist.correct(pos, continued, raw_eval);
+            eval = static_eval;
         };
 
         self.record_pos(pos, eval, ply);
@@ -973,6 +977,9 @@ impl Caps {
                     }
                     if in_check {
                         reduction -= cc::lmr_in_check_reduction();
+                    }
+                    if eval < static_eval {
+                        reduction -= cc::lmr_tt_eval_worse_reduction();
                     }
                 }
                 // Futility Reduction: If this move is not a TT move, good SEE capture or killer, and our eval is significantly

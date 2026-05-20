@@ -86,6 +86,7 @@ spsa_params![
     lmr_we_blundered_reduction: isize = 128; 32..=256; step=8;
     lmr_new_in_check_reduction: isize = 128; 32..=256; step=8;
     lmr_in_check_reduction: isize = 128; 32..=256; step=8;
+    lmr_tt_eval_worse_reduction: isize = 128; 0..=3 * 128; step = 32;
     min_fr_depth: isize = 7 * 128; 1..=8192; step=64;
     fr_base: ScoreT = 400; 100..=800; step=16;
     fr_scale: isize = 32 * 8; 64..=1024; step=8;
