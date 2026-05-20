@@ -72,12 +72,12 @@ pub struct MainThreadData<B: BoardTrait> {
 }
 
 impl<B: BoardTrait> MainThreadData<B> {
-    pub fn new_search(&mut self, ponder: bool, limit: &SearchLimit) -> Res<()> {
+    pub fn new_search(&mut self, ponder: bool, limit: &SearchLimit, num_threads: usize) -> Res<()> {
         if self.atomic_search_data[0].currently_searching() {
             bail!("Cannot start a new search with limit '{limit}' because the engine is already searching");
         }
         self.search_type = SearchType::new(ponder, limit);
-        for data in &mut self.atomic_search_data {
+        for data in &mut self.atomic_search_data.iter_mut().take(num_threads) {
             data.reset(true);
         }
         Ok(())
@@ -470,7 +470,7 @@ impl<B: BoardTrait> EngineWrapper<B> {
                 t
             }
         };
-        self.main_thread_data.new_search(ponder, &limit)?; // resets the atomic search state
+        self.main_thread_data.new_search(ponder, &limit, threads)?; // resets the atomic search state
         let thread_data = self.main_thread_data.clone();
         self.tt_for_next_search.age.increment();
         let tt = tt.unwrap_or(self.tt_for_next_search.clone());
@@ -629,6 +629,8 @@ mod tests {
     use crate::io::cli::EngineOpts;
     use gears::cli::Game;
     use gears::cli::Game::Chess;
+    use std::thread;
+    use std::time::Duration;
 
     #[test]
     fn start_search_test() {
@@ -715,6 +717,8 @@ mod tests {
         assert!(res.is_err());
         ugi.handle_input("stop").unwrap();
         ugi.handle_input("stop").unwrap();
+        ugi.handle_input("g t 1").unwrap();
+        thread::sleep(Duration::from_millis(200));
         ugi.quit().unwrap();
     }
 }

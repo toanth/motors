@@ -31,9 +31,10 @@ use crate::general::moves::ExtendedFormat::Standard;
 use crate::general::moves::{ExtendedFormat, Legality, MoveTrait, UntrustedMove};
 use crate::general::squares::RectangularCoordinates;
 
-/// Can be represented with 4 bits. The msb tells us whether the move is tactical, the other 3 bits give us of the 8 options
-/// of a normal move, ep, 2 castling moves, 4 promo moves.
-/// A capturing promo is a promo, not a normal capture, and is quiet if the promo piece is a rook or bishop.
+/// Can be represented with 4 bits.
+/// The msb tells us whether the move is tactical, the other 3 bits give us one of the 8 options
+/// normal move, ep, 2 castling moves, 4 promotion moves.
+/// A capturing promotion is a promotion, not a normal capture, and is quiet if the promotion piece is a rook or bishop.
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Default, Debug, EnumIter, FromRepr)]
 #[must_use]
 pub enum MoveFlags {
