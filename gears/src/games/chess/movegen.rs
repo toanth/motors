@@ -12,6 +12,7 @@ use crate::general::attacks::{ChessSliderGenerator, all_knight_and_slider_attack
 use crate::general::bitboards::chessboard::{BISHOPS, Bitboard, INFINITE_RAYS, KINGS, KNIGHTS, RAYS_INCLUSIVE, ROOKS};
 use crate::general::bitboards::{BitboardTrait, KnownSizeBitboard, RawBitboardTrait};
 use crate::general::board::BitboardBoard;
+use crate::general::moves::MoveTrait;
 use crate::general::squares::RectangularCoordinates;
 
 pub(super) trait GenMoveCallback {
@@ -116,6 +117,7 @@ impl Board {
         if mov.is_castle() {
             return self.check_castling_move_pseudolegal(mov, us);
         }
+        let non_ep_capture = !self.is_empty(dest);
         let piece = mov.piece_type(self);
         let invalid = if piece == King {
             self.threats.has(dest)
@@ -144,11 +146,12 @@ impl Board {
             if mov.is_ep() {
                 return Some(dest) == self.ep_square && src.bb().pawn_attacks(us).has(dest);
             }
-            let incorrect_promo = mov.is_promotion() != dest.is_backrank();
             let capturable = self.player_bb(us.other());
-            !incorrect_promo && Self::single_pawn_moves(us, src, capturable, self.empty_bb()).has(dest)
+            (mov.is_promotion() || (non_ep_capture == mov.is_tactical(self)))
+                && mov.is_promotion() == dest.is_backrank()
+                && Self::single_pawn_moves(us, src, capturable, self.empty_bb()).has(dest)
         } else {
-            if mov.is_promotion() || mov.is_ep() {
+            if mov.is_promotion() || mov.is_ep() || mov.is_tactical(self) != non_ep_capture {
                 return false;
             }
             let generator = self.slider_generator();
@@ -327,11 +330,11 @@ impl Board {
                 continue;
             }
             if callback.only_count() {
-                callback.gen_moves_for(Square::no_coordinates_const(), bb & !Bitboard::backranks(), NormalMove);
+                callback.gen_moves_for(Square::no_coordinates_const(), bb & !Bitboard::backranks(), NormalCapture);
             } else {
                 for to in bb & !Bitboard::backranks() {
                     let from = Square::from_bb_idx((to.as_u8() as isize - offset) as usize);
-                    callback.gen_move(Move::new(from, to, NormalMove));
+                    callback.gen_move(Move::new(from, to, NormalCapture));
                 }
             }
         }
@@ -352,15 +355,15 @@ impl Board {
         }
         if callback.only_count() {
             let bb = (pawn_push & !Bitboard::backranks()) | double_pawn_moves.0;
-            callback.gen_moves_for(Square::no_coordinates_const(), bb, NormalMove);
+            callback.gen_moves_for(Square::no_coordinates_const(), bb, NormalQuiet);
         } else {
             for to in pawn_push & !Bitboard::backranks() {
                 let from = Square::from_bb_idx((to.as_u8() as isize - regular_pawn_moves.1) as usize);
-                callback.gen_move(Move::new(from, to, NormalMove));
+                callback.gen_move(Move::new(from, to, NormalQuiet));
             }
             for to in double_pawn_moves.0 {
                 let from = Square::from_bb_idx((to.as_u8() as isize - double_pawn_moves.1) as usize);
-                callback.gen_move(Move::new(from, to, NormalMove));
+                callback.gen_move(Move::new(from, to, NormalQuiet));
             }
         }
     }
@@ -370,7 +373,8 @@ impl Board {
         let us = self.active;
         let king = self.king_sq(us);
         let attacks = Self::normal_king_attacks_from(king) & filter;
-        callback.gen_moves_for(king, attacks, NormalMove);
+        callback.gen_moves_for(king, attacks & !self.occupied_bb(), NormalQuiet);
+        callback.gen_moves_for(king, attacks & self.occupied_bb(), NormalCapture);
         if only_captures {
             return;
         }
@@ -389,7 +393,8 @@ impl Board {
         let knights = self.col_piece_bb(self.active, Knight) & !self.pinned;
         for from in knights {
             let attacks = Self::knight_attacks_from(from) & filter;
-            callback.gen_moves_for(from, attacks, NormalMove);
+            callback.gen_moves_for(from, attacks & !self.occupied_bb(), NormalQuiet);
+            callback.gen_moves_for(from, attacks & self.occupied_bb(), NormalCapture);
         }
     }
 
@@ -410,12 +415,14 @@ impl Board {
         let color = self.active;
         let pieces = self.col_piece_bb(color, piece);
         let mut gen_attacks = |from: Square, filter: Bitboard| {
-            let attacks = match piece {
-                Bishop => generator.bishop_attacks(from),
-                Rook => generator.rook_attacks(from),
-                _ => generator.queen_attacks(from),
-            };
-            callback.gen_moves_for(from, attacks & filter, NormalMove);
+            let attacks = filter
+                & match piece {
+                    Bishop => generator.bishop_attacks(from),
+                    Rook => generator.rook_attacks(from),
+                    _ => generator.queen_attacks(from),
+                };
+            callback.gen_moves_for(from, attacks & !self.occupied_bb(), NormalQuiet);
+            callback.gen_moves_for(from, attacks & self.occupied_bb(), NormalCapture);
         };
         for from in pieces & !self.pinned {
             gen_attacks(from, filter);
@@ -562,7 +569,7 @@ mod tests {
     #[test]
     fn simple_is_move_pseudolegal_test() {
         let pos = Board::from_fen("3k4/1P6/8/8/7K/8/r7/2R5 w - - 0 1", Strict).unwrap();
-        let mov = Move::new(Square::from_str("b7").unwrap(), Square::from_str("b8").unwrap(), NormalMove);
+        let mov = Move::new(Square::from_str("b7").unwrap(), Square::from_str("b8").unwrap(), NormalQuiet);
         assert!(!pos.is_move_pseudolegal(mov));
     }
 
@@ -588,7 +595,7 @@ mod tests {
     #[test]
     fn failed_proptest() {
         let pos = Board::from_fen("2kb1b2/pR2P1P1/P1N1P3/1p2Pp2/P5P1/1N6/4P2B/2qR2K1 w - f6 99 123", Strict).unwrap();
-        let mov = Move::new(Square::from_str("e5").unwrap(), Square::from_str("f6").unwrap(), NormalMove);
+        let mov = Move::new(Square::from_str("e5").unwrap(), Square::from_str("f6").unwrap(), NormalCapture);
         assert!(!pos.is_move_pseudolegal(mov));
         assert!(!pos.is_generated_move_pseudolegal(mov));
         let mov = Move::new(mov.src_square(), mov.dest_square(), EnPassant);

@@ -31,30 +31,38 @@ use crate::general::moves::ExtendedFormat::Standard;
 use crate::general::moves::{ExtendedFormat, Legality, MoveTrait, UntrustedMove};
 use crate::general::squares::RectangularCoordinates;
 
+/// Can be represented with 4 bits.
+/// The msb tells us whether the move is tactical, the other 3 bits give us one of the 8 options
+/// normal move, ep, 2 castling moves, 4 promotion moves.
+/// A capturing promotion is a promotion, not a normal capture, and is quiet if the promotion piece is a rook or bishop.
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Default, Debug, EnumIter, FromRepr)]
 #[must_use]
 pub enum MoveFlags {
     #[default]
-    NormalMove,
+    NormalQuiet,
     CastleKingside,
     CastleQueenside,
-    EnPassant,
-    PromoKnight,
-    PromoBishop,
-    PromoRook,
-    PromoQueen,
+    PromoBishop = 5,
+    PromoRook = 6,
+    NormalCapture = 8,
+    EnPassant = 8 + 3,
+    PromoKnight = 8 + 4,
+    PromoQueen = 8 + 7,
 }
 
 impl MoveFlags {
+    const TACTICAL_FLAG: u32 = 8;
+    const PROMO_START: u32 = 4;
     fn is_promo(self) -> bool {
-        self >= PromoKnight
+        self as u32 & !Self::TACTICAL_FLAG >= Self::PROMO_START
     }
 
     fn promo_piece(self) -> PieceType {
-        if self < PromoKnight {
+        let p = self as u32 & !Self::TACTICAL_FLAG;
+        if p < Self::PROMO_START {
             Empty
         } else {
-            PieceType::from_repr(self as usize - PromoKnight as usize + Knight as usize).unwrap()
+            PieceType::from_repr((p - Self::PROMO_START) as usize + Knight as usize).unwrap()
         }
     }
 }
@@ -114,12 +122,12 @@ impl Move {
 
     pub fn untrusted_flags(self) -> Res<MoveFlags> {
         let flags = self.0 >> 12;
-        if flags <= 12 {
-            Ok(self.flags())
+        if let Some(f) = MoveFlags::from_repr(flags as usize) {
+            Ok(f)
         } else {
             bail!(
                 "Invalid flags {flags}, which means this move is never valid \
-            and most likely the result of interpreting corrupt data as a chess move"
+                and most likely the result of interpreting corrupt data as a chess move"
             )
         }
     }
@@ -179,7 +187,7 @@ impl Move {
     }
 
     pub(super) fn try_get_flags(self) -> Option<MoveFlags> {
-        MoveFlags::iter().nth((self.0 >> 12) as usize)
+        MoveFlags::from_repr((self.0 >> 12) as usize)
     }
 
     pub fn from_to_square(self) -> usize {
@@ -206,11 +214,8 @@ impl MoveTrait<Board> for Move {
     }
 
     #[inline]
-    fn is_tactical(self, board: &Board) -> bool {
-        // TODO: Make this operation more efficient by storing a quiet_move flag directly
-        self.flags() != PromoRook
-            && self.flags() != PromoBishop
-            && (self.is_capture(board) || self.flags() == PromoQueen || self.flags() == PromoKnight)
+    fn is_tactical(self, _board: &Board) -> bool {
+        self.flags() >= NormalCapture
     }
 
     fn description(self, board: &Board) -> String {
@@ -358,7 +363,7 @@ impl MoveTrait<Board> for Move {
         let from = Square::from_str(&s[..2])?;
         let mut to = Square::from_str(&s[2..4])?;
         let piece = board.colored_piece_on(from);
-        let mut flags = NormalMove;
+        let mut flags = if board.is_empty(to) { NormalQuiet } else { NormalCapture };
         let mut end_idx = 4;
         if let Some((promo_flags, idx)) = parse_short_promo_piece(s) {
             flags = promo_flags;
@@ -457,7 +462,7 @@ impl Board {
 
     #[allow(clippy::too_many_lines)]
     pub fn play(mut self, mov: Move) -> Self {
-        debug_assert!(self.is_move_legal_impl(mov), "{self} {mov:?}");
+        debug_assert!(self.is_move_legal_impl(mov), "{mov:?} is illegal in {self}");
         let piece = mov.piece_type(&self);
         let us = self.active;
         let them = us.other();

@@ -185,7 +185,7 @@ mod tests {
         let mov = Move::new(
             Square::from_rank_file(1, E_FILE_NUM),
             Square::from_rank_file(3, E_FILE_NUM),
-            MoveFlags::NormalMove,
+            MoveFlags::NormalQuiet,
         );
         let new_pos = position.play(mov);
         assert_eq!(new_pos.hashes, new_pos.compute_zobrist());

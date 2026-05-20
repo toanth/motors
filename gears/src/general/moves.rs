@@ -79,6 +79,7 @@ where
 
     /// Tactical moves can drastically change the position and are often searched first, such as captures and queen or
     /// knight promotions in chess. Always returning `false` is a valid choice.
+    // TODO: Currently, we never need the board parameter.
     fn is_tactical(self, board: &B) -> bool;
 
     /// A human-readable and formatted description of this move, e.g. 'move the white knight from g1 to f3'
