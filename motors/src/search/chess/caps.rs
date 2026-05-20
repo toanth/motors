@@ -23,6 +23,7 @@ use crate::send_debug_msg;
 use gears::PlayerResult;
 use gears::PlayerResult::{Lose, Win};
 use gears::colored::Colorize;
+use gears::games::BoardHistDyn;
 use gears::games::chess::bitbase::{Bitbase, PAWN_V_KING_TABLE};
 use gears::games::chess::moves::Move;
 use gears::games::chess::pieces::PieceType::Pawn;
@@ -30,7 +31,6 @@ use gears::games::chess::see::SeeScore;
 use gears::games::chess::upcoming_repetition::{UPCOMING_REPETITION_TABLE, UpcomingRepetitionTable};
 use gears::games::chess::zobrist::ZOBRIST_KEYS;
 use gears::games::chess::{Board, unverified::UnverifiedBoard};
-use gears::games::{BoardHistDyn, n_fold_repetition};
 use gears::general::bitboards::RawBitboardTrait;
 use gears::general::board::Strictness::Strict;
 use gears::general::board::{BitboardBoard, BoardTrait, UnverifiedBoardTrait};
@@ -241,6 +241,18 @@ impl Engine<Board> for Caps {
             limit.tc.remaining.saturating_sub(limit.tc.increment) / cc::soft_limit_div() + limit.tc.increment;
         self.params.limit = limit;
 
+        // Use 3fold repetition detection for positions before and including the root node and 2fold for positions during search.
+        // Idea from pawnocchio:
+        // Instead of actually looking for 3fold repetitions, we simply remove all non-repeated positions so far.
+        let mut hist = take(&mut self.search_params_mut().history);
+        hist.push(pos.hash_pos());
+        hist.0.sort_by_key(|hash| hash.0);
+        for i in 1..hist.0.len() {
+            if hist.0[i] == hist.0[i - 1] {
+                self.repeated_before_root.push(hist.0[i]);
+            }
+        }
+
         send_debug_msg!(
             self,
             "Starting search with limit {time} microseconds, {incr}ms increment, max {fixed}ms, mate in {mate} plies, max depth {depth}, \
@@ -256,9 +268,6 @@ impl Engine<Board> for Caps {
             elapsed = limit.start_time.elapsed().as_micros(),
             e2 = self.execution_start_time.elapsed().as_micros()
         );
-        // Use 3fold repetition detection for positions before and including the root node and 2fold for positions during search.
-        self.original_board_hist = take(&mut self.search_params_mut().history);
-        self.original_board_hist.push(pos.hash_pos());
 
         let incomplete = self.iterative_deepening(&pos, soft_limit);
         if incomplete || self.output_minimal() {
@@ -574,12 +583,9 @@ impl Caps {
             if alpha >= beta {
                 return Some(alpha);
             }
-
-            let ply_100_ctr = pos.ply_draw_clock();
-
             if pos.is_50mr_draw() || pos.has_insufficient_material()
                 // no need to check for twofold repetitions as that is already handled by the upcoming repetition detection
-                || n_fold_repetition(3, &self.original_board_hist, pos.hash_pos(), ply_100_ctr.saturating_sub(ply))
+                || self.repeated_before_root.contains(&pos.hash_pos())
             {
                 return Some(Score(0));
             }
