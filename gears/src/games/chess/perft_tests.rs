@@ -338,6 +338,14 @@ mod tests {
                             assert!(board.pseudolegal_moves().iter().any(|m| m.is_ep()));
                             assert!(!board.legal_moves().iter().any(|m| m.is_ep()));
                         }
+                        let mut all_moves = board.pseudolegal_moves();
+                        all_moves.sort();
+                        let quiet_moves = board.quiet_pseudolegal();
+                        let tactical_moves = board.tactical_pseudolegal();
+                        let mut m2 = Vec::from(quiet_moves.as_slice());
+                        m2.extend_from_slice(&tactical_moves.as_slice());
+                        m2.sort();
+                        assert_eq!(all_moves.as_slice(), m2.as_slice());
                         for (depth, expected_count) in
                             expected.res.iter().enumerate().filter(|(_depth, x)| **x != INVALID)
                         {

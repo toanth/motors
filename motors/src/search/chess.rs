@@ -256,7 +256,7 @@ mod tests {
         let res = engine.search_with_new_tt(board, SearchLimit::mate(DepthPly::new(5)));
         assert_eq!(
             res.chosen_move,
-            Move::new(Square::from_str("d1").unwrap(), Square::from_str("d6").unwrap(), MoveFlags::NormalMove)
+            Move::new(Square::from_str("d1").unwrap(), Square::from_str("d6").unwrap(), MoveFlags::NormalCapture)
         );
         assert_eq!(res.score, SCORE_WON - 3);
 
