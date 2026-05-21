@@ -613,7 +613,7 @@ pub trait BoardTrait:
     /// Note that many implementations never return [`PlayerResult::Win`] because the active player can't win the game,
     /// which is the case because the current player is flipped after the winning move.
     /// For example, being checkmated in chess is a loss for the current player.
-    fn player_result_slow<H: BoardHistory>(&self, history: &H) -> Option<PlayerResult>;
+    fn calc_player_result<H: BoardHistory>(&self, history: &H) -> Option<PlayerResult>;
 
     /// Only called when there are no legal moves.
     /// In that case, the function returns the game state from the current player's perspective.
@@ -625,13 +625,13 @@ pub trait BoardTrait:
     /// Returns true iff the game is lost for the player who can now move, like being checkmated in chess.
     /// Using [`Self::player_result_no_movegen()`] and [`Self::no_moves_result()`] is often the faster option if movegen is needed anyway
     fn is_game_lost_slow<H: BoardHistory>(&self, history: &H) -> bool {
-        self.player_result_slow(history).is_some_and(|x| x == Lose)
+        self.calc_player_result(history).is_some_and(|x| x == Lose)
     }
 
     /// Returns true iff the game is a draw.
     /// Similarly to [`Self::is_game_lost_slow`], using [`Self::player_result_no_movegen`] and [`Self::no_moves_result`] is often faster.
     fn is_draw_slow<H: BoardHistory>(&self, history: &H) -> bool {
-        self.player_result_slow(history).is_some_and(|x| x == Draw)
+        self.calc_player_result(history).is_some_and(|x| x == Draw)
     }
 
     /// Returns true iff the game is won for the current player after making the given move.
@@ -786,7 +786,7 @@ pub trait BoardHelpers: BoardTrait {
     /// Returns an optional [`MatchResult`]. Unlike a [`PlayerResult`], a [`MatchResult`] doesn't contain `Win` or `Lose` variants,
     /// but instead `P1Win` and `P1Lose`. Also, it contains a [`GameOverReason`].
     fn match_result_slow<H: BoardHistory>(&self, history: &H) -> Option<MatchResult> {
-        let player_res = self.player_result_slow(history)?;
+        let player_res = self.calc_player_result(history)?;
         let game_over = GameOver { result: player_res, reason: GameOverReason::Normal };
         Some(player_res_to_match_res(game_over, self.active_player()))
     }

@@ -3,7 +3,7 @@ use crate::search::chess::histories::{
 };
 use crate::search::{CustomInfo, MoveScore, Pv, SearchStackEntry, SearchState};
 use gears::arrayvec::ArrayVec;
-use gears::games::ZobristHistory;
+use gears::games::PosHash;
 use gears::games::chess::moves::Move;
 use gears::games::chess::squares::NUM_SQUARES;
 use gears::games::chess::{Board, Color, MAX_CHESS_MOVES_IN_POS};
@@ -90,7 +90,7 @@ pub struct CapsCustomInfo {
     follow_up_move_hist: ContHist,
     capt_hist: CaptHist,
     corr_hist: CorrHist,
-    original_board_hist: ZobristHistory,
+    repeated_before_root: Vec<PosHash>,
     nmp_disabled: [bool; 2],
     ply_hard_limit: usize,
     root_move_nodes: RootMoveNodes,
@@ -416,7 +416,7 @@ mod tests {
             for mov in movelist {
                 let mov = Move::from_extended_text(mov, &board).unwrap();
                 board = board.play(mov);
-                assert!(board.player_result_slow(&hist).is_none());
+                assert!(board.calc_player_result(&hist).is_none());
                 hist.push(board.hash_pos());
             }
         }
@@ -424,7 +424,7 @@ mod tests {
         let new_board = board.play(mov);
         assert!(new_board.is_in_check());
         assert!(new_board.is_3fold_repetition(&hist));
-        assert!(new_board.player_result_slow(&hist).is_some_and(|r| r == Draw));
+        assert!(new_board.calc_player_result(&hist).is_some_and(|r| r == Draw));
         assert!(n_fold_repetition(2, &hist, new_board.hash_pos(), new_board.ply_draw_clock(),));
         hist.pop();
         let mut engine = Caps::for_eval::<MaterialOnlyEval>();
@@ -450,7 +450,7 @@ mod tests {
             hist.clone(),
             TT::default(),
         ));
-        assert_eq!(state.board.player_result_slow(&hist), Some(Draw));
+        assert_eq!(state.board.calc_player_result(&hist), Some(Draw));
         assert_eq!(res.score.plies_until_game_won(), Some(3));
         assert_eq!(res.chosen_move, Move::from_text("Qc7+", &state.board).unwrap());
     }

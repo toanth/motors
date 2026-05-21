@@ -973,8 +973,8 @@ impl BoardTrait for Board {
     }
     /// When loading a position where the side to move has won and there is no legal previous move for the other player,
     /// like a position where the current player has the king in the center in king of the hill,
-    /// [`Self::player_result_slow`] can return a win for an incorrect player, but this can never happen in a real game.
-    fn player_result_slow<H: BoardHistory>(&self, history: &H) -> Option<PlayerResult> {
+    /// [`Self::calc_player_result`] can return a win for an incorrect player, but this can never happen in a real game.
+    fn calc_player_result<H: BoardHistory>(&self, history: &H) -> Option<PlayerResult> {
         if let Some(res) = self.player_result_no_movegen(history) {
             return Some(res);
         }

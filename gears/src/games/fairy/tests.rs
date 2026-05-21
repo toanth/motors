@@ -163,7 +163,7 @@ mod general {
         let pos = Board::from_fen(pos, Strict).unwrap();
         assert!(pos.match_result_slow(&ZobristHistory::default()).is_none());
         let pos = pos.make_move_from_str("h5f7").unwrap();
-        assert_eq!(pos.player_result_slow(&ZobristHistory::default()), Some(Lose));
+        assert_eq!(pos.calc_player_result(&ZobristHistory::default()), Some(Lose));
         let mut pos = Board::from_name("kiwipete").unwrap();
         let original = pos.clone();
         let mut hist = ZobristHistory::default();
@@ -172,15 +172,15 @@ mod general {
                 hist.push(pos.hash_pos());
                 let mov = Move::from_compact_text(mov, &pos).unwrap();
                 pos = pos.make_move(mov).unwrap();
-                assert!(pos.player_result_slow(&hist).is_none());
+                assert!(pos.calc_player_result(&hist).is_none());
             }
         }
         pos = pos.make_move_from_str("e1f1").unwrap();
         assert_ne!(pos.castling_info, original.castling_info);
         assert_ne!(pos.hash_pos(), original.hash_pos());
-        assert!(pos.player_result_slow(&hist).is_none());
+        assert!(pos.calc_player_result(&hist).is_none());
         pos = pos.make_move_from_str("e8f8").unwrap();
-        assert_eq!(pos.player_result_slow(&hist), Some(Draw));
+        assert_eq!(pos.calc_player_result(&hist), Some(Draw));
         let fen = "chess 8/3k4/7p/2p3pP/1pPp1pP1/pP1PpP2/P3P3/2K5 w - - 57 1";
         let mut rng = SmallRng::seed_from_u64(42);
         let mut pos = Board::from_fen(fen, Strict).unwrap();
@@ -188,11 +188,11 @@ mod general {
             assert_eq!(pos.draw_counter, 57 + i);
             let mov = pos.random_legal_move(&mut rng).unwrap();
             pos = pos.make_move(mov).unwrap();
-            assert!(pos.player_result_slow(&ZobristHistory::default()).is_none());
+            assert!(pos.calc_player_result(&ZobristHistory::default()).is_none());
         }
         let mov = pos.random_legal_move(&mut rng).unwrap();
         pos = pos.make_move(mov).unwrap();
-        assert_eq!(pos.player_result_slow(&ZobristHistory::default()), Some(Draw));
+        assert_eq!(pos.calc_player_result(&ZobristHistory::default()), Some(Draw));
         let fen = "5B1k/5B2/7K/8/8/8/3K4/8 b - - 0 1";
         assert!(Board::from_fen_for("chess", fen, Relaxed).is_err());
         let fen = "5B1k/5B2/7K/8/8/8/8/8 b - - 0 1";
@@ -273,26 +273,26 @@ mod general {
     fn simple_shatranj_test() {
         let pos = Board::from_fen_for("shatranj", "5k2/6r1/8/8/8/6R1/5K2/8 w 0 1", Strict).unwrap();
         let new_pos = pos.make_move_from_str("g3g7").unwrap();
-        assert_eq!(new_pos.player_result_slow(&NoHistory::default()), Some(Draw));
+        assert_eq!(new_pos.calc_player_result(&NoHistory::default()), Some(Draw));
         let pos = Board::from_fen_for("shatranj", "4k3/6r1/8/8/8/6R1/5K2/8 w 0 1", Strict).unwrap();
         let new_pos = pos.make_move_from_str("g3g7").unwrap();
-        assert_eq!(new_pos.player_result_slow(&NoHistory::default()), Some(Lose));
+        assert_eq!(new_pos.calc_player_result(&NoHistory::default()), Some(Lose));
 
         let pos = Board::from_fen_for("shatranj", "7k/8/6RK/8/8/8/8/8 b 0 1", Strict).unwrap();
-        assert_eq!(pos.player_result_slow(&NoHistory::default()), Some(Lose));
+        assert_eq!(pos.calc_player_result(&NoHistory::default()), Some(Lose));
         let pos = Board::from_fen_for("shatranj", "7k/8/5pRK/5P2/8/8/8/8 b 0 1", Strict).unwrap();
-        assert_eq!(pos.player_result_slow(&NoHistory::default()), Some(Lose));
+        assert_eq!(pos.calc_player_result(&NoHistory::default()), Some(Lose));
         let pos = Board::from_fen_for("shatranj", "7k/7R/5pRK/8/8/8/8/8 b 0 1", Strict).unwrap();
-        assert_eq!(pos.player_result_slow(&NoHistory::default()), Some(Lose));
+        assert_eq!(pos.calc_player_result(&NoHistory::default()), Some(Lose));
     }
 
     #[test]
     fn simple_koth_test() {
         let pos = Board::from_fen_for("kingofthehill", "2k5/8/8/8/3K4/8/8/8 b - - 0 1", Strict).unwrap();
-        assert_eq!(pos.player_result_slow(&ZobristHistory::default()), Some(Lose));
+        assert_eq!(pos.calc_player_result(&ZobristHistory::default()), Some(Lose));
         let pos = Board::from_fen_for("kingofthehill", "8/8/3k4/8/8/4K3/8/8 b - - 99 6", Strict).unwrap();
         let new_pos = pos.clone().make_move_from_str("d6e5").unwrap();
-        assert_eq!(new_pos.player_result_slow(&ZobristHistory::default()), Some(Lose));
+        assert_eq!(new_pos.calc_player_result(&ZobristHistory::default()), Some(Lose));
         let queen = ColoredPieceId::from_name("Q", pos.settings()).unwrap();
         let pos =
             pos.place_piece(Piece::new(queen, Square::algebraic('h', 5).unwrap())).unwrap().verify(Strict).unwrap();
@@ -307,7 +307,7 @@ mod general {
             Strict,
         )
         .unwrap();
-        assert!(pos.player_result_slow(&ZobristHistory::default()).is_none());
+        assert!(pos.calc_player_result(&ZobristHistory::default()).is_none());
         let pos = pos.make_move_from_str("h1h3").unwrap();
         assert!(pos.ep.is_none());
         assert!(pos.clone().make_move_from_str("g3h2").is_err());
@@ -317,35 +317,35 @@ mod general {
         assert!(pos.is_game_won_after_slow(Move::from_text("c6c5", &pos).unwrap(), NoHistory::default()));
         let pos = Board::from_fen_for("horde", "8/4P3/8/bb2P3/kb2B3/b1p5/2P1B3/1P3B2 w - - 0 1", Strict).unwrap();
         let pos = pos.make_move_from_str("b1b3").unwrap();
-        assert_eq!(pos.player_result_slow(&ZobristHistory::default()), Some(Lose));
+        assert_eq!(pos.calc_player_result(&ZobristHistory::default()), Some(Lose));
     }
 
     #[test]
     fn simple_racing_kings_test() {
         let pos = Board::from_fen_for("racingkings", "8/7K/1k6/8/8/8/8/3R4 w - - 0 1", Strict).unwrap();
-        assert!(pos.player_result_slow(&ZobristHistory::default()).is_none());
+        assert!(pos.calc_player_result(&ZobristHistory::default()).is_none());
         let pos = pos.make_move_from_str("h7h8").unwrap();
-        assert_eq!(pos.player_result_slow(&ZobristHistory::default()), Some(Lose));
+        assert_eq!(pos.calc_player_result(&ZobristHistory::default()), Some(Lose));
         let pos = Board::from_fen_for("racingkings", "8/1k5K/4r3/8/8/8/8/3R4 w - - 0 1", Strict).unwrap();
-        assert!(pos.player_result_slow(&ZobristHistory::default()).is_none());
+        assert!(pos.calc_player_result(&ZobristHistory::default()).is_none());
         let new_pos = pos.clone().make_move_from_str("h7h8").unwrap();
-        assert!(new_pos.player_result_slow(&ZobristHistory::default()).is_none());
+        assert!(new_pos.calc_player_result(&ZobristHistory::default()).is_none());
         assert!(pos.clone().make_move_from_str("d1b1").is_err());
         assert!(pos.clone().make_move_from_str("h7h6").is_err());
         let pos = pos.make_nullmove().unwrap();
         let new_pos = pos.make_move_from_str("b7b8").unwrap();
-        assert_eq!(new_pos.player_result_slow(&ZobristHistory::default()), Some(Lose));
+        assert_eq!(new_pos.calc_player_result(&ZobristHistory::default()), Some(Lose));
     }
 
     #[test]
     fn simple_crazyhouse_test() {
         let pos = Board::variant_simple("crazyhouse").unwrap();
-        assert!(pos.player_result_slow(&ZobristHistory::default()).is_none());
+        assert!(pos.calc_player_result(&ZobristHistory::default()).is_none());
         assert_eq!(pos.num_legal_moves(), 20);
         let pos = Board::from_fen_for("crazyhouse", "k3R3/8/K7/8/8/8/8/8[n] b - - 0 1", Strict).unwrap();
         assert!(pos.is_in_check());
         assert_eq!(pos.num_legal_moves(), 3);
-        assert!(pos.player_result_slow(&ZobristHistory::default()).is_none());
+        assert!(pos.calc_player_result(&ZobristHistory::default()).is_none());
         let pos = pos.make_move_from_str("N@b8").unwrap();
         assert!(pos.is_in_check());
         let pos = Board::from_fen_for(
@@ -400,31 +400,31 @@ mod general {
     #[test]
     fn simple_3check_test() {
         let pos = Board::from_fen_for("3check", "5q2/3k4/8/3K4/6R1/8/8/8 w - - 1+2 0 1", Strict).unwrap();
-        assert!(pos.player_result_slow(&NoHistory::default()).is_none());
+        assert!(pos.calc_player_result(&NoHistory::default()).is_none());
         let pos = pos.make_move_from_str("g4g7").unwrap();
         assert_eq!(pos.additional_ctrs[Color::first()], 2);
         assert_eq!(pos.additional_ctrs[Color::second()], 2);
-        assert_eq!(pos.player_result_slow(&NoHistory::default()), None);
+        assert_eq!(pos.calc_player_result(&NoHistory::default()), None);
         let pos = pos.make_move_from_str("f8f7").unwrap();
         assert_eq!(pos.additional_ctrs[Color::first()], 3);
         assert_eq!(pos.additional_ctrs[Color::second()], 2);
-        assert_eq!(pos.player_result_slow(&NoHistory::default()), Some(Lose));
+        assert_eq!(pos.calc_player_result(&NoHistory::default()), Some(Lose));
     }
 
     #[test]
     fn simple_antichess_test() {
         let pos = Board::from_fen_for("antichess", "5K2/8/8/8/8/8/8/8 b - - 0 1", Strict).unwrap();
-        assert_eq!(pos.player_result_slow(&NoHistory::default()), Some(Win));
+        assert_eq!(pos.calc_player_result(&NoHistory::default()), Some(Win));
         let pos = Board::from_fen_for("antichess", "8/8/8/8/6p1/7K/8/8 w - - 0 1", Strict).unwrap();
         assert!(!pos.is_in_check());
-        assert!(pos.player_result_slow(&NoHistory::default()).is_none());
+        assert!(pos.calc_player_result(&NoHistory::default()).is_none());
         let pos = pos.make_move_from_str("h3g4").unwrap();
-        assert_eq!(pos.player_result_slow(&NoHistory::default()), Some(Win));
+        assert_eq!(pos.calc_player_result(&NoHistory::default()), Some(Win));
         let pos = Board::from_fen_for("antichess", "8/8/8/2R5/8/8/2p5/8 b - - 0 1", Strict).unwrap();
         let pos = pos.make_move_from_str("c2c1k").unwrap();
         assert!(pos.clone().make_move_from_str("c5c2").is_err());
         let pos = pos.make_move_from_str("c5c1").unwrap();
-        assert_eq!(pos.player_result_slow(&NoHistory::default()), Some(Win));
+        assert_eq!(pos.calc_player_result(&NoHistory::default()), Some(Win));
     }
 
     #[test]
@@ -447,10 +447,10 @@ mod general {
         assert_eq!(pos.fen_no_rules(), "lnsgkgsnl/1r5b1/ppppppppp/9/9/9/PPPPPPPPP/1B5R1/LNSGKGSNL b - 1");
         assert_eq!(pos.num_legal_moves(), 30);
         let pos = Board::from_fen_for("shogi", "8k/9/7P1/9/6K2/9/9/9/9[G] w - 1", Strict).unwrap();
-        assert!(pos.player_result_slow(&NoHistory::default()).is_none());
+        assert!(pos.calc_player_result(&NoHistory::default()).is_none());
         assert_eq!(pos.num_legal_moves(), 88);
         let pos = pos.make_move_from_str("G@h8").unwrap();
-        assert_eq!(pos.player_result_slow(&NoHistory::default()), Some(Lose));
+        assert_eq!(pos.calc_player_result(&NoHistory::default()), Some(Lose));
         let pos = Board::from_fen_for(
             "shogi",
             "lnsgkgsnl/1r5B1/pppppp1pp/9/6p2/2P6/PP1PPPPPP/7R1/LNSGKGSNL[B] w - 3",
@@ -461,7 +461,7 @@ mod general {
         let pos = Board::from_fen_for("shogi", "8k/7P1/7+L1/9/9/9/7+l1/9/8K[PRp] w - 1", Strict).unwrap();
         let pos2 = Board::from_fen_for("shogi", "8k/7P1/7+L1/9/9/9/7+l1/9/8K b PRp 1", Strict).unwrap();
         assert_eq!(pos.legal_moves_slow(), pos2.legal_moves_slow());
-        assert!(pos.player_result_slow(&NoHistory::default()).is_none());
+        assert!(pos.calc_player_result(&NoHistory::default()).is_none());
         assert!(pos2.clone().make_move_from_str("P*1c").is_ok());
         assert!(pos.clone().make_move_from_str("P@i7").is_ok());
         assert!(pos.clone().make_move_from_str("P@i8").is_err());
@@ -477,7 +477,7 @@ mod general {
         assert_eq!(pos.num_legal_moves(), 1);
         let pos = Board::from_fen_for("shogi", "4k4/9/4P4/9/9/9/9/4L4/4K4 b - 1", Strict).unwrap();
         let pos = pos.make_move_from_str("5c5b+").unwrap();
-        assert_eq!(pos.player_result_slow(&NoHistory::default()), Some(Lose));
+        assert_eq!(pos.calc_player_result(&NoHistory::default()), Some(Lose));
     }
 
     #[test]
@@ -566,6 +566,6 @@ mod general {
     fn simple_cfour_test() {
         let pos = Board::from_fen_for("cfour", "7/7/7/7/7/7 x 1", Strict).unwrap();
         let pos = pos.make_move_from_str("g1").unwrap();
-        assert!(pos.player_result_slow(&NoHistory::default()).is_none());
+        assert!(pos.calc_player_result(&NoHistory::default()).is_none());
     }
 }

@@ -827,7 +827,7 @@ impl<'a> MoveParser<'a> {
         };
         let (from, to) = (from.bold(), to.bold());
         let mut additional = String::new();
-        if let Some(res) = board.player_result_slow(&NoHistory::default()) {
+        if let Some(res) = board.calc_player_result(&NoHistory::default()) {
             let outcome = match res {
                 Win => format!("{our_name} won"),
                 Lose => format!("{our_name} lost"),

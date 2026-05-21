@@ -108,7 +108,7 @@ fn check_test() {
             num_seen += 1;
             let new_pos = pos.clone().make_move(m).unwrap();
             assert!(!new_pos.is_in_check());
-            assert!(new_pos.player_result_slow(&NoHistory::default()).is_none());
+            assert!(new_pos.calc_player_result(&NoHistory::default()).is_none());
         } else {
             assert!(!contained)
         }
@@ -143,7 +143,7 @@ fn atomic_check_test() {
     let new_pos = pos.make_move_from_str("h4f2").unwrap();
     assert!(!new_pos.is_in_check());
     assert!(new_pos.in_check_bb(Color::second()).has_any());
-    assert_eq!(new_pos.player_result_slow(&NoHistory::default()), Some(PlayerResult::Lose));
+    assert_eq!(new_pos.calc_player_result(&NoHistory::default()), Some(PlayerResult::Lose));
 }
 
 #[test]
@@ -153,12 +153,12 @@ fn checkmate_stalemate_test() {
             .unwrap();
     assert!(pos.is_in_check());
     assert_eq!(pos.num_legal_moves(), 0);
-    assert_eq!(pos.player_result_slow(&NoHistory::default()), Some(PlayerResult::Lose));
+    assert_eq!(pos.calc_player_result(&NoHistory::default()), Some(PlayerResult::Lose));
 
     let pos = Board::from_fen_for("atomic", "8/8/8/8/8/8/6QQ/6kK b - - 0 1", Strict).unwrap();
     assert!(!pos.is_in_check());
     assert!(pos.legal_moves_slow().is_empty());
-    assert_eq!(pos.player_result_slow(&NoHistory::default()), Some(PlayerResult::Draw));
+    assert_eq!(pos.calc_player_result(&NoHistory::default()), Some(PlayerResult::Draw));
 }
 
 #[test]
@@ -195,7 +195,7 @@ fn draw_test() {
     let pos = Board::from_fen_for("atomic", "8/8/8/8/8/8/6QQ/6kK w - - 99 99", Strict).unwrap();
     assert!(!pos.legal_moves_slow().is_empty());
     for c in pos.children() {
-        assert_eq!(c.player_result_slow(&NoHistory::default()), Some(PlayerResult::Draw));
+        assert_eq!(c.calc_player_result(&NoHistory::default()), Some(PlayerResult::Draw));
     }
 
     let mut hist = ZobristHistory::default();
@@ -203,10 +203,10 @@ fn draw_test() {
     hist.push(pos.hash_pos());
     for m in ["h5h4", "b1a1", "h4h5", "a1b1", "h5h4", "b1a1", "h4h5"] {
         pos = pos.make_move_from_str(m).unwrap();
-        assert!(pos.player_result_slow(&hist).is_none());
+        assert!(pos.calc_player_result(&hist).is_none());
         hist.push(pos.hash_pos());
     }
     println!("{pos}");
     pos = pos.make_move_from_str("a1b1").unwrap();
-    assert_eq!(pos.player_result_slow(&hist), Some(PlayerResult::Draw));
+    assert_eq!(pos.calc_player_result(&hist), Some(PlayerResult::Draw));
 }

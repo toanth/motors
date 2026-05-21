@@ -932,7 +932,7 @@ impl BoardTrait for Board {
         }
     }
 
-    fn player_result_slow<H: BoardHistory>(&self, history: &H) -> Option<PlayerResult> {
+    fn calc_player_result<H: BoardHistory>(&self, history: &H) -> Option<PlayerResult> {
         self.player_result_no_movegen(history)
     }
 

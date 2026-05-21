@@ -410,7 +410,7 @@ impl<B: BoardTrait> AbstractUgiPosState for UgiPosState<B> {
     }
 
     fn player_result(&self) -> Option<PlayerResult> {
-        self.board.player_result_slow(&self.board_hist)
+        self.board.calc_player_result(&self.board_hist)
     }
 }
 
