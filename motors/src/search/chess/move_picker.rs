@@ -18,7 +18,7 @@
 use crate::search::MoveScore;
 use crate::search::chess::caps_values::cc;
 use crate::search::chess::histories::{HIST_DIVISOR, HistScoreT};
-use crate::search::chess::move_picker::MovePickerState::{DeferredList, List, TTMove};
+use crate::search::chess::move_picker::MovePickerState::*;
 use crate::search::chess::*;
 use gears::games::chess::Board;
 use gears::games::chess::moves::Move;
@@ -57,6 +57,36 @@ impl<'a> MoveScorer<'a> {
         Self { pos, ply }
     }
 
+    pub fn score_tactical(&self, mov: Move, state: &CapsState) -> MoveScore {
+        debug_assert!(mov.is_tactical(self.pos), "{mov:?} {}", self.pos);
+        let captured = mov.captured(self.pos);
+        let base_val = MoveScore(HIST_DIVISOR * 10);
+        let hist_val = state.capt_hist.get(mov, self.pos);
+        base_val + MoveScore(captured as i16 * HIST_DIVISOR) + hist_val
+    }
+
+    pub fn score_quiet_nonkiller(&self, mov: Move, state: &CapsState) -> MoveScore {
+        debug_assert!(!mov.is_tactical(self.pos), "{mov:?} {}", self.pos);
+        let countermove_score = if self.ply > 0 {
+            let prev_move = state.search_stack[self.ply - 1].last_tried_move();
+            state.countermove_hist.score(mov, self.pos, prev_move, &state.search_stack[self.ply - 1].pos)
+        } else {
+            0
+        };
+        let follow_up_score = if self.ply > 1 {
+            let prev_move = state.search_stack[self.ply - 2].last_tried_move();
+            state.follow_up_move_hist.score(mov, self.pos, prev_move, &state.search_stack[self.ply - 2].pos)
+        } else {
+            0
+        };
+        let main_hist_score = state.history.score(mov, self.pos.threats());
+        // TODO: Divide at the end (changes bench)
+        let score = main_hist_score * cc::main_hist_weight() / 1024
+            + countermove_score * cc::countermove_weight() / 1024
+            + follow_up_score * cc::follow_up_weight() / 1024;
+        MoveScore(score as HistScoreT)
+    }
+
     /// Order moves so that the most promising moves are searched first.
     /// The most promising move is always the TT move, because that is backed up by search.
     /// After that follow various heuristics.
@@ -64,32 +94,12 @@ impl<'a> MoveScorer<'a> {
         // The move list is iterated backwards, which is why better moves get higher scores
         // No need to check against the TT move because that's already handled by the move picker
         if mov.is_tactical(self.pos) {
-            let captured = mov.captured(self.pos);
-            let base_val = MoveScore(HIST_DIVISOR * 10);
-            let hist_val = state.capt_hist.get(mov, self.pos);
-            base_val + MoveScore(captured as i16 * HIST_DIVISOR) + hist_val
+            self.score_tactical(mov, state)
         } else if mov == state.search_stack[self.ply].killer {
             // `else` ensures that tactical moves can't be killers
             KILLER_SCORE
         } else {
-            let countermove_score = if self.ply > 0 {
-                let prev_move = state.search_stack[self.ply - 1].last_tried_move();
-                state.countermove_hist.score(mov, self.pos, prev_move, &state.search_stack[self.ply - 1].pos)
-            } else {
-                0
-            };
-            let follow_up_score = if self.ply > 1 {
-                let prev_move = state.search_stack[self.ply - 2].last_tried_move();
-                state.follow_up_move_hist.score(mov, self.pos, prev_move, &state.search_stack[self.ply - 2].pos)
-            } else {
-                0
-            };
-            let main_hist_score = state.history.score(mov, self.pos.threats());
-            // TODO: Divide at the end (changes bench)
-            let score = main_hist_score * cc::main_hist_weight() / 1024
-                + countermove_score * cc::countermove_weight() / 1024
-                + follow_up_score * cc::follow_up_weight() / 1024;
-            MoveScore(score as HistScoreT)
+            self.score_quiet_nonkiller(mov, state)
         }
     }
 
@@ -109,8 +119,12 @@ const BAD_SEE_OFFSET: MoveScore = MoveScore(HIST_DIVISOR * -30);
 
 enum MovePickerState {
     TTMove,
-    List,
-    DeferredList,
+    GenCaptures,
+    GoodCaptures,
+    Killer,
+    GenQuiets,
+    Quiets,
+    BadCaptures,
 }
 
 pub struct MovePicker<'a> {
@@ -129,17 +143,9 @@ impl<'a> MovePicker<'a> {
         let state = if pos.is_generated_move_pseudolegal(best) && (!tactical_only || best.is_tactical(pos)) {
             TTMove
         } else {
-            List
+            GenCaptures
         };
-        Self {
-            state,
-            list: ScoredMoveList::default(),
-            pos,
-            tactical_only,
-            tt_move: best,
-            ignored_prefix: usize::MAX,
-            ply,
-        }
+        Self { state, list: ScoredMoveList::default(), pos, tactical_only, tt_move: best, ignored_prefix: 0, ply }
     }
 
     pub fn complete_move_score(&self, mov: Move, state: &CapsState) -> MoveScore {
@@ -148,44 +154,83 @@ impl<'a> MovePicker<'a> {
     }
 
     pub fn next(&mut self, state: &CapsState) -> Option<ScoredMove> {
-        match self.state {
-            TTMove => {
-                self.state = List;
-                Some(ScoredMove::new(self.tt_move, MoveScore::MAX))
-            }
-            List => {
-                if self.ignored_prefix == usize::MAX {
+        loop {
+            return match self.state {
+                TTMove => {
+                    self.state = GenCaptures;
+                    Some(ScoredMove::new(self.tt_move, MoveScore::MAX))
+                }
+                GenCaptures => {
                     let scorer = MoveScorer::new(self.pos, self.ply);
                     let add_move = |mov: Move| {
                         if self.tt_move != mov {
-                            let score = scorer.score_move_eager_part(mov, state);
+                            let score = scorer.score_tactical(mov, state);
                             self.list.push(ScoredMove::new(mov, score));
                         }
                     };
-                    if self.tactical_only {
-                        self.pos.gen_tactical_pseudolegal(add_move);
-                    } else {
-                        self.pos.gen_pseudolegal(add_move);
+                    self.pos.gen_tactical_pseudolegal(add_move);
+                    self.state = GoodCaptures;
+                    continue;
+                }
+                GoodCaptures => {
+                    if let Some(res) = self.next_good_capture() {
+                        return Some(res);
                     }
+                    if self.tactical_only {
+                        self.ignored_prefix = 0;
+                        self.state = BadCaptures
+                    } else {
+                        self.state = Killer
+                    };
+                    continue;
+                }
+                Killer => {
+                    let killer = state.search_stack[self.ply].killer;
+                    debug_assert!(!self.tactical_only);
+                    debug_assert_eq!(self.ignored_prefix, self.list.len());
+                    self.state = GenQuiets;
+                    if !self.pos.is_generated_move_pseudolegal(killer) || killer.is_tactical(self.pos) {
+                        continue;
+                    }
+                    Some(ScoredMove::new(killer, KILLER_SCORE))
+                }
+                GenQuiets => {
+                    debug_assert_eq!(self.ignored_prefix, self.list.len());
+                    let scorer = MoveScorer::new(self.pos, self.ply);
+                    let killer = state.search_stack[self.ply].killer;
+                    let add_move = |mov: Move| {
+                        if self.tt_move != mov && killer != mov {
+                            let score = scorer.score_quiet_nonkiller(mov, state);
+                            self.list.push(ScoredMove::new(mov, score));
+                        }
+                    };
+                    self.pos.gen_quiet_pseudolegal(add_move);
+                    self.state = Quiets;
+                    continue;
+                }
+                Quiets => {
+                    debug_assert!(!self.tactical_only);
+                    if let Some(res) = self.next_quiet() {
+                        return Some(res);
+                    }
+                    self.state = BadCaptures;
                     self.ignored_prefix = 0;
+                    continue;
                 }
-                if let Some(res) = self.next_from_list() {
-                    return Some(res);
+                BadCaptures => {
+                    let res = self.list.get(self.ignored_prefix);
+                    self.ignored_prefix += 1;
+                    // TODO: Can probably be optimized / simplified
+                    res.copied().map(|m| ScoredMove::new(m.mov(), m.score() + BAD_SEE_OFFSET))
                 }
-                self.state = DeferredList;
-                self.ignored_prefix = 0;
-                self.next_from_deferred()
-            }
-            DeferredList => {
-                debug_assert!(self.list[self.ignored_prefix..].iter().rev().is_sorted());
-                self.next_from_deferred()
-            }
+            };
         }
     }
 
-    fn next_from_list(&mut self) -> Option<ScoredMove> {
+    fn next_good_capture(&mut self) -> Option<ScoredMove> {
         loop {
             let idx = self.list[self.ignored_prefix..].iter().position_max()? + self.ignored_prefix;
+            debug_assert!(self.list[idx].mov().is_tactical(self.pos));
             if defer_playing_move(self.pos, self.list[idx].mov()) {
                 self.list.swap(self.ignored_prefix, idx);
                 self.ignored_prefix += 1;
@@ -194,6 +239,13 @@ impl<'a> MovePicker<'a> {
                 return Some(self.list.swap_remove(idx));
             }
         }
+    }
+
+    fn next_quiet(&mut self) -> Option<ScoredMove> {
+        let idx = self.list[self.ignored_prefix..].iter().position_max()? + self.ignored_prefix;
+        debug_assert!(!defer_playing_move(self.pos, self.list[idx].mov()));
+        debug_assert!(!self.list[idx].mov().is_tactical(self.pos));
+        Some(self.list.swap_remove(idx))
     }
 
     fn next_from_deferred(&mut self) -> Option<ScoredMove> {
