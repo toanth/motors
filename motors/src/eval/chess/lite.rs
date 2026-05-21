@@ -402,11 +402,11 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
             let rook_start_square = Square::from_rank_file(7, old_pos.rook_start_file(moving_player, side));
             delta += self.tuned.psqt(rook_dest_square, Rook, Black);
             delta -= self.tuned.psqt(rook_start_square, Rook, Black);
-        } else if mov.promo_piece() == Empty {
-            delta += self.tuned.psqt(dest_sq, piece, moving_player);
-        } else {
+        } else if mov.is_promotion() {
             delta += self.tuned.psqt(dest_sq, mov.promo_piece(), moving_player);
             phase_delta += CHESS_PIECE_PHASE[mov.promo_piece() as usize];
+        } else {
+            delta += self.tuned.psqt(dest_sq, piece, moving_player);
         }
         let mirror_other = new_pos.king_sq(!moving_player).file() < 4;
         if let Some(ep_sq) = mov.square_of_pawn_taken_by_ep() {

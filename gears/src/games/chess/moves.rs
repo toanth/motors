@@ -30,40 +30,25 @@ use crate::general::moves::ExtendedFormat::Standard;
 use crate::general::moves::{ExtendedFormat, Legality, MoveTrait, UntrustedMove};
 use crate::general::squares::RectangularCoordinates;
 
-/// Can be represented with 4 bits.
-/// The msb tells us whether the move is tactical, the other 3 bits give us one of the 8 options
-/// normal move, ep, 2 castling moves, 4 promotion moves.
-/// A capturing promotion is a promotion, not a normal capture, and is quiet if the promotion piece is a rook or bishop.
+/// See <https://87flowers.com/chess-moveflags/>
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Default, Debug, EnumIter, FromRepr)]
 #[must_use]
 pub enum MoveFlags {
     #[default]
     NormalQuiet,
-    CastleKingside,
+    DoublePawnPush,
     CastleQueenside,
-    PromoBishop = 5,
-    PromoRook = 6,
-    NormalCapture = 8,
-    EnPassant = 8 + 3,
-    PromoKnight = 8 + 4,
-    PromoQueen = 8 + 7,
-}
-
-impl MoveFlags {
-    const TACTICAL_FLAG: u32 = 8;
-    const PROMO_START: u32 = 4;
-    fn is_promo(self) -> bool {
-        self as u32 & !Self::TACTICAL_FLAG >= Self::PROMO_START
-    }
-
-    fn promo_piece(self) -> PieceType {
-        let p = self as u32 & !Self::TACTICAL_FLAG;
-        if p < Self::PROMO_START {
-            Empty
-        } else {
-            PieceType::from_repr((p - Self::PROMO_START) as usize + Knight as usize).unwrap()
-        }
-    }
+    CastleKingside,
+    PromoKnight,
+    PromoBishop,
+    PromoRook,
+    PromoQueen,
+    NormalCapture,
+    EnPassant,
+    CaptPromoKnight = 12,
+    CaptPromoBishop = 13,
+    CaptPromoRook = 14,
+    CaptPromoQueen = 15,
 }
 
 /// Members are stored as follows:
@@ -77,7 +62,17 @@ pub struct Move(u16);
 
 impl Debug for Move {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        write!(f, "ChessMove({0}{1}-{2:?})", self.src_square(), self.dest_square(), self.flags())
+        if let Some(flags) = self.try_get_flags() {
+            write!(f, "ChessMove({0}{1}-{flags:?})", self.src_square(), self.dest_square())
+        } else {
+            write!(
+                f,
+                "InvalidChessMove({0}{1} - Invalid flags {2:0x})",
+                self.src_square(),
+                self.dest_square(),
+                self.0 >> 12
+            )
+        }
     }
 }
 
@@ -119,18 +114,6 @@ impl Move {
         Piece::new(ColoredPieceType::new(board.active, self.piece_type(board)), source)
     }
 
-    pub fn untrusted_flags(self) -> Res<MoveFlags> {
-        let flags = self.0 >> 12;
-        if let Some(f) = MoveFlags::from_repr(flags as usize) {
-            Ok(f)
-        } else {
-            bail!(
-                "Invalid flags {flags}, which means this move is never valid \
-                and most likely the result of interpreting corrupt data as a chess move"
-            )
-        }
-    }
-
     pub fn piece_type(self, board: &Board) -> PieceType {
         board.piece_type_on(self.src_square())
     }
@@ -139,11 +122,13 @@ impl Move {
         board.piece_type_on(self.dest_square())
     }
 
+    pub fn is_double_pawn_push(self) -> bool {
+        self.flags() == DoublePawnPush
+    }
+
     #[inline]
-    /// Correctly handles ep captures, but usually [`Self::is_tactical`] or [`Self::is_non_ep_capture`]
-    /// are the better choices
-    pub fn is_capture(self, board: &Board) -> bool {
-        self.is_non_ep_capture(board) || self.is_ep()
+    pub fn is_capture(self, _board: &Board) -> bool {
+        self.0 & 0x8000 != 0
     }
 
     pub fn is_ep(self) -> bool {
@@ -151,7 +136,7 @@ impl Move {
     }
 
     pub fn is_non_ep_capture(self, board: &Board) -> bool {
-        board.inactive_player_bb().has(self.dest_square())
+        self.is_capture(board) && !self.is_ep()
     }
 
     pub fn captured(self, board: &Board) -> PieceType {
@@ -165,24 +150,29 @@ impl Move {
     }
 
     pub fn is_promotion(self) -> bool {
-        self.flags().is_promo()
+        self.0 & 0x4000 != 0
     }
 
     pub fn promo_piece(self) -> PieceType {
-        self.flags().promo_piece()
+        debug_assert!(self.is_promotion(), "{self:?}");
+        PieceType::from_repr(((self.0 >> 12) & 0x3) as usize + Knight as usize).unwrap()
+    }
+
+    pub fn try_promo_piece(self) -> Option<PieceType> {
+        if !self.is_promotion() { None } else { Some(self.promo_piece()) }
     }
 
     pub fn is_castle(self) -> bool {
-        self.flags() == CastleQueenside || self.flags() == CastleKingside
+        self.0 & 0xE000 == 0x2000
     }
 
     pub fn castle_side(self) -> CastleRight {
         debug_assert!(self.is_castle());
-        if self.flags() == CastleQueenside { Queenside } else { Kingside }
+        CastleRight::from_repr((self.0 >> 12) as usize & 1).unwrap()
     }
 
     pub(super) fn flags(self) -> MoveFlags {
-        self.try_get_flags().unwrap_or_default()
+        self.try_get_flags().unwrap()
     }
 
     pub(super) fn try_get_flags(self) -> Option<MoveFlags> {
@@ -214,7 +204,7 @@ impl MoveTrait<Board> for Move {
 
     #[inline]
     fn is_tactical(self, _board: &Board) -> bool {
-        self.flags() >= NormalCapture
+        self.0 >= 0x7000
     }
 
     fn description(self, board: &Board) -> String {
@@ -249,6 +239,7 @@ impl MoveTrait<Board> for Move {
         if self.is_null() {
             return write!(f, "0000");
         }
+        let from = self.src_square();
         let mut to = self.dest_square();
         if self.is_castle() && !board.settings().is_set(Settings::dfrc_flag()) {
             let rank = self.src_square().rank();
@@ -258,14 +249,18 @@ impl MoveTrait<Board> for Move {
                 to = Square::from_rank_file(rank, C_FILE_NUM);
             };
         }
-        let flag = match self.flags() {
-            PromoKnight => "n",
-            PromoBishop => "b",
-            PromoRook => "r",
-            PromoQueen => "q",
+        let Some(flag) = self.try_get_flags() else {
+            // Even invalid moves must be able to be formatted with this function
+            return write!(f, "{from}{to}(invalid flag {0:0x})", self.0 >> 12);
+        };
+        let promo = match flag {
+            PromoKnight | CaptPromoKnight => "n",
+            PromoBishop | CaptPromoBishop => "b",
+            PromoRook | CaptPromoRook => "r",
+            PromoQueen | CaptPromoQueen => "q",
             _ => "",
         };
-        write!(f, "{from}{to}{flag}", from = self.src_square())
+        write!(f, "{from}{to}{promo}")
     }
 
     fn format_extended(
@@ -295,7 +290,7 @@ impl MoveTrait<Board> for Move {
         let matches = |mov: &&Move| {
             mov.piece(board).symbol == piece.symbol
                 && mov.dest_square() == self.dest_square()
-                && mov.promo_piece() == self.promo_piece()
+                && mov.try_promo_piece() == self.try_promo_piece()
         };
         let moves = if let Some(moves) = all_legals {
             moves.iter().filter(matches).copied().collect_vec()
@@ -337,9 +332,9 @@ impl MoveTrait<Board> for Move {
         if self.is_promotion() {
             write!(f, "=")?;
             let promo_char = if format == Standard {
-                self.flags().promo_piece().to_char(CharType::Ascii, board.settings())
+                self.promo_piece().to_char(CharType::Ascii, board.settings())
             } else {
-                self.flags().promo_piece().to_char(CharType::Unicode, board.settings())
+                self.promo_piece().to_char(CharType::Unicode, board.settings())
             };
             write!(f, "{promo_char}")?;
         }
@@ -362,7 +357,7 @@ impl MoveTrait<Board> for Move {
         let from = Square::from_str(&s[..2])?;
         let mut to = Square::from_str(&s[2..4])?;
         let piece = board.colored_piece_on(from);
-        let mut flags = if board.is_empty(to) { NormalQuiet } else { NormalCapture };
+        let mut flags = NormalQuiet;
         let mut end_idx = 4;
         if let Some((promo_flags, idx)) = parse_short_promo_piece(s) {
             flags = promo_flags;
@@ -389,10 +384,17 @@ impl MoveTrait<Board> for Move {
                     CastleKingside
                 }
             }
-        } else if piece.uncolored() == Pawn && board.is_empty(to) && from.file() != to.file() {
-            flags = EnPassant;
+        } else if piece.uncolored() == Pawn {
+            if board.is_empty(to) && from.file() != to.file() {
+                flags = EnPassant;
+            } else if from.rank().abs_diff(to.rank()) > 1 {
+                flags = DoublePawnPush;
+            }
         }
-        let res = from.bb_idx() + (to.bb_idx() << 6) + ((flags as usize) << 12);
+        let mut res = from.bb_idx() + (to.bb_idx() << 6) + ((flags as usize) << 12);
+        if flags != CastleQueenside && flags != CastleKingside && !board.is_empty(to) {
+            res += 1 << 15;
+        }
         let res = Move(res as u16);
         if !board.is_move_pseudolegal(res) {
             bail!("The move '{0}' is not (pseudo)legal in position '{board}'", s.red())
@@ -506,7 +508,7 @@ impl Board {
                     self.remove_piece_impl(taken_pawn, Pawn, them);
                     self.hashes.pawns ^= ZOBRIST_KEYS.piece_key(Pawn, them, taken_pawn);
                 } else if mov.is_promotion() {
-                    let piece = mov.flags().promo_piece();
+                    let piece = mov.promo_piece();
                     let bb = to.bb();
                     self.bbs.pieces[Pawn] ^= bb;
                     self.bbs.pieces[piece] ^= bb;
@@ -517,7 +519,7 @@ impl Board {
                     if [Knight, Bishop].contains(&piece) {
                         self.hashes.knb ^= new;
                     }
-                } else if from.rank().abs_diff(to.rank()) > 1 {
+                } else if mov.is_double_pawn_push() {
                     self.ep_square = self.calc_ep_sq(to, &mut special_hash, them);
                 }
             }
@@ -1035,7 +1037,7 @@ impl<'a> MoveParser<'a> {
             && self.target_rank.is_none_or(|r| r == mov.dest_square().rank())
             && self.start_file.is_none_or(|f| f == mov.src_square().file())
             && self.start_rank.is_none_or(|r| r == mov.src_square().rank())
-            && self.promotion == mov.promo_piece()
+            && self.promotion == mov.try_promo_piece().unwrap_or(Empty)
     }
 
     fn error_msg(&self, board: &Board, original_piece: PieceType) -> Res<Move> {
