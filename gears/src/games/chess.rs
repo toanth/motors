@@ -1186,7 +1186,8 @@ mod tests {
     use std::collections::HashSet;
     use strum::IntoEnumIterator;
 
-    use crate::games::chess::squares::{B_FILE_NUM, E_FILE_NUM, F_FILE_NUM, G_FILE_NUM, H_FILE_NUM};
+    use crate::games::chess::pieces::ColoredPieceType::WhiteBishop;
+    use crate::games::chess::squares::{B_FILE_NUM, E_FILE_NUM, F_FILE_NUM, G_FILE_NUM, H_FILE_NUM, sq};
     use crate::games::{BoardHistDyn, CoordinatesTrait, NoHistory, ZobristHistory, char_to_file};
     use crate::general::board::RectangularBoard;
     use crate::general::board::Strictness::Relaxed;
@@ -1416,19 +1417,27 @@ mod tests {
     }
 
     #[test]
-    fn capture_only_test() {
+    fn tactical_only_test() {
         let board = Board::default();
         assert!(board.tactical_pseudolegal().is_empty());
         let board = Board::from_name("kiwipete").unwrap();
         assert_eq!(board.tactical_pseudolegal().len(), 8);
         let board = Board::from_name("mate_in_1").unwrap();
         let tactical = board.tactical_pseudolegal();
-        assert_eq!(tactical.len(), 2);
+        assert_eq!(tactical.len(), 1);
+        let m = tactical[0];
+        assert!(m.is_promotion());
+        assert!(!m.is_capture(&board));
+        assert_eq!(m.piece_type(&board), Pawn);
+        assert_eq!(Queen, m.promo_piece());
+        let board = board.place_piece(Piece::new(WhiteBishop, sq("f1"))).unwrap().verify(Strict).unwrap();
+        let tactical = board.tactical_pseudolegal();
         for m in tactical {
-            assert!(m.is_promotion());
-            assert!(!m.is_capture(&board));
             assert_eq!(m.piece_type(&board), Pawn);
-            assert!([Queen, Knight].contains(&m.promo_piece()));
+            assert!(m.is_promotion());
+            if m.promo_piece() != Queen {
+                assert!(m.is_capture(&board));
+            }
         }
     }
 

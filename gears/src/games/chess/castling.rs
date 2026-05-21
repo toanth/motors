@@ -4,7 +4,7 @@ use std::fmt;
 use std::fmt::Formatter;
 use std::sync::atomic::Ordering::Relaxed;
 use strum::IntoEnumIterator;
-use strum_macros::EnumIter;
+use strum_macros::{EnumIter, FromRepr};
 
 use crate::games::chess::Color::*;
 use crate::games::chess::castling::CastleRight::*;
@@ -19,7 +19,7 @@ use crate::general::board::{BitboardBoard, Strictness};
 use crate::general::common::Res;
 use crate::general::squares::RectangularCoordinates;
 
-#[derive(EnumIter, Copy, Clone, Eq, PartialEq, Debug, derive_more::Display)]
+#[derive(EnumIter, Copy, Clone, Eq, PartialEq, Debug, derive_more::Display, FromRepr)]
 #[must_use]
 pub enum CastleRight {
     Queenside,

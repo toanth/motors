@@ -147,11 +147,13 @@ impl Board {
                 return Some(dest) == self.ep_square && src.bb().pawn_attacks(us).has(dest);
             }
             let capturable = self.player_bb(us.other());
-            (mov.is_promotion() || (non_ep_capture == mov.is_tactical(self)))
+            non_ep_capture == mov.is_capture(self)
                 && mov.is_promotion() == dest.is_backrank()
+                && mov.is_double_pawn_push() == (src.rank().abs_diff(dest.rank()) > 1)
                 && Self::single_pawn_moves(us, src, capturable, self.empty_bb()).has(dest)
         } else {
-            if mov.is_promotion() || mov.is_ep() || mov.is_tactical(self) != non_ep_capture {
+            if mov.is_promotion() || mov.is_ep() || mov.is_double_pawn_push() || mov.is_tactical(self) != non_ep_capture
+            {
                 return false;
             }
             let generator = self.slider_generator();
@@ -317,13 +319,10 @@ impl Board {
             for to in bb & Bitboard::backranks() {
                 let from = Square::from_bb_idx((to.as_u8() as isize - offset) as usize);
                 if !ONLY_QUIET {
-                    callback.gen_move(Move::new(from, to, PromoQueen));
-                    callback.gen_move(Move::new(from, to, PromoKnight));
-                }
-                // even a capturing rook or bishop promo is not considered tactical
-                if !ONLY_TACTICAL {
-                    callback.gen_move(Move::new(from, to, PromoRook));
-                    callback.gen_move(Move::new(from, to, PromoBishop));
+                    callback.gen_move(Move::new(from, to, CaptPromoQueen));
+                    callback.gen_move(Move::new(from, to, CaptPromoKnight));
+                    callback.gen_move(Move::new(from, to, CaptPromoRook));
+                    callback.gen_move(Move::new(from, to, CaptPromoBishop));
                 }
             }
             if ONLY_QUIET {
@@ -343,9 +342,9 @@ impl Board {
             let from = Square::from_bb_idx((to.as_u8() as isize - regular_pawn_moves.1) as usize);
             if !ONLY_QUIET {
                 callback.gen_move(Move::new(from, to, PromoQueen));
-                callback.gen_move(Move::new(from, to, PromoKnight));
             }
             if !ONLY_TACTICAL {
+                callback.gen_move(Move::new(from, to, PromoKnight));
                 callback.gen_move(Move::new(from, to, PromoRook));
                 callback.gen_move(Move::new(from, to, PromoBishop));
             }
@@ -363,7 +362,7 @@ impl Board {
             }
             for to in double_pawn_moves.0 {
                 let from = Square::from_bb_idx((to.as_u8() as isize - double_pawn_moves.1) as usize);
-                callback.gen_move(Move::new(from, to, NormalQuiet));
+                callback.gen_move(Move::new(from, to, DoublePawnPush));
             }
         }
     }
