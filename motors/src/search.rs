@@ -39,7 +39,7 @@ use std::sync::{Arc, Mutex};
 use std::thread::spawn;
 use std::time::{Duration, Instant};
 
-#[cfg(feature = "chess")]
+#[cfg(feature = "caps")]
 pub mod chess;
 pub mod generic;
 pub mod multithreading;

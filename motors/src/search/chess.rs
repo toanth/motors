@@ -12,7 +12,6 @@ use gears::score::Score;
 use gears::search::DepthPly;
 use std::hash::{Hash, Hasher};
 
-#[cfg(feature = "caps")]
 pub mod caps;
 mod caps_values;
 mod histories;

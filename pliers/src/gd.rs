@@ -1,4 +1,4 @@
-//! Everything related to the actual optimization, using a Gradient Descent-based tuner ([`Adam`] by default).
+//! Everything related to the actual optimization, using a Gradient Descent-based tuner ([`CAdam`] by default).
 
 use crate::eval::{WeightsInterpretation, count_occurrences, display, interpolate};
 use crate::load_data::FeatureAppearance;
@@ -538,10 +538,6 @@ pub fn loss_for<L: LossFn>(weights: &Weights, batch: Batch<'_>, eval_scale: Scal
 /// The loss function of a single sample is `(sigmoid(sample, scale) - outcome) ^ 2`,
 /// so per the chain rule, the derivative is `2 * (sigmoid(sample, scale) - outcome) * sigmoid'(sample, scale)`,
 /// where the derivative of the sigmoid, sigmoid', is `1 / scale * sigmoid(sample, scale) * (1 - sigmoid(sample, scale)`.
-/// However, this function multiplies by `scale` instead of `1/scale`: If the scale is larger, we need correspondingly
-/// larger changes in the weights to see the same effect, even though the gradient is scaled down instead of up by that
-/// factor. Apart from that, thi function returns the correct gradient, i.e. the actual gradient can be recovered by
-/// dividing by `eval_scale * eval_scale`.
 /// The computation gets parallelized if the batch exceeds a size of [`MIN_MULTITHREADING_BATCH_SIZE`].
 pub fn compute_scaled_gradient_with<G: LossGradient>(
     weights: &Weights,
@@ -558,9 +554,7 @@ pub fn compute_scaled_gradient<G: LossGradient>(
     batch: Batch,
     eval_scale: ScalingFactor,
 ) -> Gradient {
-    // see above, it should strictly speaking be `/ eval_scale` but `*` is superior
-    // because it removes the effect of the eval scale
-    let constant_factor = 2.0 * eval_scale / batch.weights_in_pos as Float;
+    let constant_factor = 2.0 / (eval_scale * batch.weights_in_pos as Float);
     let grad = if batch.num_datapoins() >= MIN_MULTITHREADING_BATCH_SIZE {
         batch
             .par_datapoint_iter()
@@ -664,14 +658,14 @@ pub fn optimize_dataset(
     weights
 }
 
-/// Convenience function for optimizing with the [`AdamW`] optimizer.
-pub fn adamw_optimize<G: LossGradient>(
+/// Convenience function for optimizing with the [`CAdamW`] optimizer.
+pub fn cadamw_optimize<G: LossGradient>(
     dataset: &mut Dataset,
     eval_scale: ScalingFactor,
     num_epochs: usize,
     format_weights: &dyn WeightsInterpretation,
 ) -> Weights {
-    let mut optimizer = AdamW::<G>::new(dataset.as_batch(), eval_scale);
+    let mut optimizer = CAdamW::<G>::new(dataset.as_batch(), eval_scale);
     optimize_dataset(dataset, eval_scale, num_epochs, format_weights, &mut optimizer)
 }
 
@@ -693,8 +687,8 @@ pub fn print_optimized_weights(
     println!("Scaling factor: {scale:.2}, {0}:\n{1}", "Final eval".bold(), display(interpretation, &weights, &[]));
 }
 
-/// The default optimizer. Currently, this is [`Adam`].
-pub type DefaultOptimizer = Adam<QuadraticLoss>;
+/// The default optimizer. Currently, this is [`CAdam`].
+pub type DefaultOptimizer = CAdam<QuadraticLoss>;
 
 /// Change the current weights each iteration by taking into account the gradient.
 ///
@@ -764,7 +758,7 @@ impl Optimizer for SimpleGDOptimizer {
 #[derive(Debug, Copy, Clone)]
 pub struct AdamwHyperParams {
     /// Adam Learning rate multiplier, an upper bound on the step size.
-    /// This isn't quite the learning rate for [`AdamW`] because it doesn't apply to the weight decay term.
+    /// This isn't quite the learning rate for [`CAdamW`] because it doesn't apply to the weight decay term.
     /// Currently, this implementation does not support a separate learning rate.
     pub alpha: Float,
     /// Exponential decay of the moving average of the gradient
@@ -792,13 +786,14 @@ impl AdamwHyperParams {
     }
 }
 
-/// The default tuner, an implementation of the widely used [Adam](https://arxiv.org/abs/1412.6980) optimizer,
-/// which is the same as the [`AdamW`] tuner without weight decay.
+/// The default tuner, an implementation of the widely used [Adam](https://arxiv.org/abs/1412.6980) optimizer
+/// made [cautious](<https://arxiv.org/pdf/2411.16085>),
+/// which is the same as the [`CAdamW`] tuner without weight decay.
 #[derive(Debug)]
 #[must_use]
-pub struct Adam<G: LossGradient>(AdamW<G>);
+pub struct CAdam<G: LossGradient>(CAdamW<G>);
 
-impl<G: LossGradient> Optimizer for Adam<G> {
+impl<G: LossGradient> Optimizer for CAdam<G> {
     type Loss
         = G
     where
@@ -808,11 +803,11 @@ impl<G: LossGradient> Optimizer for Adam<G> {
     where
         Self: Sized,
     {
-        Self(AdamW::adam(batch, eval_scale))
+        Self(CAdamW::cadam(batch, eval_scale))
     }
 
     fn lr_drop(&mut self, factor: Float) {
-        <AdamW<G> as Optimizer>::lr_drop(&mut self.0, factor);
+        <CAdamW<G> as Optimizer>::lr_drop(&mut self.0, factor);
     }
 
     fn iteration(&mut self, weights: &mut Weights, batch: Batch<'_>, eval_scale: ScalingFactor, i: usize) {
@@ -820,11 +815,11 @@ impl<G: LossGradient> Optimizer for Adam<G> {
     }
 }
 
-/// An implementation of the very widely used [AdamW](https://arxiv.org/abs/1711.05101) optimizer,
-/// which extends the [`Adam`] optimizer with weight decay.
+/// A [cautious](<https://arxiv.org/pdf/2411.16085>) implementation of the very widely used [AdamW](https://arxiv.org/abs/1711.05101) optimizer,
+/// which extends the [`CAdam`] optimizer with weight decay.
 #[derive(Debug)]
 #[must_use]
-pub struct AdamW<G: LossGradient> {
+pub struct CAdamW<G: LossGradient> {
     /// Hyperparameters. Should be set before starting to optimize.
     pub hyper_params: AdamwHyperParams,
     /// first moment (exponentially moving average)
@@ -834,17 +829,17 @@ pub struct AdamW<G: LossGradient> {
     _phantom: PhantomData<G>,
 }
 
-impl<G: LossGradient> AdamW<G> {
-    /// Create a new `Adam` optimizer, which is the same as an [`AdamW`] optimizer with the `lambda` hyperparameter
+impl<G: LossGradient> CAdamW<G> {
+    /// Create a new `CAdam` optimizer, which is the same as an [`CAdamW`] optimizer with the `lambda` hyperparameter
     /// set to zero.
-    pub fn adam(batch: Batch, eval_scale: ScalingFactor) -> Self {
+    pub fn cadam(batch: Batch, eval_scale: ScalingFactor) -> Self {
         let mut res = Self::new(batch, eval_scale);
         res.hyper_params.lambda = 0.0;
         res
     }
 }
 
-impl<G: LossGradient> Optimizer for AdamW<G> {
+impl<G: LossGradient> Optimizer for CAdamW<G> {
     type Loss
         = G
     where
@@ -869,15 +864,24 @@ impl<G: LossGradient> Optimizer for AdamW<G> {
         let beta1 = self.hyper_params.beta1;
         let beta2 = self.hyper_params.beta2;
         let gradient = compute_scaled_gradient::<G>(weights, batch, eval_scale);
-        for i in 0..gradient.len() {
+        let mut update = Gradient::new(gradient.len());
+        let mut nnz = 0;
+        // TODO: Vectorize
+        for (i, &g) in gradient.iter().enumerate() {
             // biased since the values are initialized to 0, so the exponential moving average is wrong
-            self.m[i] = self.m[i] * beta1 + gradient[i] * (1.0 - beta1);
-            self.v[i] = self.v[i] * beta2 + gradient[i] * gradient[i].0 * (1.0 - beta2);
+            self.m[i] = self.m[i] * beta1 + g * (1.0 - beta1);
+            self.v[i] = self.v[i] * beta2 + g * g.0 * (1.0 - beta2);
             let unbiased_m = self.m[i] / (1.0 - beta1.powi(iteration as i32));
             let unbiased_v = self.v[i] / (1.0 - beta2.powi(iteration as i32));
-            let w = weights[i];
-            weights[i] -= w * self.hyper_params.lambda
-                + unbiased_m * self.hyper_params.alpha / (unbiased_v.0.sqrt() + self.hyper_params.epsilon);
+            let u = unbiased_m * self.hyper_params.alpha / (unbiased_v.0.sqrt() + self.hyper_params.epsilon);
+            if u.0.signum() == gradient[i].0.signum() {
+                update[i] = u;
+                nnz += 1;
+            }
+        }
+        let alpha = gradient.len() as Float / (nnz + 1) as Float;
+        for (i, w) in weights.iter_mut().enumerate() {
+            *w -= update[i] * alpha + *w * alpha * self.hyper_params.lambda;
         }
     }
 }
@@ -921,7 +925,7 @@ mod tests {
             let entries = Entry::from_features(&features, 1.0);
             dataset.push(DatapointRef { entries: &entries, outcome: Outcome::new(outcome) });
             let batch = dataset.as_batch();
-            let gradient = compute_scaled_gradient::<CrossEntropyLoss>(&weights, batch, 2.0);
+            let gradient = compute_scaled_gradient::<CrossEntropyLoss>(&weights, batch, 0.5);
             assert_eq!(gradient.len(), 2);
             let gradient_value = gradient[0].0;
             let sgn = |x| {
@@ -941,7 +945,7 @@ mod tests {
     #[test]
     // testcase that contains only 1 position with only 1 unphased feature
     pub fn one_feature_test() {
-        let scaling_factor = 42.0;
+        let scaling_factor = 1. / 42.0;
         for feature in [1, 2, -1, 0] {
             for initial_weight in [0.0, 0.1, 100.0, -1.2] {
                 for outcome in [0.0, 0.5, 1.0, 0.9, 0.499] {
@@ -1074,10 +1078,10 @@ mod tests {
 
             let optimizers: [AnyOptimizer; 5] = [
                 Box::new(SimpleGDOptimizer { alpha: 1.0 }),
-                Box::new(Adam::<QuadraticLoss>::new(batch, scale)),
-                Box::new(Adam::<CrossEntropyLoss>::new(batch, scale)),
-                Box::new(AdamW::<QuadraticLoss>::new(batch, scale)),
-                Box::new(AdamW::<CrossEntropyLoss>::new(batch, scale)),
+                Box::new(CAdam::<QuadraticLoss>::new(batch, scale)),
+                Box::new(CAdam::<CrossEntropyLoss>::new(batch, scale)),
+                Box::new(CAdamW::<QuadraticLoss>::new(batch, scale)),
+                Box::new(CAdamW::<CrossEntropyLoss>::new(batch, scale)),
             ];
             for mut optimizer in optimizers {
                 for i in 0..300 {
@@ -1135,7 +1139,7 @@ mod tests {
             let entry = Entry::from_features_unphased(&features);
             dataset.push(DatapointRef { entries: &entry, outcome: Outcome::new(outcome) });
             let batch = dataset.as_batch();
-            let mut adam = Adam::<QuadraticLoss>::new(batch, eval_scale);
+            let mut adam = CAdam::<QuadraticLoss>::new(batch, eval_scale);
             let weights = adam.optimize_simple(batch, eval_scale, 20);
             assert_eq!(weights.len(), 2);
             let weight = weights[0].0;

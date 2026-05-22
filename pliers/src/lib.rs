@@ -245,8 +245,8 @@ mod tests {
 
     use crate::eval::chess::piston_eval::PistonEval;
     use crate::gd::{
-        Adam, AdamW, CpScore, CrossEntropyLoss, Float, Outcome, QuadraticLoss, cp_eval_for_weights, cp_to_wr, loss_for,
-        quadratic_sample_loss,
+        CAdam, CAdamW, CpScore, CrossEntropyLoss, Float, Outcome, QuadraticLoss, cp_eval_for_weights, cp_to_wr,
+        loss_for, quadratic_sample_loss,
     };
     use crate::load_data::Perspective::SideToMove;
     use PieceType::*;
@@ -271,13 +271,13 @@ mod tests {
         assert_eq!(batch.entries_at(1).len(), 2); // 1 feature, 2 weights
         let batch = positions.batch(0, 1);
         let eval_scale = 100.0;
-        let mut optimizer = AdamW::<CrossEntropyLoss>::new(batch, eval_scale);
+        let mut optimizer = CAdamW::<CrossEntropyLoss>::new(batch, eval_scale);
         let startpos_weights =
             optimize_dataset(&mut positions, eval_scale, 100, &PistonEval::default(), &mut optimizer);
         let batch = positions.batch(0, 1);
         let startpos_eval = cp_eval_for_weights(&startpos_weights, batch.datapoint_iter().next().unwrap());
         assert_eq!(startpos_eval, CpScore(0.0));
-        let mut optimizer = Adam::<QuadraticLoss>::new(positions.as_batch(), eval_scale);
+        let mut optimizer = CAdam::<QuadraticLoss>::new(positions.as_batch(), eval_scale);
         let weights = optimize_dataset(&mut positions, eval_scale, 500, &PistonEval::default(), &mut optimizer);
         let loss = loss_for(&weights, positions.as_batch(), eval_scale, quadratic_sample_loss);
         assert!(loss <= 0.01, "{loss}");
@@ -304,7 +304,7 @@ mod tests {
         }
         let datapoints = FenReader::<Board, MaterialOnlyEval>::load_from_str(&fens, SideToMove).unwrap();
         let batch = datapoints.as_batch();
-        let weights = AdamW::<CrossEntropyLoss>::new(batch, eval_scale).optimize_simple(batch, eval_scale, 2000);
+        let weights = CAdamW::<CrossEntropyLoss>::new(batch, eval_scale).optimize_simple(batch, eval_scale, 2000);
         assert_eq!(weights.len(), 5);
         let weight = weights[0];
         for piece in PieceType::non_king_pieces() {

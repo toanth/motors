@@ -7,8 +7,8 @@ build = "../build.rs"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-gears = { path = "../gears" }
-motors = { path = "../motors" }
+gears = { path = "../gears", default-features = false, features = ["chess", "unsafe"] }
+motors = { path = "../motors", default-features = false, features = ["chess", "unsafe"] }
 derive_more = { workspace = true }
 rand = { workspace = true }
 strum = { workspace = true }

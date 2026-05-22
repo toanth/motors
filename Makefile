@@ -18,6 +18,7 @@ monitors:
 	cargo build --release --package monitors
 
 pliers:
+	export RUSTFLAGS='-C target-cpu=native' && \
 	cargo build --release --package pliers
 
 motors: release
