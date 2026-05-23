@@ -105,14 +105,20 @@ impl<'a> MoveScorer<'a> {
 
     pub fn complete_move_score(&self, mov: Move, state: &CapsState) -> MoveScore {
         let eager = self.score_move_eager_part(mov, state);
-        if defer_playing_move(self.pos, mov) { eager + BAD_SEE_OFFSET } else { eager }
+        if mov.is_tactical(self.pos) && defer_playing_move(self.pos, mov, eager) {
+            eager + BAD_SEE_OFFSET
+        } else {
+            eager
+        }
     }
 }
 
 // Only compute SEE scores for moves when we're actually trying to play them.
 // Idea from Cosmo.
-fn defer_playing_move(pos: &Board, mov: Move) -> bool {
-    mov.is_tactical(pos) && !pos.see_at_least(mov, SeeScore(0))
+fn defer_playing_move(pos: &Board, mov: Move, hist_score: MoveScore) -> bool {
+    debug_assert!(mov.is_tactical(pos), "{mov:?} {}", pos);
+    let threshold = cc::bad_capt_threshold() - hist_score.0 as i32 * cc::bad_capt_hist_mult() / 1024;
+    !pos.see_at_least(mov, SeeScore(threshold))
 }
 
 const BAD_SEE_OFFSET: MoveScore = MoveScore(HIST_DIVISOR * -30);
@@ -231,7 +237,8 @@ impl<'a> MovePicker<'a> {
         loop {
             let idx = self.list[self.ignored_prefix..].iter().position_max()? + self.ignored_prefix;
             debug_assert!(self.list[idx].mov().is_tactical(self.pos));
-            if defer_playing_move(self.pos, self.list[idx].mov()) {
+            let score = self.list[idx].score();
+            if defer_playing_move(self.pos, self.list[idx].mov(), score) {
                 self.list.swap(self.ignored_prefix, idx);
                 self.ignored_prefix += 1;
                 continue;
@@ -243,16 +250,8 @@ impl<'a> MovePicker<'a> {
 
     fn next_quiet(&mut self) -> Option<ScoredMove> {
         let idx = self.list[self.ignored_prefix..].iter().position_max()? + self.ignored_prefix;
-        debug_assert!(!defer_playing_move(self.pos, self.list[idx].mov()));
         debug_assert!(!self.list[idx].mov().is_tactical(self.pos));
         Some(self.list.swap_remove(idx))
-    }
-
-    fn next_from_deferred(&mut self) -> Option<ScoredMove> {
-        let res = self.list.get(self.ignored_prefix);
-        self.ignored_prefix += 1;
-        // TODO: Can probably be optimized / simplified
-        res.copied().map(|m| ScoredMove::new(m.mov(), m.score() + BAD_SEE_OFFSET))
     }
 }
 
