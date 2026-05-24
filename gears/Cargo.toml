@@ -35,6 +35,7 @@ anyhow = { workspace = true }
 colorgrad = { version = "0.8", features = ["named-colors"] }
 rayon = { workspace = true }
 configparser = "3.1"
+linkme = { workspace = true }
 
 [features]
 default = ["chess", "mnk", "ataxx", "uttt", "fairy", "unsafe"]

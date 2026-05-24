@@ -961,6 +961,7 @@ impl Caps {
                         + (num_uninteresting_visited + 1).ilog2() as isize * cc::lmr_moves_mult()
                         + cc::lmr_const();
                     // Reduce bad captures and quiet moves with bad combined history scores more.
+                    // todo: move out of num_uninteresting_visited >= ... condition
                     if move_score < MoveScore(cc::lmr_bad_hist()) {
                         reduction += cc::lmr_bad_hist_reduction();
                     } else if move_score > MoveScore(cc::lmr_good_hist()) {

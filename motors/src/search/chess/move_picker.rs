@@ -179,7 +179,7 @@ impl<'a> MovePicker<'a> {
                     continue;
                 }
                 GoodCaptures => {
-                    if let Some(res) = self.next_good_capture() {
+                    if let Some(res) = self.next_good_tactical() {
                         return Some(res);
                     }
                     if self.tactical_only {
@@ -233,7 +233,7 @@ impl<'a> MovePicker<'a> {
         }
     }
 
-    fn next_good_capture(&mut self) -> Option<ScoredMove> {
+    fn next_good_tactical(&mut self) -> Option<ScoredMove> {
         loop {
             let idx = self.list[self.ignored_prefix..].iter().position_max()? + self.ignored_prefix;
             debug_assert!(self.list[idx].mov().is_tactical(self.pos));

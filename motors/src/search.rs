@@ -15,7 +15,7 @@ use gears::games::{BoardHistDyn, ZobristHistory};
 use gears::general::board::Strictness::Relaxed;
 use gears::general::board::{BoardHelpers, BoardTrait};
 use gears::general::common::anyhow::bail;
-use gears::general::common::{EntityList, Name, NamedEntity, Res, StaticallyNamedEntity};
+use gears::general::common::{EntityList, Name, NamedEntity, Res, StaticallyNamedEntity, dbg_print, dbg_reset};
 use gears::general::move_list::MoveListTrait;
 use gears::general::moves::MoveTrait;
 use gears::itertools::Itertools;
@@ -899,6 +899,7 @@ impl<B: BoardTrait, E: SearchStackEntry<B>, C: CustomInfo<B>> AbstractSearchStat
     }
 
     fn new_search(&mut self, mut parameters: SearchParams<B>) {
+        dbg_reset();
         parameters.atomic.set_searching(true);
         self.forget(false);
         let moves = parameters.pos.legal_moves_slow();
@@ -934,6 +935,7 @@ impl<B: BoardTrait, E: SearchStackEntry<B>, C: CustomInfo<B>> AbstractSearchStat
     }
 
     fn end_search(&mut self, res: &mut SearchResult<B>) {
+        dbg_print();
         self.statistics_mut().end_search();
         self.send_statistics();
         self.aggregate_match_statistics();

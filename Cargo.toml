@@ -19,6 +19,7 @@ arrayvec = "0.7"
 anyhow = { version = "1.0", default-features = false, features = ["std"] }
 crossbeam-utils = "0.8"
 rayon = "1.12"
+linkme = "0.3.36"
 
 
 [profile.release]

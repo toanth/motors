@@ -5,6 +5,7 @@ use anyhow::bail;
 use colored::Colorize;
 use edit_distance::edit_distance;
 use itertools::Itertools;
+pub use linkme::distributed_slice;
 use num::{Float, PrimInt};
 #[cfg(all(target_arch = "x86_64", target_feature = "bmi2", feature = "unsafe"))]
 use std::arch::x86_64::{_pdep_u64, _pext_u64};
@@ -13,9 +14,11 @@ use std::io::stdin;
 use std::iter::Peekable;
 use std::num::{NonZeroU64, NonZeroUsize};
 use std::str::{FromStr, SplitAsciiWhitespace};
+use std::sync::atomic::Ordering::Relaxed;
+use std::sync::atomic::{AtomicI64, AtomicU64};
 use std::time::Duration;
-// The `bitintr` crate provides similar features, but unfortunately it is bugged and unmaintained.
 
+// The `bitintr` crate provides similar features, but unfortunately it is bugged and unmaintained.
 #[allow(unused)]
 fn pdep64_fallback(val: u64, mut mask: u64) -> u64 {
     let mut res = 0;
@@ -476,6 +479,61 @@ pub fn nonzero_usize(val: usize, name: &str) -> Res<NonZeroUsize> {
 
 pub fn nonzero_u64(val: u64, name: &str) -> Res<NonZeroU64> {
     NonZeroU64::new(val).ok_or_else(|| anyhow::anyhow!("{name} can't be zero"))
+}
+
+pub struct Entry {
+    sum: AtomicI64,
+    calls: AtomicU64,
+    name: &'static str,
+}
+
+impl Entry {
+    pub const fn new(name: &'static str) -> Self {
+        Self { sum: AtomicI64::new(0), calls: AtomicU64::new(0), name }
+    }
+    pub fn record(&self, val: i64) {
+        _ = self.sum.fetch_add(val, Relaxed);
+        _ = self.calls.fetch_add(1, Relaxed);
+    }
+    pub fn reset(&self) {
+        self.sum.store(0, Relaxed);
+        self.calls.store(0, Relaxed);
+    }
+
+    pub fn print(&self) {
+        let sum = self.sum.load(Relaxed);
+        let calls = self.calls.load(Relaxed);
+        let avg = sum as f64 / calls as f64;
+        let name = self.name;
+        println!("{name}: Sum {sum} of {calls} calls (average {avg:3})");
+    }
+}
+
+#[distributed_slice]
+pub static TRACKED_VALUES: [Entry];
+
+#[macro_export]
+macro_rules! track {
+    ($name: expr, $val: expr) => {{
+        #[linkme::distributed_slice($crate::general::common::TRACKED_VALUES)]
+        static ENTRY: $crate::general::common::Entry = $crate::general::common::Entry::new(const { $name });
+        let value = $val;
+        ENTRY.record(value as i64);
+        value
+    }};
+    ($val: expr) => {{ track!(stringify!($val), $val) }};
+}
+
+pub fn dbg_print() {
+    for e in TRACKED_VALUES {
+        e.print();
+    }
+}
+
+pub fn dbg_reset() {
+    for e in TRACKED_VALUES {
+        e.reset();
+    }
 }
 
 #[cfg(test)]
