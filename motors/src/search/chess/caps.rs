@@ -10,7 +10,7 @@ use crate::eval::chess::lite::{LiTEval, lc};
 use crate::io::ugi_output::{color_for_score, score_gradient};
 use crate::search::chess::caps_values::cc;
 use crate::search::chess::histories::{ContHist, HIST_DIVISOR, HistScoreT};
-use crate::search::chess::move_picker::MovePicker;
+use crate::search::chess::move_picker::{BAD_SEE_OFFSET, MovePicker};
 use crate::search::chess::*;
 use crate::search::statistics::SearchType;
 use crate::search::statistics::SearchType::{MainSearch, Qsearch};
@@ -901,8 +901,10 @@ impl Caps {
                 // Be less aggressive with pruning captures to avoid overlooking tactics.
                 let bad_tactical = move_score < MoveScore(-HIST_DIVISOR * 8);
                 // TODO: Tunable constants, different divisors (changes bench)
-                let see_threshold =
+                let mut see_threshold =
                     if bad_tactical { (-depth * depth * 50 / (128 * 128)) as i32 } else { (-depth * 80 / 128) as i32 };
+                let bad_or_quiet_hist_score = if bad_tactical { move_score - BAD_SEE_OFFSET } else { move_score };
+                see_threshold -= bad_or_quiet_hist_score.0 as i32 * cc::see_pruning_hist_mult() / 1024;
                 if move_score < KILLER_SCORE
                     && depth <= cc::max_see_pruning_depth()
                     && !pos.see_at_least(mov, SeeScore(see_threshold))

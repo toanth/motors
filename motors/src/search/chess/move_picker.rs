@@ -121,7 +121,7 @@ fn defer_playing_move(pos: &Board, mov: Move, hist_score: MoveScore) -> bool {
     !pos.see_at_least(mov, SeeScore(threshold))
 }
 
-const BAD_SEE_OFFSET: MoveScore = MoveScore(HIST_DIVISOR * -30);
+pub(super) const BAD_SEE_OFFSET: MoveScore = MoveScore(HIST_DIVISOR * -30);
 
 enum MovePickerState {
     TTMove,
