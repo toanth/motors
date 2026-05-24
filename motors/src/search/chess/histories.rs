@@ -79,24 +79,26 @@ impl Default for HistoryHeuristic {
 
 /// Capture History Heuristic: Same as quiet history heuristic, but for captures.
 #[derive(Debug, Clone)]
-pub(super) struct CaptHist(Box<[[[[HistScoreT; 64]; 6]; 2]; NUM_COLORS]>);
+pub(super) struct CaptHist(Box<[[[[[HistScoreT; 64]; 6]; 2]; 2]; NUM_COLORS]>);
 
 impl CaptHist {
     pub(super) fn update(&mut self, mov: Move, pos: &Board, bonus: HistScoreT) {
         let us = pos.active_player();
-        let defended = pos.threats().is_bit_set_at(mov.dest_square().bb_idx()) as usize;
-        let entry = &mut self.0[us][defended][mov.piece_type(pos) as usize][mov.dest_square().bb_idx()];
+        let defended = pos.threats().has(mov.dest_square()) as usize;
+        let attacked = pos.threats().has(mov.src_square()) as usize;
+        let entry = &mut self.0[us][attacked][defended][mov.piece_type(pos) as usize][mov.dest_square().bb_idx()];
         update_history_score(entry, bonus);
     }
 
     pub(super) fn get(&self, mov: Move, pos: &Board) -> MoveScore {
         let us = pos.active_player();
-        let defended = pos.threats().is_bit_set_at(mov.dest_square().bb_idx()) as usize;
-        MoveScore(self.0[us][defended][mov.piece_type(pos) as usize][mov.dest_square().bb_idx()])
+        let defended = pos.threats().has(mov.dest_square()) as usize;
+        let attacked = pos.threats().has(mov.src_square()) as usize;
+        MoveScore(self.0[us][attacked][defended][mov.piece_type(pos) as usize][mov.dest_square().bb_idx()])
     }
 
     pub(super) fn reset(&mut self) {
-        for value in self.0.iter_mut().flatten().flatten().flatten() {
+        for value in self.0.iter_mut().flatten().flatten().flatten().flatten() {
             *value = 0;
         }
     }
@@ -104,7 +106,7 @@ impl CaptHist {
 
 impl Default for CaptHist {
     fn default() -> Self {
-        Self(Box::new([[[[0; 64]; 6]; 2]; NUM_COLORS]))
+        Self(Box::new([[[[[0; 64]; 6]; 2]; 2]; NUM_COLORS]))
     }
 }
 
