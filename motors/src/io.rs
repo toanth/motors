@@ -428,7 +428,7 @@ impl<B: BoardTrait> EngineUGI<B> {
         }
         if let Some(cmd) = opts.cmd {
             for line in cmd.split(';') {
-                res.handle_input(&line)?;
+                res.handle_input(line)?;
             }
         }
         Ok(res)
@@ -658,10 +658,7 @@ impl<B: BoardTrait> EngineUGI<B> {
         }
         let Some(value) = words.next() else { bail!("Missing value after '{}' in setoption command", "value".bold()) };
         let mut value = value.to_string();
-        loop {
-            let Some(next_word) = words.next() else {
-                break;
-            };
+        for next_word in words {
             value = value + " " + next_word;
         }
         let name = EngineOptionNameForProtocol::parse(name.trim(), self.protocol())?;

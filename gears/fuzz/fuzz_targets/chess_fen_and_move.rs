@@ -19,8 +19,8 @@
 
 use gears::games::chess::Board;
 use gears::games::chess::moves::Move;
+use gears::general::board::BoardHelpers;
 use gears::general::board::Strictness::Relaxed;
-use gears::general::board::{BoardHelpers, BoardTrait};
 use gears::general::moves::MoveTrait;
 use libfuzzer_sys::fuzz_target;
 

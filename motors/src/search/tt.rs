@@ -486,8 +486,8 @@ mod test {
     #[cfg(feature = "chess")]
     fn test_packing() {
         let board = Board::from_name("kiwipete").unwrap();
-        let mut i = 1;
-        for mov in board.pseudolegal_moves() {
+        for (i, &mov) in board.pseudolegal_moves().iter().enumerate() {
+            let i = i as i32;
             let entry: TTEntry<Board> = TTEntry::new(
                 board.hash_pos(),
                 Score(i * i * (i % 2 * 2 - 1)),
@@ -500,7 +500,6 @@ mod test {
             let converted = AtomicTTEntry::default();
             entry.pack_into(&converted);
             assert_eq!(TTEntry::unpack(&converted), entry);
-            i += 1;
         }
     }
 

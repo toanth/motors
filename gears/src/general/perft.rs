@@ -135,7 +135,7 @@ pub fn split_perft<B: BoardTrait>(
         }
     }
     let time = start.elapsed();
-    children.sort_by(|a, b| a.0.compact_formatter(&pos).to_string().cmp(&b.0.compact_formatter(&pos).to_string()));
+    children.sort_by_key(|(m, _)| m.compact_formatter(&pos).to_string());
     let perft_res = PerftRes { time, nodes, depth };
     SplitPerftRes { perft_res, children, pos }
 }

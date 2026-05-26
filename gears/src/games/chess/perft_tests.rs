@@ -343,7 +343,7 @@ mod tests {
                         let quiet_moves = board.quiet_pseudolegal();
                         let tactical_moves = board.tactical_pseudolegal();
                         let mut m2 = Vec::from(quiet_moves.as_slice());
-                        m2.extend_from_slice(&tactical_moves.as_slice());
+                        m2.extend_from_slice(tactical_moves.as_slice());
                         m2.sort();
                         assert_eq!(all_moves.as_slice(), m2.as_slice());
                         for (depth, expected_count) in

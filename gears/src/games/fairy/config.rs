@@ -66,14 +66,14 @@ fn parse_square_filter(input: &str, size: GridSize) -> Res<SquareFilter> {
     for word in tokens {
         if word == "*" {
             res = !0;
-        } else if word.ends_with('*') {
-            let file: DimT = parse_int_from_str(&word[..word.len() - 1], "file")?;
+        } else if let Some(file) = word.strip_suffix('*') {
+            let file = parse_int_from_str::<DimT>(file, "file")?;
             if file == 0 {
                 bail!("file must be 1-indexed and can't be 0");
             }
             res |= Bitboard::file_for(file - 1, size).raw();
-        } else if word.starts_with('*') {
-            let rank: DimT = parse_int_from_str(&word[1..], "rank")?;
+        } else if let Some(rank) = word.strip_prefix('*') {
+            let rank: DimT = parse_int_from_str(rank, "rank")?;
             if rank == 0 {
                 bail!("Rank must be 1-indexed and can't be 0");
             }
@@ -423,9 +423,7 @@ fn make_attack_bbs(descr: &mut ParseAtomState) -> Res<AttackBBGenBuilder> {
             return Ok(AttackBBGenBuilder::PlaneBishop);
         } else if dirs == rooks {
             return Ok(AttackBBGenBuilder::PlaneRook);
-        } else if dirs.len() == 8
-            && bishops.iter().all(|d| dirs.contains(&d))
-            && rooks.iter().all(|d| dirs.contains(&d))
+        } else if dirs.len() == 8 && bishops.iter().all(|d| dirs.contains(d)) && rooks.iter().all(|d| dirs.contains(d))
         {
             return Ok(AttackBBGenBuilder::PlaneQueen);
         }
@@ -481,12 +479,6 @@ fn modify_piece(mut piece: PieceBuilder, symbol_and_betza: &Option<String>) -> R
     // an empty betza notation means the piece can't move TODO: Testcase
     piece.attacks = parse_betza(betza.trim())?;
     Ok(Some(piece))
-}
-
-fn piece_from_name(name: &str) -> Option<PieceBuilder> {
-    match name.to_ascii_lowercase() {
-        _ => None,
-    }
 }
 
 // TODO: Remove
@@ -973,7 +965,7 @@ impl GameConfig {
         rules.name = self.name.clone();
         let all_pieces = PieceBuilder::complete_piece_map();
         for (key_string, value) in &self.definition {
-            if let Ok(key) = FairySFOption::from_str(&key_string) {
+            if let Ok(key) = FairySFOption::from_str(key_string) {
                 let Some(value) = value else {
                     bail!("Missing value for configuration key '{}'", key.to_string().bold());
                 };

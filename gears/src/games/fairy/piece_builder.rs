@@ -101,12 +101,12 @@ impl RayDescription {
         }
         dir.dx %= size.width.val() as isize;
         if let Some(limit) = limit_steps
+            && limit >= max(size.width().val(), size.height().val())
             && topology == Plane
         {
-            if limit >= max(size.width().val(), size.height().val()) {
-                limit_steps = None;
-            }
+            limit_steps = None;
         }
+
         Self { dir, with_reverse, limit_steps, topology, size }
     }
 }
@@ -212,7 +212,7 @@ impl RayBBBuilder {
         let mut res = vec![];
         for r in rays {
             if r.dir.dy == 0 && r.topology == Cylinder {
-                let dx = NonZero::new(r.dir.dx.abs() as usize).unwrap();
+                let dx = NonZero::new(r.dir.dx.unsigned_abs()).unwrap();
                 let a = if r.with_reverse {
                     AttackBitboardGen::HorizontalCylinder { step_left: Some(dx), step_right: Some(dx) }
                 } else if r.dir.dx > 0 {
@@ -399,16 +399,10 @@ impl AttackKindBuilder {
     }
 }
 
-#[derive(Debug, Copy, Clone, Arbitrary)]
+#[derive(Default, Debug, Copy, Clone, Arbitrary)]
 pub(super) struct DropInfo {
     // Disallow dropping two pieces of the same type on the same file
     pub drop_no_double: bool,
-}
-
-impl Default for DropInfo {
-    fn default() -> Self {
-        Self { drop_no_double: false }
-    }
 }
 
 #[derive(Debug, Clone, Arbitrary)]
@@ -444,13 +438,11 @@ impl PieceBuilder {
                 attacks.push(AttackKindBuilder::drop(vec![EmptySquares]));
             }
             for a in &mut attacks {
-                if a.kind == Drop {
-                    if drop_info.drop_no_double {
-                        a.bitboard_filter.push(Not(Box::new(SquareFilter::SameFile(Box::new(SquareFilter::Has(
-                            PieceCond::Only(PieceId::new(idx)),
-                            PlayerCond::Active,
-                        ))))));
-                    }
+                if a.kind == Drop && drop_info.drop_no_double {
+                    a.bitboard_filter.push(Not(Box::new(SquareFilter::SameFile(Box::new(SquareFilter::Has(
+                        PieceCond::Only(PieceId::new(idx)),
+                        PlayerCond::Active,
+                    ))))));
                 }
             }
         }

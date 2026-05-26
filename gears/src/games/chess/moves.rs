@@ -533,13 +533,11 @@ impl Board {
             Knight | Bishop => {
                 self.hashes.knb ^= hash_delta;
             }
-            Rook => {
-                if from.rank() == Self::backrank(us) {
-                    if from.file() == self.rook_start_file(us, Queenside) {
-                        self.castling.unset_castle_right(us, Queenside);
-                    } else if from.file() == self.rook_start_file(us, Kingside) {
-                        self.castling.unset_castle_right(us, Kingside);
-                    }
+            Rook if from.rank() == Self::backrank(us) => {
+                if from.file() == self.rook_start_file(us, Queenside) {
+                    self.castling.unset_castle_right(us, Queenside);
+                } else if from.file() == self.rook_start_file(us, Kingside) {
+                    self.castling.unset_castle_right(us, Kingside);
                 }
             }
             _ => {}
