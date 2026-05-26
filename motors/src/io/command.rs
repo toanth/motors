@@ -588,6 +588,7 @@ pub struct GenericGoState {
     pub multi_pv: usize,
     pub threads: Option<usize>,
     pub search_type: SearchType,
+    pub upto: bool,
     pub complete: bool,
     pub unique: bool,
     pub compare: bool,
@@ -641,6 +642,7 @@ impl<B: BoardTrait> GoState<B> {
                 multi_pv: 1,
                 threads: None,
                 search_type,
+                upto: false,
                 complete: false,
                 unique: false,
                 compare: false,
@@ -697,6 +699,15 @@ pub(super) fn go_options_impl(
     color_names: [String; 2],
 ) -> CommandList {
     let mut res = vec![depth_cmd()];
+    if mode.is_none_or(|m| m == Perft) {
+        res.push(command!(upto, Custom, "Print all perft results up to the given depth", |state, _words, _| {
+            if state.go_state_mut().get_mut().search_type != Perft {
+                bail!("The 'upto' option can only be used with 'perft' searches")
+            }
+            state.go_state_mut().get_mut().upto = true;
+            Ok(())
+        }));
+    }
     if matches!(mode.unwrap_or(Normal), Perft | SplitPerft) {
         res.push(command!(
             threads | t,
@@ -910,7 +921,7 @@ pub(super) fn go_options_impl(
     if mode.is_none_or(|m| m == Perft) {
         res.push(command!(unique, Custom, "Only count unique positions in perft", |state, _, _| {
             if state.go_state_mut().get_mut().search_type != Perft {
-                bail!("The 'all' option can only be used with 'perft' searches")
+                bail!("The 'unique' option can only be used with 'perft' searches")
             }
             state.go_state_mut().get_mut().unique = true;
             Ok(())

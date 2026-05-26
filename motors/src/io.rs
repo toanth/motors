@@ -742,13 +742,17 @@ impl<B: BoardTrait> EngineUGI<B> {
                     bail!("Depth {0} is larger than the maximum perft depth of {1}", limit.depth, B::max_perft_depth());
                 }
                 let pseudo_bulk = if opts.no_bulk { NoBulk } else { Bulk };
-                for i in 1..=limit.depth.get() {
+                let start = if opts.upto { 1 } else { limit.depth.get() };
+                for i in start..=limit.depth.get() {
                     if opts.unique {
                         let num_unique = num_unique_positions_up_to(DepthPly::new(i), board.clone()).to_string().bold();
                         self.output().write_ugi(&format_args!("# unique positions at depth {i}: {num_unique}",))
                     } else {
                         let perft_res = perft_for(DepthPly::new(i), &positions, threads != 1, pseudo_bulk);
-                        self.output().write_ugi(&format_args!("{perft_res}"))
+                        self.output().write_ugi(&format_args!(
+                            "{}{perft_res}",
+                            if i == limit.depth.get() { String::new() } else { format!("depth {i}: ") }
+                        ));
                     }
                 }
             }
