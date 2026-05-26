@@ -30,7 +30,7 @@ use crate::games::fairy::piece_builder::{
 use crate::games::fairy::pieces::PieceId;
 use crate::games::fairy::rules::FenHandInfo::{InBracketsEmpty, InBracketsMinusForEmpty};
 use crate::games::fairy::rules::{
-    DrawCtrCond, GameEndEager, GameEndRes, NoMovesCondition, Rules, RulesBuilder, RulesRef, SquareFilter,
+    CastlingInfo, DrawCtrCond, GameEndEager, GameEndRes, NoMovesCondition, Rules, RulesBuilder, RulesRef, SquareFilter,
 };
 use crate::games::fairy::{Bitboard, Color, RawBitboard};
 use crate::games::{DimT, Height, SizeTrait, Width, char_to_file};
@@ -687,7 +687,11 @@ fn apply_option(map: &OptionMap, rules: &mut RulesBuilder, name: FairySFOption, 
         }
         FairySFOption::Castling => {
             let enabled = parse_bool_from_str(value, "castling")?;
-            rules.has_castling = enabled;
+            if rules.castling.is_none() && enabled {
+                rules.castling = Some(CastlingInfo::new([2, rules.size.width.0 - 2]))
+            } else if !enabled {
+                rules.castling = None;
+            }
         }
         FairySFOption::PieceDrops => {
             let val = parse_bool_from_str(value, "pieceDrops")?;

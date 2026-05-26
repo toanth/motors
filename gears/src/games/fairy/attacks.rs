@@ -22,7 +22,7 @@ use crate::games::fairy::moves::Move;
 use crate::games::fairy::piece_builder::Topology::Cylinder;
 use crate::games::fairy::piece_builder::{RayDescription, RayDir, Topology};
 use crate::games::fairy::pieces::{ColoredPieceId, GenPromoMoves};
-use crate::games::fairy::rules::{CheckCount, CheckingAttack, SquareFilter};
+use crate::games::fairy::rules::{CastlingInfo, CheckCount, CheckingAttack, SquareFilter};
 use crate::games::fairy::{
     Bitboard, Board, CastlingMoveInfo, Color, FairyCastleInfo, Piece, RawBitboard, Side, Size, Square, UnverifiedBoard,
 };
@@ -773,7 +773,7 @@ impl UnverifiedBoard {
         )
     }
 
-    fn parse_castling_info(&self, castling_word: &str) -> Res<FairyCastleInfo> {
+    fn parse_castling_info(&self, castling_word: &str, rules: CastlingInfo) -> Res<FairyCastleInfo> {
         let mut info = FairyCastleInfo::new(self.size());
 
         if castling_word == "-" {
@@ -791,12 +791,20 @@ impl UnverifiedBoard {
             let color = if c.is_ascii_uppercase() { Color::first() } else { Color::second() };
             let king_bb = self.castling_bb_for(color);
             let Some(king_sq) = king_bb.to_square() else {
+                // TODO: Relax this requirement
                 bail!(
                     "Castling is only legal when there is a single royal piece, but the {0} player has {1}",
                     self.rules().colors[color].name,
                     king_bb.num_ones()
                 )
             };
+            if king_sq.rank() != if color.is_first() { rules.rank } else { self.size().height.0 - 1 - rules.rank } {
+                bail!(
+                    "Castling is only legal if the royal piece is on side-relative rank {0}, but it is on {1}",
+                    (rules.rank + 1).to_string().bold(),
+                    king_sq.to_string().red()
+                )
+            }
 
             let lowercase_c = c.to_ascii_lowercase();
             // X-FEN requires finding a rook, which we test for by literally searching for "rook" in the piece name.
@@ -807,7 +815,7 @@ impl UnverifiedBoard {
                 char_to_file(lowercase_c)
             };
             let side = if file > king_sq.file() { Kingside } else { Queenside };
-            let king_dest_file = if side == Kingside { b'g' - b'a' } else { b'c' - b'a' };
+            let king_dest_file = rules.king_dest_files[side as usize];
             let rook_dest_file = if side == Kingside { king_dest_file - 1 } else { king_dest_file + 1 };
             let move_info = CastlingMoveInfo { rook_file: file, king_dest_file, rook_dest_file, fen_char: c as u8 };
             let entry = &mut info.players[color].sides[side as usize];
@@ -823,11 +831,11 @@ impl UnverifiedBoard {
     }
 
     pub(super) fn read_castling_and_ep_fen_parts(&mut self, words: &mut Tokens, _strictness: Strictness) -> Res<()> {
-        if self.rules().has_castling {
+        if let Some(castling) = self.rules().castling {
             let Some(castling_word) = words.next() else {
                 bail!("FEN ends after color to move, missing castling rights")
             };
-            self.castling_info = self.parse_castling_info(castling_word)?;
+            self.castling_info = self.parse_castling_info(castling_word, castling)?;
         }
         if self.rules().has_ep {
             let Some(ep_square) = words.next() else { bail!("FEN ends before en passant square") };
@@ -841,7 +849,7 @@ impl UnverifiedBoard {
             };
         } else if words.peek().copied() == Some("-") {
             _ = words.next(); // Some GUIs always send castling and ep as '-' even if the variant doesn't support them
-            if words.peek().copied() == Some("-") && !self.rules().has_castling {
+            if words.peek().copied() == Some("-") && self.rules().castling.is_none() {
                 _ = words.next();
             }
         }

@@ -36,8 +36,8 @@ use crate::games::fairy::rules::NoMovesCondition::{Always, InCheck, NotInCheck};
 use crate::games::fairy::rules::NumRoyals::{BetweenInclusive, Exactly};
 use crate::games::fairy::rules::PieceCond::{AnyPiece, Royal};
 use crate::games::fairy::{
-    AdditionalCtrT, Bitboard, Board, CastlingMoveInfo, Color, ColorInfo, FairyCastleInfo, MAX_NUM_PIECE_TYPES,
-    MoveList, RawBitboard, Size, UnverifiedBoard,
+    AdditionalCtrT, Bitboard, Board, Color, ColorInfo, FairyCastleInfo, MAX_NUM_PIECE_TYPES, MoveList, RawBitboard,
+    Size, UnverifiedBoard,
 };
 use crate::games::{
     BoardHistory, ColorTrait, DimT, NUM_COLORS, PosHash, SettingsTrait, ataxx, chess, mnk, n_fold_repetition,
@@ -57,14 +57,6 @@ use std::fmt::{Debug, Formatter};
 use std::hash::{Hash, Hasher};
 use std::ops::Deref;
 use std::sync::{Arc, LazyLock};
-
-/// Modifications that can apply to a square, such as a piece on that square being promoted in crazyhouse.
-#[derive(Debug, Copy, Clone, Eq, PartialEq, Arbitrary)]
-#[must_use]
-pub enum SquareEffect {
-    Promoted,
-    // TODO: More values like `Neutral`, etc
-}
 
 /// Whether any or all royal pieces have to be attacked for the player to be considered in check
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Arbitrary)]
@@ -771,7 +763,7 @@ pub struct Rules {
     pub(super) moves_filter: FilterMovesCondition,
     pub(super) size: GridSize,
     pub(super) has_ep: bool,
-    pub(super) has_castling: bool, // TODO: Move to format rules?
+    pub(super) castling: Option<CastlingInfo>,
     pub(super) store_last_move: bool,
     pub(super) ctr_threshold: [Option<AdditionalCtrT>; NUM_COLORS],
     pub(super) effect_rules: EffectRules, // TODO: Remove?
@@ -883,13 +875,18 @@ impl PawnInfo {
     }
 }
 
+#[derive(Debug, Copy, Clone, Arbitrary)]
 pub(super) struct CastlingInfo {
-    allow_dropped: bool,
-    kingside: CastlingMoveInfo,
-    queenside: CastlingMoveInfo,
-    king_file: DimT,
-    rank: DimT,
-    king_piece: PieceId,
+    // allow_dropped: bool, // currently ignored; we don't reset castling rights if a matching piece gets dropped
+    // valid_king_start_squares: RawBitboard, // necessary because there can be more than one king
+    pub king_dest_files: [DimT; 2],
+    pub rank: DimT, // side-relative rank of the king and rook pieces
+}
+
+impl CastlingInfo {
+    pub fn new(king_dest_files: [DimT; 2]) -> Self {
+        Self { rank: 0, king_dest_files }
+    }
 }
 
 #[must_use]
@@ -910,7 +907,7 @@ pub(super) struct RulesBuilder {
     pub(super) moves_filter: FilterMovesCondition,
     pub(super) size: GridSize,
     pub(super) has_ep: bool,
-    pub(super) has_castling: bool, // TODO: Move to format rules?
+    pub(super) castling: Option<CastlingInfo>,
     pub(super) store_last_move: bool,
     pub(super) ctr_threshold: [Option<AdditionalCtrT>; NUM_COLORS],
     pub(super) effect_rules: EffectRules, // TODO: Remove?
@@ -974,6 +971,7 @@ impl RulesBuilder {
             drop_str: "@".to_string(),
             axes_format: AxesFormat::player_pov(),
         };
+        let castling = CastlingInfo::new([6, 2]);
         Self {
             format_rules: fen_rules,
             fallback: None,
@@ -987,7 +985,7 @@ impl RulesBuilder {
             moves_filter: FilterMovesCondition::NoFilter,
             size: Size::chess(),
             has_ep: true,
-            has_castling: true,
+            castling: Some(castling),
             store_last_move: false,
             ctr_threshold: [None; NUM_COLORS],
             effect_rules,
@@ -1171,7 +1169,7 @@ impl RulesBuilder {
         ];
         rules.game_end_no_moves = vec![(Always, GameEndRes::loss())];
         rules.has_ep = false;
-        rules.has_castling = false;
+        rules.castling = None;
         rules
     }
 
@@ -1179,7 +1177,7 @@ impl RulesBuilder {
         let mut rules = Self::chess();
         rules.name = "makruk".to_string();
         rules.format_rules.startpos_fen = "rnsmksnr/8/pppppppp/8/8/PPPPPPPP/8/RNSKMSNR w - - 0 1".to_string();
-        rules.has_castling = false;
+        rules.castling = None;
         rules.pieces = PieceBuilder::makruk_pieces();
         let p = |id: usize| PieceId::new(id);
         let bare_kings = vec![(p(0), 0), (p(1), 0), (p(2), 0), (p(3), 0), (p(4), 0), (p(6), 0)];
@@ -1208,7 +1206,7 @@ impl RulesBuilder {
         rules.colors[0] = ColorInfo { ascii_char: 'w', name: "sente".to_string() };
         rules.colors[1] = ColorInfo { ascii_char: 'b', name: "gote".to_string() };
         rules.pieces = PieceBuilder::shogi_pieces();
-        rules.has_castling = false;
+        rules.castling = None;
         // shogi doesn't actually have ep captures, but this makes FENs contain a `-`, which they for some reason have to
         // in the standard FEN format cutechess uses TODO: fairy sf's fen output also contains another - and a repetition clock, so accept that...
         rules.has_ep = true;
@@ -1273,7 +1271,7 @@ impl RulesBuilder {
             empty_board: EmptyBoard(Box::new(generic_empty_board)),
             size,
             has_ep: false,
-            has_castling: false,
+            castling: None,
             store_last_move: false,
             ctr_threshold: [None; NUM_COLORS],
             effect_rules: EffectRules { reset_draw_counter_on_capture: true, conversion_radius: 1 },
@@ -1334,7 +1332,7 @@ impl RulesBuilder {
             empty_board: EmptyBoard(Box::new(generic_empty_board)),
             size,
             has_ep: false,
-            has_castling: false,
+            castling: None,
             store_last_move: false, // TODO: Store without having that affect equality so that fen roundtrip works
             ctr_threshold: [None; NUM_COLORS],
             effect_rules: EffectRules::default(),
@@ -1391,7 +1389,7 @@ impl RulesBuilder {
     pub fn build(mut self) -> Rules {
         let mut cache = PieceBuilderCache::default();
         for p in &mut self.pieces {
-            if !self.has_castling {
+            if self.castling.is_none() {
                 p.can_castle = false;
                 p.attacks.retain(|a| !matches!(a.kind, GenAttackKind::Castle(_)));
             }
@@ -1414,7 +1412,7 @@ impl RulesBuilder {
             moves_filter: self.moves_filter,
             size: self.size,
             has_ep: self.has_ep,
-            has_castling: self.has_castling,
+            castling: self.castling,
             store_last_move: self.store_last_move,
             ctr_threshold: self.ctr_threshold,
             effect_rules: self.effect_rules,

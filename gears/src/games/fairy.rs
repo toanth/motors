@@ -1097,7 +1097,7 @@ impl BoardTrait for Board {
                 self.ep.map(|sq| self.single_piece(sq)).unwrap_or(self.zero_bitboard()).raw(),
             ));
         }
-        if self.rules().has_castling {
+        if self.rules().castling.is_some() {
             res.push(GenericSelect::full(
                 "castling_dest_squares",
                 None,
@@ -1272,7 +1272,7 @@ impl Display for NoRulesFenFormatter<'_> {
                 pos.write_fen_hand_part(f)?;
             }
         }
-        if pos.rules().has_castling {
+        if pos.rules().castling.is_some() {
             pos.0.castling_info.write_fen_part(f)?;
         }
         if pos.rules().has_ep {
