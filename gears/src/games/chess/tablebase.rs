@@ -1415,6 +1415,7 @@ static TB: LazyLock<Tablebase> = LazyLock::new(|| {
 /// Computes them in the right order such that for any table t, all tables required for t have been computed before t is computed.
 /// This ensures all tables can be computed with the maximum parallelism and no thread has to wait for another thread
 /// to finish computing a required table.
+#[allow(unused)]
 fn force_dtz_table(mut pieces: PieceCounts) -> &'static [Entry] {
     if !colors_ordered(pieces) {
         pieces.swap(0, 1);

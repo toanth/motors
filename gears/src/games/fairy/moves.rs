@@ -560,6 +560,9 @@ impl Board {
         if self.settings().must_preserve_own_king[self.active] && self.royal_bb_for(self.active).is_zero() {
             return None;
         }
+        if self.settings().immobility_illegal && self.can_never_move(mov.dest(self.size())) {
+            return None;
+        }
         self.adjust_castling_rights();
         for c in Color::iter() {
             // TODO: Compute and store attack bitboard together with checkers bitboard

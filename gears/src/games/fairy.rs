@@ -522,7 +522,7 @@ impl UnverifiedBoardTrait<Board> for UnverifiedBoard {
     }
 
     fn fen_pos_part_contains_hand(&self) -> bool {
-        self.rules().format_rules.hand == FenHandInfo::InBrackets
+        matches!(self.rules().format_rules.hand, FenHandInfo::InBracketsEmpty | FenHandInfo::InBracketsMinusForEmpty)
     }
 
     fn read_fen_hand_part(&mut self, input: &str) -> Res<()> {
@@ -667,7 +667,7 @@ impl UnverifiedBoard {
                 }
             }
         }
-        if empty && rules.format_rules.hand == FenHandInfo::SeparateToken {
+        if empty && rules.format_rules.hand != FenHandInfo::InBracketsEmpty {
             write!(f, "-")?;
         }
         Ok(())
@@ -1261,7 +1261,7 @@ impl Display for NoRulesFenFormatter<'_> {
             FenHandInfo::None => {
                 write!(f, " {}", pos.active_player().to_char(pos.settings()))?;
             }
-            FenHandInfo::InBrackets => {
+            FenHandInfo::InBracketsEmpty | FenHandInfo::InBracketsMinusForEmpty => {
                 write!(f, "[")?;
                 pos.write_fen_hand_part(f)?;
                 write!(f, "]")?;

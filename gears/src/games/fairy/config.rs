@@ -17,29 +17,39 @@
  */
 //! Parsing of .ini files compatible with Fairy-Stockfsh.
 
-use crate::games::fairy::Color;
+// TODO: Finish implementing
+#![allow(unused)]
+
 use crate::games::fairy::attacks::GenAttackKind::DoublePawnPush;
 use crate::games::fairy::attacks::{CaptureCondition, GenAttackKind, GenAttacksCondition, Modality, RequiredForAttack};
 use crate::games::fairy::config::Direction::{Backwards, Forwards, Half, Left, Right, Sideways, Vertical};
 use crate::games::fairy::effects::Observers;
 use crate::games::fairy::piece_builder::{
-    AttackBBGenBuilder, AttackKindBuilder, LeaperBBBuilder, PieceBuilder, RayBBBuilder, RayDir, Topology,
+    AttackBBGenBuilder, AttackKindBuilder, DropInfo, LeaperBBBuilder, PieceBuilder, RayBBBuilder, RayDir, Topology,
 };
 use crate::games::fairy::pieces::PieceId;
-use crate::games::fairy::rules::{RulesBuilder, RulesRef, SquareFilter};
-use crate::games::{DimT, Height, Width, char_to_file};
-use crate::general::common::{Res, parse_bool_from_str, parse_int_from_str};
+use crate::games::fairy::rules::FenHandInfo::{InBracketsEmpty, InBracketsMinusForEmpty};
+use crate::games::fairy::rules::{
+    DrawCtrCond, GameEndEager, GameEndRes, NoMovesCondition, Rules, RulesBuilder, RulesRef, SquareFilter,
+};
+use crate::games::fairy::{Bitboard, Color, RawBitboard};
+use crate::games::{DimT, Height, SizeTrait, Width, char_to_file};
+use crate::general::bitboards::{BitboardTrait, DynamicallySizedBitboard};
+use crate::general::common::{Res, parse_bool_from_str, parse_int_from_str, tokens};
+use crate::general::squares::{GridCoordinates, GridSize};
 use anyhow::{anyhow, bail};
 use colored::Colorize;
 use configparser::ini::Ini;
 use derive_more::{Display, FromStr};
 use itertools::Itertools;
-use std::collections::HashMap;
 use std::path::Path;
+use std::str::FromStr;
 
-type OptionMap = HashMap<String, Option<String>>;
+type OptionMap = indexmap::map::IndexMap<String, Option<String>>;
 
 type PieceName = String;
+// in theory, we could use PieceId here, but then it would be difficult and bug-prone to copy piece sets (such as promo pieces)
+// to other variants.
 type PieceSet = Vec<PieceName>;
 
 fn parse_file(file: &str) -> Res<DimT> {
@@ -50,360 +60,60 @@ fn parse_file(file: &str) -> Res<DimT> {
     }
 }
 
-fn parse_piece_set(input: &str) -> Res<PieceSet> {
-    todo!()
-}
-
-fn parse_square_filter(input: &str) -> Res<SquareFilter> {
-    todo!()
-}
-
-fn parse_piece_map(input: &str) -> Res<Vec<(PieceName, String)>> {
-    todo!()
-}
-
-// TODO: Remove
-fn not_implemented(name: &str) -> Res<()> {
-    bail!("The option {} is not yet implemented", name.red())
-}
-
-fn handle_first(map: &mut OptionMap, rules: &mut RulesBuilder, name: FairySFOption) -> Res<()> {
-    // TODO: Impl AsRef to avoid having to construct temporary strings?
-    if let Some(value) = map.get(&name.to_string().to_ascii_lowercase()) {
-        let Some(value) = value else {
-            bail!("Missing key for option '{}'", name.to_string().red());
-        };
-        apply_option(map, rules, name, &value.clone())?;
-    };
-    Ok(())
-}
-
-fn apply_option(map: &mut OptionMap, rules: &mut RulesBuilder, name: FairySFOption, value: &str) -> Res<()> {
-    match name {
-        FairySFOption::MaxRank => rules.size.height = Height(parse_int_from_str(value, "height")?),
-        FairySFOption::MaxFile => rules.size.width = Width(parse_file(value)?),
-        FairySFOption::Chess960 => todo!(),
-        FairySFOption::TwoBoards => return not_implemented("twoBoards"),
-        FairySFOption::StartFen => rules.format_rules.startpos_fen = value.to_string(),
-        // FairySFOption::MobilityRegion()
-        FairySFOption::PawnTypes => todo!(),
-        FairySFOption::PromotionRegionWhite | FairySFOption::PromotionRegionBlack => {
-            for p in &mut rules.pieces {
-                p.promotions.optional_promo_zone = parse_square_filter(value)?;
-                p.promotions.forced_promo_zone = parse_square_filter(value)?;
-                // TODO: Decide which one to set; Separate regions for white and black (keep 2 instances)
+fn parse_square_filter(input: &str, size: GridSize) -> Res<SquareFilter> {
+    let mut tokens = tokens(input);
+    let mut res = RawBitboard::default();
+    for word in tokens {
+        if word == "*" {
+            res = !0;
+        } else if word.ends_with('*') {
+            let file: DimT = parse_int_from_str(&word[..word.len() - 1], "file")?;
+            if file == 0 {
+                bail!("file must be 1-indexed and can't be 0");
             }
-        }
-        FairySFOption::PromotionPawnTypes => {
-            handle_first(map, rules, FairySFOption::PawnTypes)?;
-            handle_first(map, rules, FairySFOption::PromotionPieceTypes)?;
-            rules.pawn_info[0].promo_pieces = parse_piece_set(value)?;
-            rules.pawn_info[1].promo_pieces = rules.pawn_info[0].promo_pieces.clone();
-        }
-        FairySFOption::PromotionPawnTypesWhite => {
-            handle_first(map, rules, FairySFOption::PromotionPieceTypesWhite)?;
-            handle_first(map, rules, FairySFOption::PromotionPawnTypes)?;
-            return not_implemented("PromotionPawnTypesWhite");
-        }
-        FairySFOption::PromotionPawnTypesBlack => {
-            handle_first(map, rules, FairySFOption::PromotionPieceTypesBlack)?;
-            handle_first(map, rules, FairySFOption::PromotionPawnTypes)?;
-            return not_implemented("PromotionPawnTypesBlack");
-        }
-        FairySFOption::PromotionPieceTypes => {
-            handle_first(map, rules, FairySFOption::PawnTypes)?;
-            for p in &mut rules.pieces {
-                // TODO: is_pawn member of PieceBuilder
-                // p.promotions.pieces = parse_piece_set(value)?;
+            res |= Bitboard::file_for(file - 1, size).raw();
+        } else if word.starts_with('*') {
+            let rank: DimT = parse_int_from_str(&word[1..], "rank")?;
+            if rank == 0 {
+                bail!("Rank must be 1-indexed and can't be 0");
             }
-        }
-        FairySFOption::PromotionPieceTypesWhite => {
-            handle_first(map, rules, FairySFOption::PromotionPieceTypes)?;
-            todo!()
-        }
-        FairySFOption::PromotionPieceTypesBlack => {
-            handle_first(map, rules, FairySFOption::PromotionPieceTypes)?;
-            todo!()
-        }
-
-        FairySFOption::PittuyinPromotion => {
-            let enabled = parse_bool_from_str(value, "pittuyinPromotion")?;
-            todo!();
-        }
-
-        FairySFOption::PromotionLimit => {
-            let limits = parse_piece_map(value)?;
-            for (piece, limit) in limits {
-                let limit: usize = parse_int_from_str(value, "promotionLimit")?;
-                todo!()
-            }
-        }
-        FairySFOption::PromotedPieceType => {
-            let promoted = parse_piece_map(value)?;
-            for (piece, promoted) in promoted {
-                let piece: PieceId = todo!();
-                let promoted: PieceId = todo!();
-                rules.pieces[piece.val()].promotions.promoted_version = Some(promoted);
-                rules.pieces[promoted.val()].promotions.promoted_from = Some(piece);
-            }
-        }
-        FairySFOption::PiecePromotionOnCapture => {
-            let value = parse_bool_from_str(value, "piecePromotionOnCapture")?;
-            todo!();
-        }
-        FairySFOption::MandatoryPawnPromotion => {
-            let value = parse_bool_from_str(value, "mandatoryPawnPromotion")?;
-            // rules.pieces[(todo!())].promotions
-        }
-        FairySFOption::MandatoryPiecePromotion => {
-            let value = parse_bool_from_str(value, "mandatoryPiecePromotion")?;
-            for p in &mut rules.pieces {
-                todo!()
-            }
-        }
-        FairySFOption::PieceDemotion => {
-            let value = parse_bool_from_str(value, "pieceDemotion")?;
-            todo!()
-        }
-        FairySFOption::BlastOnCapture => {
-            let value = parse_bool_from_str(value, "blastOnCapture")?;
-            if value {
-                rules.observers = Observers::atomic(todo!());
-            }
-        }
-        FairySFOption::BlastImmuneTypes => {
-            todo!()
-        }
-        FairySFOption::MutuallyImmuneTypes => {
-            todo!()
-        }
-        FairySFOption::PetrifyOnCaptureTypes => {
-            todo!()
-        }
-        FairySFOption::PetrifyBlastPieces => {
-            todo!()
-        }
-        FairySFOption::DoubleStep => {
-            // TODO: Testcase with shogi pawn and chess pawn
-            let value = parse_bool_from_str(value, "doubleStep")?;
-            // Enabling this option on its own does nothing, because we also need a doublestep region
-            if !value {
-                rules.pawn_info[0].double_steps = SquareFilter::NoSquares;
-                rules.pawn_info[1].double_steps = SquareFilter::NoSquares;
-            }
-        }
-        FairySFOption::DoubleStepRegionWhite => {
-            handle_first(map, rules, FairySFOption::DoubleStep)?;
-            let squares = parse_square_filter(value)?;
-            rules.pawn_info[0].double_steps = squares;
-        }
-        FairySFOption::DoubleStepRegionBlack => {
-            handle_first(map, rules, FairySFOption::DoubleStep)?;
-            let squares = parse_square_filter(value)?;
-            rules.pawn_info[1].double_steps = squares;
-        }
-        FairySFOption::TripleStepRegionWhite => {
-            let squares = parse_square_filter(value)?;
-            rules.pawn_info[0].triple_steps = squares;
-        }
-        FairySFOption::TripleStepRegionBlack => {
-            let squares = parse_square_filter(value)?;
-            rules.pawn_info[1].triple_steps = squares;
-        }
-        FairySFOption::EnPassantRegion => {
-            let squares = parse_square_filter(value)?;
-            rules.pawn_info[0].ep = squares.clone();
-            rules.pawn_info[1].ep = squares;
-        }
-        FairySFOption::EnPassantRegionWhite => {
-            handle_first(map, rules, FairySFOption::EnPassantRegion)?;
-            let squares = parse_square_filter(value)?;
-            rules.pawn_info[0].triple_steps = squares;
-        }
-        FairySFOption::EnPassantRegionBlack => {
-            handle_first(map, rules, FairySFOption::EnPassantRegion)?;
-            let squares = parse_square_filter(value)?;
-            rules.pawn_info[1].triple_steps = squares;
-        }
-        FairySFOption::EnPassantTypes => {
-            let pieces = parse_piece_set(value)?;
-            rules.pawn_info[0].ep_types = pieces.clone();
-            rules.pawn_info[1].ep_types = pieces;
-        }
-        FairySFOption::EnPassantTypesWhite => {
-            handle_first(map, rules, FairySFOption::EnPassantTypes)?;
-            let pieces = parse_piece_set(value)?;
-            rules.pawn_info[0].ep_types = pieces.clone();
-        }
-        FairySFOption::EnPassantTypesBlack => {
-            handle_first(map, rules, FairySFOption::EnPassantTypes)?;
-            let pieces = parse_piece_set(value)?;
-            rules.pawn_info[1].ep_types = pieces.clone();
+            res |= Bitboard::rank_for(rank - 1, size).raw();
+        } else {
+            let sq = GridCoordinates::from_str(word)?;
+            res |= 1 << size.internal_key(sq);
         }
     }
-    Ok(())
+    Ok(SquareFilter::SideRelativeBitboard(res))
 }
 
-enum OptionValue {
-    Rank(usize),
-    File(usize),
-    Bool(bool),
-    Squares(SquareFilter),
-    Pieces(PieceSet),
+fn parse_piece_set(input: &str, pieces: &[PieceBuilder]) -> Res<PieceSet> {
+    let mut res = vec![];
+    for c in input.chars() {
+        let Some(piece) = pieces.iter().find(|p| p.matches_char(c)) else {
+            bail!("No piece found for symbol '{}'", c.to_string().red())
+        };
+        res.push(piece.name.clone())
+    }
+    Ok(res)
 }
 
-// See <https://github.com/fairy-stockfish/Fairy-Stockfish/blob/master/src/variants.ini>
-#[derive(Debug, Copy, Clone, Eq, PartialEq, Display, FromStr)]
-enum FairySFOption {
-    MaxRank,
-    MaxFile,
-    Chess960,
-    TwoBoards,
-    StartFen,
-    // MobilityRegion(todo!()),
-    PawnTypes,
-    PromotionRegionWhite,
-    PromotionRegionBlack,
-    PromotionPawnTypes,
-    PromotionPawnTypesWhite,
-    PromotionPawnTypesBlack,
-    PromotionPieceTypes,
-    PromotionPieceTypesWhite,
-    PromotionPieceTypesBlack,
-    PittuyinPromotion,
-    PromotionLimit,
-    PromotedPieceType,
-    PiecePromotionOnCapture,
-    MandatoryPawnPromotion,
-    MandatoryPiecePromotion,
-    PieceDemotion,
-    BlastOnCapture,
-    BlastImmuneTypes,
-    MutuallyImmuneTypes,
-    PetrifyOnCaptureTypes,
-    PetrifyBlastPieces,
-    DoubleStep,
-    DoubleStepRegionWhite,
-    DoubleStepRegionBlack,
-    TripleStepRegionWhite,
-    TripleStepRegionBlack,
-    EnPassantRegion,
-    EnPassantRegionWhite,
-    EnPassantRegionBlack,
-    EnPassantTypes,
-    EnPassantTypesWhite,
-    EnPassantTypesBlack,
-    //     Castling,
-    //     CastlingDroppedPiece,
-    //     CastlingKingsideFile(SquareFilter),
-    //     CastlingQueensideFile(SquareFilter),
-    //     CastlingRank(SquareFilter),
-    //     CastlingKingFile(SquareFilter),
-    //     CastlingKingPiece(PieceName),
-    //     CastlingRookKingsideFile(SquareFilter),
-    //     CastlingRookQueensideFile(SquareFilter),
-    //     CastlingRookPieces(PieceName),
-    //     OppositeCastling,
-    //     Checking,
-    //     DropChecks,
-    //     MustCapture,
-    //     MustDrop,
-    //     MustDropType(PieceSet),
-    //     PieceDrops,
-    // # dropLoop: captures promoted pieces are not demoted [bool] (default: false)
-    // # capturesToHand: captured pieces go to opponent's hand [bool] (default: false)
-    // # firstRankPawnDrops: allow pawn drops to first rank [bool] (default: false)
-    // # promotionZonePawnDrops: allow pawn drops in promotion zone  [bool] (default: false)
-    // # enclosingDrop: require piece drop to enclose pieces [EnclosingRule] (default: none)
-    // # enclosingDropStart: drop region for starting phase disregarding enclosingDrop (e.g., for reversi) [Bitboard]
-    // # dropRegionWhite: restrict region for piece drops of all white pieces [Bitboard]
-    // # dropRegionBlack: restrict region for piece drops of all black pieces [Bitboard]
-    // # sittuyinRookDrop: restrict region of rook drops to first rank [bool] (default: false)
-    // # dropOppositeColoredBishop: dropped bishops have to be on opposite-colored squares [bool] (default: false)
-    // # dropPromoted: pieces may be dropped in promoted state [bool] (default: false)
-    // # dropNoDoubled: specified piece type can not be dropped to the same file (e.g. shogi pawn) [PieceType] (default: -)
-    // # dropNoDoubledCount: specifies the count of already existing pieces for dropNoDoubled [int] (default: 1)
-    // # immobilityIllegal: pieces may not move to squares where they can never move from [bool] (default: false)
-    // # gating: maintain squares on backrank with extra rights in castling field of FEN [bool] (default: false)
-    // # wallingRule: rule on where wall can be placed [WallingRule] (default: none)
-    // # wallingRegionWhite: mask where wall squares (including duck) can be placed by white [Bitboard] (default: all squares)
-    // # wallingRegionBlack: mask where wall squares (including duck) can be placed by black [Bitboard] (default: all squares)
-    // # wallOrMove: can wall or move, but not both [bool] (default: false)
-    // # seirawanGating: allow gating of pieces in hand like in S-Chess, requires "gating = true" [bool] (default: false)
-    // # cambodianMoves: enable special moves of cambodian chess, requires "gating = true" [bool] (default: false)
-    // # diagonalLines: enable special moves along diagonal for specific squares (Janggi) [Bitboard]
-    // # pass: allow passing [bool] (default: false)
-    // # passWhite: allow passing for white [bool] (default: false)
-    // # passBlack: allow passing for black [bool] (default: false)
-    // # passOnStalemate: allow passing in case of stalemate [bool] (default: false)
-    // # passOnStalemateWhite: allow passing in case of stalemate for white [bool] (default: false)
-    // # passOnStalemateBlack: allow passing in case of stalemate for black [bool] (default: false)
-    // # makpongRule: the king may not move away from check [bool] (default: false)
-    // # flyingGeneral: disallow general face-off like in xiangqi [bool] (default: false)
-    // # soldierPromotionRank: restrict soldier to shogi pawn movements until reaching n-th rank [Rank] (default: 1)
-    // # flipEnclosedPieces: change color of pieces that are enclosed by a drop [EnclosingRule] (default: none)
-    // # nMoveRuleTypes: define pieces resetting n move rule on irreversible moves [PieceSet] (default: p)
-    // # nMoveRuleTypesWhite: define white pieces resetting n move rule on irreversible moves [PieceSet] (default: p)
-    // # nMoveRuleTypesBlack: define black pieces resetting n move rule on irreversible moves [PieceSet] (default: p)
-    // # nMoveRule: move count for 50/n-move rule [int] (default: 50)
-    // # nFoldRule: move count for 3/n-fold repetition rule [int] (default: 3)
-    // # nFoldValue: result in case of 3/n-fold repetition [Value] (default: draw)
-    // # nFoldValueAbsolute: result in case of 3/n-fold repetition is from white's point of view [bool] (default: false)
-    // # perpetualCheckIllegal: prohibit perpetual checks [bool] (default: false)
-    // # moveRepetitionIllegal: prohibit moving back and forth with the same piece nFoldRule-1 times [bool] (default: false)
-    // # chasingRule: enable chasing rules [ChasingRule] (default: none)
-    // # stalemateValue: result in case of stalemate [Value] (default: draw)
-    // # stalematePieceCount: count material in case of stalemate [bool] (default: false)
-    // # checkmateValue: result in case of checkmate [Value] (default: loss)
-    // # shogiPawnDropMateIllegal: prohibit checkmate via shogi pawn drops [bool] (default: false)
-    // # shatarMateRule: enable shatar mating rules [bool] (default: false)
-    // # bikjangRule: consider Janggi bikjang (facing kings) rule [bool] (default: false)
-    // # extinctionValue: result when one of extinctionPieceTypes is extinct [Value] (default: none)
-    // # extinctionClaim: extinction of opponent pieces can only be claimed as side to move [bool] (default: false)
-    // # extinctionPseudoRoyal: treat the last extinction piece like a royal piece [bool] (default: false)
-    // # dupleCheck: when all pseudo-royal pieces are attacked, it counts as a check [bool] (default: false)
-    // # extinctionPieceTypes: list of piece types for extinction rules, e.g., pnbrq (* means all) (default: )
-    // # extinctionPieceCount: piece count at which the game is decided by extinction rule (default: 0)
-    // # extinctionOpponentPieceCount: opponent piece count required to adjudicate by extinction rule (default: 0)
-    // # flagPiece: piece type for capture the flag win rule [PieceType] (default: *)
-    // # flagPieceWhite: piece type for capture the flag win rule [PieceType] (default: *)
-    // # flagPieceBlack: piece type for capture the flag win rule [PieceType] (default: *)
-    // # flagRegion: target region for capture the flag win rule [Bitboard] (default: )
-    // # flagRegionWhite: white's target region for capture the flag win rule [Bitboard] (default: )
-    // # flagRegionBlack: black's target region for capture the flag win rule [Bitboard] (default: )
-    // # flagPieceCount: number of flag pieces that have to be in the flag zone [int] (default: 1)
-    // # flagPieceBlockedWin: for flagPieceCount > 1, win if at least one flag piece in flag zone and all others occupied by pieces [bool] (default: false)
-    // # flagMove: the other side gets one more move after one reaches the flag zone [bool] (default: false)
-    // # flagPieceSafe: the flag piece must be safe to win [bool] (default: false)
-    // # checkCounting: enable check count win rule (check count is communicated via FEN, see 3check) [bool] (default: false)
-    // # connectN: number of aligned pieces for win [int] (default: 0)
-    // # connectPieceTypes: pieces evaluated for connection rule [PieceSet] (default: *)
-    // # connectVertical: connectN looks at Vertical rows [bool] (default: true)
-    // # connectHorizontal: connectN looks at Horizontal rows [bool] (default: true)
-    // # connectDiagonal: connectN looks at Diagonal rows [bool] (default: true)
-    // # connectRegion1White: connect Region 1 to Region 2 for win. obeys connectVertical, connectHorizontal, connectDiagonal [Bitboard] (default: -)
-    // # connectRegion2White: "
-    // # connectRegion1Black: "
-    // # connectRegion2Black: "
-    // # connectNxN: connect a tight NxN square for win [int] (default: 0)
-    // # collinearN: arrange N pieces collinearly (other squares can be between pieces) [int] (default: 0)
-    // # connectValue: result in case of connect [Value] (default: win)
-    // # materialCounting: enable material counting rules [MaterialCounting] (default: none)
-    // # adjudicateFullBoard: apply material counting immediately when board is full [bool] (default: false)
-    // # countingRule: enable counting rules [CountingRule] (default: none)
-    // # castlingWins: Specified castling moves are win conditions. Losing these rights is losing. [CastlingRights] (default: -)
-}
-
-#[derive(Debug)]
-struct GameConfig {
-    name: String,
-    base: Option<String>,
-    definition: HashMap<String, Option<String>>,
-}
-
-fn set_option(rules: &mut RulesBuilder, key: &str, value: &Option<String>) -> Option<()> {
-    // TODO: Implement
-    None
+fn parse_piece_map(input: &str, pieces: &[PieceBuilder]) -> Res<Vec<(PieceId, PieceId)>> {
+    let mut res = vec![];
+    for mapping in tokens(input) {
+        if mapping.chars().count() != 3 || mapping.chars().nth(1) != Some(':') {
+            bail!("Expected a mapping of the form '<a>:<b>', where <a> and <b> are single characters each");
+        }
+        let from_c = input.chars().next().unwrap();
+        let Some((from, _)) = pieces.iter().find_position(|p| p.matches_char(from_c)) else {
+            bail!("No piece found for symbol '{}'", from_c.to_string().red())
+        };
+        let to_c = input.chars().last().unwrap();
+        let Some((to, _)) = pieces.iter().find_position(|p| p.matches_char(to_c)) else {
+            bail!("No piece found for symbol '{}'", to_c.to_string().red())
+        };
+        res.push((PieceId::new(from), PieceId::new(to)))
+    }
+    Ok(res)
 }
 
 fn read_symbol(symbol: &str, mut piece: PieceBuilder) -> Res<PieceBuilder> {
@@ -773,29 +483,523 @@ fn modify_piece(mut piece: PieceBuilder, symbol_and_betza: &Option<String>) -> R
     Ok(Some(piece))
 }
 
+fn piece_from_name(name: &str) -> Option<PieceBuilder> {
+    match name.to_ascii_lowercase() {
+        _ => None,
+    }
+}
+
+// TODO: Remove
+fn not_implemented(name: &str) -> Res<()> {
+    bail!("The option {} is not yet implemented", name.red())
+}
+
+fn parse_game_end(value: &str) -> Res<GameEndRes> {
+    if value.eq_ignore_ascii_case("loss") {
+        Ok(GameEndRes::InactivePlayerWin)
+    } else if value.eq_ignore_ascii_case("win") {
+        Ok(GameEndRes::ActivePlayerWin)
+    } else if value.eq_ignore_ascii_case("draw") {
+        Ok(GameEndRes::Draw)
+    } else {
+        bail!("Unrecognized game end value '{}'; should be one of ['win', 'loss', 'draw']", value.red())
+    }
+}
+
+fn handle_first(map: &OptionMap, rules: &mut RulesBuilder, name: FairySFOption) -> Res<()> {
+    // TODO: Impl AsRef to avoid having to construct temporary strings?
+    if let Some(value) = map.get(&name.to_string().to_ascii_lowercase()) {
+        let Some(value) = value else {
+            bail!("Missing key for option '{}'", name.to_string().red());
+        };
+        apply_option(map, rules, name, &value.clone())?;
+    };
+    Ok(())
+}
+
+fn apply_option(map: &OptionMap, rules: &mut RulesBuilder, name: FairySFOption, value: &str) -> Res<()> {
+    match name {
+        FairySFOption::MaxRank => rules.size.height = Height(parse_int_from_str(value, "height")?),
+        FairySFOption::MaxFile => rules.size.width = Width(parse_file(value)?),
+        FairySFOption::Chess960 => todo!(),
+        FairySFOption::TwoBoards => return not_implemented("twoBoards"),
+        FairySFOption::StartFen => {
+            rules.format_rules.startpos_fen = value.to_string();
+            let pos_part = tokens(value).next().unwrap_or_default();
+            if pos_part.ends_with("[-]") {
+                rules.format_rules.hand = InBracketsMinusForEmpty;
+            } else if pos_part.ends_with(']') {
+                rules.format_rules.hand = InBracketsEmpty;
+            }
+        }
+        // FairySFOption::MobilityRegion()
+        FairySFOption::PawnTypes => todo!(),
+        FairySFOption::PromotionRegionWhite | FairySFOption::PromotionRegionBlack => {
+            for p in &mut rules.pieces {
+                p.promotions.optional_promo_zone = parse_square_filter(value, rules.size)?;
+                p.promotions.forced_promo_zone = parse_square_filter(value, rules.size)?;
+                // TODO: Decide which one to set; Separate regions for white and black (keep 2 instances)
+            }
+        }
+        FairySFOption::PromotionPawnTypes => {
+            handle_first(map, rules, FairySFOption::PawnTypes)?;
+            handle_first(map, rules, FairySFOption::PromotionPieceTypes)?;
+            rules.pawn_info[0].promo_pieces = parse_piece_set(value, &rules.pieces)?;
+            rules.pawn_info[1].promo_pieces = rules.pawn_info[0].promo_pieces.clone();
+        }
+        FairySFOption::PromotionPawnTypesWhite => {
+            handle_first(map, rules, FairySFOption::PromotionPieceTypesWhite)?;
+            handle_first(map, rules, FairySFOption::PromotionPawnTypes)?;
+            return not_implemented("PromotionPawnTypesWhite");
+        }
+        FairySFOption::PromotionPawnTypesBlack => {
+            handle_first(map, rules, FairySFOption::PromotionPieceTypesBlack)?;
+            handle_first(map, rules, FairySFOption::PromotionPawnTypes)?;
+            return not_implemented("PromotionPawnTypesBlack");
+        }
+        FairySFOption::PromotionPieceTypes => {
+            handle_first(map, rules, FairySFOption::PawnTypes)?;
+            for p in &mut rules.pieces {
+                // TODO: is_pawn member of PieceBuilder
+                // p.promotions.pieces = parse_piece_set(value)?;
+            }
+        }
+        FairySFOption::PromotionPieceTypesWhite => {
+            handle_first(map, rules, FairySFOption::PromotionPieceTypes)?;
+            todo!()
+        }
+        FairySFOption::PromotionPieceTypesBlack => {
+            handle_first(map, rules, FairySFOption::PromotionPieceTypes)?;
+            todo!()
+        }
+
+        FairySFOption::PittuyinPromotion => {
+            let enabled = parse_bool_from_str(value, "pittuyinPromotion")?;
+            todo!();
+        }
+
+        FairySFOption::PromotionLimit => {
+            let limits = parse_piece_map(value, &rules.pieces)?;
+            for (piece, limit) in limits {
+                let limit: usize = parse_int_from_str(value, "promotionLimit")?;
+                todo!()
+            }
+        }
+        FairySFOption::PromotedPieceType => {
+            let promoted = parse_piece_map(value, &rules.pieces)?;
+            for (piece, promoted) in promoted {
+                rules.pieces[piece.val()].promotions.promoted_version = Some(promoted);
+                rules.pieces[promoted.val()].promotions.promoted_from = Some(piece);
+            }
+        }
+        FairySFOption::PiecePromotionOnCapture => {
+            let value = parse_bool_from_str(value, "piecePromotionOnCapture")?;
+            todo!();
+        }
+        FairySFOption::MandatoryPawnPromotion => {
+            let value = parse_bool_from_str(value, "mandatoryPawnPromotion")?;
+            // rules.pieces[(todo!())].promotions
+        }
+        FairySFOption::MandatoryPiecePromotion => {
+            let value = parse_bool_from_str(value, "mandatoryPiecePromotion")?;
+            for p in &mut rules.pieces {
+                todo!()
+            }
+        }
+        FairySFOption::PieceDemotion => {
+            let value = parse_bool_from_str(value, "pieceDemotion")?;
+            todo!()
+        }
+        FairySFOption::BlastOnCapture => {
+            let value = parse_bool_from_str(value, "blastOnCapture")?;
+            if value {
+                rules.observers = Observers::atomic(todo!());
+            }
+        }
+        FairySFOption::BlastImmuneTypes => {
+            todo!()
+        }
+        FairySFOption::MutuallyImmuneTypes => {
+            todo!()
+        }
+        FairySFOption::PetrifyOnCaptureTypes => {
+            todo!()
+        }
+        FairySFOption::PetrifyBlastPieces => {
+            todo!()
+        }
+        FairySFOption::DoubleStep => {
+            // TODO: Testcase with shogi pawn and chess pawn
+            let value = parse_bool_from_str(value, "doubleStep")?;
+            // Enabling this option on its own does nothing, because we also need a doublestep region
+            if !value {
+                rules.pawn_info[0].double_steps = SquareFilter::NoSquares;
+                rules.pawn_info[1].double_steps = SquareFilter::NoSquares;
+            }
+        }
+        FairySFOption::DoubleStepRegionWhite => {
+            handle_first(map, rules, FairySFOption::DoubleStep)?;
+            let squares = parse_square_filter(value, rules.size)?;
+            rules.pawn_info[0].double_steps = squares;
+        }
+        FairySFOption::DoubleStepRegionBlack => {
+            handle_first(map, rules, FairySFOption::DoubleStep)?;
+            let squares = parse_square_filter(value, rules.size)?;
+            rules.pawn_info[1].double_steps = squares;
+        }
+        FairySFOption::TripleStepRegionWhite => {
+            let squares = parse_square_filter(value, rules.size)?;
+            rules.pawn_info[0].triple_steps = squares;
+        }
+        FairySFOption::TripleStepRegionBlack => {
+            let squares = parse_square_filter(value, rules.size)?;
+            rules.pawn_info[1].triple_steps = squares;
+        }
+        FairySFOption::EnPassantRegion => {
+            let squares = parse_square_filter(value, rules.size)?;
+            rules.pawn_info[0].ep = squares.clone();
+            rules.pawn_info[1].ep = squares;
+        }
+        FairySFOption::EnPassantRegionWhite => {
+            handle_first(map, rules, FairySFOption::EnPassantRegion)?;
+            let squares = parse_square_filter(value, rules.size)?;
+            rules.pawn_info[0].triple_steps = squares;
+        }
+        FairySFOption::EnPassantRegionBlack => {
+            handle_first(map, rules, FairySFOption::EnPassantRegion)?;
+            let squares = parse_square_filter(value, rules.size)?;
+            rules.pawn_info[1].triple_steps = squares;
+        }
+        FairySFOption::EnPassantTypes => {
+            let pieces = parse_piece_set(value, &rules.pieces)?;
+            rules.pawn_info[0].ep_types = pieces.clone();
+            rules.pawn_info[1].ep_types = pieces;
+        }
+        FairySFOption::EnPassantTypesWhite => {
+            handle_first(map, rules, FairySFOption::EnPassantTypes)?;
+            let pieces = parse_piece_set(value, &rules.pieces)?;
+            rules.pawn_info[0].ep_types = pieces.clone();
+        }
+        FairySFOption::EnPassantTypesBlack => {
+            handle_first(map, rules, FairySFOption::EnPassantTypes)?;
+            let pieces = parse_piece_set(value, &rules.pieces)?;
+            rules.pawn_info[1].ep_types = pieces.clone();
+        }
+        FairySFOption::Castling => {
+            let enabled = parse_bool_from_str(value, "castling")?;
+            rules.has_castling = enabled;
+        }
+        FairySFOption::PieceDrops => {
+            let val = parse_bool_from_str(value, "pieceDrops")?;
+            for p in &mut rules.pieces {
+                p.drop_info = val.then_some(DropInfo::default());
+            }
+        }
+        FairySFOption::CapturesToHand => {
+            let val = parse_bool_from_str(value, "captures to hand")?;
+            if val {
+                rules.observers.capture.push(Observers::add_captured_to_hand());
+            }
+            // TODO: Unset if false. Probably better to not use observers, but instead to hard-code this
+        }
+        FairySFOption::DropNoDoubled => {
+            let pieces = parse_piece_set(value, &rules.pieces)?;
+            for p in &mut rules.pieces {
+                let Some(info) = &mut p.drop_info else {
+                    bail!("Cannot set '{0}' when '{1}' is false", "dropNoDouble".bold(), "pieceDrops".red())
+                };
+                info.drop_no_double = false;
+            }
+            for p in pieces {
+                let Some(piece) = rules.pieces.iter_mut().find(|piece| piece.name == p) else {
+                    bail!("Piece '{}' doesn't exist in the current game", p.red());
+                };
+                let info = piece.drop_info.as_mut().unwrap();
+                info.drop_no_double = true;
+            }
+        }
+        FairySFOption::ImmobilityIllegal => {
+            let val = parse_bool_from_str(value, "immobilityIllegal")?;
+            rules.immobility_illegal = val;
+        }
+        FairySFOption::NMoveRule => {
+            let val: usize = parse_int_from_str(value, "nmove")?;
+            rules.game_end_eager.retain(|(c, _)| matches!(c, GameEndEager::DrawCounter(_)));
+            if val > 0 {
+                rules.game_end_eager.push((GameEndEager::DrawCounter(DrawCtrCond::Fixed(val * 2)), GameEndRes::Draw));
+            }
+        }
+        FairySFOption::NFoldRule => {
+            let val = parse_int_from_str(value, "nfold")?;
+            for (c, r) in &mut rules.game_end_eager {
+                if let GameEndEager::Repetition(n) = c {
+                    *n = val;
+                    return Ok(());
+                }
+            }
+            rules.game_end_eager.push((GameEndEager::Repetition(val), GameEndRes::Draw));
+        }
+        FairySFOption::NFoldValue => {
+            let res = parse_game_end(value)?;
+            for (c, r) in &mut rules.game_end_eager {
+                if let GameEndEager::Repetition(_) = c {
+                    *r = res;
+                    return Ok(());
+                }
+            }
+            rules.game_end_eager.push((GameEndEager::Repetition(3), res));
+        }
+        FairySFOption::NFoldValueAbsolute => {
+            () = handle_first(map, rules, FairySFOption::NFoldValue)?;
+            let val = parse_bool_from_str(value, "nfold value absolute")?;
+            for (c, r) in &mut rules.game_end_eager {
+                if let GameEndEager::Repetition(_) = c {
+                    match *r {
+                        GameEndRes::ActivePlayerWin => *r = GameEndRes::FirstPlayerWin,
+                        GameEndRes::InactivePlayerWin => *r = GameEndRes::SecondPlayerWin,
+                        _ => {}
+                    };
+                    return Ok(());
+                }
+            }
+        }
+        FairySFOption::PerpetualCheckIllegal => {
+            let val = parse_bool_from_str(value, "perpetualCheckIllegal")?;
+            if val {
+                rules.check_rules.perpetual_is_loss = true; // TODO: Actually handle this option
+            }
+        }
+        FairySFOption::StalemateValue => {
+            let game_res = parse_game_end(value)?;
+            rules.game_end_no_moves.retain(|&(c, _)| c != NoMovesCondition::NotInCheck);
+            rules.game_end_no_moves.push((NoMovesCondition::NotInCheck, game_res));
+        }
+        FairySFOption::CheckmateValue => {
+            let game_res = parse_game_end(value)?;
+            rules.game_end_no_moves.retain(|&(c, _)| c != NoMovesCondition::InCheck);
+            rules.game_end_no_moves.push((NoMovesCondition::InCheck, game_res));
+        }
+        FairySFOption::ShogiPawnDropMateIllegal => {
+            let val = parse_bool_from_str(value, "shogiPawnDropMateIllegal")?;
+            if val {
+                rules.observers.finish_move.push(Observers::shogi_pawn_mate_drop_illegal());
+            }
+            // TODO: Allow unsetting
+        }
+        FairySFOption::VariantTemplate | FairySFOption::PocketSize => { /*ignored*/ }
+    }
+    Ok(())
+}
+
+enum OptionValue {
+    Rank(usize),
+    File(usize),
+    Bool(bool),
+    Squares(SquareFilter),
+    Pieces(PieceSet),
+}
+
+// See <https://github.com/fairy-stockfish/Fairy-Stockfish/blob/master/src/variants.ini>
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Display, FromStr)]
+enum FairySFOption {
+    MaxRank,
+    MaxFile,
+    Chess960,
+    TwoBoards,
+    StartFen,
+    // MobilityRegion(todo!()),
+    PawnTypes,
+    PromotionRegionWhite,
+    PromotionRegionBlack,
+    PromotionPawnTypes,
+    PromotionPawnTypesWhite,
+    PromotionPawnTypesBlack,
+    PromotionPieceTypes,
+    PromotionPieceTypesWhite,
+    PromotionPieceTypesBlack,
+    PittuyinPromotion,
+    PromotionLimit,
+    PromotedPieceType,
+    PiecePromotionOnCapture,
+    MandatoryPawnPromotion,
+    MandatoryPiecePromotion,
+    PieceDemotion,
+    BlastOnCapture,
+    BlastImmuneTypes,
+    MutuallyImmuneTypes,
+    PetrifyOnCaptureTypes,
+    PetrifyBlastPieces,
+    DoubleStep,
+    DoubleStepRegionWhite,
+    DoubleStepRegionBlack,
+    TripleStepRegionWhite,
+    TripleStepRegionBlack,
+    EnPassantRegion,
+    EnPassantRegionWhite,
+    EnPassantRegionBlack,
+    EnPassantTypes,
+    EnPassantTypesWhite,
+    EnPassantTypesBlack,
+    Castling,
+    //     CastlingDroppedPiece,
+    //     CastlingKingsideFile(SquareFilter),
+    //     CastlingQueensideFile(SquareFilter),
+    //     CastlingRank(SquareFilter),
+    //     CastlingKingFile(SquareFilter),
+    //     CastlingKingPiece(PieceName),
+    //     CastlingRookKingsideFile(SquareFilter),
+    //     CastlingRookQueensideFile(SquareFilter),
+    //     CastlingRookPieces(PieceName),
+    //     OppositeCastling,
+    //     Checking,
+    //     DropChecks,
+    //     MustCapture,
+    //     MustDrop,
+    //     MustDropType(PieceSet),
+    PieceDrops,
+    // # dropLoop: captures promoted pieces are not demoted [bool] (default: false)
+    CapturesToHand,
+    // # firstRankPawnDrops: allow pawn drops to first rank [bool] (default: false)
+    // # promotionZonePawnDrops: allow pawn drops in promotion zone  [bool] (default: false)
+    // # enclosingDrop: require piece drop to enclose pieces [EnclosingRule] (default: none)
+    // # enclosingDropStart: drop region for starting phase disregarding enclosingDrop (e.g., for reversi) [Bitboard]
+    // # dropRegionWhite: restrict region for piece drops of all white pieces [Bitboard]
+    // # dropRegionBlack: restrict region for piece drops of all black pieces [Bitboard]
+    // # sittuyinRookDrop: restrict region of rook drops to first rank [bool] (default: false)
+    // # dropOppositeColoredBishop: dropped bishops have to be on opposite-colored squares [bool] (default: false)
+    // # dropPromoted: pieces may be dropped in promoted state [bool] (default: false)
+    DropNoDoubled,
+    // # dropNoDoubledCount: specifies the count of already existing pieces for dropNoDoubled [int] (default: 1)
+    ImmobilityIllegal,
+    // # gating: maintain squares on backrank with extra rights in castling field of FEN [bool] (default: false)
+    // # wallingRule: rule on where wall can be placed [WallingRule] (default: none)
+    // # wallingRegionWhite: mask where wall squares (including duck) can be placed by white [Bitboard] (default: all squares)
+    // # wallingRegionBlack: mask where wall squares (including duck) can be placed by black [Bitboard] (default: all squares)
+    // # wallOrMove: can wall or move, but not both [bool] (default: false)
+    // # seirawanGating: allow gating of pieces in hand like in S-Chess, requires "gating = true" [bool] (default: false)
+    // # cambodianMoves: enable special moves of cambodian chess, requires "gating = true" [bool] (default: false)
+    // # diagonalLines: enable special moves along diagonal for specific squares (Janggi) [Bitboard]
+    // # pass: allow passing [bool] (default: false)
+    // # passWhite: allow passing for white [bool] (default: false)
+    // # passBlack: allow passing for black [bool] (default: false)
+    // # passOnStalemate: allow passing in case of stalemate [bool] (default: false)
+    // # passOnStalemateWhite: allow passing in case of stalemate for white [bool] (default: false)
+    // # passOnStalemateBlack: allow passing in case of stalemate for black [bool] (default: false)
+    // # makpongRule: the king may not move away from check [bool] (default: false)
+    // # flyingGeneral: disallow general face-off like in xiangqi [bool] (default: false)
+    // # soldierPromotionRank: restrict soldier to shogi pawn movements until reaching n-th rank [Rank] (default: 1)
+    // # flipEnclosedPieces: change color of pieces that are enclosed by a drop [EnclosingRule] (default: none)
+    // # nMoveRuleTypes: define pieces resetting n move rule on irreversible moves [PieceSet] (default: p)
+    // # nMoveRuleTypesWhite: define white pieces resetting n move rule on irreversible moves [PieceSet] (default: p)
+    // # nMoveRuleTypesBlack: define black pieces resetting n move rule on irreversible moves [PieceSet] (default: p)
+    NMoveRule,
+    NFoldRule,
+    NFoldValue,
+    NFoldValueAbsolute,
+    PerpetualCheckIllegal, // despite the name, perpetuals aren't illegal, just automatic losses
+    // # moveRepetitionIllegal: prohibit moving back and forth with the same piece nFoldRule-1 times [bool] (default: false)
+    // # chasingRule: enable chasing rules [ChasingRule] (default: none)
+    StalemateValue,
+    // # stalematePieceCount: count material in case of stalemate [bool] (default: false)
+    CheckmateValue,
+    ShogiPawnDropMateIllegal,
+    // # shatarMateRule: enable shatar mating rules [bool] (default: false)
+    // # bikjangRule: consider Janggi bikjang (facing kings) rule [bool] (default: false)
+    // # extinctionValue: result when one of extinctionPieceTypes is extinct [Value] (default: none)
+    // # extinctionClaim: extinction of opponent pieces can only be claimed as side to move [bool] (default: false)
+    // # extinctionPseudoRoyal: treat the last extinction piece like a royal piece [bool] (default: false)
+    // # dupleCheck: when all pseudo-royal pieces are attacked, it counts as a check [bool] (default: false)
+    // # extinctionPieceTypes: list of piece types for extinction rules, e.g., pnbrq (* means all) (default: )
+    // # extinctionPieceCount: piece count at which the game is decided by extinction rule (default: 0)
+    // # extinctionOpponentPieceCount: opponent piece count required to adjudicate by extinction rule (default: 0)
+    // # flagPiece: piece type for capture the flag win rule [PieceType] (default: *)
+    // # flagPieceWhite: piece type for capture the flag win rule [PieceType] (default: *)
+    // # flagPieceBlack: piece type for capture the flag win rule [PieceType] (default: *)
+    // # flagRegion: target region for capture the flag win rule [Bitboard] (default: )
+    // # flagRegionWhite: white's target region for capture the flag win rule [Bitboard] (default: )
+    // # flagRegionBlack: black's target region for capture the flag win rule [Bitboard] (default: )
+    // # flagPieceCount: number of flag pieces that have to be in the flag zone [int] (default: 1)
+    // # flagPieceBlockedWin: for flagPieceCount > 1, win if at least one flag piece in flag zone and all others occupied by pieces [bool] (default: false)
+    // # flagMove: the other side gets one more move after one reaches the flag zone [bool] (default: false)
+    // # flagPieceSafe: the flag piece must be safe to win [bool] (default: false)
+    // # checkCounting: enable check count win rule (check count is communicated via FEN, see 3check) [bool] (default: false)
+    // # connectN: number of aligned pieces for win [int] (default: 0)
+    // # connectPieceTypes: pieces evaluated for connection rule [PieceSet] (default: *)
+    // # connectVertical: connectN looks at Vertical rows [bool] (default: true)
+    // # connectHorizontal: connectN looks at Horizontal rows [bool] (default: true)
+    // # connectDiagonal: connectN looks at Diagonal rows [bool] (default: true)
+    // # connectRegion1White: connect Region 1 to Region 2 for win. obeys connectVertical, connectHorizontal, connectDiagonal [Bitboard] (default: -)
+    // # connectRegion2White: "
+    // # connectRegion1Black: "
+    // # connectRegion2Black: "
+    // # connectNxN: connect a tight NxN square for win [int] (default: 0)
+    // # collinearN: arrange N pieces collinearly (other squares can be between pieces) [int] (default: 0)
+    // # connectValue: result in case of connect [Value] (default: win)
+    // # materialCounting: enable material counting rules [MaterialCounting] (default: none)
+    // # adjudicateFullBoard: apply material counting immediately when board is full [bool] (default: false)
+    // # countingRule: enable counting rules [CountingRule] (default: none)
+    // # castlingWins: Specified castling moves are win conditions. Losing these rights is losing. [CastlingRights] (default: -)
+    VariantTemplate,
+    PocketSize,
+}
+
+#[derive(Debug)]
+pub struct GameConfig {
+    pub name: String,
+    pub base: Option<String>,
+    pub definition: OptionMap,
+}
+
 impl GameConfig {
-    fn create(&self) -> Res<RulesRef> {
-        let mut rules = RulesBuilder::chess();
+    fn base(&self, all: &[Self]) -> Res<RulesBuilder> {
+        let Some(base) = self.base.clone() else {
+            let mut res = RulesBuilder::chess();
+            res.pieces.clear();
+            res.has_ep = false;
+            return Ok(res);
+        };
+        let Some(base) = all.iter().find(|config| config.name.eq_ignore_ascii_case(&base)) else {
+            bail!("Base variant '{0}' does not exist for variant '{1}'", base.red(), self.name.bold())
+        };
+        base.create_builder(all)
+    }
+
+    fn create_builder(&self, all: &[Self]) -> Res<RulesBuilder> {
+        let mut rules = self.base(all)?;
+        rules.name = self.name.clone();
         let all_pieces = PieceBuilder::complete_piece_map();
-        rules.pieces.clear();
-        for (key, value) in &self.definition {
-            if let Some(()) = set_option(&mut rules, key, value) {
+        for (key_string, value) in &self.definition {
+            if let Ok(key) = FairySFOption::from_str(&key_string) {
+                let Some(value) = value else {
+                    bail!("Missing value for configuration key '{}'", key.to_string().bold());
+                };
+                apply_option(&self.definition, &mut rules, key, value)?;
                 continue;
             }
             // if a key is in the piece map, it refers to that piece
-            if let Some(piece) = all_pieces.get(key) {
+            if let Some(piece) = all_pieces.get(key_string) {
                 if let Some(piece) = modify_piece(piece.clone(), value)? {
                     rules.pieces.push(piece);
                 }
+                continue;
             }
             // else, it might be a predefined name
+            bail!(
+                "Unrecognized configuration key '{}' (not all fairy-sf configuration keys are currently implemented)",
+                key_string.red()
+            );
         }
+        Ok(rules)
+    }
+
+    fn create(&self, all: &[Self]) -> Res<RulesRef> {
+        let rules = self.create_builder(all)?;
         let rules = rules.build();
         Ok(RulesRef::new(rules))
     }
 }
 
-fn create_configs(map: HashMap<String, HashMap<String, Option<String>>>) -> Res<Vec<GameConfig>> {
+fn create_configs(map: indexmap::map::IndexMap<String, OptionMap>) -> Res<Vec<GameConfig>> {
     let mut res = vec![];
     for (mut name, definition) in map {
         let mut base = None;
@@ -821,7 +1025,7 @@ fn create_configs(map: HashMap<String, HashMap<String, Option<String>>>) -> Res<
 }
 
 fn read_config_from_string(config: String) -> Res<Vec<GameConfig>> {
-    let mut c = Ini::new();
+    let mut c = Ini::new_cs();
     let map = c.read(config).map_err(|e| anyhow!("Couldn't read the config string: {e}"))?;
     create_configs(map)
 }
@@ -835,6 +1039,9 @@ fn read_config(file: &Path) -> Res<Vec<GameConfig>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::games::fairy::Board;
+    use crate::general::board::{BoardHelpers, BoardTrait};
+    use crate::general::squares::GridSize;
 
     #[test]
     fn simple_betza_atom_test() {
@@ -933,7 +1140,7 @@ mod tests {
     }
 
     #[test]
-    fn simple_parse_config_test() {
+    fn parse_minishogi_config_test() {
         let config = r#"
             [minishogi]
             variantTemplate = shogi
@@ -972,6 +1179,15 @@ mod tests {
         assert_eq!(config.name, "minishogi");
         assert_eq!(config.base, None);
         assert_eq!(config.definition.len(), 29);
-        // assert!(config.definition.get("startFen"))
+        let fen = "rbsgk/4p/5/P4/KGSBR[-] w 0 1".to_string();
+        assert_eq!(config.definition.get("startFen"), Some(&Some(fen.clone())));
+        let rules = config.create(&[]).unwrap();
+        let v = rules.get();
+        assert_eq!(v.size, GridSize::new(Height::new(5), Width::new(5)));
+        assert_eq!(v.pieces.len(), 8);
+        assert_eq!(v.name, config.name);
+        let pos = Board::startpos_for_settings(rules);
+        assert_eq!(pos.fen_no_rules(), fen);
+        assert_eq!(pos.num_legal_moves(), 14);
     }
 }

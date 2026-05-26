@@ -47,7 +47,9 @@ impl PieceId {
         self.0
     }
     pub fn get(self, rules: &Rules) -> Option<&Piece> {
-        rules.pieces.get(self.val())
+        let res = rules.pieces.get(self.val());
+        debug_assert!(res.is_none_or(|piece| piece.idx == self.val()));
+        res
     }
 }
 
@@ -360,6 +362,8 @@ pub(super) const CHESS_KING_IDX: usize = 5;
 #[derive(Debug, Clone, Arbitrary)]
 #[must_use]
 pub struct Piece {
+    // Each piece has a unique index between 0 and n, which is used internally to refer to it.
+    pub(super) idx: usize,
     pub(super) name: String,
     // Some "pieces" don't belong to a player, such as gaps/blocked squares, environmental effects, or
     // (not currently used) actual neutral pieces. If a piece can be both colored and neutral, this currently has to be simulated

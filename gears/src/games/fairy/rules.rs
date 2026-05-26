@@ -16,7 +16,7 @@
  *  along with Gears. If not, see <https://www.gnu.org/licenses/>.
  */
 use crate::PlayerResult;
-use crate::games::fairy::attacks::{Dir, EffectRules, Modality};
+use crate::games::fairy::attacks::{Dir, EffectRules, GenAttackKind, Modality};
 use crate::games::fairy::config::n_m_to_ray_dirs;
 use crate::games::fairy::effects::Observers;
 use crate::games::fairy::moves::Move;
@@ -116,6 +116,8 @@ pub struct CheckRules {
     pub inactive_check_ok: PlayerCheckOk,
     /// Whether it is legal for the active player to be in check
     pub active_check_ok: PlayerCheckOk,
+    /// Whether it counts as a loss to put the other player in a perpetual check
+    pub perpetual_is_loss: bool,
 }
 
 impl CheckRules {
@@ -125,6 +127,7 @@ impl CheckRules {
             attack_condition: CheckingAttack::Capture,
             inactive_check_ok: PlayerCheckOk::Never,
             active_check_ok: PlayerCheckOk::Always,
+            perpetual_is_loss: false,
         }
     }
 
@@ -134,6 +137,7 @@ impl CheckRules {
             attack_condition: CheckingAttack::None,
             inactive_check_ok: PlayerCheckOk::Always,
             active_check_ok: PlayerCheckOk::Always,
+            perpetual_is_loss: false,
         }
     }
 
@@ -678,15 +682,11 @@ pub(super) enum FenHandInfo {
     /// e.g. in mnk games, which have a hand, but don't include that in the FEN, or chess, which doesn't have a hand.
     None,
     /// e.g in crazyhouse, where the hand appears at the end of the position token, wrapped in `[]`
-    InBrackets,
+    InBracketsEmpty,
+    /// same as [`Self::InBracketsEmpty`], but if the hand is empty, output `[-]` instead of `[]`.
+    InBracketsMinusForEmpty,
     /// e.g. in shogi sfen
     SeparateToken,
-}
-
-#[derive(Debug, Copy, Clone, Eq, PartialEq, Hash, Arbitrary)]
-#[must_use]
-pub(super) struct FenFormatSpec {
-    pub(super) hand: FenHandInfo,
 }
 
 #[derive(Debug, Clone, Eq, PartialEq, Hash, Arbitrary)]
@@ -776,6 +776,7 @@ pub struct Rules {
     pub(super) ctr_threshold: [Option<AdditionalCtrT>; NUM_COLORS],
     pub(super) effect_rules: EffectRules, // TODO: Remove?
     pub(super) check_rules: CheckRules,
+    pub(super) immobility_illegal: bool,
     pub(super) name: String,
     pub(super) num_royals: [NumRoyals; NUM_COLORS],
     pub(super) must_preserve_own_king: [bool; NUM_COLORS],
@@ -841,7 +842,7 @@ fn generic_empty_board(rules: &RulesRef) -> UnverifiedBoard {
 pub(super) struct PawnInfo {
     pub(super) double_steps: SquareFilter,
     pub(super) triple_steps: SquareFilter, // required to handle the corresponding fairysf option
-    pub(super) promo: SquareFilter,
+    // pub(super) promo: SquareFilter,
     pub(super) promo_pieces: Vec<String>,
     pub(super) ep: SquareFilter,
     pub(super) ep_types: Vec<String>,
@@ -853,7 +854,7 @@ impl PawnInfo {
             Self {
                 double_steps: SquareFilter::Rank(1),
                 triple_steps: SquareFilter::NoSquares,
-                promo: SquareFilter::Rank(7),
+                // promo: SquareFilter::Rank(7),
                 promo_pieces: vec!["n".to_string(), "b".to_string(), "r".to_string(), "q".to_string()],
                 ep: SquareFilter::AllSquares,
                 ep_types: vec!["p".to_string()],
@@ -862,7 +863,7 @@ impl PawnInfo {
             Self {
                 double_steps: SquareFilter::Rank(6),
                 triple_steps: SquareFilter::NoSquares,
-                promo: SquareFilter::Rank(0),
+                // promo: SquareFilter::Rank(0),
                 promo_pieces: vec!["n".to_string(), "b".to_string(), "r".to_string(), "q".to_string()],
                 ep: SquareFilter::AllSquares,
                 ep_types: vec!["p".to_string()],
@@ -874,7 +875,7 @@ impl PawnInfo {
         Self {
             double_steps: SquareFilter::NoSquares,
             triple_steps: SquareFilter::NoSquares,
-            promo: SquareFilter::NoSquares,
+            // promo: SquareFilter::NoSquares,
             promo_pieces: vec![],
             ep: SquareFilter::NoSquares,
             ep_types: vec![],
@@ -884,17 +885,11 @@ impl PawnInfo {
 
 pub(super) struct CastlingInfo {
     allow_dropped: bool,
-    queenside_file: DimT,
-    a: CastlingMoveInfo, //     CastlingDroppedPiece,
-                         //     CastlingKingsideFile(SquareFilter),
-                         //     CastlingQueensideFile(SquareFilter),
-                         //     CastlingRank(SquareFilter),
-                         //     CastlingKingFile(SquareFilter),
-                         //     CastlingKingPiece(PieceName),
-                         //     CastlingRookKingsideFile(SquareFilter),
-                         //     CastlingRookQueensideFile(SquareFilter),
-                         //     CastlingRookPieces(PieceName),
-                         //     OppositeCastling,
+    kingside: CastlingMoveInfo,
+    queenside: CastlingMoveInfo,
+    king_file: DimT,
+    rank: DimT,
+    king_piece: PieceId,
 }
 
 #[must_use]
@@ -925,6 +920,7 @@ pub(super) struct RulesBuilder {
     pub(super) must_preserve_own_king: [bool; NUM_COLORS],
     pub(super) pawn_info: [PawnInfo; NUM_COLORS],
     pub(super) observers: Observers,
+    pub(super) immobility_illegal: bool,
 }
 
 impl RulesBuilder {
@@ -966,7 +962,6 @@ impl RulesBuilder {
 
         let effect_rules = EffectRules::default();
         let empty_func = generic_empty_board;
-        // let fen_format = FenFormatSpec { hand: FenHandInfo::None };
         let fen_rules = FormatRules {
             has_ply_clock: true,
             move_num_fmt: MoveNumFmt::Fullmove,
@@ -1002,6 +997,7 @@ impl RulesBuilder {
             must_preserve_own_king: [true; NUM_COLORS],
             pawn_info: [PawnInfo::chess(Color::first()), PawnInfo::chess(Color::second())],
             observers: Observers::chess(),
+            immobility_illegal: false,
         }
     }
 
@@ -1039,6 +1035,7 @@ impl RulesBuilder {
             attack_condition: CheckingAttack::NoRoyalAdjacent,
             inactive_check_ok: PlayerCheckOk::OpponentNoRoyals,
             active_check_ok: PlayerCheckOk::Always,
+            perpetual_is_loss: false,
         };
         rules.name = "atomic".to_string();
         // it's valid to lose your king, that just means you lost the game
@@ -1103,7 +1100,7 @@ impl RulesBuilder {
         let mut rules = Self::chess();
         rules.name = "crazyhouse".to_string();
         rules.format_rules.startpos_fen = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR[] w KQkq - 0 1".to_string();
-        rules.format_rules.hand = FenHandInfo::InBrackets;
+        rules.format_rules.hand = FenHandInfo::InBracketsEmpty;
         rules.observers = Observers::crazyhouse();
         rules.game_end_eager.retain(|(c, _)| !matches!(c, InsufficientMaterial(_, _)));
         for (i, p) in rules.pieces.iter_mut().enumerate() {
@@ -1204,7 +1201,7 @@ impl RulesBuilder {
         rules.format_rules.startpos_fen =
             "lnsgkgsnl/1r5b1/ppppppppp/9/9/9/PPPPPPPPP/1B5R1/LNSGKGSNL[] w - 1".to_string();
         rules.format_rules.has_ply_clock = false;
-        rules.format_rules.hand = FenHandInfo::InBrackets;
+        rules.format_rules.hand = FenHandInfo::InBracketsEmpty;
         rules.format_rules.promo_fen_modifier = PromoFenModifier::Shogi;
         rules.format_rules.promo_move_char = PromoMoveChar::Plus;
         rules.size = Size::shogi();
@@ -1287,6 +1284,7 @@ impl RulesBuilder {
             pawn_info: [PawnInfo::none(), PawnInfo::none()],
             observers: Observers::default(),
             moves_filter: FilterMovesCondition::NoFilter,
+            immobility_illegal: false,
         }
     }
 
@@ -1341,6 +1339,7 @@ impl RulesBuilder {
             ctr_threshold: [None; NUM_COLORS],
             effect_rules: EffectRules::default(),
             check_rules: CheckRules::none(),
+            immobility_illegal: false,
             name: "mnk".to_string(),
             num_royals: [Exactly(0); NUM_COLORS],
             must_preserve_own_king: [false; NUM_COLORS],
@@ -1389,12 +1388,23 @@ impl RulesBuilder {
         self
     }
 
-    pub fn build(self) -> Rules {
+    pub fn build(mut self) -> Rules {
         let mut cache = PieceBuilderCache::default();
+        for p in &mut self.pieces {
+            if !self.has_castling {
+                p.can_castle = false;
+                p.attacks.retain(|a| !matches!(a.kind, GenAttackKind::Castle(_)));
+            }
+            if !self.has_ep {
+                p.can_ep_capture = false;
+            }
+        }
+        let pieces =
+            self.pieces.into_iter().enumerate().map(|(idx, p)| p.build(self.size, idx, &mut cache)).collect_vec();
         Rules {
             format_rules: self.format_rules,
             fallback: self.fallback.map(|r| Arc::new(r.build())),
-            pieces: self.pieces.into_iter().map(|p| p.build(self.size, &mut cache)).collect_vec(),
+            pieces,
             colors: self.colors,
             starting_pieces_in_hand: self.starting_pieces_in_hand,
             game_end_eager: self.game_end_eager,
@@ -1409,6 +1419,7 @@ impl RulesBuilder {
             ctr_threshold: self.ctr_threshold,
             effect_rules: self.effect_rules,
             check_rules: self.check_rules,
+            immobility_illegal: self.immobility_illegal,
             name: self.name,
             num_royals: self.num_royals,
             must_preserve_own_king: self.must_preserve_own_king,

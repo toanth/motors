@@ -694,6 +694,39 @@ impl Board {
         self.clone().make_move(mov).is_some_and(|new_pos| new_pos.is_in_check())
     }
 
+    /// Return true if the piece at the given square will never be able to move again because all its attacks are the empty bitboard.
+    /// If the square is empty, return false.
+    pub(super) fn can_never_move(&self, sq: Square) -> bool {
+        let i = self.size().internal_key(sq);
+        let p = self.piece_type_on(sq);
+        if let Some(piece) = p.get(self.rules()) {
+            for a in &piece.attacks {
+                for bb in &a.bb_gen {
+                    match &bb[0] {
+                        Leaping(bb) => {
+                            if bb.0[i] != 0 {
+                                return false;
+                            }
+                        }
+                        Rider(dir) => match dir {
+                            SliderDirections::RiderRay { rays } => {
+                                if rays[i] != 0 {
+                                    return false;
+                                }
+                            }
+                            _ => {
+                                return false;
+                            }
+                        },
+                        AttackBitboardGen::Drop | AttackBitboardGen::Castling(_) => continue,
+                        AttackBitboardGen::HorizontalCylinder { .. } => return false,
+                    }
+                }
+            }
+        }
+        true
+    }
+
     // precondition: there must be a piece of `color` on `sq`
     pub(super) fn k_in_row_at(&self, k: usize, sq: Square, color: Color) -> bool {
         debug_assert!(self.player_bb(color).is_bit_set_at(self.size().internal_key(sq)));
