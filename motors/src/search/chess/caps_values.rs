@@ -119,5 +119,5 @@ spsa_params![
     contcorrhist_weight: isize = 1024; 0..=2048; step=16;
     corrhist_update_clamp: isize = 256; 8..=2048; step=32;
     bad_capt_hist_mult: i32 = 32; 0..=256; step=4;
-    bad_capt_threshold: i32 = 64; -256..=256; step=4;
+    bad_capt_threshold: i32 = -128; -256..=256; step=4;
 ];
