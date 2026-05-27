@@ -18,7 +18,7 @@
 use crate::search::MoveScore;
 use crate::search::chess::caps_values::cc;
 use crate::search::chess::histories::{HIST_DIVISOR, HistScoreT};
-use crate::search::chess::move_picker::MovePickerState::*;
+use crate::search::chess::move_picker::MovePickerStage::*;
 use crate::search::chess::*;
 use gears::games::chess::Board;
 use gears::games::chess::moves::Move;
@@ -123,7 +123,8 @@ fn defer_playing_move(pos: &Board, mov: Move, hist_score: MoveScore) -> bool {
 
 const BAD_SEE_OFFSET: MoveScore = MoveScore(HIST_DIVISOR * -30);
 
-enum MovePickerState {
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
+pub enum MovePickerStage {
     TTMove,
     GenCaptures,
     GoodCaptures,
@@ -134,7 +135,7 @@ enum MovePickerState {
 }
 
 pub struct MovePicker<'a> {
-    state: MovePickerState,
+    stage: MovePickerStage,
     list: ScoredMoveList,
     pos: &'a Board,
     tactical_only: bool,
@@ -151,7 +152,26 @@ impl<'a> MovePicker<'a> {
         } else {
             GenCaptures
         };
-        Self { state, list: ScoredMoveList::default(), pos, tactical_only, tt_move: best, ignored_prefix: 0, ply }
+        Self {
+            stage: state,
+            list: ScoredMoveList::default(),
+            pos,
+            tactical_only,
+            tt_move: best,
+            ignored_prefix: 0,
+            ply,
+        }
+    }
+
+    pub fn stage(&self) -> MovePickerStage {
+        self.stage
+    }
+
+    pub fn skip_quiets(&mut self) {
+        debug_assert_eq!(self.stage, Quiets);
+        self.list.truncate(self.ignored_prefix);
+        self.ignored_prefix = 0;
+        self.stage = BadCaptures;
     }
 
     pub fn complete_move_score(&self, mov: Move, state: &CapsState) -> MoveScore {
@@ -161,9 +181,9 @@ impl<'a> MovePicker<'a> {
 
     pub fn next(&mut self, state: &CapsState) -> Option<ScoredMove> {
         loop {
-            return match self.state {
+            return match self.stage {
                 TTMove => {
-                    self.state = GenCaptures;
+                    self.stage = GenCaptures;
                     Some(ScoredMove::new(self.tt_move, MoveScore::MAX))
                 }
                 GenCaptures => {
@@ -175,7 +195,7 @@ impl<'a> MovePicker<'a> {
                         }
                     };
                     self.pos.gen_tactical_pseudolegal(add_move);
-                    self.state = GoodCaptures;
+                    self.stage = GoodCaptures;
                     continue;
                 }
                 GoodCaptures => {
@@ -184,9 +204,9 @@ impl<'a> MovePicker<'a> {
                     }
                     if self.tactical_only {
                         self.ignored_prefix = 0;
-                        self.state = BadCaptures
+                        self.stage = BadCaptures
                     } else {
-                        self.state = Killer
+                        self.stage = Killer
                     };
                     continue;
                 }
@@ -194,7 +214,7 @@ impl<'a> MovePicker<'a> {
                     let killer = state.search_stack[self.ply].killer;
                     debug_assert!(!self.tactical_only);
                     debug_assert_eq!(self.ignored_prefix, self.list.len());
-                    self.state = GenQuiets;
+                    self.stage = GenQuiets;
                     if !self.pos.is_generated_move_pseudolegal(killer) || killer.is_tactical(self.pos) {
                         continue;
                     }
@@ -211,7 +231,7 @@ impl<'a> MovePicker<'a> {
                         }
                     };
                     self.pos.gen_quiet_pseudolegal(add_move);
-                    self.state = Quiets;
+                    self.stage = Quiets;
                     continue;
                 }
                 Quiets => {
@@ -219,7 +239,7 @@ impl<'a> MovePicker<'a> {
                     if let Some(res) = self.next_quiet() {
                         return Some(res);
                     }
-                    self.state = BadCaptures;
+                    self.stage = BadCaptures;
                     self.ignored_prefix = 0;
                     continue;
                 }
