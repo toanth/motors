@@ -1618,42 +1618,35 @@ mod tests {
 
     #[test]
     fn single_piece_test() {
-        for gen_table in [false, true] {
-            for p in [Knight, Bishop, Rook, Queen, Pawn] {
-                let mut piece_counts = PieceCounts::default();
-                piece_counts[White][p as usize] = 1;
-                if gen_table {
-                    _ = force_dtz_table(piece_counts);
-                }
-                for w_k in Square::iter() {
-                    for b_k in Square::iter() {
-                        for w_p in Square::iter() {
-                            let piece = Piece::new(ColoredPieceType::new(White, p), w_p);
-                            let mut pos = Board::empty();
-                            pos.place_piece(w_k, WhiteKing);
-                            let Ok(()) = pos.try_place_piece(Piece::new(BlackKing, b_k)) else { continue };
-                            let Ok(()) = pos.try_place_piece(piece) else { continue };
-                            let Ok(pos) = pos.verify(Strict) else { continue };
-                            if p == Pawn {
-                                let t = &TableData::<true>::new(piece_counts);
-                                let p_idx = PosIdx::<PAWNS>::from_chessboard(&pos, t);
-                                let idx = p_idx.idx(t);
-                                assert_eq!(p_idx, PosIdx::from_idx(idx, t));
-                            } else {
-                                let t = &TableData::<false>::new(piece_counts);
-                                let p_idx = PosIdx::<NO_PAWNS>::from_chessboard(&pos, t);
-                                let idx = p_idx.idx(t);
-                                assert_eq!(p_idx, PosIdx::from_idx(idx, t));
-                            };
-                            if !gen_table {
-                                continue;
-                            }
-                            let dtz = probe_dtz(pos);
-                            let won = piece_v_king_is_won(p, w_p, w_k, b_k, White);
-                            assert!(dtz >= 0, "{dtz} {p} {pos}");
-                            assert_eq!(dtz > 0, won, "{dtz} {p} {pos}");
-                            assert!(dtz <= 100, "{dtz} {p} {pos}");
-                        }
+        for p in [Knight, Bishop, Rook, Queen, Pawn] {
+            let mut piece_counts = PieceCounts::default();
+            piece_counts[White][p as usize] = 1;
+            _ = force_dtz_table(piece_counts);
+            for w_k in Square::iter() {
+                for b_k in Square::iter() {
+                    for w_p in Square::iter() {
+                        let piece = Piece::new(ColoredPieceType::new(White, p), w_p);
+                        let mut pos = Board::empty();
+                        pos.place_piece(w_k, WhiteKing);
+                        let Ok(()) = pos.try_place_piece(Piece::new(BlackKing, b_k)) else { continue };
+                        let Ok(()) = pos.try_place_piece(piece) else { continue };
+                        let Ok(pos) = pos.verify(Strict) else { continue };
+                        if p == Pawn {
+                            let t = &TableData::<true>::new(piece_counts);
+                            let p_idx = PosIdx::<PAWNS>::from_chessboard(&pos, t);
+                            let idx = p_idx.idx(t);
+                            assert_eq!(p_idx, PosIdx::from_idx(idx, t));
+                        } else {
+                            let t = &TableData::<false>::new(piece_counts);
+                            let p_idx = PosIdx::<NO_PAWNS>::from_chessboard(&pos, t);
+                            let idx = p_idx.idx(t);
+                            assert_eq!(p_idx, PosIdx::from_idx(idx, t));
+                        };
+                        let dtz = probe_dtz(pos);
+                        let won = piece_v_king_is_won(p, w_p, w_k, b_k, White);
+                        assert!(dtz >= 0, "{dtz} {p} {pos}");
+                        assert_eq!(dtz > 0, won, "{dtz} {p} {pos}");
+                        assert!(dtz <= 100, "{dtz} {p} {pos}");
                     }
                 }
             }

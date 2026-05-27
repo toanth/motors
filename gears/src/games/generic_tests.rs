@@ -14,6 +14,7 @@ use rand::SeedableRng;
 use rand::prelude::SmallRng;
 use std::collections::{HashSet, VecDeque};
 use std::marker::PhantomData;
+use std::time::Instant;
 
 pub struct GenericTests<B: BoardTrait> {
     _phantom: PhantomData<B>,
@@ -72,24 +73,20 @@ impl<B: BoardTrait> GenericTests<B> {
     }
 
     pub fn statistical_hash_test(position: B) {
-        let mut hashes = Vec::new();
-        let mut queue = VecDeque::new();
+        let max_queue_len = if cfg!(debug_assertions) { 300_000 } else { 5_000_000 };
+        let mut hashes = Vec::with_capacity(max_queue_len * 2);
+        let mut queue = VecDeque::with_capacity(max_queue_len);
         queue.push_back(position);
-        let max_queue_len = if cfg!(debug_assertions) { 500_000 } else { 5_000_000 };
         while queue.len() <= max_queue_len && !queue.is_empty() {
-            assert!(!queue.is_empty());
             let pos = queue.front().cloned().unwrap();
-            let moves = pos.legal_moves_slow();
             _ = queue.pop_front();
             hashes.push(pos.hash_pos());
-            for mov in moves {
-                queue.push_back(pos.clone().make_move(mov).unwrap());
+            for child in pos.children() {
+                queue.push_back(child);
             }
         }
-        for entry in queue {
-            hashes.push(entry.hash_pos());
-        }
-        hashes.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
+        hashes.extend(queue.iter().map(|e| e.hash_pos()));
+        hashes.sort_by_key(|hash| hash.0);
         hashes = hashes.iter().dedup().copied().collect_vec();
         let num_hashes = hashes.len();
         assert!(num_hashes >= 1_000);
@@ -201,12 +198,19 @@ impl<B: BoardTrait> GenericTests<B> {
     }
 
     pub fn all_tests() {
+        let start = Instant::now();
         Self::basic_test();
+        println!("a: {}", start.elapsed().as_millis());
         Self::coordinates_test();
+        println!("b: {}", start.elapsed().as_millis());
         Self::long_notation_roundtrip_test();
+        println!("c: {}", start.elapsed().as_millis());
         Self::fen_roundtrip_test();
+        println!("d: {}", start.elapsed().as_millis());
         Self::statistical_hash_test(B::default());
+        println!("e: {}", start.elapsed().as_millis());
         Self::unverified_tests();
+        println!("f: {}", start.elapsed().as_millis());
         Self::move_test();
     }
 

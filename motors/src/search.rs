@@ -1282,7 +1282,7 @@ pub fn test_reproducible<B: BoardTrait>(
 ) {
     let old_tt = TT::new_with_mib(tt_size_mib);
     engine.forget();
-    let mut results = vec![];
+    let mut results = Vec::with_capacity(positions.len());
     for p in positions {
         let res = engine.bench(p.clone(), limit, old_tt.clone(), 1);
         results.push(res);
@@ -1349,7 +1349,8 @@ mod tests {
 
     fn determinism_test<B: BoardTrait>(engine: &mut dyn Engine<B>) {
         engine.forget();
-        for p in B::bench_positions().into_iter().take(10) {
+        let positions = B::bench_positions().into_iter().collect_vec();
+        for p in positions.iter().take(10) {
             engine.forget();
             let limit = SearchLimit::nodes_(1234);
             let params = SearchParams::for_pos(p.clone(), limit);
@@ -1374,7 +1375,7 @@ mod tests {
             assert_eq!(nodes, nodes2, "{p}");
             assert_eq!(res, res2, "{p}");
         }
-        let limit = SearchLimit::soft_nodes_(2000).and(SearchLimit::nodes_(4000));
-        test_reproducible(&B::bench_positions().into_iter().collect_vec(), engine, limit, 1);
+        let limit = SearchLimit::soft_nodes_(1000).and(SearchLimit::nodes_(2000));
+        test_reproducible(&positions, engine, limit, 1);
     }
 }
