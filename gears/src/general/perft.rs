@@ -22,7 +22,8 @@ impl Display for PerftRes {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         write!(
             f,
-            "Nodes searched: {nodes} in {time}ms ({nps} nps)",
+            "Finished perft depth {depth} in {time}ms ({nps} nps)\nNodes searched: {nodes}",
+            depth = self.depth.get(),
             nodes = self.nodes.to_string().bold(),
             time = self.time.as_millis(),
             nps = self.nodes * 1_000_000 / self.time.as_micros().max(1) as u64
