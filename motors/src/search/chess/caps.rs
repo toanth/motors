@@ -1564,19 +1564,23 @@ mod tests {
     fn generic_test() {
         generic_engine_test(Caps::for_eval::<LiTEval>());
         generic_engine_test(Caps::for_eval::<RandEval>());
-        let tt = TT::default();
-        depth_1_nodes_test(&mut Caps::for_eval::<RandEval>(), Some(tt.clone()));
-        depth_1_nodes_test(&mut Caps::for_eval::<MaterialOnlyEval>(), Some(tt.clone()));
-        depth_1_nodes_test(&mut Caps::for_eval::<PistonEval>(), Some(tt.clone()));
-        depth_1_nodes_test(&mut Caps::for_eval::<KingGambot>(), Some(tt.clone()));
-        depth_1_nodes_test(&mut Caps::for_eval::<LiTEval>(), Some(tt.clone()));
-        depth_1_nodes_test(&mut Gaps::for_eval::<RandEval>(), None);
     }
 
-    fn depth_1_nodes_test(engine: &mut dyn Engine<Board>, tt: Option<TT>) {
+    #[test]
+    fn depth_1_nodes_test() {
+        let tt = TT::new_with_mib(1);
+        depth_1_nodes_test_impl(&mut Caps::for_eval::<RandEval>(), Some(tt.clone()));
+        depth_1_nodes_test_impl(&mut Caps::for_eval::<MaterialOnlyEval>(), Some(tt.clone()));
+        depth_1_nodes_test_impl(&mut Caps::for_eval::<PistonEval>(), Some(tt.clone()));
+        depth_1_nodes_test_impl(&mut Caps::for_eval::<KingGambot>(), Some(tt.clone()));
+        depth_1_nodes_test_impl(&mut Caps::for_eval::<LiTEval>(), Some(tt.clone()));
+        depth_1_nodes_test_impl(&mut Gaps::for_eval::<RandEval>(), None);
+    }
+
+    fn depth_1_nodes_test_impl(engine: &mut dyn Engine<Board>, tt: Option<TT>) {
         for pos in Board::bench_positions() {
             let _ = engine.search_with_tt(pos, SearchLimit::depth_(1), tt.clone().unwrap_or_default());
-            if pos.legal_moves().is_empty() {
+            if pos.has_no_legal_moves() {
                 continue;
             }
             let mut root_entry = TTEntry::<Board>::default();
@@ -1603,6 +1607,7 @@ mod tests {
             }
         }
     }
+
     #[test]
     fn only_one_move_test() {
         let fen = "B4QRb/8/8/8/2K3P1/5k2/8/b3RRNB b - - 0 1";

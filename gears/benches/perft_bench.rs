@@ -1,6 +1,7 @@
+use std::hint::black_box;
 use std::time::Duration;
 
-use criterion::{Criterion, black_box, criterion_group, criterion_main};
+use criterion::{Criterion, criterion_group, criterion_main};
 use gears::games::chess::Board;
 use gears::games::chess::Color::White;
 use gears::general::bitboards::RawBitboardTrait;

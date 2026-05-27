@@ -25,7 +25,7 @@ fn caps_normal_bench_depth_7(c: &mut Criterion) {
                 &mut engine,
                 SearchLimit::depth_(7),
                 Some(SearchLimit::nodes_(20_000)),
-                &Board::bench_positions(),
+                &Board::bench_positions().into_iter().collect::<Vec<_>>(),
                 None,
             )
         });

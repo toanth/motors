@@ -88,28 +88,25 @@ pub struct RayDescription {
 }
 
 impl RayDescription {
-    // TODO: Why unused?
     pub fn new(
-        mut dx: isize,
-        mut dy: isize,
+        mut dir: RayDir,
         with_reverse: bool,
         mut limit_steps: Option<usize>,
         size: Size,
         topology: Topology,
     ) -> Self {
-        if with_reverse && (dx, dy) < (0, 0) {
-            dx *= -1;
-            dy *= -1;
+        if with_reverse && (dir.dx, dir.dy) < (0, 0) {
+            dir.dx *= -1;
+            dir.dy *= -1;
         }
-        dx %= size.width.val() as isize;
+        dir.dx %= size.width.val() as isize;
         if let Some(limit) = limit_steps
+            && limit >= max(size.width().val(), size.height().val())
             && topology == Plane
         {
-            if limit >= max(size.width().val(), size.height().val()) {
-                limit_steps = None;
-            }
+            limit_steps = None;
         }
-        let dir = RayDir { dx, dy };
+
         Self { dir, with_reverse, limit_steps, topology, size }
     }
 }
@@ -210,12 +207,12 @@ impl RayBBBuilder {
                 continue;
             }
             let with_reverse = self.ray_steps.contains(&r.inverse());
-            rays.push(RayDescription { dir: r, with_reverse, limit_steps: self.limit, size, topology: self.topology })
+            rays.push(RayDescription::new(r, with_reverse, self.limit, size, self.topology));
         }
         let mut res = vec![];
         for r in rays {
             if r.dir.dy == 0 && r.topology == Cylinder {
-                let dx = NonZero::new(r.dir.dx.abs() as usize).unwrap();
+                let dx = NonZero::new(r.dir.dx.unsigned_abs()).unwrap();
                 let a = if r.with_reverse {
                     AttackBitboardGen::HorizontalCylinder { step_left: Some(dx), step_right: Some(dx) }
                 } else if r.dir.dx > 0 {
@@ -402,6 +399,12 @@ impl AttackKindBuilder {
     }
 }
 
+#[derive(Default, Debug, Copy, Clone, Arbitrary)]
+pub(super) struct DropInfo {
+    // Disallow dropping two pieces of the same type on the same file
+    pub drop_no_double: bool,
+}
+
 #[derive(Debug, Clone, Arbitrary)]
 pub(super) struct PieceBuilder {
     pub(super) name: String,
@@ -419,6 +422,7 @@ pub(super) struct PieceBuilder {
     pub(super) promotions: Promo,
     pub(super) can_ep_capture: bool,
     pub(super) resets_draw_counter: DrawCtrReset,
+    pub(super) drop_info: Option<DropInfo>,
     pub(super) royal: bool,
     /// The move output (compact and SAN) can omit the piece type. This is true for generalized pawns, but also mnk pieces.
     pub(super) output_omit_piece: bool,
@@ -427,9 +431,24 @@ pub(super) struct PieceBuilder {
 }
 
 impl PieceBuilder {
-    pub fn build(&self, size: Size, cache: &mut PieceBuilderCache) -> Piece {
+    pub fn build(&self, size: Size, idx: usize, cache: &mut PieceBuilderCache) -> Piece {
+        let mut attacks = self.attacks.clone();
+        if let Some(drop_info) = self.drop_info {
+            if !attacks.iter().any(|a| a.kind == Drop) {
+                attacks.push(AttackKindBuilder::drop(vec![EmptySquares]));
+            }
+            for a in &mut attacks {
+                if a.kind == Drop && drop_info.drop_no_double {
+                    a.bitboard_filter.push(Not(Box::new(SquareFilter::SameFile(Box::new(SquareFilter::Has(
+                        PieceCond::Only(PieceId::new(idx)),
+                        PlayerCond::Active,
+                    ))))));
+                }
+            }
+        }
         let attacks = self.attacks.iter().map(|a| a.build(size, cache)).collect_vec();
         Piece {
+            idx,
             name: self.name.clone(),
             uncolored: self.uncolored,
             uncolored_symbol: self.uncolored_symbol,
@@ -454,6 +473,10 @@ impl PieceBuilder {
         self.uncolored_symbol[Ascii] = symbol;
         self.player_symbol[Color::first()][Ascii] = symbol.to_ascii_uppercase();
         self.player_symbol[Color::second()][Ascii] = symbol.to_ascii_lowercase();
+    }
+
+    pub fn matches_char(&self, c: char) -> bool {
+        self.uncolored_symbol.contains(&c) || self.player_symbol[0].contains(&c) || self.player_symbol[1].contains(&c)
     }
 
     pub fn add_attack(mut self, attack: AttackKindBuilder) -> Self {
@@ -483,6 +506,7 @@ impl PieceBuilder {
             promotions: Promo::none(),
             can_ep_capture: false,
             resets_draw_counter: DrawCtrReset::Never,
+            drop_info: None,
             royal: false,
             output_omit_piece: false,
             can_castle: false,
@@ -511,27 +535,8 @@ impl PieceBuilder {
         let capture = AttackKindBuilder::only_capture(capture, SquareFilter::PawnCapture);
         // promotions are handled as effects instead of duplicating all normal and capture moves
         // a double move is implemented as a forward slider that then gets filtered to only the 4th/5th rank
-        let white_double = AttackKindBuilder {
-            build_col_relative: false,
-            required: RequiredForAttack::PieceOnBoard,
-            attack_bb_gen: Rider(RayBBBuilder::simple(vec![RayDir { dx: 0, dy: 1 }])),
-            condition: OnRelativeRank(1, Color::first()),
-            bitboard_filter: vec![EmptySquares, SquareFilter::Rank(3)],
-            kind: DoublePawnPush,
-            modality: Modality::NonCapture,
-            capture_condition: CaptureCondition::Never,
-        };
-        let black_double = AttackKindBuilder {
-            build_col_relative: false,
-            required: RequiredForAttack::PieceOnBoard,
-            // 1 because currently this is always build player-relative. TODO: Combine black_double and white_double
-            attack_bb_gen: Rider(RayBBBuilder::simple(vec![RayDir { dx: 0, dy: 1 }])),
-            condition: OnRelativeRank(1, Color::second()),
-            bitboard_filter: vec![EmptySquares, RanksRelative(vec![3], PlayerCond::Second)],
-            kind: DoublePawnPush,
-            modality: Modality::NonCapture,
-            capture_condition: CaptureCondition::Never,
-        };
+        let white_double = AttackKindBuilder::pawn_double(Color::first());
+        let black_double = AttackKindBuilder::pawn_double(Color::second());
         let mut res = Self::pawn_shatranj_no_promo();
         res.name = "pawn".to_string();
         res.attacks = vec![single_push, capture, white_double, black_double];
@@ -563,6 +568,7 @@ impl PieceBuilder {
             },
             can_ep_capture: false,
             resets_draw_counter: DrawCtrReset::Always,
+            drop_info: Some(DropInfo::default()),
             royal: false,
             output_omit_piece: true,
             can_castle: false,
@@ -588,7 +594,7 @@ impl PieceBuilder {
         offsets
             .append(&mut ([-1, 1].into_iter().cartesian_product([-1]).map(|(dx, dy)| RayDir { dx, dy }).collect_vec()));
         let attacks = AttackBBGenBuilder::simple_leaper(offsets);
-        Self::new("silver general", vec![attacks], 's', Some(['銀', '銀', '銀']))
+        Self::new("silver", vec![attacks], 's', Some(['銀', '銀', '銀']))
     }
 
     fn gold_no_drop() -> Self {
@@ -597,31 +603,26 @@ impl PieceBuilder {
             .map(|(dx, dy)| RayDir { dx, dy })
             .collect_vec();
         let attacks = AttackBBGenBuilder::simple_leaper(offsets);
-        Self::new("gold general", vec![attacks], 'g', Some(['金', '金', '金']))
+        Self::new("gold", vec![attacks], 'g', Some(['金', '金', '金']))
     }
 
     fn bishop() -> Self {
         Self::new(
             "bishop",
-            vec![AttackBBGenBuilder::PlaneBishop],
+            vec![PlaneBishop],
             'b',
             Some([UNICODE_WHITE_BISHOP, UNICODE_BLACK_BISHOP, UNICODE_NEUTRAL_BISHOP]),
         )
     }
 
     fn rook() -> Self {
-        Self::new(
-            "rook",
-            vec![AttackBBGenBuilder::PlaneRook],
-            'r',
-            Some([UNICODE_WHITE_ROOK, UNICODE_BLACK_ROOK, UNICODE_NEUTRAL_ROOK]),
-        )
+        Self::new("rook", vec![PlaneRook], 'r', Some([UNICODE_WHITE_ROOK, UNICODE_BLACK_ROOK, UNICODE_NEUTRAL_ROOK]))
     }
 
     fn queen() -> Self {
         Self::new(
             "queen",
-            vec![AttackBBGenBuilder::PlaneQueen],
+            vec![PlaneQueen],
             'q',
             Some([UNICODE_WHITE_QUEEN, UNICODE_BLACK_QUEEN, UNICODE_NEUTRAL_QUEEN]),
         )
@@ -780,7 +781,7 @@ impl PieceBuilder {
             },
             {
                 let mut shogi_pawn = Self::pawn_shatranj_no_promo();
-                shogi_pawn.name = "pawn (shogi)".to_string();
+                shogi_pawn.name = "shogiPawn".to_string();
                 shogi_pawn.uncolored_symbol[Unicode] = '歩';
                 shogi_pawn.player_symbol[Color::first()][Unicode] = '歩';
                 shogi_pawn.player_symbol[Color::second()][Unicode] = '歩';
@@ -825,14 +826,14 @@ impl PieceBuilder {
                 Some(['香', '香', '香']),
             ),
             Self::new(
-                "dragon king",
-                vec![AttackBBGenBuilder::PlaneRook, AttackBBGenBuilder::simple_n_m_leaper(1, 1)],
+                "bers", // wikipedia calls it a dragon or dragon king, but fairy-sf uses bers
+                vec![PlaneRook, AttackBBGenBuilder::simple_n_m_leaper(1, 1)],
                 'd',
                 Some(['龍', '龍', '龍']),
             ),
             Self::new(
-                "dragon horse",
-                vec![AttackBBGenBuilder::PlaneBishop, AttackBBGenBuilder::simple_n_m_leaper(1, 0)],
+                "dragonHorse",
+                vec![PlaneBishop, AttackBBGenBuilder::simple_n_m_leaper(1, 0)],
                 'h',
                 Some(['馬', '馬', '馬']),
             ),
@@ -845,19 +846,19 @@ impl PieceBuilder {
             // compound pieces
             Self::new(
                 "archbishop",
-                vec![AttackBBGenBuilder::simple_n_m_leaper(2, 1), AttackBBGenBuilder::PlaneBishop],
+                vec![AttackBBGenBuilder::simple_n_m_leaper(2, 1), PlaneBishop],
                 'a',
                 Some(['🩐', '🩓', '🩐']),
             ),
             Self::new(
                 "chancellor",
-                vec![AttackBBGenBuilder::simple_n_m_leaper(2, 1), AttackBBGenBuilder::PlaneRook],
+                vec![AttackBBGenBuilder::simple_n_m_leaper(2, 1), PlaneRook],
                 'c',
                 Some(['🩏', '🩒', '🩏']),
             ),
             Self::new(
                 "amazon",
-                vec![AttackBBGenBuilder::simple_n_m_leaper(2, 1), AttackBBGenBuilder::PlaneQueen],
+                vec![AttackBBGenBuilder::simple_n_m_leaper(2, 1), PlaneQueen],
                 'a',
                 Some(['🩎', '🩑', '🩎']),
             ),
@@ -888,6 +889,7 @@ impl PieceBuilder {
                 promotions: Promo::none(),
                 can_ep_capture: false,
                 resets_draw_counter: DrawCtrReset::Never,
+                drop_info: Some(DropInfo::default()),
                 royal: false,
                 // we set `output_as_pawn` to true because we don't want to print the piece type
                 output_omit_piece: true,
@@ -905,6 +907,7 @@ impl PieceBuilder {
                 promotions: Promo::none(),
                 can_ep_capture: false,
                 resets_draw_counter: DrawCtrReset::Never,
+                drop_info: Some(DropInfo::default()),
                 royal: false,
                 output_omit_piece: true,
                 can_castle: false,
@@ -930,6 +933,7 @@ impl PieceBuilder {
                 promotions: Promo::none(),
                 can_ep_capture: false,
                 resets_draw_counter: DrawCtrReset::MoveKind(vec![MoveKind::Drop(0)]),
+                drop_info: Some(DropInfo::default()),
                 royal: false,
                 output_omit_piece: true,
                 can_castle: false,
@@ -943,6 +947,7 @@ impl PieceBuilder {
                 promotions: Promo::none(),
                 can_ep_capture: false,
                 resets_draw_counter: DrawCtrReset::Never,
+                drop_info: None,
                 royal: false,
                 output_omit_piece: true,
                 can_castle: false,
@@ -1001,10 +1006,10 @@ impl PieceBuilder {
 
     pub fn shogi_pieces() -> Vec<Self> {
         let mut pieces = Self::complete_piece_map();
-        let gold = pieces.remove("gold general").unwrap();
+        let gold = pieces.remove("gold").unwrap();
         // cloning precomputed piece attack bitboards uses copy-on-write semantics,
         // so gold general attack bitboards aren't duplicated
-        let pawn = pieces.remove("pawn (shogi)").unwrap();
+        let pawn = pieces.remove("shogiPawn").unwrap();
         let mut tokin = gold.clone();
         tokin.name = "tokin".to_string();
         tokin.set_unicode_symbol('と');
@@ -1019,7 +1024,7 @@ impl PieceBuilder {
         promoted_knight.name = "promoted knight".to_string();
         promoted_knight.set_unicode_symbol('圭');
         promoted_knight.attacks = gold.attacks.clone();
-        let silver = pieces.remove("silver general").unwrap();
+        let silver = pieces.remove("silver").unwrap();
         let mut promoted_silver = silver.clone();
         promoted_silver.name = "promoted silver".to_string();
         promoted_silver.set_unicode_symbol('全');
@@ -1047,8 +1052,8 @@ impl PieceBuilder {
             promoted_lance,
             promoted_knight,
             promoted_silver,
-            pieces.remove("dragon horse").unwrap(),
-            pieces.remove("dragon king").unwrap(),
+            pieces.remove("dragonHorse").unwrap(),
+            pieces.remove("bers").unwrap(),
         ];
         const PROMO: usize = 8;
         assert_eq!(res[PROMO].name, "tokin");

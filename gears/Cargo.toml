@@ -34,7 +34,8 @@ arbitrary = { version = "1.4.2", features = ["derive"] }
 anyhow = { workspace = true }
 colorgrad = { version = "0.8", features = ["named-colors"] }
 rayon = { workspace = true }
-configparser = "3.1"
+configparser = { version = "3.1", features = ["indexmap"] }
+indexmap = "2.14.0"
 linkme = { workspace = true }
 
 [features]

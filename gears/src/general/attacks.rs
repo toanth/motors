@@ -570,7 +570,7 @@ mod sse2 {
         fn finish(&self, rev: impl FnOnce(Self::RawBitboard) -> Self::RawBitboard) -> Self::RawBitboard {
             // SAFETY: alignment isn't a concern for transmute
             unsafe {
-                let [bb, reversed] = transmute(self.0);
+                let [bb, reversed] = transmute::<__m128i, [u64; 2]>(self.0);
                 bb ^ rev(reversed)
             }
         }
@@ -586,7 +586,7 @@ mod sse2 {
 
             // intrinsics aren't const yet in stable rust
             // SAFETY: __m128i is simply a "bag of bits" and alignment doesn't matter for transmute
-            unsafe { Self(transmute([bb, reversed])) }
+            unsafe { Self(transmute::<[u64; 2], __m128i>([bb, reversed])) }
         }
     }
 

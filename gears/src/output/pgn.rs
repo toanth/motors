@@ -411,11 +411,9 @@ impl<'a, B: BoardTrait> PgnParser<'a, B> {
                     self.res.game.pos_before_moves = B::from_fen(fen, strictness)?;
                     self.res.game.board = self.res.game.pos_before_moves.clone();
                 }
-                Result(res) => {
-                    if res.check_finished().is_some() {
-                        self.res.game.status =
-                            Run(MatchStatus::Over(MatchResult { result: *res, reason: GameOverReason::Normal }))
-                    }
+                Result(res) if res.check_finished().is_some() => {
+                    self.res.game.status =
+                        Run(MatchStatus::Over(MatchResult { result: *res, reason: GameOverReason::Normal }))
                 }
                 _ => { /*do nothing*/ }
             }

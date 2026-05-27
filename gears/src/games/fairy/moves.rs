@@ -449,7 +449,7 @@ fn effects_for(mov: Move, pos: &mut Board, r: EffectRules) -> Option<()> {
     } else {
         ResetEp.apply(pos);
     }
-    if pos.rules().has_castling {
+    if pos.rules().castling.is_some() {
         for color in Color::iter() {
             let castling_bb = pos.castling_bb() & pos.player_bb(color);
             if (mov.src_square_in(pos).is_some() && castling_bb.is_bit_set_at(pos.size().internal_key(from)))
@@ -558,6 +558,9 @@ impl Board {
 
     pub(super) fn end_move(mut self, mov: Move) -> Option<Self> {
         if self.settings().must_preserve_own_king[self.active] && self.royal_bb_for(self.active).is_zero() {
+            return None;
+        }
+        if self.settings().immobility_illegal && self.can_never_move(mov.dest(self.size())) {
             return None;
         }
         self.adjust_castling_rights();

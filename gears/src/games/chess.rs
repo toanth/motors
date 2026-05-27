@@ -619,7 +619,7 @@ impl BoardTrait for Board {
     }
 
     fn default_perft_depth(&self) -> DepthPly {
-        DepthPly::new(7)
+        DepthPly::new(6)
     }
 
     fn gen_pseudolegal(&self, mut callback: impl FnMut(Move)) {

@@ -522,7 +522,7 @@ impl UnverifiedBoardTrait<Board> for UnverifiedBoard {
     }
 
     fn fen_pos_part_contains_hand(&self) -> bool {
-        self.rules().format_rules.hand == FenHandInfo::InBrackets
+        matches!(self.rules().format_rules.hand, FenHandInfo::InBracketsEmpty | FenHandInfo::InBracketsMinusForEmpty)
     }
 
     fn read_fen_hand_part(&mut self, input: &str) -> Res<()> {
@@ -667,7 +667,7 @@ impl UnverifiedBoard {
                 }
             }
         }
-        if empty && rules.format_rules.hand == FenHandInfo::SeparateToken {
+        if empty && rules.format_rules.hand != FenHandInfo::InBracketsEmpty {
             write!(f, "-")?;
         }
         Ok(())
@@ -1097,7 +1097,7 @@ impl BoardTrait for Board {
                 self.ep.map(|sq| self.single_piece(sq)).unwrap_or(self.zero_bitboard()).raw(),
             ));
         }
-        if self.rules().has_castling {
+        if self.rules().castling.is_some() {
             res.push(GenericSelect::full(
                 "castling_dest_squares",
                 None,
@@ -1261,7 +1261,7 @@ impl Display for NoRulesFenFormatter<'_> {
             FenHandInfo::None => {
                 write!(f, " {}", pos.active_player().to_char(pos.settings()))?;
             }
-            FenHandInfo::InBrackets => {
+            FenHandInfo::InBracketsEmpty | FenHandInfo::InBracketsMinusForEmpty => {
                 write!(f, "[")?;
                 pos.write_fen_hand_part(f)?;
                 write!(f, "]")?;
@@ -1272,7 +1272,7 @@ impl Display for NoRulesFenFormatter<'_> {
                 pos.write_fen_hand_part(f)?;
             }
         }
-        if pos.rules().has_castling {
+        if pos.rules().castling.is_some() {
             pos.0.castling_info.write_fen_part(f)?;
         }
         if pos.rules().has_ep {
