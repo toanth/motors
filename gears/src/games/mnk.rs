@@ -980,6 +980,7 @@ impl UnverifiedBoardTrait<Board> for UnverifiedBoard {
 mod test {
     use crate::general::board::Strictness::Relaxed;
     use crate::general::perft::Bulkness::{Bulk, NoBulk};
+    use crate::general::perft::Parallelize::{Parallel, SingleThreaded};
     use crate::general::perft::{perft, split_perft};
     use crate::search::DepthPly;
 
@@ -1070,7 +1071,7 @@ mod test {
             assert!(board.x_bb().is_single_piece());
             if k == 1 {
                 assert!(board.last_move_won_game());
-                assert_eq!(perft(DepthPly::new(1), board, false, Bulk).nodes, 0);
+                assert_eq!(perft(DepthPly::new(1), board, SingleThreaded, Bulk).nodes, 0);
             } else {
                 assert_eq!(board.pseudolegal_moves().len() + 1, board.num_squares());
             }
@@ -1079,28 +1080,32 @@ mod test {
 
     #[test]
     fn perft_startpos_test() {
-        let r = perft(DepthPly::new(1), Board::default(), true, NoBulk);
+        let r = perft(DepthPly::new(1), Board::default(), Parallel, NoBulk);
         assert_eq!(r.depth.get(), 1);
         assert_eq!(r.nodes, 9);
         assert!(r.time.as_millis() <= 1); // 1 ms should be far more than enough even on a very slow device
         let r = split_perft(
             DepthPly::new(2),
             Board::empty_for_settings(Settings::new(Height(8), Width(12), 2)),
-            true,
+            Parallel,
             Bulk,
         );
         assert_eq!(r.perft_res.depth.get(), 2);
         assert_eq!(r.perft_res.nodes, 96 * 95);
         assert!(r.children.iter().all(|x| x.1 == r.children[0].1));
-        let r =
-            split_perft(DepthPly::new(3), Board::empty_for_settings(Settings::new(Height(4), Width(3), 3)), true, Bulk);
+        let r = split_perft(
+            DepthPly::new(3),
+            Board::empty_for_settings(Settings::new(Height(4), Width(3), 3)),
+            Parallel,
+            Bulk,
+        );
         assert_eq!(r.perft_res.depth.get(), 3);
         assert_eq!(r.perft_res.nodes, 12 * 11 * 10);
         assert!(r.children.iter().all(|x| x.1 == r.children[0].1));
         let r = split_perft(
             DepthPly::new(5),
             Board::empty_for_settings(Settings::new(Height(5), Width(5), 5)),
-            false,
+            SingleThreaded,
             Bulk,
         );
         assert_eq!(r.perft_res.depth.get(), 5);
@@ -1108,7 +1113,7 @@ mod test {
         assert!(r.children.iter().all(|x| x.1 == r.children[0].1));
         assert!(r.perft_res.time.as_millis() <= 10_000);
 
-        let r = split_perft(DepthPly::new(9), Board::startpos_for_settings(Settings::titactoe()), true, Bulk);
+        let r = split_perft(DepthPly::new(9), Board::startpos_for_settings(Settings::titactoe()), Parallel, Bulk);
         assert_eq!(r.perft_res.depth.get(), 9);
         assert!(r.perft_res.nodes >= 100_000);
         assert!(r.perft_res.nodes <= 9 * 8 * 7 * 6 * 5 * 4 * 3 * 2);
@@ -1119,19 +1124,19 @@ mod test {
         assert!(r.perft_res.time.as_millis() <= 4000);
 
         let board = Board::empty_for_settings(Settings::new(Height(2), Width(2), 2));
-        let r = split_perft(DepthPly::new(3), board, false, Bulk);
+        let r = split_perft(DepthPly::new(3), board, SingleThreaded, Bulk);
         assert_eq!(r.perft_res.depth.get(), 3);
         assert_eq!(r.perft_res.nodes, 2 * 3 * 4);
         assert!(r.children.iter().all(|x| x.1 == 2 * 3));
         assert!(r.perft_res.time.as_millis() <= 100);
-        let r = perft(DepthPly::new(4), board, true, NoBulk);
+        let r = perft(DepthPly::new(4), board, Parallel, NoBulk);
         assert_eq!(r.depth.get(), 4);
         assert_eq!(r.nodes, 0);
 
         let board = Board::empty_for_settings(Settings::new(Height(6), Width(7), 4));
         let expected = [1, 42, 42 * 41, 42 * 41 * 40];
         for (i, e) in expected.into_iter().enumerate() {
-            let r = perft(DepthPly::new(i), board, false, Bulk);
+            let r = perft(DepthPly::new(i), board, SingleThreaded, Bulk);
             assert_eq!(r.nodes, e);
             assert_eq!(r.depth, DepthPly::new(i));
         }

@@ -1194,7 +1194,8 @@ mod tests {
     use crate::general::moves::ExtendedFormat::{Alternative, Standard};
     use crate::general::moves::MoveTrait;
     use crate::general::perft::Bulkness::Bulk;
-    use crate::general::perft::perft;
+    use crate::general::perft::Parallelize::SingleThreaded;
+    use crate::general::perft::{Parallelize, perft};
     use crate::output::pgn::parse_pgn;
     use crate::search::DepthPly;
     use itertools::Itertools;
@@ -1336,7 +1337,7 @@ mod tests {
                 assert_eq!(i != 0, pos.settings.is_set(Settings::dfrc_flag()));
                 assert_eq!(*pos == p, pos.settings.is_set(Settings::shredder_fen_flag()));
             }
-            let perft_res = perft(DepthPly::new(3), *pos, false, Bulk);
+            let perft_res = perft(DepthPly::new(3), *pos, SingleThreaded, Bulk);
             assert_eq!(perft_res.nodes, *perft_nodes);
         }
         let pos = Board::from_fen("5k2/8/8/8/8/8/8/4K2R w K - 0 1", Strict).unwrap();
@@ -1395,7 +1396,7 @@ Na3 ♞a6 2. ♘a3c4 a6c5 3. Na5 Nb3 4. Nc6 Nf6 5. Nf3 Ne4 6. Nh4 Ng5 7. Ng6 Nf3
         let data = parse_pgn::<Board>(pgn, Strict, None).unwrap();
         let pos = data.game.board;
         assert_eq!(pos.as_fen(), "rQ1Q1Q2/q6k/3Q3b/q5QK/1Q1Q1B2/6q1/1Q1q4/qqqQq1qR b - - 0 64");
-        let perft_res = perft(DepthPly::new(3), pos, true, Bulk);
+        let perft_res = perft(DepthPly::new(3), pos, Parallelize::Parallel, Bulk);
         assert_eq!(perft_res.nodes, 492194);
     }
 }

@@ -62,6 +62,7 @@ use gears::general::common::{Res, Tokens};
 use gears::general::moves::ExtendedFormat::{Alternative, Standard};
 use gears::general::moves::MoveTrait;
 use gears::general::perft::Bulkness::{Bulk, NoBulk};
+use gears::general::perft::Parallelize::{Parallel, SingleThreaded};
 use gears::general::perft::{SplitPerftRes, num_unique_positions_up_to, perft_for, split_perft};
 use gears::itertools::Itertools;
 use gears::num::{Num, Zero};
@@ -745,7 +746,8 @@ impl<B: BoardTrait> EngineUGI<B> {
                         let num_unique = num_unique_positions_up_to(DepthPly::new(i), board.clone()).to_string().bold();
                         self.output().write_ugi(&format_args!("# unique positions at depth {i}: {num_unique}",))
                     } else {
-                        let perft_res = perft_for(DepthPly::new(i), &positions, threads != 1, pseudo_bulk);
+                        let parallelize = if threads == 1 { SingleThreaded } else { Parallel };
+                        let perft_res = perft_for(DepthPly::new(i), &positions, parallelize, pseudo_bulk);
                         self.output().write_ugi(&format_args!(
                             "{}{perft_res}",
                             if i == limit.depth.get() { String::new() } else { format!("depth {i}: ") }
@@ -765,7 +767,8 @@ impl<B: BoardTrait> EngineUGI<B> {
                     bail!("Depth {0} is too large; maximum splitperft depth: {1}", limit.depth, B::max_perft_depth());
                 }
                 let pseudo_bulk = if opts.no_bulk { NoBulk } else { Bulk };
-                let res = split_perft(limit.depth, board, threads != 1, pseudo_bulk);
+                let parallelize = if threads == 1 { SingleThreaded } else { Parallel };
+                let res = split_perft(limit.depth, board, parallelize, pseudo_bulk);
                 self.write_ugi(&format_args!("{res}"));
                 if self.go_state_mut().get_mut().compare {
                     compare_splitperft(self, res)?;

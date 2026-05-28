@@ -37,6 +37,7 @@ mod general {
     use crate::general::common::tokens;
     use crate::general::moves::MoveTrait;
     use crate::general::perft::Bulkness::Bulk;
+    use crate::general::perft::Parallelize::SingleThreaded;
     use crate::general::perft::perft;
     use crate::general::squares::GridSize;
     use crate::search::DepthPly;
@@ -97,14 +98,14 @@ mod general {
     fn simple_game_over_test() {
         let chess_pos = chess::Board::from_name("draw_in_1").unwrap();
         let fairy_pos = Board::from_fen_for("chess", &chess_pos.as_fen(), Strict).unwrap();
-        let expected = perft(DepthPly::new(4), chess_pos, false, Bulk);
-        let actual = perft(DepthPly::new(4), fairy_pos, false, Bulk);
+        let expected = perft(DepthPly::new(4), chess_pos, SingleThreaded, Bulk);
+        let actual = perft(DepthPly::new(4), fairy_pos, SingleThreaded, Bulk);
         assert_eq!(expected.nodes, actual.nodes);
 
         let chess_pos = chess::Board::from_name("mate_in_1").unwrap();
         let fairy_pos = Board::from_fen_for("chess", &chess_pos.as_fen(), Strict).unwrap();
-        let expected = perft(DepthPly::new(4), chess_pos, false, Bulk);
-        let actual = perft(DepthPly::new(4), fairy_pos, false, Bulk);
+        let expected = perft(DepthPly::new(4), chess_pos, SingleThreaded, Bulk);
+        let actual = perft(DepthPly::new(4), fairy_pos, SingleThreaded, Bulk);
         assert_eq!(expected.nodes, actual.nodes);
     }
 
@@ -131,8 +132,8 @@ mod general {
             let max = if cfg!(debug_assertions) { 3 } else { 5 };
             for i in 1..max {
                 let depth = DepthPly::new(i);
-                let chess_perft = perft(depth, chess_pos, false, Bulk);
-                let fairy_perft = perft(depth, fairy_pos.clone(), false, Bulk);
+                let chess_perft = perft(depth, chess_pos, SingleThreaded, Bulk);
+                let fairy_perft = perft(depth, fairy_pos.clone(), SingleThreaded, Bulk);
                 assert_eq!(chess_perft.depth, fairy_perft.depth);
                 assert_eq!(chess_perft.nodes, fairy_perft.nodes, "{chess_pos} with depth {depth}");
                 assert!(chess_perft.time.as_millis() * 500 + 3000 > fairy_perft.time.as_millis());
@@ -505,8 +506,8 @@ mod general {
             println!();
             assert_eq!(fairy_pos.num_legal_moves(), pos.num_legal_moves());
             for i in 1..=3 {
-                let perft_res = perft(DepthPly::new(i), pos, false, Bulk);
-                let fairy_perft_res = perft(DepthPly::new(i), fairy_pos.clone(), false, Bulk);
+                let perft_res = perft(DepthPly::new(i), pos, SingleThreaded, Bulk);
+                let fairy_perft_res = perft(DepthPly::new(i), fairy_pos.clone(), SingleThreaded, Bulk);
                 assert_eq!(perft_res.depth, fairy_perft_res.depth, "{i} {pos}");
                 assert_eq!(perft_res.nodes, fairy_perft_res.nodes, "{i} {pos}");
             }
@@ -516,7 +517,7 @@ mod general {
     #[test]
     fn simple_droptaxx_test() {
         let pos = Board::from_fen_for("droptaxx", "O5O/7/7/7/7/7/X5X x 1", Strict).unwrap();
-        let res = perft(DepthPly::new(3), pos.clone(), false, Bulk);
+        let res = perft(DepthPly::new(3), pos.clone(), SingleThreaded, Bulk);
         assert_eq!(res.nodes, 85140);
         let pos = pos.make_move_from_str("b6").unwrap();
         assert_eq!(pos.as_fen(), "droptaxx X5O/1X5/7/7/7/7/X5X o 1")
@@ -554,8 +555,8 @@ mod general {
             let max = if cfg!(debug_assertions) { 4 } else { 6 };
             for i in 1..max {
                 let depth = DepthPly::new(i);
-                let mnk_perft = perft(depth, mnk_pos, false, Bulk);
-                let fairy_perft = perft(depth, fairy_pos.clone(), false, Bulk);
+                let mnk_perft = perft(depth, mnk_pos, SingleThreaded, Bulk);
+                let fairy_perft = perft(depth, fairy_pos.clone(), SingleThreaded, Bulk);
                 assert_eq!(mnk_perft.depth, fairy_perft.depth);
                 assert_eq!(mnk_perft.nodes, fairy_perft.nodes, "DepthPly {i}, pos: {mnk_pos}");
             }
