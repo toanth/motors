@@ -11,13 +11,9 @@ mod tests {
     use crate::general::perft::Parallelize::*;
     use crate::general::perft::perft;
     use crate::search::DepthPly;
-    use itertools::Itertools;
-    use rand::prelude::{SliceRandom, SmallRng};
-    use rand::{RngExt, SeedableRng, rng};
+    use rayon::prelude::*;
     use std::io::{Write, stdout};
-    use std::num::NonZeroUsize;
     use std::sync::atomic::{AtomicU64, Ordering};
-    use std::thread::{available_parallelism, current, scope};
     use std::time::Instant;
 
     #[test]
@@ -299,80 +295,46 @@ mod tests {
     /// Parallelizes the perft testcases so that this takes less time, but the chess960 suite still takes a very long time.
     fn perft_test(fens: &'static [&'static str], strictness: Strictness) {
         let start_time = Instant::now();
-        let num_threads = available_parallelism().unwrap_or(NonZeroUsize::new(1).unwrap());
-        println!("Running perft test with {num_threads} threads in parallel");
         let solved_tests = AtomicU64::new(0);
         let solved_tests = &solved_tests; // lol (necessary to not move the atomic itself, which wouldn't compile)
-        let num_fens = fens.len();
-        let mut fens = fens.iter().collect_vec();
-        // the chess960 perft suite takes so long that it makes sense to just stop the test suite at some point when doing
-        // routine testing. Shuffle to ensure that all positions have a chance of being tested.
-        let seed = rng().random_range(..=u64::MAX);
-        println!("\nSEED: {seed}\n");
-        let mut rng = SmallRng::seed_from_u64(seed);
-        fens.shuffle(&mut rng);
-        let testcases_per_thread = (num_fens + num_threads.get() - 1) / num_threads;
-        let thread_data = fens.iter().chunks(testcases_per_thread);
-        let mut thread_fens = vec![];
-        for chunk in &thread_data {
-            thread_fens.push(chunk.collect_vec());
-        }
-        scope(|s| {
-            let mut handles = vec![];
-            for chunk in thread_fens {
-                let handle = s.spawn(move || {
-                    for testcase in chunk {
-                        let expected = ExpectedPerftRes::new(testcase);
-                        let board = Board::from_fen(expected.fen, strictness).unwrap();
-                        println!("Thread {1:?}: Running test on fen {0}, board\n{board}", expected.fen, current().id());
-                        stdout().flush().unwrap();
-                        let fen = board.as_fen();
-                        let board2 = Board::from_fen(&fen, strictness).unwrap();
-                        if board != board2 {
-                            eprintln!(
-                                "boards differ: '{board}' vs '{board2}', fen was '{}'\n{board:?}\n{board2:?}",
-                                expected.fen
-                            );
-                            // it's fine for relaxed FENs to contain illegal pseudolegal ep moves
-                            assert_eq!(strictness, Relaxed);
-                            assert!(Board::from_fen(expected.fen, Strict).is_err());
-                            assert!(board.pseudolegal_moves().iter().any(|m| m.is_ep()));
-                            assert!(!board.legal_moves().iter().any(|m| m.is_ep()));
-                        }
-                        let mut all_moves = board.pseudolegal_moves();
-                        all_moves.sort();
-                        let quiet_moves = board.quiet_pseudolegal();
-                        let tactical_moves = board.tactical_pseudolegal();
-                        let mut m2 = Vec::from(quiet_moves.as_slice());
-                        m2.extend_from_slice(tactical_moves.as_slice());
-                        m2.sort();
-                        assert_eq!(all_moves.as_slice(), m2.as_slice());
-                        for (depth, expected_count) in
-                            expected.res.iter().enumerate().filter(|(_depth, x)| **x != INVALID)
-                        {
-                            let res = perft(DepthPly::new(depth), board, SingleThreaded, Bulk);
-                            assert_eq!(res.depth.get(), depth);
-                            assert_eq!(res.nodes, *expected_count, "{depth} {board}");
-                            println!(
-                                "Thread {3:?}: Perft depth {0} took {1} ms, total time so far: {2}ms",
-                                res.depth.get(),
-                                res.time.as_millis(),
-                                start_time.elapsed().as_millis(),
-                                current().id()
-                            );
-                        }
-                        _ = solved_tests.fetch_add(1, Ordering::Relaxed);
-                        println!("Finished {0} / {1} positions", solved_tests.load(Ordering::Relaxed), num_fens);
-                    }
-                });
-                handles.push(handle);
+        let f = |testcase: &'static str| {
+            let expected = ExpectedPerftRes::new(testcase);
+            let board = Board::from_fen(expected.fen, strictness).unwrap();
+            println!("Running test on fen {0}, board\n{board}", expected.fen);
+            stdout().flush().unwrap();
+            let fen = board.as_fen();
+            let board2 = Board::from_fen(&fen, strictness).unwrap();
+            if board != board2 {
+                eprintln!("boards differ: '{board}' vs '{board2}', fen was '{}'\n{board:?}\n{board2:?}", expected.fen);
+                // it's fine for relaxed FENs to contain illegal pseudolegal ep moves
+                assert_eq!(strictness, Relaxed);
+                assert!(Board::from_fen(expected.fen, Strict).is_err());
+                assert!(board.pseudolegal_moves().iter().any(|m| m.is_ep()));
+                assert!(!board.legal_moves().iter().any(|m| m.is_ep()));
             }
-            for (i, handle) in handles.into_iter().enumerate() {
-                if let Err(err) = handle.join() {
-                    eprintln!("Error in spawned thread {i}: {err:?}");
-                }
+            let mut all_moves = board.pseudolegal_moves();
+            all_moves.sort();
+            let quiet_moves = board.quiet_pseudolegal();
+            let tactical_moves = board.tactical_pseudolegal();
+            let mut m2 = Vec::from(quiet_moves.as_slice());
+            m2.extend_from_slice(tactical_moves.as_slice());
+            m2.sort();
+            assert_eq!(all_moves.as_slice(), m2.as_slice());
+            for (depth, expected_count) in expected.res.iter().enumerate().filter(|&(_, x)| *x != INVALID) {
+                let res = perft(DepthPly::new(depth), board, SingleThreaded, Bulk);
+                assert_eq!(res.depth.get(), depth);
+                assert_eq!(res.nodes, *expected_count, "{depth} {board}");
+                println!(
+                    "Perft depth {0} took {1} ms, total time so far: {2}ms",
+                    res.depth.get(),
+                    res.time.as_millis(),
+                    start_time.elapsed().as_millis(),
+                );
             }
-        });
+            let solved = solved_tests.fetch_add(1, Ordering::Relaxed);
+            println!("Finished {0} / {1} positions", solved + 1, fens.len());
+        };
+        fens.par_iter().for_each(|fen| f(fen));
     }
 
     const CUSTOM_FENS: &[&str] = &[
