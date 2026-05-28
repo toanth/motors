@@ -868,14 +868,7 @@ impl Caps {
             if best_score > MAX_SCORE_LOST && !in_check && !root {
                 // LMP (Late Move Pruning): Trust the move ordering and assume that moves ordered late aren't very interesting,
                 // so don't even bother looking at them in the last few layers.
-                // FP (Futility Pruning): If eval is far below alpha,
-                // then it's unlikely that a quiet move can raise alpha: We've probably blundered at some prior point in search,
-                // so cut our losses and return. This has the potential of missing sacrificing mate combinations, though.
-                let fp_margin = if we_blundered {
-                    cc::fp_blunder_base() + cc::fp_blunder_scale() * depth
-                } else {
-                    cc::fp_base() + cc::fp_scale() * depth
-                } / 1024;
+                // TODO: Use a quadratic formula and get rid of the max depth parameter
                 let mut lmp_threshold = if we_blundered {
                     cc::lmp_blunder_base() + cc::lmp_blunder_scale() * depth
                 } else {
@@ -885,11 +878,23 @@ impl Caps {
                 if expected_node_type == FailLow {
                     lmp_threshold -= lmp_threshold / cc::lmp_fail_low_div();
                 }
-                if depth <= cc::max_move_loop_pruning_depth()
-                    && (num_uninteresting_visited >= lmp_threshold
-                        || (eval + Score(fp_margin as ScoreT) < alpha && move_score < KILLER_SCORE))
-                {
+                if depth <= cc::max_lmp_depth() && num_uninteresting_visited >= lmp_threshold {
                     break;
+                }
+                // FP (Futility Pruning): If eval is far below alpha,
+                // then it's unlikely that a quiet move can raise alpha: We've probably blundered at some prior point in search,
+                // so cut our losses and return. This has the potential of missing sacrificing mate combinations, though.
+                let fp_margin = if we_blundered {
+                    cc::fp_blunder_base() + cc::fp_blunder_scale() * depth
+                } else {
+                    cc::fp_base() + cc::fp_scale() * depth
+                } / 1024;
+                if move_picker.stage() == MovePickerStage::Quiets
+                    && eval + Score(fp_margin as ScoreT) < alpha
+                    && depth <= cc::max_fp_depth()
+                {
+                    move_picker.skip_quiets();
+                    continue;
                 }
                 // History Pruning: At very low depth, don't play quiet moves with bad history scores
                 assert_eq!(depth % 128, 0);

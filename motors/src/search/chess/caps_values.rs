@@ -70,7 +70,8 @@ spsa_params![
     lmp_base: isize = 4096; 0..=64 * 1024; step=512;
     lmp_scale: isize = 40; 0..=128; step=4;
     lmp_fail_low_div: isize = 2; 2..=16; step=1;
-    max_move_loop_pruning_depth: isize = 6 * 128; 1..=16_384; step=64;
+    max_lmp_depth: isize = 6 * 128; 1..=16_384; step=64;
+    max_fp_depth: isize = 6 * 128; 1..=16_384; step=64;
     hist_pruning_max_depth: isize = 3 * 128; 128..=2048; step=32;
     max_see_pruning_depth: isize = 1024; 128..=2048; step=64;
     first_child_reduction: isize = 0; -64..=128; step=8;
