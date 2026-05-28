@@ -10,7 +10,7 @@ use crate::eval::chess::lite::{LiTEval, lc};
 use crate::io::ugi_output::{color_for_score, score_gradient};
 use crate::search::chess::caps_values::cc;
 use crate::search::chess::histories::{ContHist, HIST_DIVISOR, HistScoreT};
-use crate::search::chess::move_picker::MovePicker;
+use crate::search::chess::move_picker::{MovePicker, MovePickerStage};
 use crate::search::chess::*;
 use crate::search::statistics::SearchType;
 use crate::search::statistics::SearchType::{MainSearch, Qsearch};
@@ -891,11 +891,15 @@ impl Caps {
                 {
                     break;
                 }
-                // History Pruning: At very low depth, don't play quiet moves with bad history scores. Skipping bad captures too gained elo.
+                // History Pruning: At very low depth, don't play quiet moves with bad history scores
                 assert_eq!(depth % 128, 0);
                 // TODO: Remove '()', change order and use / 1024 instead of / 128 (changes bench)
-                if (move_score.0 as isize) < -150 * (depth / 128) && depth <= cc::hist_pruning_max_depth() {
-                    break;
+                if move_picker.stage() == MovePickerStage::Quiets
+                    && (move_score.0 as isize) < -150 * (depth / 128)
+                    && depth <= cc::hist_pruning_max_depth()
+                {
+                    move_picker.skip_quiets();
+                    continue;
                 }
                 // PVS SEE pruning: Don't play moves with bad SEE scores at low depth.
                 // Be less aggressive with pruning captures to avoid overlooking tactics.
