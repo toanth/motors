@@ -3,7 +3,7 @@ use crate::search::chess::histories::{
 };
 use crate::search::{CustomInfo, MoveScore, Pv, SearchStackEntry, SearchState};
 use gears::arrayvec::ArrayVec;
-use gears::games::PosHash;
+use gears::games::ZobristHistory;
 use gears::games::chess::moves::Move;
 use gears::games::chess::squares::NUM_SQUARES;
 use gears::games::chess::{Board, Color, MAX_CHESS_MOVES_IN_POS};
@@ -90,7 +90,7 @@ pub struct CapsCustomInfo {
     follow_up_move_hist: ContHist,
     capt_hist: CaptHist,
     corr_hist: CorrHist,
-    repeated_before_root: Vec<PosHash>,
+    original_board_hist: ZobristHistory,
     nmp_disabled: [bool; 2],
     ply_hard_limit: usize,
     root_move_nodes: RootMoveNodes,

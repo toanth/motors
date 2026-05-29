@@ -6,6 +6,7 @@ use std::str::FromStr;
 use arbitrary::Arbitrary;
 use colored::{ColoredString, Colorize};
 use itertools::Itertools;
+use strum::IntoEnumIterator;
 use strum_macros::{EnumIter, FromRepr};
 
 use crate::games::chess::Color::*;
