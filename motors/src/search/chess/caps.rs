@@ -10,7 +10,7 @@ use crate::eval::chess::lite::{LiTEval, lc};
 use crate::io::ugi_output::{color_for_score, score_gradient};
 use crate::search::chess::caps_values::cc;
 use crate::search::chess::histories::{ContHist, HIST_DIVISOR, HistScoreT};
-use crate::search::chess::move_picker::MovePicker;
+use crate::search::chess::move_picker::{MovePicker, MovePickerStage};
 use crate::search::chess::*;
 use crate::search::statistics::SearchType;
 use crate::search::statistics::SearchType::{MainSearch, Qsearch};
@@ -245,6 +245,9 @@ impl Engine<Board> for Caps {
         // Idea from pawnocchio:
         // Instead of actually looking for 3fold repetitions, we simply remove all non-repeated positions so far.
         let mut hist = take(&mut self.search_params_mut().history);
+        self.repeated_before_root.clear();
+        hist.0.reverse();
+        hist.0.truncate(pos.ply_draw_clock());
         hist.push(pos.hash_pos());
         hist.0.sort_by_key(|hash| hash.0);
         for i in 1..hist.0.len() {
@@ -891,11 +894,15 @@ impl Caps {
                 {
                     break;
                 }
-                // History Pruning: At very low depth, don't play quiet moves with bad history scores. Skipping bad captures too gained elo.
+                // History Pruning: At very low depth, don't play quiet moves with bad history scores
                 assert_eq!(depth % 128, 0);
                 // TODO: Remove '()', change order and use / 1024 instead of / 128 (changes bench)
-                if (move_score.0 as isize) < -150 * (depth / 128) && depth <= cc::hist_pruning_max_depth() {
-                    break;
+                if move_picker.stage() == MovePickerStage::Quiets
+                    && (move_score.0 as isize) < -150 * (depth / 128)
+                    && depth <= cc::hist_pruning_max_depth()
+                {
+                    move_picker.skip_quiets();
+                    continue;
                 }
                 // PVS SEE pruning: Don't play moves with bad SEE scores at low depth.
                 // Be less aggressive with pruning captures to avoid overlooking tactics.

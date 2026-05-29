@@ -619,6 +619,7 @@ mod tests {
     use crate::general::board::Strictness::Relaxed;
     use crate::general::moves::MoveTrait;
     use crate::general::perft::Bulkness::Bulk;
+    use crate::general::perft::Parallelize::SingleThreaded;
     use crate::general::perft::perft;
 
     #[test]
@@ -683,7 +684,7 @@ mod tests {
         let pos = Board::from_fen("7/7/7/7/-------/-------/--x3o x 1 2", Strict).unwrap();
         let expected = [1, 2, 3, 3, 4, 5, 5, 3, 3, 3, 2, 3, 3, 2, 3, 3, 2, 3, 3, 2, 3, 3, 2, 3, 3, 2, 3, 3, 2, 3, 3];
         for (i, &nodes) in expected.iter().enumerate() {
-            let res = perft(DepthPly::new(i), pos, false, Bulk);
+            let res = perft(DepthPly::new(i), pos, SingleThreaded, Bulk);
             assert_eq!(res.nodes, nodes, "Depth {i}: {pos}");
         }
     }

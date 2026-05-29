@@ -623,6 +623,7 @@ mod tests {
     use crate::general::board::{BoardHelpers, BoardTrait, UnverifiedBoardTrait};
     use crate::general::moves::MoveTrait;
     use crate::general::perft::Bulkness::Bulk;
+    use crate::general::perft::Parallelize::Parallel;
     use crate::general::perft::perft;
     use crate::search::DepthPly;
     use std::sync::atomic::Ordering;
@@ -648,7 +649,7 @@ mod tests {
                 assert!(!mov.is_capture());
                 assert!(pos.clone().make_move(mov).unwrap().debug_verify_invariants(Strict).is_ok());
             }
-            let perft_res = perft(DepthPly::new(3), pos.clone(), true, Bulk);
+            let perft_res = perft(DepthPly::new(3), pos.clone(), Parallel, Bulk);
             assert_eq!(perft_res.nodes, *perft_nodes);
         }
         let fen = "8/4k3/8/8/8/8/8/RK1b4 w A - 0 1";

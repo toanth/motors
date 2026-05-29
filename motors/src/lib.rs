@@ -57,6 +57,7 @@ use gears::general::common::Description::WithDescription;
 use gears::general::common::anyhow::anyhow;
 use gears::general::common::{Res, select_name_dyn};
 use gears::general::perft::Bulkness::Bulk;
+use gears::general::perft::Parallelize::Parallel;
 use gears::general::perft::{perft, split_perft};
 use gears::itertools::Itertools;
 use gears::output::normal_outputs;
@@ -145,10 +146,10 @@ impl<B: BoardTrait> AbstractRun for PerftRun<B> {
         };
         let depth = self.depth.unwrap_or(pos.default_perft_depth());
         if self.split {
-            let res = split_perft(depth, pos, true, Bulk);
+            let res = split_perft(depth, pos, Parallel, Bulk);
             println!("{res}");
         } else {
-            let res = perft(depth, pos, true, Bulk);
+            let res = perft(depth, pos, Parallel, Bulk);
             println!("{res}");
         }
         QuitProgram

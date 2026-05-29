@@ -22,6 +22,7 @@ mod tests {
     use crate::general::board::BoardHelpers;
     use crate::general::board::Strictness::Relaxed;
     use crate::general::perft::Bulkness::Bulk;
+    use crate::general::perft::Parallelize::Parallel;
     use crate::general::perft::perft;
     use crate::search::DepthPly;
     use crate::ugi::load_ugi_pos_simple;
@@ -37,7 +38,7 @@ mod tests {
             }
             let i = i + 1;
             let depth = DepthPly::new(i);
-            let res = perft(depth, pos.clone(), true, Bulk);
+            let res = perft(depth, pos.clone(), Parallel, Bulk);
             assert_eq!(res.depth, depth);
             assert_eq!(res.nodes, expected, "depth {i}, fen '{fen}' ({pos})");
         }

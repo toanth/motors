@@ -63,6 +63,13 @@ pub enum Bulkness {
     NoBulk,
 }
 
+#[derive(Debug, Default, Copy, Clone, Eq, PartialEq)]
+pub enum Parallelize {
+    #[default]
+    SingleThreaded,
+    Parallel,
+}
+
 fn do_perft<B: BoardTrait>(depth: usize, pos: B, pseudo_bulk: Bulkness, parallelize: bool) -> u64 {
     if depth == 0 {
         return 1;
@@ -96,9 +103,9 @@ fn do_perft<B: BoardTrait>(depth: usize, pos: B, pseudo_bulk: Bulkness, parallel
     // already take care of forced passing moves.
 }
 
-pub fn perft<B: BoardTrait>(depth: DepthPly, pos: B, parallelize: bool, pseudo_bulk: Bulkness) -> PerftRes {
+pub fn perft<B: BoardTrait>(depth: DepthPly, pos: B, parallelize: Parallelize, pseudo_bulk: Bulkness) -> PerftRes {
     let start = Instant::now();
-    let nodes = do_perft(depth.get(), pos, pseudo_bulk, parallelize);
+    let nodes = do_perft(depth.get(), pos, pseudo_bulk, parallelize == Parallelize::Parallel);
     let time = start.elapsed();
 
     PerftRes { time, nodes, depth }
@@ -107,13 +114,14 @@ pub fn perft<B: BoardTrait>(depth: DepthPly, pos: B, parallelize: bool, pseudo_b
 pub fn split_perft<B: BoardTrait>(
     depth: DepthPly,
     pos: B,
-    parallelize: bool,
+    parallelize: Parallelize,
     pseudo_bulk: Bulkness,
 ) -> SplitPerftRes<B> {
     assert!(depth.get() > 0);
     let mut nodes = 0;
     let start = Instant::now();
     let mut children: Vec<(B::Move, u64)> = vec![];
+    let parallelize = parallelize == Parallelize::Parallel;
     if depth.get() > 2 && parallelize {
         pos.legal_moves_slow()
             .into_iter()
@@ -144,7 +152,7 @@ pub fn split_perft<B: BoardTrait>(
 pub fn perft_for<B: BoardTrait>(
     depth: DepthPly,
     positions: &[B],
-    parallelize: bool,
+    parallelize: Parallelize,
     pseudo_bulk: Bulkness,
 ) -> PerftRes {
     let mut res = PerftRes { time: Duration::default(), nodes: 0, depth };
@@ -263,6 +271,7 @@ mod tests {
     use crate::games::{ataxx, chess, fairy, mnk};
     use crate::general::board::Strictness::Strict;
     use crate::general::perft::Bulkness::NoBulk;
+    use crate::general::perft::Parallelize::*;
 
     #[test]
     fn all_positions_at_mnk_test() {
@@ -301,8 +310,8 @@ mod tests {
         let mut res1 = 0;
         let mut res2 = 0;
         for i in 0..3 {
-            res1 += perft(DepthPly::new(i), pos, false, Bulk).nodes;
-            res2 += perft(DepthPly::new(i), fairy_pos.clone(), false, Bulk).nodes;
+            res1 += perft(DepthPly::new(i), pos, SingleThreaded, Bulk).nodes;
+            res2 += perft(DepthPly::new(i), fairy_pos.clone(), SingleThreaded, Bulk).nodes;
             assert_eq!(res1, res2);
             assert_eq!(num_unique_positions_up_to(DepthPly::new(i), pos), res2, "{i}");
             assert_eq!(num_unique_positions_up_to(DepthPly::new(i), fairy_pos.clone()), res2);
@@ -315,14 +324,14 @@ mod tests {
         assert_eq!(num_unique_positions_up_to(DepthPly::new(1), pos), 3);
         assert_eq!(num_unique_positions_up_to(DepthPly::new(2), pos), 4);
         assert_eq!(num_unique_positions_up_to(DepthPly::new(3), pos), 6);
-        assert_eq!(perft(DepthPly::new(1), pos, false, Bulk).nodes, 2);
-        assert_eq!(perft(DepthPly::new(2), pos, false, Bulk).nodes, 1);
-        assert_eq!(perft(DepthPly::new(3), pos, false, NoBulk).nodes, 2);
-        assert_eq!(perft(DepthPly::new(1), fairy_pos.clone(), false, Bulk).nodes, 2);
+        assert_eq!(perft(DepthPly::new(1), pos, SingleThreaded, Bulk).nodes, 2);
+        assert_eq!(perft(DepthPly::new(2), pos, SingleThreaded, Bulk).nodes, 1);
+        assert_eq!(perft(DepthPly::new(3), pos, SingleThreaded, NoBulk).nodes, 2);
+        assert_eq!(perft(DepthPly::new(1), fairy_pos.clone(), SingleThreaded, Bulk).nodes, 2);
         for p in descendants_up_to(DepthPly::new(2), pos) {
             println!("{p}");
         }
-        assert_eq!(perft(DepthPly::new(2), fairy_pos.clone(), false, Bulk).nodes, 1);
-        assert_eq!(perft(DepthPly::new(3), fairy_pos.clone(), false, Bulk).nodes, 2);
+        assert_eq!(perft(DepthPly::new(2), fairy_pos.clone(), SingleThreaded, Bulk).nodes, 1);
+        assert_eq!(perft(DepthPly::new(3), fairy_pos.clone(), SingleThreaded, Bulk).nodes, 2);
     }
 }

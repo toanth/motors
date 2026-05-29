@@ -24,6 +24,7 @@ use crate::general::bitboards::RawBitboardTrait;
 use crate::general::board::Strictness::Strict;
 use crate::general::board::{BoardHelpers, BoardTrait, UnverifiedBoardTrait};
 use crate::general::perft::Bulkness::Bulk;
+use crate::general::perft::Parallelize::SingleThreaded;
 use crate::general::perft::perft;
 use crate::search::DepthPly;
 use rand::SeedableRng;
@@ -37,7 +38,7 @@ fn perft_tests() {
         println!("{pos}");
         let n = if cfg!(debug_assertions) { 7 } else { 100 };
         for (depth, nodes) in perft_res.iter().enumerate().take(n) {
-            let res = perft(DepthPly::new(depth), pos, false, Bulk);
+            let res = perft(DepthPly::new(depth), pos, SingleThreaded, Bulk);
             assert_eq!(res.nodes, *nodes, "{fen}, depth {depth}: {0} should be {1}", res.nodes, *nodes);
         }
         let mut rng = SmallRng::seed_from_u64(seed);
