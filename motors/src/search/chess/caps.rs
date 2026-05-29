@@ -478,25 +478,18 @@ impl Caps {
                 let pv = &self.search_stack[0].pv;
                 if pos.calc_player_result(&self.params.history).is_some() {
                     assert!(pv.len() <= 1); // only check/stalemates are checked at the root
-                } else {
-                    match node_type {
-                        FailHigh => debug_assert_eq!(pv.len(), 1, "{pos} {node_type}"),
-                        Exact => debug_assert!(
-                            // currently, it's possible to reduce the PV through IIR when the TT entry of a PV node gets overwritten,
-                            // but that should be relatively rare. In the future, a better replacement policy might make this actually sound
-                            self.multi_pv() > 1
-                                || pv.len() + pv.len() / 4 + 5
-                                    >= self.ply_hard_limit.min(aw_budget as usize / DEPTH_INCREMENT)
-                                || pv_score.is_won_lost_or_draw_score(),
-                            "{aw_budget} {budget} {0} {pv_score} {1}",
-                            pv.len(),
-                            self.uci_nodes()
-                        ),
-                        // We don't clear the PV on a fail low node so that we can still send a useful info line
-                        FailLow => {
-                            debug_assert_eq!(0, pv.len());
-                        }
-                    }
+                } else if node_type == Exact {
+                    debug_assert!(
+                        // currently, it's possible to reduce the PV through IIR when the TT entry of a PV node gets overwritten,
+                        // but that should be relatively rare. In the future, a better replacement policy might make this actually sound
+                        self.multi_pv() > 1
+                            || pv.len() + pv.len() / 4 + 5
+                                >= self.ply_hard_limit.min(aw_budget as usize / DEPTH_INCREMENT)
+                            || pv_score.is_won_lost_or_draw_score(),
+                        "{aw_budget} {budget} {0} {pv_score} {1}",
+                        pv.len(),
+                        self.uci_nodes()
+                    )
                 }
                 // assert this now because this doesn't hold for incomplete iterations
                 debug_assert!(
@@ -925,12 +918,15 @@ impl Caps {
             #[cfg(debug_assertions)]
             let debug_history_len = self.params.history.len();
             self.record_move(mov, pos, ply, MainSearch, move_score);
+            let first_child = self.search_stack[ply].tried_moves.len() == 1;
 
-            if root && depth >= 1024 && self.limit().start_time.elapsed().as_millis() >= 3000 {
-                let move_num = self.search_stack[0].tried_moves.len();
-                // `qsearch` would give better results, but would make bench be nondeterministic
-                let score = -self.eval(&new_pos, 0);
-                self.send_currmove(mov, move_num, score, alpha, beta);
+            if root {
+                if depth >= 1024 && self.limit().start_time.elapsed().as_millis() >= 3000 {
+                    let move_num = self.search_stack[0].tried_moves.len();
+                    // `qsearch` would give better results, but would make bench be nondeterministic
+                    let score = -self.eval(&new_pos, 0);
+                    self.send_currmove(mov, move_num, score, alpha, beta);
+                }
             }
             if move_score < KILLER_SCORE {
                 num_uninteresting_visited += 1;
@@ -942,7 +938,6 @@ impl Caps {
             // that the other moves are worse, which we can do with a zero window search. Should this assumption fail,
             // re-search with a full window.
             let mut score;
-            let first_child = self.search_stack[ply].tried_moves.len() == 1;
             let mut child_alpha = -beta;
             let child_beta = -alpha;
             if first_child {
@@ -1066,6 +1061,11 @@ impl Caps {
                 if move_num < 5 && self.limit().start_time.elapsed().as_millis() >= 3000 {
                     self.send_refutation(mov, score, move_num);
                 }
+            }
+            if pv_node && first_child && !best_move.is_null() && score <= alpha {
+                // we might get an AW fail, in which case we want to print as much of the "PV" as possible, not just the first 1 or 2 moves.
+                let ([.., current], [child, ..]) = self.search_stack.split_at_mut(ply + 1) else { unreachable!() };
+                current.pv.extend(mov, &child.pv);
             }
             debug_assert!(score.0.abs() <= SCORE_WON.0, "score {} ply {ply}", score.0);
 
