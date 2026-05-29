@@ -245,6 +245,9 @@ impl Engine<Board> for Caps {
         // Idea from pawnocchio:
         // Instead of actually looking for 3fold repetitions, we simply remove all non-repeated positions so far.
         let mut hist = take(&mut self.search_params_mut().history);
+        self.repeated_before_root.clear();
+        hist.0.reverse();
+        hist.0.truncate(pos.ply_draw_clock());
         hist.push(pos.hash_pos());
         hist.0.sort_by_key(|hash| hash.0);
         for i in 1..hist.0.len() {
