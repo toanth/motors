@@ -953,15 +953,6 @@ impl Caps {
                     reduction = (depth / 128) / cc::lmr_depth_div() * 128
                         + (num_uninteresting_visited + 1).ilog2() as isize * cc::lmr_moves_mult()
                         + cc::lmr_const();
-                    // Reduce bad captures and quiet moves with bad combined history scores more.
-                    // todo: move out of num_uninteresting_visited >= ... condition
-                    if move_score < MoveScore(cc::lmr_bad_hist()) {
-                        reduction += cc::lmr_bad_hist_reduction();
-                    } else if move_score > MoveScore(cc::lmr_good_hist()) {
-                        // Since the TT and killer move and good captures are not lmr'ed,
-                        // this only applies to quiet moves with a good combined history score.
-                        reduction -= cc::lmr_good_hist_reduction();
-                    }
                     if !pv_node {
                         reduction += cc::lmr_no_pv_reduction();
                     }
@@ -975,7 +966,15 @@ impl Caps {
                         reduction -= cc::lmr_in_check_reduction();
                     }
                 }
-                // Futility Reduction: If this move is not a TT move, good SEE capture or killer, and our eval is significantly
+                // Reduce quiet moves with bad combined history scores more.
+                if move_picker.stage() == MovePickerStage::Quiets {
+                    if move_score < MoveScore(cc::lmr_bad_hist()) {
+                        reduction += cc::lmr_bad_hist_reduction();
+                    } else if move_score > MoveScore(cc::lmr_good_hist()) {
+                        reduction -= cc::lmr_good_hist_reduction();
+                    }
+                }
+                // "Futility Reduction": If this move is not a TT move, good SEE capture or killer, and our eval is significantly
                 // less than alpha, reduce.
                 if !in_check
                     && depth >= cc::min_fr_depth()
