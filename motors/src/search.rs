@@ -156,12 +156,12 @@ pub struct BenchResult {
     pub time: Duration,
     pub max_iterations: DepthPly,
     pub depth: Option<DepthPly>,
-    pub pv_score_hash: u64,
+    pub hash: u64,
 }
 
 impl Default for BenchResult {
     fn default() -> Self {
-        Self { nodes: 0, time: Duration::default(), depth: None, max_iterations: DepthPly::new(0), pv_score_hash: 0 }
+        Self { nodes: 0, time: Duration::default(), depth: None, max_iterations: DepthPly::new(0), hash: 0 }
     }
 }
 
@@ -175,7 +175,7 @@ impl Display for BenchResult {
             Colorize::bold(self.nodes.to_string().as_str()),
             self.time.as_millis().to_string().color(Red),
             (self.nodes as f64 / self.time.as_millis() as f64 * 1000.0).round().to_string().color(Red),
-            self.pv_score_hash,
+            self.hash,
         )
     }
 }
@@ -851,6 +851,7 @@ pub struct SearchState<B: BoardTrait, E: SearchStackEntry<B>, C: CustomInfo<B>> 
     // The internal engine depth (if applicable) is represented as `Budget` and can be fractional.
     // This is different from the UCI "depth", expressed as `DepthPly`, which is the ID loop counter for a/b engines with ID.
     budget: Budget,
+    dummy: Vec<isize>,
     execution_start_time: Instant,
     last_msg_time: Instant,
     age: Age,
@@ -929,6 +930,10 @@ impl<B: BoardTrait, E: SearchStackEntry<B>, C: CustomInfo<B>> AbstractSearchStat
     }
 
     fn end_search(&mut self, res: &mut SearchResult<B>) {
+        self.dummy.push(self.uci_nodes() as isize);
+        if self.dummy.len() > 12345 {
+            println!("AHA");
+        }
         dbg_print();
         send_debug_msg!(
             self,
@@ -984,7 +989,7 @@ impl<B: BoardTrait, E: SearchStackEntry<B>, C: CustomInfo<B>> AbstractSearchStat
             time: self.execution_start_time().elapsed(),
             max_iterations: self.iterations(),
             depth: None,
-            pv_score_hash: hash,
+            hash,
         }
     }
 
@@ -1127,6 +1132,7 @@ impl<B: BoardTrait, E: SearchStackEntry<B>, C: CustomInfo<B>> SearchState<B, E, 
             excluded_moves: vec![],
             current_pv_num: 0,
             budget: Budget::new(0),
+            dummy: vec![],
             execution_start_time: now,
             last_msg_time: now,
             age: Age::default(),
@@ -1203,7 +1209,7 @@ pub fn run_bench_with<B: BoardTrait>(
     if limit.depth != SearchLimit::infinite().depth {
         total.depth = Some(limit.depth);
     }
-    total.pv_score_hash = hasher.finish();
+    total.hash = hasher.finish();
     total
 }
 
@@ -1226,7 +1232,7 @@ fn single_bench<B: BoardTrait>(
     total.nodes += res.nodes;
     total.time += res.time;
     total.max_iterations = total.max_iterations.max(res.max_iterations);
-    res.pv_score_hash.hash(hasher);
+    res.hash.hash(hasher);
     tt.hash_first_1k_entries(hasher);
 }
 
@@ -1254,7 +1260,7 @@ pub fn test_reproducible<B: BoardTrait>(
         assert_eq!(res.max_iterations, r.max_iterations, "{} {pos}", r.nodes);
         assert_eq!(res.depth, r.depth, "{} {pos}", r.nodes);
         assert_eq!(res.nodes, r.nodes, "{pos}");
-        assert_eq!(res.pv_score_hash, r.pv_score_hash, "{} {pos}", r.nodes)
+        assert_eq!(res.hash, r.hash, "{} {pos}", r.nodes)
     }
     assert_eq!(old_tt.age, new_tt.age);
     let entries = old_tt.all_entries::<B>().zip_eq(new_tt.all_entries());

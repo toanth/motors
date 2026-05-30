@@ -16,7 +16,7 @@ use std::hash::{Hash, Hasher};
 use std::marker::PhantomData;
 use std::mem::size_of;
 #[cfg(feature = "unsafe")]
-use std::mem::transmute_copy;
+use std::mem::transmute;
 use std::sync::Arc;
 use std::sync::atomic::AtomicU64;
 use std::sync::atomic::Ordering::Relaxed;
@@ -83,6 +83,7 @@ pub struct TTEntry<B: BoardTrait> {
     pub eval: CompactScoreT,  // 2 bytes
     pub depth: u16,           // 2 bytes
     age_and_bound: u8,        // 1 byte
+    _padding: u8,             // 1 byte
     _phantom: PhantomData<B>, // 0 bytes
 }
 
@@ -125,6 +126,7 @@ impl<B: BoardTrait> TTEntry<B> {
             depth,
             age_and_bound,
             hash_and_move,
+            _padding: 0,
             _phantom: PhantomData,
         }
     }
@@ -172,9 +174,8 @@ impl<B: BoardTrait> TTEntry<B> {
     fn pack_into(self, entry: &AtomicTTEntry) {
         assert_eq!(size_of::<Self>(), 128 / 8);
         assert_eq!(size_of::<AtomicTTEntry>(), size_of::<Self>());
-        // `transmute_copy` is needed because otherwise the compiler complains that the sizes might not match.
         // SAFETY: Both types have the same size and all bit patterns are valid
-        let e = unsafe { transmute_copy::<Self, u128>(&self) };
+        let e = unsafe { transmute::<Self, u128>(self) };
         entry.hash_and_move.store(e as u64, Relaxed);
         entry.rest.store((e >> 64) as u64, Relaxed);
     }
@@ -188,10 +189,8 @@ impl<B: BoardTrait> TTEntry<B> {
     fn pack_fallback(self, entry: &AtomicTTEntry) {
         let score = self.score as u16; // don't sign extend negative scores
         let eval = self.eval as u16;
-        let rest = ((score as u64) << (64 - 16))
-            | ((eval as u64) << (64 - 32))
-            | ((self.depth as u64) << 8)
-            | self.age_and_bound as u64;
+        let rest =
+            (score as u64) | ((eval as u64) << 16) | ((self.depth as u64) << 32) | ((self.age_and_bound as u64) << 48);
 
         entry.hash_and_move.store(self.hash_and_move, Relaxed);
         entry.rest.store(rest, Relaxed);
@@ -204,7 +203,7 @@ impl<B: BoardTrait> TTEntry<B> {
         let hash_and_move = packed.hash_and_move.load(Relaxed) as u128;
         let val = ((packed.rest.load(Relaxed) as u128) << 64) | hash_and_move;
         // SAFETY: Both types have the same size and all bit patterns are valid
-        unsafe { transmute_copy::<u128, Self>(&val) }
+        unsafe { transmute::<u128, Self>(val) }
     }
 
     #[cfg(not(feature = "unsafe"))]
@@ -216,12 +215,11 @@ impl<B: BoardTrait> TTEntry<B> {
     fn unpack_fallback(val: &AtomicTTEntry) -> Self {
         let hash_and_move = val.hash_and_move.load(Relaxed);
         let rest = val.rest.load(Relaxed);
-        let score = (rest >> (64 - 16)) as CompactScoreT;
-        let eval = (rest >> (64 - 32)) as CompactScoreT;
-        let mov = B::Move::from_u64_unchecked((rest >> 16) & 0xffff);
-        let depth = (rest >> 8) as u16;
-        let age_and_bound = rest as u8;
-        Self { hash_and_move, score, eval, depth, age_and_bound, _phantom: PhantomData }
+        let score = rest as CompactScoreT;
+        let eval = (rest >> 16) as CompactScoreT;
+        let depth = (rest >> 32) as u16;
+        let age_and_bound = (rest >> 48) as u8;
+        Self { hash_and_move, score, eval, depth, age_and_bound, _padding: 0, _phantom: PhantomData }
     }
 }
 #[cfg(feature = "chess")]
@@ -526,12 +524,24 @@ mod test {
                     eval: score.compact() - 1,
                     depth,
                     age_and_bound,
+                    _padding: 0,
                     _phantom: PhantomData,
                 };
                 let packed = AtomicTTEntry::default();
                 entry.pack_into(&packed);
                 let val = TTEntry::unpack(&packed);
                 assert_eq!(val, entry);
+                let packed2 = AtomicTTEntry::default();
+                entry.pack_fallback(&packed2);
+                // pack_fallback and load_fallback treat the entry as if it was little endian, however the unsafe transmute could in theory
+                // use big endian. This means the packed representation could in theory differ, but packing and unpacking
+                // should always give back the same value
+                if cfg!(target_endian = "little") {
+                    assert_eq!(packed.hash_and_move.load(Relaxed), packed2.hash_and_move.load(Relaxed));
+                    assert_eq!(packed.rest.load(Relaxed), packed2.rest.load(Relaxed));
+                }
+                let val2 = TTEntry::unpack_fallback(&packed2);
+                assert_eq!(val, val2);
                 let ply = rng().sample(Uniform::new(0, 100).unwrap());
                 tt.store(entry, hash, ply);
                 let loaded = tt.load(hash, ply).unwrap();

@@ -26,6 +26,10 @@ caps:
 	export RUSTFLAGS='-C target-cpu=native' && \
 	cargo rustc --release --package motors --bin motors --no-default-features --features='caps,unsafe' -- --emit link=${EXE}
 
+caps-safe:
+	export RUSTFLAGS='-C target-cpu=native' && \
+	cargo rustc --release --package motors --bin motors --no-default-features --features='caps' -- --emit link=${EXE}
+
 bench: release
 	./caps bench
 
