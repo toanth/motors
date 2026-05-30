@@ -242,7 +242,7 @@ pub struct TT {
 
 impl Default for TT {
     fn default() -> Self {
-        Self::new_with_mib(DEFAULT_HASH_SIZE_MIB)
+        if cfg!(miri) { Self::minimal() } else { Self::new_with_mib(DEFAULT_HASH_SIZE_MIB) }
     }
 }
 
@@ -268,6 +268,7 @@ impl TT {
             assert!(size_in_bytes.is_multiple_of(size_of::<TTBucket>()));
             let mut arr = Arc::new_uninit_slice(new_size);
             #[cfg(target_os = "linux")]
+            #[cfg(not(miri))]
             // TODO: This doesn't do anything if the array isn't sufficiently aligned, but that appears impossible to ensure with stable Arc.
             // Using Box instead of Arc would solve this issue, but would require some restructuring of the code
             // SAFETY: madvise and MADV_HUGEPAGE exist on linux and we're calling madvise with correct arguments
