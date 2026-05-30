@@ -983,6 +983,9 @@ impl Caps {
                     if in_check {
                         reduction -= cc::lmr_in_check_reduction();
                     }
+                    if !pos.see_at_least(mov, SeeScore(cc::lmr_bad_see_threshold())) {
+                        reduction += cc::lmr_bad_see_reduction();
+                    }
                 }
                 // Futility Reduction: If this move is not a TT move, good SEE capture or killer, and our eval is significantly
                 // less than alpha, reduce.
