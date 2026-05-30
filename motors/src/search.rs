@@ -3,7 +3,6 @@ use crate::io::ugi_output::{AbstractUgiOutput, UgiOutput};
 use crate::search::multithreading::SearchThreadType::*;
 use crate::search::multithreading::SearchType::*;
 use crate::search::multithreading::{AtomicSearchState, EngineReceives, EngineThread, SearchThreadType, Sender};
-use crate::search::statistics::{Statistics, Summary};
 use crate::search::tt::{Age, TT};
 use crossbeam_channel::unbounded;
 use derive_more::{Add, Neg, Sub};
@@ -44,7 +43,6 @@ pub mod chess;
 pub mod generic;
 pub mod multithreading;
 pub(crate) mod spsa_param;
-pub mod statistics;
 pub(super) mod tt;
 
 // only evaluate the debug message if debug mode is actually enabled
@@ -818,7 +816,6 @@ pub trait AbstractSearchState<B: BoardTrait> {
     fn pv_data(&self) -> &[PVData<B>];
     fn to_bench_res(&self) -> BenchResult;
     fn to_search_info(&self, final_info: bool) -> SearchInfo<'_, B>;
-    fn aggregated_statistics(&self) -> Statistics;
     fn send_search_info(&self, final_info: bool);
     fn should_show_debug_msg(&self) -> bool {
         self.search_params().thread_type.output().is_some_and(|o| o.show_debug_output)
@@ -856,8 +853,6 @@ pub struct SearchState<B: BoardTrait, E: SearchStackEntry<B>, C: CustomInfo<B>> 
     budget: Budget,
     execution_start_time: Instant,
     last_msg_time: Instant,
-    statistics: Statistics,
-    aggregated_statistics: Statistics, // statistics aggregated over all searches of the current match
     age: Age,
 }
 
@@ -892,7 +887,6 @@ impl<B: BoardTrait, E: SearchStackEntry<B>, C: CustomInfo<B>> AbstractSearchStat
             self.custom.new_search();
         }
         self.params.history.clear(); // will get overwritten later
-        self.statistics.clone_from(&Statistics::default());
         for pv in &mut self.multi_pvs {
             pv.reset();
         }
@@ -936,9 +930,6 @@ impl<B: BoardTrait, E: SearchStackEntry<B>, C: CustomInfo<B>> AbstractSearchStat
 
     fn end_search(&mut self, res: &mut SearchResult<B>) {
         dbg_print();
-        self.statistics_mut().end_search();
-        self.send_statistics();
-        self.aggregate_match_statistics();
         send_debug_msg!(
             self,
             "Ending a search that took {0} microseconds ({1} microseconds since starting searching in this thread)",
@@ -1023,10 +1014,6 @@ impl<B: BoardTrait, E: SearchStackEntry<B>, C: CustomInfo<B>> AbstractSearchStat
             res.num_threads = shared.len();
         }
         res
-    }
-
-    fn aggregated_statistics(&self) -> Statistics {
-        self.aggregated_statistics.clone()
     }
 
     fn send_search_info(&self, final_info: bool) {
@@ -1135,8 +1122,6 @@ impl<B: BoardTrait, E: SearchStackEntry<B>, C: CustomInfo<B>> SearchState<B, E, 
         Self {
             search_stack,
             custom,
-            statistics: Statistics::default(),
-            aggregated_statistics: Statistics::default(),
             multi_pvs: vec![],
             params,
             excluded_moves: vec![],
@@ -1181,30 +1166,6 @@ impl<B: BoardTrait, E: SearchStackEntry<B>, C: CustomInfo<B>> SearchState<B, E, 
         self.execution_start_time
     }
 
-    /// If the 'statistics' feature is enabled, this collects additional statistics.
-    /// If not, this still keeps track of nodes, depth and seldepth, which is used for UCI output.
-    #[inline(always)]
-    fn statistics(&self) -> &Statistics {
-        &self.statistics
-    }
-
-    #[inline(always)]
-    fn statistics_mut(&mut self) -> &mut Statistics {
-        &mut self.statistics
-    }
-
-    fn aggregate_match_statistics(&mut self) {
-        self.aggregated_statistics.aggregate_searches(&self.statistics);
-    }
-
-    fn send_statistics(&mut self) {
-        // don't pay the performance penalty of aggregating statistics unless they are shown,
-        // especially since the "statistics" feature is likely turned off
-        if cfg!(feature = "statistics") {
-            self.send_non_ugi(Message::Debug, &format_args!("{}", Summary::new(self.statistics())));
-        }
-    }
-
     fn current_mpv_pv(&self) -> &[B::Move] {
         // self.search_stack[0].pv doesn't have to be the same as `self.multi_pvs[self.current_pv_num].pv`
         // because it gets cleared when visiting the root,
@@ -1243,9 +1204,6 @@ pub fn run_bench_with<B: BoardTrait>(
         total.depth = Some(limit.depth);
     }
     total.pv_score_hash = hasher.finish();
-    if cfg!(feature = "statistics") {
-        eprintln!("{}", Summary::new(&engine.search_state_dyn().aggregated_statistics()));
-    }
     total
 }
 

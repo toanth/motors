@@ -17,7 +17,6 @@
  */
 use crate::eval::Eval;
 use crate::eval::rand_eval::RandEval;
-use crate::search::statistics::Statistics;
 use crate::search::{
     AbstractSearchState, BenchResult, DEFAULT_CHECK_TIME_INTERVAL, EmptySearchStackEntry, Engine, EngineInfo,
     NoCustomInfo, PVData, SearchParams,
@@ -304,10 +303,6 @@ impl<B: BoardTrait> AbstractSearchState<B> for ProofNumberSearcher<B> {
 
     fn to_search_info(&self, final_info: bool) -> SearchInfo<'_, B> {
         SearchInfo { final_info, ..Default::default() }
-    }
-
-    fn aggregated_statistics(&self) -> Statistics {
-        Statistics::default()
     }
 
     fn send_search_info(&self, _final_info: bool) {
