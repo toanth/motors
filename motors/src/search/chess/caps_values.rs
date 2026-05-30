@@ -72,6 +72,7 @@ spsa_params![
     lmp_fail_low_div: isize = 2; 2..=16; step=1;
     max_move_loop_pruning_depth: isize = 6 * 128; 1..=16_384; step=64;
     hist_pruning_max_depth: isize = 3 * 128; 128..=2048; step=32;
+    see_pruning_hist_mult: i32 = 16; 0..=256; step=4;
     max_see_pruning_depth: isize = 1024; 128..=2048; step=64;
     first_child_reduction: isize = 0; -64..=128; step=8;
     lmr_min_uninteresting: isize = 3; 0..=16; step=1;
