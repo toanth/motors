@@ -633,7 +633,7 @@ impl Caps {
             // TT cutoffs. If we've already seen this position, and the TT entry has more valuable information (higher depth),
             // and we're not a PV node, and the saved score is either exact or at least known to be outside (alpha, beta),
             // simply return it.
-            if !pv_node && tt_entry.depth as isize >= depth {
+            if !pv_node && tt_entry.depth() as isize >= depth {
                 if (tt_score >= beta && tt_bound == NodeType::lower_bound())
                     || (tt_score <= alpha && tt_bound == NodeType::upper_bound())
                     || tt_bound == Exact
@@ -1571,7 +1571,7 @@ mod tests {
             let mut root_entry = TTEntry::<Board>::default();
             if let Some(tt) = tt.clone() {
                 root_entry = tt.load(pos.hash_pos(), 0).unwrap();
-                assert!(root_entry.depth <= 2 * DEPTH_INCREMENT as u16); // possible extensions
+                assert!(root_entry.depth() as usize <= 2 * DEPTH_INCREMENT); // possible extensions
                 assert_eq!(root_entry.bound(), Exact);
                 assert!(root_entry.mov(&pos).is_some());
             }
@@ -1586,7 +1586,7 @@ mod tests {
                     let Some(entry) = entry else {
                         continue; // it's possible that a position is not in the TT because qsearch didn't save it
                     };
-                    assert!(entry.depth <= 2 * DEPTH_INCREMENT as u16, "{entry:?} {new_pos}");
+                    assert!(entry.depth() as usize <= 2 * DEPTH_INCREMENT, "{entry:?} {new_pos}");
                     assert!(-entry.score <= root_entry.score, "{entry:?}\n{root_entry:?}\n{new_pos}");
                 }
             }
