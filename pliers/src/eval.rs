@@ -360,7 +360,7 @@ fn grad_for_eval_scale(weights: &Weights, batch: Batch, eval_scale: ScalingFacto
     let mut loss = 0.0;
     for data in batch.datapoint_iter() {
         let cp_eval = cp_eval_for_weights(weights, data);
-        let prediction = cp_to_wr(cp_eval, eval_scale);
+        let prediction = cp_to_wr(cp_eval);
         let outcome = data.outcome;
         let sample_grad = <DefaultOptimizer as Optimizer>::Loss::sample_gradient(prediction, outcome) * cp_eval.0;
         scaled_grad += sample_grad;
