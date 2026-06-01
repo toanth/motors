@@ -967,15 +967,15 @@ impl Caps {
                     if !pv_node {
                         reduction += cc::lmr_no_pv_reduction();
                     }
-                    if we_blundered {
-                        reduction += cc::lmr_we_blundered_reduction();
-                    }
                     if new_pos.is_in_check() {
                         reduction -= cc::lmr_new_in_check_reduction();
                     }
                     if in_check {
                         reduction -= cc::lmr_in_check_reduction();
                     }
+                }
+                if we_blundered {
+                    reduction += cc::lmr_we_blundered_reduction();
                 }
                 // Futility Reduction: If this move is not a TT move, good SEE capture or killer, and our eval is significantly
                 // less than alpha, reduce.
