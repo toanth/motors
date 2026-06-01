@@ -18,7 +18,6 @@ use crate::search::{
     SearchStateFor,
 };
 use crate::send_debug_msg;
-use gears::PlayerResult;
 use gears::PlayerResult::{Lose, Win};
 use gears::colored::Colorize;
 use gears::games::BoardHistDyn;
@@ -46,6 +45,7 @@ use gears::search::NodeType::*;
 use gears::search::*;
 use gears::ugi::EngineOptionName::*;
 use gears::ugi::{EngineOptionNameForProtocol, EngineOptionType};
+use gears::{PlayerResult, track};
 
 type DefaultEval = LiTEval;
 
@@ -633,9 +633,15 @@ impl Caps {
             // TT cutoffs. If we've already seen this position, and the TT entry has more valuable information (higher depth),
             // and we're not a PV node, and the saved score is either exact or at least known to be outside (alpha, beta),
             // simply return it.
-            if !pv_node && tt_entry.depth as isize >= depth {
-                if (tt_score >= beta && tt_bound == NodeType::lower_bound())
-                    || (tt_score <= alpha && tt_bound == NodeType::upper_bound())
+            let depth_diff = 0.max(depth - tt_entry.depth as isize);
+            // idea from david: Do TT cutoffs even if the tt depth is lower than the current depth, as long as the tt bound is far above beta
+            let beta_cutoff_threshold =
+                beta + Score((depth_diff * depth_diff * cc::tt_cutoff_margin() / (128 * 128)) as ScoreT);
+            if !pv_node
+                && (tt_entry.depth as isize >= depth || (tt_bound != FailLow && tt_score >= beta_cutoff_threshold))
+            {
+                if (tt_bound == NodeType::lower_bound() && tt_score >= beta_cutoff_threshold)
+                    || (tt_bound == NodeType::upper_bound() && tt_score <= alpha)
                     || tt_bound == Exact
                 {
                     // Idea from stormphrax
@@ -647,7 +653,7 @@ impl Caps {
                         self.update_histories(best_move, depth, ply, tt_score - beta);
                     }
                     return Some(tt_score);
-                } else if depth <= cc::low_depth_tt_extension_depth() {
+                } else if depth <= cc::low_depth_tt_extension_depth() && tt_entry.depth as isize >= depth {
                     // also from stormphrax
                     depth += cc::tt_extension();
                 }
