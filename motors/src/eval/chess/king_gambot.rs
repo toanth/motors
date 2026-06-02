@@ -116,6 +116,10 @@ impl LiteValues for KingGambotValues {
         Lite::phalanx(rank)
     }
 
+    fn promo_supporting_bishop() -> PhasedScore {
+        Lite::promo_supporting_bishop()
+    }
+
     fn bishop_pair() -> PhasedScore {
         Lite::bishop_pair()
     }

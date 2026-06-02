@@ -133,16 +133,15 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
         res
     }
 
-    fn bishop_pair(pos: &Board, color: Color) -> SingleFeatureScore<Tuned::Score> {
-        if pos.col_piece_bb(color, Bishop).more_than_one_bit_set() { Tuned::bishop_pair() } else { Default::default() }
-    }
-
-    fn bad_bishop(pos: &Board, color: Color) -> Tuned::Score {
+    fn bishops(pos: &Board, color: Color) -> Tuned::Score {
         let mut score = Tuned::Score::default();
         let pawns = pos.col_piece_bb(color, Pawn);
         for bishop in pos.col_piece_bb(color, Bishop) {
             let sq_color = bishop.square_color();
             score += Tuned::bad_bishop((COLORED_SQUARES[sq_color as usize] & pawns).num_ones().min(8));
+        }
+        if pos.col_piece_bb(color, Bishop).more_than_one_bit_set() {
+            score += Tuned::bishop_pair();
         }
         score
     }
@@ -205,6 +204,13 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
                 }
                 if pos.player_bb(!us).has(square.pawn_advance_unchecked(us)) {
                     score += Tuned::immobile_passer()
+                }
+                let promo_sq_color = (square.bb_idx() + (us == Black) as usize) % 2;
+                if pos.col_piece_bb(us, Bishop).intersects(COLORED_SQUARES[promo_sq_color]) {
+                    score += Tuned::promo_supporting_bishop();
+                }
+                if pos.col_piece_bb(!us, Bishop).intersects(COLORED_SQUARES[promo_sq_color]) {
+                    score -= Tuned::promo_supporting_bishop();
                 }
                 *passers |= square.bb();
             }
@@ -367,8 +373,7 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
         let mut score = Tuned::Score::default();
         state.stm_bonus = [Tuned::Score::default(), Tuned::Score::default()];
         for color in Color::iter() {
-            score += Self::bishop_pair(pos, color);
-            score += Self::bad_bishop(pos, color);
+            score += Self::bishops(pos, color);
             score += Self::open_lines(pos, color);
             score += Self::mobility_and_threats(state, pos, color);
             score += Self::pins_and_discovered_checks(state, pos, color);
@@ -504,7 +509,7 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
         let in_front_of_pawns = old_pos.col_piece_bb(White, Pawn).pawn_advance(White)
             | old_pos.col_piece_bb(Black, Pawn).pawn_advance(Black);
         let maybe_pawn_eval_change =
-            in_front_of_pawns.has(mov.src_square()) || in_front_of_pawns.has(mov.dest_square());
+            in_front_of_pawns.has(mov.src_square()) || in_front_of_pawns.has(mov.dest_square()) || captured == Bishop;
         if matches!(piece_type, Pawn | King) || captured == Pawn || maybe_pawn_eval_change {
             state.pawn_score = Self::pawns(new_pos, &mut state.passers);
         }

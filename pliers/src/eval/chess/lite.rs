@@ -52,6 +52,7 @@ pub enum LiteFeatureSubset {
     UnsupportedPawn,
     DoubledPawn,
     Phalanx,
+    PromoSupportingBishop,
     PawnProtection,
     PawnAttacks,
     PawnAdvanceThreat,
@@ -87,6 +88,7 @@ impl FeatureSubSet for LiteFeatureSubset {
             UnsupportedPawn => 1,
             DoubledPawn => 1,
             Phalanx => 6,
+            PromoSupportingBishop => 1,
             PawnlessFlank => 1,
             PawnProtection => NUM_CHESS_PIECES,
             PawnAttacks => NUM_CHESS_PIECES,
@@ -193,6 +195,9 @@ impl FeatureSubSet for LiteFeatureSubset {
             }
             Phalanx => {
                 write!(f, "const PHALANX: [PhasedScore; 6] = ")?;
+            }
+            PromoSupportingBishop => {
+                write!(f, "const PROMO_SUPPORTING_BISHOP: PhasedScore = ")?;
             }
             PawnlessFlank => {
                 write!(f, "const PAWNLESS_FLANK: PhasedScore = ")?;
@@ -337,6 +342,10 @@ impl LiteValues for LiTETrace {
 
     fn phalanx(rank: DimT) -> SingleFeature {
         SingleFeature::new(Phalanx, rank as usize)
+    }
+
+    fn promo_supporting_bishop() -> SingleFeature {
+        SingleFeature::new(PromoSupportingBishop, 0)
     }
 
     fn bishop_pair() -> SingleFeature {
