@@ -1973,7 +1973,7 @@ fn format_tt_entry<B: BoardTrait>(state: MatchState<B>, entry: TTEntry<B>, tt: T
         pretty_score(score, None, None, &score_gradient(), true, false),
         entry.bound(),
         pretty_score(entry.raw_eval(), None, None, &score_gradient(), true, false),
-        entry.depth.to_string().bold(),
+        entry.depth().to_string().bold(),
         entry.age(),
         move_string,
         pos.hash_pos(),
