@@ -234,7 +234,7 @@ impl Engine<Board> for Caps {
         let mut limit = self.params.limit;
         let pos = self.params.pos;
         limit.fixed_time = min(limit.fixed_time, limit.tc.remaining);
-        self.ply_hard_limit = if limit.mate.get() == 0 { PLY_HARD_LIMIT } else { limit.mate.get() };
+        self.ply_hard_limit = if limit.mate == 0 { PLY_HARD_LIMIT } else { limit.mate.abs() as usize };
         let soft_limit =
             limit.tc.remaining.saturating_sub(limit.tc.increment) / cc::soft_limit_div() + limit.tc.increment;
         self.params.limit = limit;
@@ -260,7 +260,7 @@ impl Engine<Board> for Caps {
             max {nodes} nodes, soft limit {soft}ms, {ignored} ignored moves. {elapsed} microseconds have already elapsed ({e2} since starting the search in this thread)",
             time = limit.tc.remaining.as_micros(),
             incr = limit.tc.increment.as_millis(),
-            mate = limit.mate.get(),
+            mate = limit.mate,
             depth = limit.depth.get(),
             nodes = limit.nodes.get(),
             fixed = limit.fixed_time.as_millis(),
@@ -588,7 +588,7 @@ impl Caps {
         if in_check {
             depth += cc::check_extension();
         }
-        // limit.mate() is the min of the original limit.mate and DEPTH_HARD_LIMIT
+        // self.ply_hard_limit is the min of the original limit.mate and DEPTH_HARD_LIMIT
         if depth <= 0 || ply >= self.ply_hard_limit {
             return self.qsearch(pos, alpha, beta, ply, pv_node);
         }
