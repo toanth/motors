@@ -720,8 +720,8 @@ pub fn print_optimized_weights(
     println!("Scaling factor: {scale:.2}, {0}:\n{1}", "Final eval".bold(), display(interpretation, &weights, &[]));
 }
 
-/// The default optimizer. Currently, this is [`Adam`].
-pub type DefaultOptimizer = Adam<QuadraticLoss>;
+/// The default optimizer. Currently, this is [`AdamW`].
+pub type DefaultOptimizer = AdamW<QuadraticLoss>;
 
 /// Change the current weights each iteration by taking into account the gradient.
 ///

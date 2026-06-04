@@ -265,7 +265,7 @@ impl FeatureSubSet for LiteFeatureSubset {
                 write!(f, "const PIN: [PhasedScore; NUM_CHESS_PIECES - 1] = ")?;
             }
             Material => {
-                write!(f, "const MATERIAL: [PhasedScore; NUM_CHESS_PIECES] = ")?;
+                write!(f, "const MATERIAL: [PhasedScore; NUM_CHESS_PIECES + 1] = ")?;
             }
         }
         write_range_phased(f, weights, self.start_idx(), self.num_features(), special, true)?;
