@@ -1,24 +1,24 @@
 //! The hand-crafted eval used by the `caps` chess engine.
 
-use crate::eval::EvalScale::Scale;
 use crate::eval::chess::lite::LiteFeatureSubset::*;
-use crate::eval::chess::{SkipChecks, write_phased_psqt, write_psqts};
+use crate::eval::chess::{write_phased_psqt, write_psqts, SkipChecks};
+use crate::eval::EvalScale::Scale;
 use crate::eval::{
-    Eval, EvalScale, WeightsInterpretation, changed_at_least, write_2d_range_phased, write_phased, write_range_phased,
+    changed_at_least, write_2d_range_phased, write_phased, write_range_phased, Eval, EvalScale, WeightsInterpretation,
 };
 use crate::gd::{Float, Weight, Weights};
 use crate::trace::{FeatureSubSet, SingleFeature, SparseTrace, TraceTrait};
-use gears::games::DimT;
-use gears::games::chess::Color::White;
 use gears::games::chess::pieces::PieceType::*;
-use gears::games::chess::pieces::{NUM_CHESS_PIECES, PieceType};
+use gears::games::chess::pieces::{PieceType, NUM_CHESS_PIECES};
 use gears::games::chess::see::SEE_SCORES;
-use gears::games::chess::squares::{NUM_SQUARES, Square};
+use gears::games::chess::squares::{Square, NUM_SQUARES};
+use gears::games::chess::Color::White;
 use gears::games::chess::{Board, Color};
+use gears::games::DimT;
 use gears::general::common::StaticallyNamedEntity;
-use motors::eval::chess::FileOpenness::*;
 use motors::eval::chess::lite::GenericLiTEval;
 use motors::eval::chess::lite_values::{LiteValues, MAX_MOBILITY};
+use motors::eval::chess::FileOpenness::*;
 use motors::eval::chess::{FileOpenness, NUM_PAWN_SHIELD_CONFIGURATIONS};
 use std::fmt;
 use std::fmt::{Display, Formatter};
@@ -64,6 +64,7 @@ pub enum LiteFeatureSubset {
     DiscoveredCheckStm,
     DiscoveredCheck,
     Pin,
+    Material,
 }
 
 impl FeatureSubSet for LiteFeatureSubset {
@@ -100,6 +101,7 @@ impl FeatureSubSet for LiteFeatureSubset {
             DiscoveredCheckStm => 1,
             DiscoveredCheck => NUM_CHESS_PIECES,
             Pin => NUM_CHESS_PIECES - 1,
+            Material => NUM_CHESS_PIECES + 1,
         }
     }
 
@@ -166,10 +168,10 @@ impl FeatureSubSet for LiteFeatureSubset {
                 return writeln!(f, "];");
             }
             StoppablePasser => {
-                writeln!(f, "const STOPPABLE_PASSER: PhasedScore = ")?;
+                write!(f, "const STOPPABLE_PASSER: PhasedScore = ")?;
             }
             CloseKingPasser => {
-                writeln!(f, "const CLOSE_KING_PASSER: PhasedScore = ")?;
+                write!(f, "const CLOSE_KING_PASSER: PhasedScore = ")?;
             }
             ImmobilePasser => {
                 write!(f, "const IMMOBILE_PASSER: PhasedScore = ")?;
@@ -262,6 +264,9 @@ impl FeatureSubSet for LiteFeatureSubset {
             Pin => {
                 write!(f, "const PIN: [PhasedScore; NUM_CHESS_PIECES - 1] = ")?;
             }
+            Material => {
+                write!(f, "const MATERIAL: [PhasedScore; NUM_CHESS_PIECES] = ")?;
+            }
         }
         write_range_phased(f, weights, self.start_idx(), self.num_features(), special, true)?;
         writeln!(f, ";")
@@ -295,6 +300,10 @@ impl StaticallyNamedEntity for LiTETrace {
 
 impl LiteValues for LiTETrace {
     type Score = SparseTrace;
+
+    fn material(piece: PieceType) -> SingleFeature {
+        SingleFeature::new(Material, piece as usize)
+    }
 
     fn psqt(&self, square: Square, piece: PieceType, color: Color) -> SingleFeature {
         let square = square.flip_if(color == White);
@@ -446,6 +455,8 @@ impl LiteValues for LiTETrace {
 /// This is done by re-using the generic eval function but instantiating it with a trace instead of a score.
 pub struct TuneLiTEval {}
 
+const EVAL_SCALE: Float = 120.;
+
 impl WeightsInterpretation for TuneLiTEval {
     #[allow(clippy::too_many_lines)]
     fn display(&self) -> fn(&mut Formatter, &Weights, &[Weight]) -> std::fmt::Result {
@@ -466,7 +477,7 @@ impl WeightsInterpretation for TuneLiTEval {
     }
 
     fn eval_scale(&self) -> EvalScale {
-        Scale(120.0)
+        Scale(EVAL_SCALE)
     }
 
     fn retune_from_zero(&self) -> bool {
@@ -475,13 +486,8 @@ impl WeightsInterpretation for TuneLiTEval {
 
     fn initial_weights(&self) -> Option<Weights> {
         let mut weights = vec![Weight(0.0); Self::num_weights()];
-        for piece in PieceType::non_king_pieces() {
-            let piece_val = Weight(SEE_SCORES[piece as usize].0 as Float);
-            for square in 0..NUM_SQUARES {
-                let i = piece as usize * 64 + square;
-                weights[2 * i] = piece_val;
-                weights[2 * i + 1] = piece_val;
-            }
+        for (i, w) in weights.last_chunk_mut::<{ 2 * (NUM_CHESS_PIECES + 1) }>().unwrap().iter_mut().enumerate() {
+            *w = if i / 2 >= King as usize { Weight(0.) } else { Weight(SEE_SCORES[i / 2].0 as Float) };
         }
         Some(Weights(weights))
     }
@@ -490,6 +496,11 @@ impl WeightsInterpretation for TuneLiTEval {
 impl Eval<Board> for TuneLiTEval {
     fn num_features() -> usize {
         LiteFeatureSubset::iter().map(|f| f.num_features()).sum()
+    }
+
+    fn num_untuned_weights() -> usize {
+        // Every position gets a constant untuned offset based on the material imbalance
+        2 * (NUM_CHESS_PIECES + 1)
     }
 
     type Filter = SkipChecks;

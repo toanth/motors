@@ -94,15 +94,15 @@
 extern crate core;
 
 use crate::eval::EvalScale::{InitialWeights, Scale};
-use crate::eval::{Eval, count_occurrences, display};
-use crate::gd::{DefaultOptimizer, Optimizer, Weight, Weights, optimize_dataset, print_optimized_weights};
+use crate::eval::{count_occurrences, display, Eval};
+use crate::gd::{optimize_dataset, print_optimized_weights, DefaultOptimizer, Optimizer, Weight, Weights};
 use crate::load_data::Perspective::White;
 use crate::load_data::{AnnotatedFenFile, FenReader};
 use gears::colored::Colorize;
 use gears::games::chess::Board;
 use gears::general::board::{BoardHelpers, BoardTrait};
-use gears::general::common::Res;
 use gears::general::common::anyhow::{anyhow, bail};
+use gears::general::common::Res;
 use serde_json::from_reader;
 use std::env::args;
 use std::fs::File;
@@ -228,7 +228,7 @@ pub fn debug_eval_on_pos<B: BoardTrait, E: Eval<Board>>(pos: B) {
         dataset.as_batch().datapoint_iter().next().unwrap().entries.len(),
         E::num_weights()
     );
-    print_optimized_weights(&weights, dataset.as_batch(), scale, &e);
+    print_optimized_weights(&(weights * scale), dataset.as_batch(), scale, &e);
     println!("\nEND DEBUG POSITION OUTPUT\n");
 }
 
@@ -245,16 +245,16 @@ mod tests {
 
     use crate::eval::chess::piston_eval::PistonEval;
     use crate::gd::{
-        Adam, AdamW, CrossEntropyLoss, Float, Outcome, QuadraticLoss, ScaledCpScore, cp_eval_for_weights, cp_to_wr,
-        loss_for, quadratic_sample_loss,
+        cp_eval_for_weights, cp_to_wr, loss_for, quadratic_sample_loss, Adam, AdamW, CrossEntropyLoss, Float, Outcome,
+        QuadraticLoss, ScaledCpScore,
     };
     use crate::load_data::Perspective::SideToMove;
-    use PieceType::*;
-    use gears::games::chess::Color::White;
-    use gears::games::chess::Settings;
     use gears::games::chess::pieces::{ColoredPieceType, PieceType};
     use gears::games::chess::zobrist::NUM_PIECE_SQUARE_ENTRIES;
+    use gears::games::chess::Color::White;
+    use gears::games::chess::Settings;
     use gears::games::{AbstractPieceType, CharType, ColoredPieceTypeTrait};
+    use PieceType::*;
 
     #[test]
     pub fn two_chess_positions_test() {

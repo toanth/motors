@@ -2,21 +2,21 @@ use std::fmt::Display;
 
 use crate::eval::chess::lite_values::*;
 use crate::eval::chess::{
-    DiagonalOpenness, FLANK, FileOpenness, REACHABLE_PAWNS, pawn_advanced_center_idx, pawn_passive_center_idx,
-    pawn_shield_idx,
+    pawn_advanced_center_idx, pawn_passive_center_idx, pawn_shield_idx, DiagonalOpenness, FileOpenness, FLANK,
+    REACHABLE_PAWNS,
 };
-use gears::games::chess::Color::{Black, White};
 use gears::games::chess::castling::CastleRight::Kingside;
 use gears::games::chess::moves::Move;
 use gears::games::chess::pieces::PieceType;
 use gears::games::chess::pieces::PieceType::*;
 use gears::games::chess::squares::{ChessboardSize, Square};
-use gears::games::chess::{Board, CHESS_PIECE_PHASE, ChessBitboardTrait, Color};
+use gears::games::chess::Color::{Black, White};
+use gears::games::chess::{Board, ChessBitboardTrait, Color, CHESS_PIECE_PHASE};
 use gears::games::{ColorTrait, CoordinatesTrait};
 use gears::games::{DimT, PosHash};
 use gears::general::attacks::ChessSliderGenerator;
-use gears::general::bitboards::RawBitboardTrait;
 use gears::general::bitboards::chessboard::{Bitboard, COLORED_SQUARES};
+use gears::general::bitboards::RawBitboardTrait;
 use gears::general::bitboards::{BitboardTrait, KnownSizeBitboard};
 use gears::general::board::{BitboardBoard, BoardTrait};
 use gears::general::common::StaticallyNamedEntity;
@@ -36,6 +36,7 @@ struct EvalState<Tuned: LiteValues> {
     passers: Bitboard,
     phase: PhaseType,
     // scores are stored from the perspective of the white player
+    material: Tuned::Score,
     psqt_score: Tuned::Score,
     pawn_score: Tuned::Score,
     stm_bonus: [Tuned::Score; 2],
@@ -119,18 +120,21 @@ impl<Tuned: LiteValues> StaticallyNamedEntity for GenericLiTEval<Tuned> {
 }
 
 impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
-    fn psqt(&self, pos: &Board) -> Tuned::Score {
-        let mut res = Tuned::Score::default();
+    fn psqt(&self, pos: &Board) -> (Tuned::Score, Tuned::Score) {
+        let mut psqt = Tuned::Score::default();
+        let mut material = Tuned::Score::default();
         for color in Color::iter() {
             let flip = if pos.king_sq(color).file() < 4 { 0x7 } else { 0x0 };
             for piece in PieceType::pieces() {
                 for square in pos.col_piece_bb(color, piece) {
-                    res += self.tuned.psqt(Square::from_bb_idx(square.bb_idx() ^ flip), piece, color);
+                    psqt += self.tuned.psqt(Square::from_bb_idx(square.bb_idx() ^ flip), piece, color);
                 }
+                material += Tuned::material(piece) * pos.col_piece_bb(color, piece).num_ones();
             }
-            res = -res;
+            psqt = -psqt;
+            material = -material;
         }
-        res
+        (material, psqt)
     }
 
     fn bishop_pair(pos: &Board, color: Color) -> SingleFeatureScore<Tuned::Score> {
@@ -428,19 +432,23 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
     }
 
     fn eval_from_scratch(&self, pos: &Board) -> EvalState<Tuned> {
+        let (material, psqt_score) = self.psqt(pos);
         let mut state = EvalState {
             hash: pos.hash_pos(),
             pawn_key: pos.pawn_key(),
             passers: Default::default(),
             phase: pos.phase(),
-            psqt_score: self.psqt(pos),
+            material,
+            psqt_score,
             pawn_score: Default::default(),
             stm_bonus: Default::default(),
             total_score: Default::default(),
         };
         state.pawn_score = Self::pawns(pos, &mut state.passers);
-        state.total_score =
-            Self::recomputed_every_time(&mut state, pos) + state.psqt_score.clone() + state.pawn_score.clone();
+        state.total_score = Self::recomputed_every_time(&mut state, pos)
+            + state.material.clone()
+            + state.psqt_score.clone()
+            + state.pawn_score.clone();
         state
     }
 
@@ -469,8 +477,8 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
         }
         debug_assert_eq!(
             self.psqt(old_pos),
-            state.psqt_score,
-            "{0} {1} {old_pos} {new_pos} {2}",
+            (state.material.clone(), state.psqt_score.clone()),
+            "{0:?} {1:?} {old_pos} {new_pos} {2}",
             self.psqt(old_pos),
             state.psqt_score,
             mov.compact_formatter(old_pos)
@@ -479,10 +487,21 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
 
         let piece_type = mov.piece_type(old_pos);
         let captured = mov.captured(old_pos);
+
+        let mut material_delta = Tuned::Score::default();
+        material_delta += Tuned::material(captured);
+        if mov.is_promotion() {
+            material_delta -= Tuned::material(Pawn);
+            material_delta += Tuned::material(mov.promo_piece());
+        }
+        if !old_pos.active_player().is_first() {
+            material_delta = -material_delta;
+        }
+        state.material += material_delta;
         // also deals with castles, unlike testing mov.dest_square().rank()
         if piece_type == King && (mov.src_square().file() < 4) != (new_pos.king_sq(old_pos.active_player()).file() < 4)
         {
-            state.psqt_score = self.psqt(new_pos);
+            state.psqt_score = self.psqt(new_pos).1;
             state.phase = 0;
             for piece in PieceType::non_king_pieces() {
                 state.phase += new_pos.piece_bb(piece).num_ones() as isize * CHESS_PIECE_PHASE[piece as usize];
@@ -492,11 +511,13 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
             state.psqt_score += psqt_delta;
             state.phase += phase_delta;
             debug_assert_eq!(
-                state.psqt_score,
+                (state.material.clone(), state.psqt_score.clone()),
                 self.psqt(new_pos),
-                "{0} {1} {2} {old_pos} {new_pos} {3}",
-                state.psqt_score,
-                self.psqt(new_pos),
+                "({0}, {1}) ({2}, {3}) {4} {old_pos} {new_pos} {5}",
+                state.material.clone(),
+                state.psqt_score.clone(),
+                self.psqt(new_pos).0,
+                self.psqt(new_pos).1,
                 self.psqt_delta(old_pos, mov, captured, new_pos).0,
                 mov.compact_formatter(old_pos)
             );
@@ -510,8 +531,10 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
         }
         state.hash = new_pos.hash_pos();
         state.pawn_key = new_pos.pawn_key();
-        state.total_score =
-            Self::recomputed_every_time(&mut state, new_pos) + state.psqt_score.clone() + state.pawn_score.clone();
+        state.total_score = Self::recomputed_every_time(&mut state, new_pos)
+            + state.material.clone()
+            + state.psqt_score.clone()
+            + state.pawn_score.clone();
         state
     }
 }

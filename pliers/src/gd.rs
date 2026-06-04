@@ -1,9 +1,10 @@
 //! Everything related to the actual optimization, using a Gradient Descent-based tuner ([`Adam`] by default).
 
-use crate::eval::{WeightsInterpretation, count_occurrences, display, interpolate};
+use crate::eval::{count_occurrences, display, interpolate, WeightsInterpretation};
 use crate::load_data::FeatureAppearance;
 use derive_more::{Add, AddAssign, Deref, DerefMut, Display, Div, Mul, Sub, SubAssign};
 use gears::colored::Colorize;
+use gears::itertools::Itertools;
 use rayon::prelude::*;
 use std::fmt::{Debug, Display, Formatter};
 use std::marker::PhantomData;
@@ -18,7 +19,7 @@ use std::time::Instant;
 pub const MIN_MULTITHREADING_BATCH_SIZE: usize = 10_000;
 
 /// Gradient Descent based tuning works with real numbers. This is the type used to represent those.
-pub type Float = f64;
+pub type Float = f32;
 
 /// The result of calling the eval function.
 ///
@@ -215,13 +216,13 @@ impl Display for Weights {
 
 impl AddAssign<&Self> for Weights {
     fn add_assign(&mut self, rhs: &Self) {
-        self.iter_mut().zip(rhs.iter()).for_each(|(a, b)| *a += *b);
+        self.iter_mut().zip_eq(rhs.iter()).for_each(|(a, b)| *a += *b);
     }
 }
 
 impl SubAssign<&Self> for Weights {
     fn sub_assign(&mut self, rhs: &Self) {
-        self.iter_mut().zip(rhs.iter()).for_each(|(a, b)| *a -= *b);
+        self.iter_mut().zip_eq(rhs.iter()).for_each(|(a, b)| *a -= *b);
     }
 }
 
@@ -261,9 +262,9 @@ impl Div<Float> for Weights {
 
 impl Weights {
     fn update(&mut self, data_point: DatapointRef, factor: Float) {
-        // TODO: Make sure this doens't perform bounds checking
+        // TODO: Make sure this doesn't perform bounds checking
         for feature in data_point.entries {
-            self[feature.idx].0 += feature.weight * factor;
+            self[feature.idx()].0 += feature.weight * factor;
         }
     }
 }
@@ -318,13 +319,14 @@ pub struct Entry {
     pub weight: Float,
     /// The index of the *weight* that this entry corresponds to.
     /// This is not necessarily the same as the feature index if the eval is tapered.
-    pub idx: usize,
+    pub idx: u32,
 }
 
 impl Entry {
     /// Construct a single entry with the given index and weight.
     pub fn new(idx: usize, weight: Float) -> Self {
-        Self { weight, idx }
+        assert!(idx <= u32::MAX as usize);
+        Self { weight, idx: idx as u32 }
     }
 
     /// Create a `Vec` of entries from a slice of features and the phase, where each feature correspononds to two entries.
@@ -343,6 +345,11 @@ impl Entry {
     /// Create a `Vec` of entries from a slice of features, with a one-to-one correspondence.
     pub fn from_features_unphased(features: &[Feature]) -> Vec<Self> {
         features.iter().map(|&feature| Self::new(feature.idx(), feature.float())).collect()
+    }
+
+    /// The index as usize; internally it's stored as u32 to save space
+    pub fn idx(self) -> usize {
+        self.idx as usize
     }
 }
 
@@ -376,13 +383,20 @@ pub struct Dataset {
     datapoints: Vec<SingleDatapoint>,
     entries: Vec<Entry>,
     weights_in_pos: usize,
+    num_tuned_weights: usize,
 }
 
 impl Dataset {
     /// Create a new dataset, where each data point consist of `num_weights` weights.
-    /// (But datapoints are still stored as a sparse matrix)
+    /// (But datapoints are still stored as a sparse matrix).
+    /// Only the first [`num_tuned`] weights get tuned; the rest remain at their initial values.
+    pub fn new_with_tuned(num_weights: usize, num_tuned: usize) -> Self {
+        Self { datapoints: vec![], entries: vec![], weights_in_pos: num_weights, num_tuned_weights: num_tuned }
+    }
+
+    /// Create a new [`Dataset`] where all the weights are tuned
     pub fn new(num_weights: usize) -> Self {
-        Self { datapoints: vec![], entries: vec![], weights_in_pos: num_weights }
+        Self::new_with_tuned(num_weights, num_weights)
     }
 
     /// The number of weights per position.
@@ -412,16 +426,18 @@ impl Dataset {
     }
 
     /// Combine two datasets into one larger dataset without removing duplicate positions.
-    pub fn union(&mut self, other: Dataset) {
+    pub fn union(&mut self, mut other: Dataset) {
+        if other.entries.len() > self.entries.len() {
+            std::mem::swap(self, &mut other);
+        }
         assert_eq!(self.weights_in_pos, other.weights_in_pos);
         let n = self.entries.len() as u32;
-        self.datapoints.reserve(self.datapoints.len() + other.datapoints.len());
-        for mut d in other.datapoints {
+        for d in &mut other.datapoints {
             d.start_idx += n;
             d.end_idx += n;
-            self.datapoints.push(d);
         }
-        self.entries.extend_from_slice(&other.entries);
+        self.datapoints.append(&mut other.datapoints);
+        self.entries.append(&mut other.entries);
     }
 
     /// Remove all data points with an index appearing in `list`
@@ -435,6 +451,7 @@ impl Dataset {
             datapoints: self.datapoints.as_slice(),
             entries: self.entries.as_slice(),
             weights_in_pos: self.weights_in_pos,
+            num_tuned_weights: self.num_tuned_weights,
         }
     }
 
@@ -442,7 +459,12 @@ impl Dataset {
     pub fn batch(&self, start_idx: usize, end_idx: usize) -> Batch<'_> {
         let end_idx = end_idx.min(self.datapoints.len());
         let datapoints = &self.datapoints[start_idx..end_idx];
-        Batch { datapoints, entries: self.entries.as_slice(), weights_in_pos: self.weights_in_pos }
+        Batch {
+            datapoints,
+            entries: self.entries.as_slice(),
+            weights_in_pos: self.weights_in_pos,
+            num_tuned_weights: self.num_tuned_weights,
+        }
     }
 }
 
@@ -454,6 +476,10 @@ pub struct Batch<'a> {
     entries: &'a [Entry],
     /// The number of weights per data point. This is 2 times the number of features
     pub weights_in_pos: usize,
+    /// The eval of a data point is an affine combination of features; this is the number of features
+    /// used for the constant offset.
+    /// This is useful if some parts of the eval should not be tuned.
+    pub num_tuned_weights: usize,
 }
 
 impl<'a> Batch<'a> {
@@ -495,13 +521,23 @@ impl<'a> Batch<'a> {
     pub(crate) fn entries_of(&self, dp: &SingleDatapoint) -> &[Entry] {
         &self.entries[dp.start_idx as usize..dp.end_idx as usize]
     }
+
+    /// The number of weights that get tuned; these are the first weights.
+    pub fn num_tuned_weights(&self) -> usize {
+        self.num_tuned_weights
+    }
+
+    /// After the weights that get tuned, there can follow weights that don't get tuned.
+    pub fn num_untuned_weights(&self) -> usize {
+        self.weights_in_pos - self.num_tuned_weights
+    }
 }
 
 /// Eval of a position, given the current weights.
 pub fn cp_eval_for_weights(weights: &Weights, position: DatapointRef) -> ScaledCpScore {
     let mut res = 0.0;
     for entry in position.entries {
-        res += entry.weight * weights[entry.idx].0;
+        res += entry.weight * weights[entry.idx()].0;
     }
     ScaledCpScore(res)
 }
@@ -549,12 +585,12 @@ pub fn loss_for<L: LossFn>(weights: &Weights, batch: Batch<'_>, sample_loss: L) 
 pub fn compute_gradient<G: LossGradient>(weights: &Weights, batch: Batch) -> Gradient {
     // TODO: Use pairwise summation (<https://en.wikipedia.org/wiki/Pairwise_summation>) for better accuracy
     // let constant_factor = 2.0 * eval_scale / batch.weights_in_pos as Float;
-    let constant_factor = 1.0 / batch.weights_in_pos as Float;
+    let constant_factor = 1.0 / batch.num_tuned_weights() as Float;
     let grad = if batch.num_datapoins() >= MIN_MULTITHREADING_BATCH_SIZE {
         batch
             .par_datapoint_iter()
             .fold(
-                || Gradient::new(weights.num_weights()),
+                || Gradient::new(batch.weights_in_pos),
                 |mut grad: Gradient, data: DatapointRef| {
                     let wr_prediction = wr_prediction_for_weights(weights, data);
 
@@ -565,7 +601,7 @@ pub fn compute_gradient<G: LossGradient>(weights: &Weights, batch: Batch) -> Gra
                 },
             )
             .reduce(
-                || Gradient::new(weights.num_weights()),
+                || Gradient::new(batch.weights_in_pos),
                 |mut a, b| {
                     a += &b;
                     a
@@ -643,7 +679,7 @@ pub fn optimize_dataset(
                 println!("Maximum absolute weight change less than 0.05, stopping after {epoch} epochs");
                 break;
             }
-            prev_weights.clone_from(&weights.0);
+            prev_weights = weights.0;
             prev_loss = loss;
         }
         if epoch == 20.min(num_epochs / 100) {
@@ -744,7 +780,9 @@ impl Optimizer for SimpleGDOptimizer {
 
     fn iteration(&mut self, weights: &mut Weights, batch: Batch, _i: usize) {
         let gradient = compute_gradient::<QuadraticLoss>(weights, batch);
-        for i in 0..weights.len() {
+        debug_assert_eq!(gradient.len(), weights.len());
+        debug_assert_eq!(batch.num_tuned_weights() + batch.num_untuned_weights(), gradient.len());
+        for i in 0..batch.num_tuned_weights() {
             weights[i].0 -= gradient[i].0 * self.alpha;
         }
     }
@@ -866,7 +904,9 @@ impl<G: LossGradient> Optimizer for AdamW<G> {
         let beta1 = self.hyper_params.beta1;
         let beta2 = self.hyper_params.beta2;
         let gradient = compute_gradient::<G>(weights, batch);
-        for i in 0..gradient.len() {
+        debug_assert_eq!(gradient.len(), weights.len());
+        debug_assert_eq!(batch.num_tuned_weights() + batch.num_untuned_weights(), gradient.len());
+        for i in 0..batch.num_tuned_weights() {
             // biased since the values are initialized to 0, so the exponential moving average is wrong
             self.m[i] = self.m[i] * beta1 + gradient[i] * (1.0 - beta1);
             self.v[i] = self.v[i] * beta2 + gradient[i] * gradient[i].0 * (1.0 - beta2);
@@ -911,15 +951,16 @@ mod tests {
 
     #[test]
     pub fn compute_gradient_test() {
-        let weights = Weights(vec![Weight(0.0), Weight(0.0)]);
+        let weights = Weights(vec![Weight(0.0), Weight(0.0), Weight(0.0)]);
         for outcome in [0.0, 0.5, 1.0] {
-            let mut dataset = Dataset::new(2);
+            let mut dataset = Dataset::new_with_tuned(3, 2);
             let features = vec![Feature::new(1, 0)];
             let entries = Entry::from_features(&features, 1.0);
             dataset.push(DatapointRef { entries: &entries, outcome: Outcome::new(outcome) });
             let batch = dataset.as_batch();
             let gradient = compute_gradient::<CrossEntropyLoss>(&weights, batch) * 4.;
-            assert_eq!(gradient.len(), 2);
+            assert_eq!(gradient.len(), 3);
+            assert_eq!(gradient[2].0, 0.);
             let gradient_value = gradient[0].0;
             let sgn = |x| {
                 if x > 0.0 {
@@ -1039,7 +1080,7 @@ mod tests {
             if outcome == 0.5 {
                 assert_eq!(weights[0].0.signum(), weights[2].0.signum());
                 let diff = ((weights[0] * 9.0 + weights[1]) - (weights[2] * 9.0 + weights[3])).0;
-                assert!(diff.abs() <= 0.000_001, "{diff} {weights:?}");
+                assert!(diff.abs() <= 0.000_01, "{diff} {weights:?}");
             } else {
                 assert_eq!(weights[0].0 > weights[2].0, outcome > 0.5);
             }

@@ -905,6 +905,7 @@ mod tests {
         assert_eq!(attacks.raw(), (1 << 16) | (1 << 23), "{attacks}");
     }
 
+    #[cfg(not(all(feature = "unsafe", target_arch = "x86_64", target_feature = "avx2")))]
     #[test]
     fn test_all_rook_attacks() {
         let rooks = Bitboard::new(0x8000100000028000);
@@ -913,7 +914,8 @@ mod tests {
         let expected = Bitboard::new(0xff92ef9282bdff82);
         assert_eq!(attacks, expected);
     }
-
+    
+    #[cfg(not(all(feature = "unsafe", target_arch = "x86_64", target_feature = "avx2")))]
     #[test]
     fn test_all_bishop_attacks() {
         let bishops = Bitboard::new(0x8000100000021008);

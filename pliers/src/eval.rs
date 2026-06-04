@@ -6,8 +6,8 @@
 use crate::eval::Direction::{Down, Up};
 use crate::eval::EvalScale::{InitialWeights, Scale};
 use crate::gd::{
-    Batch, DatapointRef, Dataset, DefaultOptimizer, Float, LossGradient, Optimizer, Outcome, ScalingFactor, Weight,
-    Weights, cp_eval_for_weights, cp_to_wr, default_sample_loss,
+    cp_eval_for_weights, cp_to_wr, default_sample_loss, Batch, DatapointRef, Dataset, DefaultOptimizer, Float, LossGradient, Optimizer,
+    Outcome, ScalingFactor, Weight, Weights,
 };
 use crate::load_data::Filter;
 use crate::trace::TraceTrait;
@@ -118,7 +118,7 @@ pub fn count_occurrences(batch: Batch) -> Vec<Float> {
     let mut res = vec![0.0; batch.weights_in_pos];
     for datapoint in batch.datapoint_iter() {
         for feature in datapoint.entries {
-            res[feature.idx] += feature.weight.abs();
+            res[feature.idx()] += feature.weight.abs();
         }
     }
     res
@@ -290,6 +290,21 @@ pub trait Eval<B: BoardTrait>: WeightsInterpretation + Default {
     /// sometimes more convenient to calculate this at runtime.
     fn num_weights() -> usize {
         Self::num_features() * 2
+    }
+
+    /// The number of weights that are not tuned. These weights must come after the normal weights;
+    /// i.e. if [`Self::num_weights()`] is 42 and [`Self::num_untuned_weights()`] is 2, then the first 40 weights get tuned.
+    /// This is useful if an eval contains parts that should not be tuned; for example to express existing
+    /// knowledge like material values.
+    /// Because the values don't get tuned, they always remain at the value given by [`Self::initial_weights`],
+    /// so overriding this function probably means that `initial_weights` should also be overridden.
+    fn num_untuned_weights() -> usize {
+        0
+    }
+
+    /// The number of weights in a gradient; i.e. [`Self::num_weights()`] minus [`Self::num_untuned_weights()`]
+    fn num_tuned_weights() -> usize {
+        Self::num_weights() - Self::num_untuned_weights()
     }
 
     /// A feature is a property of the position that gets recognized by the eval.
