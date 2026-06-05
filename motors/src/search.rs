@@ -22,7 +22,7 @@ use gears::output::Message;
 use gears::output::Message::Warning;
 use gears::rand::SeedableRng;
 use gears::rand::prelude::SmallRng;
-use gears::score::{MAX_BETA, MIN_ALPHA, NO_SCORE_YET, SCORE_WON, Score, ScoreT};
+use gears::score::{MAX_BETA, MIN_ALPHA, NO_SCORE_YET, SCORE_LOST, SCORE_WON, Score, ScoreT};
 use gears::search::{Budget, DepthPly, NodeType, NodesLimit, SearchInfo, SearchLimit, SearchResult, TimeControl};
 use gears::ugi::{EngineOption, EngineOptionNameForProtocol, EngineOptionType};
 use std::collections::HashMap;
@@ -535,16 +535,20 @@ pub trait NormalEngine<B: BoardTrait>: Engine<B> {
         soft_nodes: u64,
         iter: isize,
         max_soft_iter: isize,
-        mate_depth: DepthPly,
+        mate_depth: isize,
     ) -> bool
     where
         Self: Sized,
     {
         let state = self.search_state();
-        iter > 1
-            && (elapsed >= soft_limit
+        if iter <= 1 {
+            return false;
+        }
+        let score = state.best_score();
+        (elapsed >= soft_limit
             // even in a multipv search, we stop as soon as a single mate is found
-            || state.best_score() >= Score(SCORE_WON.0 - mate_depth.get() as ScoreT))
+            || score >= Score(SCORE_WON.0 - mate_depth as ScoreT))
+            || (score > SCORE_LOST && score <= Score(SCORE_LOST.0 - mate_depth as ScoreT))
             || state.uci_nodes() >= soft_nodes
             || iter > max_soft_iter
     }

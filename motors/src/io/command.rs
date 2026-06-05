@@ -39,7 +39,7 @@ use gears::general::moves::{ExtendedFormat, MoveTrait};
 use gears::itertools::Itertools;
 use gears::output::Message::Warning;
 use gears::output::OutputOpts;
-use gears::search::{DepthPly, NodesLimit, SearchLimit};
+use gears::search::{DepthPly, MAX_DEPTH, NodesLimit, SearchLimit};
 use gears::ugi::{EngineOption, EngineOptionType, only_load_ugi_position};
 use std::fmt;
 use std::fmt::{Debug, Display, Formatter};
@@ -824,7 +824,14 @@ pub(super) fn go_options_impl(
             ),
             command!(mate | m, All, "Maximum depth in moves until a mate has to be found", |state, words, _| {
                 let depth: isize = parse_int(words, "mate move count")?;
-                state.go_state_mut().limit_mut().mate = DepthPly::try_new(depth * 2)?; // 'mate' is given in moves instead of plies
+                if depth.abs() > MAX_DEPTH.isize() / 2 {
+                    bail!(
+                        "Mate depth too large ({0}); maximum value is {1}",
+                        depth.to_string().red(),
+                        (MAX_DEPTH.isize() / 2).to_string().bold()
+                    )
+                }
+                state.go_state_mut().limit_mut().mate = depth * 2; // 'mate' is given in moves instead of plies
                 Ok(())
             }),
             command!(movetime | mt, All, "Maximum time in ms", |state, words, _| {

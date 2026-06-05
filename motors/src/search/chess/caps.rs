@@ -234,7 +234,7 @@ impl Engine<Board> for Caps {
         let mut limit = self.params.limit;
         let pos = self.params.pos;
         limit.fixed_time = min(limit.fixed_time, limit.tc.remaining);
-        self.ply_hard_limit = if limit.mate.get() == 0 { PLY_HARD_LIMIT } else { limit.mate.get() };
+        self.ply_hard_limit = if limit.mate == 0 { PLY_HARD_LIMIT } else { limit.mate.abs() as usize };
         let soft_limit =
             limit.tc.remaining.saturating_sub(limit.tc.increment) / cc::soft_limit_div() + limit.tc.increment;
         self.params.limit = limit;
@@ -260,7 +260,7 @@ impl Engine<Board> for Caps {
             max {nodes} nodes, soft limit {soft}ms, {ignored} ignored moves. {elapsed} microseconds have already elapsed ({e2} since starting the search in this thread)",
             time = limit.tc.remaining.as_micros(),
             incr = limit.tc.increment.as_millis(),
-            mate = limit.mate.get(),
+            mate = limit.mate,
             depth = limit.depth.get(),
             nodes = limit.nodes.get(),
             fixed = limit.fixed_time.as_millis(),
@@ -533,6 +533,7 @@ impl Caps {
         mut expected_node_type: NodeType,
     ) -> Option<Score> {
         debug_assert!(alpha < beta, "{alpha} {beta} {pos} {ply} {depth}");
+        debug_assert!([MIN_ALPHA, alpha, beta, MAX_BETA].is_sorted(), "{alpha} {beta} {ply} {depth} {pos}");
         debug_assert!(ply <= PLY_HARD_LIMIT, "{ply} {depth} {pos}");
         debug_assert!(depth <= ID_ITERS_SOFT_LIMIT.isize() * DEPTH_INCREMENT as isize, "{ply} {depth} {pos}"); // TODO: Remove?
         debug_assert!(self.params.history.len() >= ply, "{ply} {depth} {pos}, {:?}", self.params.history);
@@ -588,7 +589,7 @@ impl Caps {
         if in_check {
             depth += cc::check_extension();
         }
-        // limit.mate() is the min of the original limit.mate and DEPTH_HARD_LIMIT
+        // self.ply_hard_limit is the min of the original limit.mate and DEPTH_HARD_LIMIT
         if depth <= 0 || ply >= self.ply_hard_limit {
             return self.qsearch(pos, alpha, beta, ply, pv_node);
         }
@@ -633,7 +634,7 @@ impl Caps {
             // TT cutoffs. If we've already seen this position, and the TT entry has more valuable information (higher depth),
             // and we're not a PV node, and the saved score is either exact or at least known to be outside (alpha, beta),
             // simply return it.
-            if !pv_node && tt_entry.depth as isize >= depth {
+            if !pv_node && tt_entry.depth() as isize >= depth {
                 if (tt_score >= beta && tt_bound == NodeType::lower_bound())
                     || (tt_score <= alpha && tt_bound == NodeType::upper_bound())
                     || tt_bound == Exact
@@ -1206,10 +1207,11 @@ impl Caps {
                 || (bound == NodeType::upper_bound() && tt_score <= alpha)
                 || bound == Exact
             {
-                if pv_node {
+                if pv_node && !in_check {
                     return Some(tt_score.clamp(MIN_NORMAL_SCORE, MAX_NORMAL_SCORE));
+                } else if !pv_node {
+                    return Some(tt_score);
                 }
-                return Some(tt_score);
             }
             raw_eval = tt_entry.raw_eval();
             eval = self.state.custom.corr_hist.correct(pos, continued, raw_eval);
@@ -1571,7 +1573,7 @@ mod tests {
             let mut root_entry = TTEntry::<Board>::default();
             if let Some(tt) = tt.clone() {
                 root_entry = tt.load(pos.hash_pos(), 0).unwrap();
-                assert!(root_entry.depth <= 2 * DEPTH_INCREMENT as u16); // possible extensions
+                assert!(root_entry.depth() as usize <= 2 * DEPTH_INCREMENT); // possible extensions
                 assert_eq!(root_entry.bound(), Exact);
                 assert!(root_entry.mov(&pos).is_some());
             }
@@ -1586,7 +1588,7 @@ mod tests {
                     let Some(entry) = entry else {
                         continue; // it's possible that a position is not in the TT because qsearch didn't save it
                     };
-                    assert!(entry.depth <= 2 * DEPTH_INCREMENT as u16, "{entry:?} {new_pos}");
+                    assert!(entry.depth() as usize <= 2 * DEPTH_INCREMENT, "{entry:?} {new_pos}");
                     assert!(-entry.score <= root_entry.score, "{entry:?}\n{root_entry:?}\n{new_pos}");
                 }
             }

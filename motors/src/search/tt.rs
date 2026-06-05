@@ -15,18 +15,9 @@ use std::fmt::{Display, Formatter};
 use std::hash::{Hash, Hasher};
 use std::marker::PhantomData;
 use std::mem::size_of;
-#[cfg(feature = "unsafe")]
-use std::mem::transmute;
 use std::sync::Arc;
-use std::sync::atomic::AtomicU64;
+use std::sync::atomic::AtomicU32;
 use std::sync::atomic::Ordering::Relaxed;
-
-#[derive(Debug, Default)]
-#[repr(C)]
-struct AtomicTTEntry {
-    hash_and_move: AtomicU64,
-    rest: AtomicU64,
-}
 
 #[derive(Debug, Default, Copy, Clone, Eq, PartialEq, derive_more::Display)]
 pub struct Age(u8);
@@ -42,20 +33,6 @@ fn pack_age_and_bound(age: Age, bound: NodeType) -> u8 {
     (age.0 << 2) | (bound as u8)
 }
 
-fn unpack_age_and_bound(val: u8) -> (Age, Option<NodeType>) {
-    let age = Age(val >> 2);
-    let bound = NodeType::from_repr(val & 0b11);
-    (age, bound)
-}
-
-const NUM_ENTRIES_IN_BUCKET: usize = 4;
-
-#[derive(Debug, Default, Index)]
-#[repr(align(64))]
-struct TTBucket([AtomicTTEntry; NUM_ENTRIES_IN_BUCKET]);
-
-const _: () = assert!(size_of::<TTBucket>() == 64);
-
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub struct PosHashPart<B: BoardTrait>(u64, PhantomData<B>);
 
@@ -65,7 +42,7 @@ impl<B: BoardTrait> PosHashPart<B> {
     }
 
     fn mask() -> u64 {
-        let num_bits = 64 - B::Move::num_bits();
+        let num_bits = TTEntry::<B>::move_shift_bits();
         (1 << num_bits) - 1
     }
 
@@ -75,15 +52,30 @@ impl<B: BoardTrait> PosHashPart<B> {
     }
 }
 
+#[derive(Debug, Default)]
+#[repr(C)]
+struct AtomicTTEntry {
+    score_and_eval: AtomicU32,
+    rest: [AtomicU32; 2],
+}
+
+const _: () = assert!(4 % align_of::<AtomicTTEntry>() == 0);
+const _: () = assert!(size_of::<AtomicTTEntry>() == 12);
+
+const NUM_ENTRIES_IN_BUCKET: usize = 5;
+
+#[derive(Debug, Default, Index)]
+#[repr(align(64))]
+struct TTBucket([AtomicTTEntry; NUM_ENTRIES_IN_BUCKET]);
+
+const _: () = assert!(size_of::<TTBucket>() == 64);
+
 #[derive(Debug, Copy, Clone, Default, Eq, PartialEq)]
 #[repr(C)]
 pub struct TTEntry<B: BoardTrait> {
-    pub hash_and_move: u64,   // 8 bytes
+    pub rest: [u32; 2], // 8 bytes: age/bound (1) + depth (2) + move (2 for chess) + hash (rest, so 3 for chess)
     pub score: CompactScoreT, // 2 bytes
-    pub eval: CompactScoreT,  // 2 bytes
-    pub depth: u16,           // 2 bytes
-    age_and_bound: u8,        // 1 byte
-    _padding: u8,             // 1 byte
+    pub eval: CompactScoreT, // 2 bytes
     _phantom: PhantomData<B>, // 0 bytes
 }
 
@@ -99,7 +91,7 @@ where
             self.score,
             self.bound(),
             self.age(),
-            self.depth
+            self.depth()
         )
     }
 }
@@ -114,39 +106,47 @@ impl<B: BoardTrait> TTEntry<B> {
         bound: NodeType,
         age: Age,
     ) -> TTEntry<B> {
-        let depth = depth.clamp(0, u16::MAX as isize) as u16;
-        let age_and_bound = pack_age_and_bound(age, bound);
-        let hash_and_move =
-            (mov.to_underlying().into() << (64 - B::Move::num_bits())) | PosHashPart::<B>::new(hash.0).0;
+        let rest = Self::encode_rest(hash, mov, depth, bound, age);
         debug_assert!(!eval.is_won_or_lost());
         debug_assert!(score.plies_until_game_over().unwrap_or_default() < 500, "{score} {eval} {depth}");
-        Self {
-            score: score.compact(),
-            eval: eval.compact(),
-            depth,
-            age_and_bound,
-            hash_and_move,
-            _padding: 0,
-            _phantom: PhantomData,
-        }
+        Self { rest, score: score.compact(), eval: eval.compact(), _phantom: PhantomData }
+    }
+
+    fn move_shift_bits() -> usize {
+        64 - 8 - 16 - B::Move::num_bits()
+    }
+
+    fn encode_rest(hash: PosHash, mov: B::Move, depth: isize, bound: NodeType, age: Age) -> [u32; 2] {
+        let depth = depth.clamp(0, u16::MAX as isize) as u16;
+        let age_and_bound = pack_age_and_bound(age, bound);
+        let hash_and_move = (mov.to_underlying().into() << Self::move_shift_bits()) | PosHashPart::<B>::new(hash.0).0;
+        let res = hash_and_move | ((age_and_bound as u64) << 56) | ((depth as u64) << 40);
+        [res as u32, (res >> 32) as u32] // TOOD: Different codegen with transmute?
+    }
+
+    fn unpack_age_and_bound(&self) -> (Age, Option<NodeType>) {
+        let age = Age((self.rest[1] >> (24 + 2)) as u8);
+        let repr = (self.rest[1] >> 24) as u8 & 0x3;
+        let bound = NodeType::from_repr(repr);
+        (age, bound)
     }
 
     pub fn is_empty(&self) -> bool {
-        unpack_age_and_bound(self.age_and_bound).1.is_none()
+        self.unpack_age_and_bound().1.is_none()
     }
 
     fn is_atomic_entry_from_current_search(entry: &AtomicTTEntry, age: Age) -> bool {
         let e = Self::unpack(entry);
-        let (a, b) = unpack_age_and_bound(e.age_and_bound);
+        let (a, b) = e.unpack_age_and_bound();
         a == age && b.is_some()
     }
 
     pub fn bound(&self) -> NodeType {
-        unpack_age_and_bound(self.age_and_bound).1.expect("Incorrect NodeType in packed value")
+        self.unpack_age_and_bound().1.expect("Incorrect NodeType in packed value")
     }
 
     pub fn age(&self) -> Age {
-        unpack_age_and_bound(self.age_and_bound).0
+        self.unpack_age_and_bound().0
     }
 
     pub fn score(&self) -> Score {
@@ -158,11 +158,12 @@ impl<B: BoardTrait> TTEntry<B> {
     }
 
     pub fn hash_part(&self) -> PosHashPart<B> {
-        PosHashPart::new(self.hash_and_move)
+        PosHashPart::new(self.rest[0] as u64)
     }
 
     pub fn move_untrusted(&self) -> UntrustedMove<B> {
-        let mov = self.hash_and_move >> (64 - B::Move::num_bits());
+        let rest = (self.rest[0] as u64) | ((self.rest[1] as u64) << 32);
+        let mov = (rest >> Self::move_shift_bits()) & ((1 << Self::move_shift_bits()) - 1);
         B::Move::from_u64_unchecked(mov)
     }
 
@@ -170,60 +171,36 @@ impl<B: BoardTrait> TTEntry<B> {
         self.move_untrusted().check_pseudolegal(pos)
     }
 
-    #[cfg(feature = "unsafe")]
+    pub fn depth(&self) -> u16 {
+        (self.rest[1] >> 8) as u16
+    }
+
+    // #[cfg(feature = "unsafe")]
     fn pack_into(self, entry: &AtomicTTEntry) {
-        assert_eq!(size_of::<Self>(), 128 / 8);
+        assert_eq!(size_of::<Self>(), 12);
         assert_eq!(size_of::<AtomicTTEntry>(), size_of::<Self>());
-        // SAFETY: Both types have the same size and all bit patterns are valid
-        let e = unsafe { transmute::<Self, u128>(self) };
-        entry.hash_and_move.store(e as u64, Relaxed);
-        entry.rest.store((e >> 64) as u64, Relaxed);
+        entry.rest[0].store(self.rest[0], Relaxed);
+        entry.rest[1].store(self.rest[1], Relaxed);
+        let score_and_eval = ((self.score as u16 as u32) << 16) | self.eval as u16 as u32;
+        entry.score_and_eval.store(score_and_eval, Relaxed);
     }
 
-    #[cfg(not(feature = "unsafe"))]
-    fn pack_into(self, entry: &AtomicTTEntry) {
-        self.pack_fallback(entry)
-    }
-
-    #[allow(unused)]
-    fn pack_fallback(self, entry: &AtomicTTEntry) {
-        let score = self.score as u16; // don't sign extend negative scores
-        let eval = self.eval as u16;
-        let rest =
-            (score as u64) | ((eval as u64) << 16) | ((self.depth as u64) << 32) | ((self.age_and_bound as u64) << 48);
-
-        entry.hash_and_move.store(self.hash_and_move, Relaxed);
-        entry.rest.store(rest, Relaxed);
-    }
-
-    #[cfg(feature = "unsafe")]
     fn unpack(packed: &AtomicTTEntry) -> Self {
-        assert_eq!(size_of::<Self>(), 128 / 8);
+        assert_eq!(size_of::<Self>(), 12);
         assert_eq!(size_of::<AtomicTTEntry>(), size_of::<Self>());
-        let hash_and_move = packed.hash_and_move.load(Relaxed) as u128;
-        let val = ((packed.rest.load(Relaxed) as u128) << 64) | hash_and_move;
-        // SAFETY: Both types have the same size and all bit patterns are valid
-        unsafe { transmute::<u128, Self>(val) }
-    }
 
-    #[cfg(not(feature = "unsafe"))]
-    fn unpack(val: &AtomicTTEntry) -> Self {
-        Self::unpack_fallback(val)
-    }
-
-    #[allow(unused)]
-    fn unpack_fallback(val: &AtomicTTEntry) -> Self {
-        let hash_and_move = val.hash_and_move.load(Relaxed);
-        let rest = val.rest.load(Relaxed);
-        let score = rest as CompactScoreT;
-        let eval = (rest >> 16) as CompactScoreT;
-        let depth = (rest >> 32) as u16;
-        let age_and_bound = (rest >> 48) as u8;
-        Self { hash_and_move, score, eval, depth, age_and_bound, _padding: 0, _phantom: PhantomData }
+        let rest = [packed.rest[0].load(Relaxed), packed.rest[1].load(Relaxed)];
+        let score_and_eval = packed.score_and_eval.load(Relaxed);
+        Self {
+            rest,
+            score: (score_and_eval >> 16) as u16 as CompactScoreT,
+            eval: (score_and_eval & 0xffff) as u16 as CompactScoreT,
+            _phantom: Default::default(),
+        }
     }
 }
 #[cfg(feature = "chess")]
-const _: () = assert!(size_of::<TTEntry<Board>>() == 16);
+const _: () = assert!(size_of::<TTEntry<Board>>() == 12);
 #[cfg(feature = "chess")]
 const _: () = assert!(size_of::<TTEntry<Board>>() == size_of::<AtomicTTEntry>());
 
@@ -315,8 +292,9 @@ impl TT {
         // TODO: Instead of overwriting every entry, simply increase the age such that old entries will be ignored
         for bucket in self.tt.iter() {
             for entry in &bucket.0 {
-                entry.hash_and_move.store(0, Relaxed);
-                entry.rest.store(0, Relaxed);
+                entry.score_and_eval.store(0, Relaxed);
+                entry.rest[0].store(0, Relaxed);
+                entry.rest[1].store(0, Relaxed);
             }
         }
     }
@@ -338,8 +316,9 @@ impl TT {
     pub fn hash_first_1k_entries(&self, hasher: &mut impl Hasher) {
         let num_buckets = (1000 / NUM_ENTRIES_IN_BUCKET).min(self.size_in_buckets());
         for e in self.tt.iter().take(num_buckets).flat_map(|bucket| bucket.0.iter()) {
-            e.hash_and_move.load(Relaxed).hash(hasher);
-            e.rest.load(Relaxed).hash(hasher);
+            e.rest[0].load(Relaxed).hash(hasher);
+            e.rest[1].load(Relaxed).hash(hasher);
+            e.score_and_eval.load(Relaxed).hash(hasher);
         }
     }
 
@@ -354,7 +333,7 @@ impl TT {
             isize::MIN
         } else {
             let age_diff = (to_insert.age().0.wrapping_sub(candidate.age().0).wrapping_add(1 << 6)) & 0b11_1111;
-            candidate.depth as isize / 128 - age_diff as isize * ttc::age_diff_mult()
+            candidate.depth() as isize / 128 - age_diff as isize * ttc::age_diff_mult()
         }
     }
 
@@ -512,37 +491,31 @@ mod test {
             let tt = TT::new_with_bytes(size_in_bytes);
             for mov in pos.pseudolegal_moves() {
                 let score = Score(rng().sample(Uniform::new(MIN_NORMAL_SCORE.0, MAX_NORMAL_SCORE.0).unwrap()));
-                let depth = rng().sample(Uniform::new(1, 100).unwrap());
+                let depth: u8 = rng().sample(Uniform::new(1, 100).unwrap());
                 let bound = NodeType::from_repr(rng().sample(Uniform::new(0, 3).unwrap()) + 1).unwrap();
                 let age = rng().sample(Uniform::new(1, 100).unwrap());
-                let age_and_bound = pack_age_and_bound(Age(age), bound);
                 let hash = pos.hash_pos();
-                let hash_and_move =
-                    PosHashPart::<Board>::new(hash.0).0 | (u64::from(mov.to_underlying()) << (64 - Move::num_bits()));
                 let entry: TTEntry<Board> = TTEntry {
-                    hash_and_move,
+                    rest: TTEntry::<Board>::encode_rest(hash, mov, depth as isize, bound, Age(age)),
                     score: score.compact(),
-                    eval: score.compact() - 1,
-                    depth,
-                    age_and_bound,
-                    _padding: 0,
-                    _phantom: PhantomData,
+                    eval: 0,
+                    _phantom: Default::default(),
                 };
                 let packed = AtomicTTEntry::default();
                 entry.pack_into(&packed);
                 let val = TTEntry::unpack(&packed);
                 assert_eq!(val, entry);
-                let packed2 = AtomicTTEntry::default();
-                entry.pack_fallback(&packed2);
-                // pack_fallback and load_fallback treat the entry as if it was little endian, however the unsafe transmute could in theory
-                // use big endian. This means the packed representation could in theory differ, but packing and unpacking
-                // should always give back the same value
-                if cfg!(target_endian = "little") {
-                    assert_eq!(packed.hash_and_move.load(Relaxed), packed2.hash_and_move.load(Relaxed));
-                    assert_eq!(packed.rest.load(Relaxed), packed2.rest.load(Relaxed));
-                }
-                let val2 = TTEntry::unpack_fallback(&packed2);
-                assert_eq!(val, val2);
+                // let packed2 = AtomicTTEntry::default();
+                // entry.pack_fallback(&packed2);
+                // // pack_fallback and load_fallback treat the entry as if it was little endian, however the unsafe transmute could in theory
+                // // use big endian. This means the packed representation could in theory differ, but packing and unpacking
+                // // should always give back the same value
+                // if cfg!(target_endian = "little") {
+                //     assert_eq!(packed.hash_and_move.load(Relaxed), packed2.hash_and_move.load(Relaxed));
+                //     assert_eq!(packed.rest.load(Relaxed), packed2.rest.load(Relaxed));
+                // }
+                // let val2 = TTEntry::unpack_fallback(&packed2);
+                // assert_eq!(val, val2);
                 let ply = rng().sample(Uniform::new(0, 100).unwrap());
                 tt.store(entry, hash, ply);
                 let loaded = tt.load(hash, ply).unwrap();
@@ -590,7 +563,7 @@ mod test {
     #[test]
     #[cfg(feature = "chess")]
     fn bucket_test() {
-        assert_eq!(NUM_ENTRIES_IN_BUCKET, 4);
+        assert_eq!(NUM_ENTRIES_IN_BUCKET, 5);
         let tt = TT::new_with_bytes(1024);
         assert_eq!(tt.size_in_buckets(), 16);
         let mov = Move::default();
@@ -601,6 +574,8 @@ mod test {
         let bucket_idx = tt.bucket_index_of(hash);
         let bucket = &tt.tt[bucket_idx].0;
         assert_ne!(tt.bucket_index_of(PosHash(!0)), bucket_idx);
+        let num_occupied = bucket.iter().map(TTEntry::<Board>::unpack).filter(|e| !e.is_empty()).count();
+        assert_eq!(num_occupied, 1);
         let second_hash = PosHash(100);
         let entry2 = TTEntry::<Board>::new(second_hash, Score(10), Score(-20), mov, 640, FailHigh, Age(1));
         assert_eq!(bucket_idx, tt.bucket_index_of(second_hash));
@@ -613,6 +588,10 @@ mod test {
         let entry4 = TTEntry::<Board>::new(hash, Score(1234), Score(9876), mov, 12 * 128, FailHigh, Age(0));
         assert_eq!(bucket_idx, tt.bucket_index_of(hash));
         tt.store(entry4, hash, 0);
+        let hash = PosHash(0x12345678900);
+        let entry5 = TTEntry::<Board>::new(hash, Score(-987), Score(654), mov, 15 * 128, Exact, Age(0));
+        assert_eq!(bucket_idx, tt.bucket_index_of(hash));
+        tt.store(entry5, hash, 0);
         let num_empty = bucket.iter().map(TTEntry::<Board>::unpack).filter(|e| e.is_empty()).count();
         assert_eq!(num_empty, 0);
 
