@@ -822,7 +822,7 @@ impl AdamwHyperParams {
             beta1: 0.9,
             beta2: 0.999,
             epsilon: 1e-7,
-            lambda: 1e-4,
+            lambda: 1e-2,
         }
     }
 }
