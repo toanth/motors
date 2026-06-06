@@ -5,47 +5,47 @@ use std::ops::{Deref, DerefMut};
 use std::sync::atomic::Ordering::Relaxed;
 use std::time::{Duration, Instant};
 
+use crate::eval::chess::lite::{lc, LiTEval};
 use crate::eval::Eval;
-use crate::eval::chess::lite::{LiTEval, lc};
 use crate::io::ugi_output::{color_for_score, score_gradient};
 use crate::search::chess::caps_values::cc;
-use crate::search::chess::histories::{ContHist, HIST_DIVISOR, HistScoreT};
-use crate::search::chess::move_picker::{BAD_SEE_OFFSET, MovePicker, MovePickerStage};
+use crate::search::chess::histories::{ContHist, HistScoreT, HIST_DIVISOR};
+use crate::search::chess::move_picker::{MovePicker, MovePickerStage, BAD_SEE_OFFSET};
 use crate::search::chess::*;
-use crate::search::tt::{TTEntry, ttc};
+use crate::search::tt::{ttc, TTEntry};
 use crate::search::{
-    AbstractSearchState, DEFAULT_CHECK_TIME_INTERVAL, Engine, EngineInfo, MoveScore, NormalEngine, PVData, SearchState,
-    SearchStateFor,
+    AbstractSearchState, Engine, EngineInfo, MoveScore, NormalEngine, PVData, SearchState, SearchStateFor,
+    DEFAULT_CHECK_TIME_INTERVAL,
 };
 use crate::send_debug_msg;
-use gears::PlayerResult;
-use gears::PlayerResult::{Lose, Win};
 use gears::colored::Colorize;
-use gears::games::BoardHistDyn;
 use gears::games::chess::bitbase::{Bitbase, PAWN_V_KING_TABLE};
 use gears::games::chess::moves::Move;
 use gears::games::chess::pieces::PieceType::Pawn;
 use gears::games::chess::see::SeeScore;
-use gears::games::chess::upcoming_repetition::{UPCOMING_REPETITION_TABLE, UpcomingRepetitionTable};
+use gears::games::chess::upcoming_repetition::{UpcomingRepetitionTable, UPCOMING_REPETITION_TABLE};
 use gears::games::chess::zobrist::ZOBRIST_KEYS;
-use gears::games::chess::{Board, unverified::UnverifiedBoard};
+use gears::games::chess::{unverified::UnverifiedBoard, Board};
+use gears::games::BoardHistDyn;
 use gears::general::bitboards::RawBitboardTrait;
 use gears::general::board::Strictness::Strict;
 use gears::general::board::{BitboardBoard, BoardTrait, UnverifiedBoardTrait};
 use gears::general::common::Description::NoDescription;
-use gears::general::common::{Res, StaticallyNamedEntity, parse_int_from_str, select_name_static};
+use gears::general::common::{parse_int_from_str, select_name_static, Res, StaticallyNamedEntity};
 use gears::general::move_list::InplaceMoveList;
 use gears::general::moves::{MoveTrait, UntrustedMove};
 use gears::itertools::Itertools;
 use gears::num::traits::WrappingAdd;
 use gears::score::{
-    BITBASE_LOSS, BITBASE_WIN, MAX_BETA, MAX_NORMAL_SCORE, MAX_SCORE_LOST, MIN_ALPHA, MIN_NORMAL_SCORE, NO_SCORE_YET,
-    SCORE_LOST, SCORE_WON, Score, ScoreT, game_result_to_score,
+    game_result_to_score, Score, ScoreT, BITBASE_LOSS, BITBASE_WIN, MAX_BETA, MAX_NORMAL_SCORE, MAX_SCORE_LOST,
+    MIN_ALPHA, MIN_NORMAL_SCORE, NO_SCORE_YET, SCORE_LOST, SCORE_WON,
 };
 use gears::search::NodeType::*;
 use gears::search::*;
 use gears::ugi::EngineOptionName::*;
 use gears::ugi::{EngineOptionNameForProtocol, EngineOptionType};
+use gears::PlayerResult;
+use gears::PlayerResult::{Lose, Win};
 
 type DefaultEval = LiTEval;
 
@@ -1264,9 +1264,11 @@ impl Caps {
             let move_score = sm.score();
             debug_assert!(mov.is_tactical(pos) || pos.is_in_check(), "{mov:?} {pos}");
             self.tt().prefetch(pos.approx_hash_after(mov));
-            if !eval.is_game_lost_score() && move_score < MoveScore(0) || children_visited >= 3 {
-                // qsearch see pruning and qsearch late move  pruning (lmp):
-                // If the move has a negative SEE score or if we've already looked at enough moves, don't even bother playing it in qsearch.
+
+            // qsearch see pruning and qsearch late move  pruning (lmp):
+            // If the move has a negative SEE score or if we've already looked at enough moves, don't even bother playing it in qsearch.
+            let see_threshold = cc::bad_capt_threshold_qsearch();
+            if !eval.is_game_lost_score() && move_score < MoveScore(see_threshold) || children_visited >= 3 {
                 break;
             }
             let hist_score = self.capt_hist.get(mov, pos);

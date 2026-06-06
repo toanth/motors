@@ -18,13 +18,12 @@
 
 //! Anything related to search that is also used by `monitors`, and therefore doesn't belong in `motors`.
 
-use crate::PlayerResult;
 use crate::general::common::Res;
 use crate::search::NodeType;
 use crate::search::NodeType::{Exact, FailHigh, FailLow};
+use crate::PlayerResult;
 use anyhow::anyhow;
 use derive_more::{Add, AddAssign, Neg, Sub, SubAssign};
-use num::ToPrimitive;
 use num::traits::WrappingAdd;
 use std::fmt::{Display, Formatter};
 use std::num::Wrapping;
