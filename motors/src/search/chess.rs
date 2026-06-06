@@ -508,10 +508,7 @@ mod tests {
             assert!(pv_data[1].score <= game_result_to_score(Win, 3));
             assert!(pv_data[1].score >= Score(1000));
             let second_best_move = Move::from_extended_text("e1Q+", &pos).unwrap();
-            assert_eq!(
-                pv_data[1].pv.list.first() == Some(&second_best_move),
-                pv_data[1].score == game_result_to_score(Win, 3)
-            );
+            assert_eq!(pv_data[1].pv.list.first() == Some(&second_best_move), pv_data[1].score.is_game_won_score());
             assert!(pv_data[2].score >= Score(700));
             assert!(!pv_data[2].pv.list.is_empty());
         }

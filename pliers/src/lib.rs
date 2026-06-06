@@ -94,15 +94,15 @@
 extern crate core;
 
 use crate::eval::EvalScale::{InitialWeights, Scale};
-use crate::eval::{count_occurrences, display, Eval};
-use crate::gd::{optimize_dataset, print_optimized_weights, DefaultOptimizer, Optimizer, Weight, Weights};
+use crate::eval::{Eval, count_occurrences, display};
+use crate::gd::{DefaultOptimizer, Optimizer, Weight, Weights, optimize_dataset, print_optimized_weights};
 use crate::load_data::Perspective::White;
 use crate::load_data::{AnnotatedFenFile, FenReader};
 use gears::colored::Colorize;
 use gears::games::chess::Board;
 use gears::general::board::{BoardHelpers, BoardTrait};
-use gears::general::common::anyhow::{anyhow, bail};
 use gears::general::common::Res;
+use gears::general::common::anyhow::{anyhow, bail};
 use serde_json::from_reader;
 use std::env::args;
 use std::fs::File;
@@ -245,16 +245,16 @@ mod tests {
 
     use crate::eval::chess::piston_eval::PistonEval;
     use crate::gd::{
-        cp_eval_for_weights, cp_to_wr, loss_for, quadratic_sample_loss, Adam, AdamW, CrossEntropyLoss, Float, Outcome,
-        QuadraticLoss, ScaledCpScore,
+        Adam, AdamW, CrossEntropyLoss, Float, Outcome, QuadraticLoss, ScaledCpScore, cp_eval_for_weights, cp_to_wr,
+        loss_for, quadratic_sample_loss,
     };
     use crate::load_data::Perspective::SideToMove;
-    use gears::games::chess::pieces::{ColoredPieceType, PieceType};
-    use gears::games::chess::zobrist::NUM_PIECE_SQUARE_ENTRIES;
+    use PieceType::*;
     use gears::games::chess::Color::White;
     use gears::games::chess::Settings;
+    use gears::games::chess::pieces::{ColoredPieceType, PieceType};
+    use gears::games::chess::zobrist::NUM_PIECE_SQUARE_ENTRIES;
     use gears::games::{AbstractPieceType, CharType, ColoredPieceTypeTrait};
-    use PieceType::*;
 
     #[test]
     pub fn two_chess_positions_test() {
@@ -304,7 +304,9 @@ mod tests {
         }
         let datapoints = FenReader::<Board, MaterialOnlyEval>::load_from_str(&fens, SideToMove).unwrap();
         let batch = datapoints.as_batch();
-        let weights = AdamW::<CrossEntropyLoss>::new(batch).optimize_simple(batch, 2000);
+        let mut optimizer = AdamW::<CrossEntropyLoss>::new(batch);
+        optimizer.hyper_params.lambda /= 100.;
+        let weights = optimizer.optimize_simple(batch, 2000);
         assert_eq!(weights.len(), 5);
         let weight = weights[0];
         for piece in PieceType::non_king_pieces() {

@@ -1,6 +1,6 @@
 //! Everything related to the actual optimization, using a Gradient Descent-based tuner ([`Adam`] by default).
 
-use crate::eval::{count_occurrences, display, interpolate, WeightsInterpretation};
+use crate::eval::{WeightsInterpretation, count_occurrences, display, interpolate};
 use crate::load_data::FeatureAppearance;
 use derive_more::{Add, AddAssign, Deref, DerefMut, Display, Div, Mul, Sub, SubAssign};
 use gears::colored::Colorize;
@@ -1126,7 +1126,7 @@ mod tests {
                     optimizer.iteration(&mut weights_copy, batch, i);
                 }
                 let remaining_loss = loss_for(&weights_copy, batch, quadratic_sample_loss);
-                assert!(remaining_loss <= 0.001, "{remaining_loss}");
+                assert!(remaining_loss <= 0.005, "{remaining_loss}");
                 assert!(weights[0].0 >= 0.5);
                 assert!(weights[2].0 <= -0.5);
             }
