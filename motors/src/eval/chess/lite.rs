@@ -2,21 +2,22 @@ use std::fmt::Display;
 
 use crate::eval::chess::lite_values::*;
 use crate::eval::chess::{
-    DiagonalOpenness, FLANK, FileOpenness, REACHABLE_PAWNS, pawn_advanced_center_idx, pawn_passive_center_idx,
-    pawn_shield_idx,
+    pawn_advanced_center_idx, pawn_passive_center_idx, pawn_shield_idx, DiagonalOpenness, FileOpenness, FLANK,
+    REACHABLE_PAWNS,
 };
-use gears::games::chess::Color::{Black, White};
 use gears::games::chess::castling::CastleRight::Kingside;
 use gears::games::chess::moves::Move;
 use gears::games::chess::pieces::PieceType;
 use gears::games::chess::pieces::PieceType::*;
+use gears::games::chess::see::SeeScore;
 use gears::games::chess::squares::{ChessboardSize, Square};
-use gears::games::chess::{Board, CHESS_PIECE_PHASE, ChessBitboardTrait, Color};
+use gears::games::chess::Color::{Black, White};
+use gears::games::chess::{Board, ChessBitboardTrait, Color, CHESS_PIECE_PHASE};
 use gears::games::{ColorTrait, CoordinatesTrait};
 use gears::games::{DimT, PosHash};
 use gears::general::attacks::ChessSliderGenerator;
-use gears::general::bitboards::RawBitboardTrait;
 use gears::general::bitboards::chessboard::{Bitboard, COLORED_SQUARES};
+use gears::general::bitboards::RawBitboardTrait;
 use gears::general::bitboards::{BitboardTrait, KnownSizeBitboard};
 use gears::general::board::{BitboardBoard, BoardTrait};
 use gears::general::common::StaticallyNamedEntity;
@@ -237,7 +238,9 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
         if pos.col_piece_bb(c, Pawn).is_zero() {
             let minor_pieces = pos.piece_bb(Knight) | pos.piece_bb(Bishop);
             if (minor_pieces & pos.player_bb(c)).num_ones() * 2 > minor_pieces.num_ones() {
-                return Tuned::more_minors_but_no_pawns().into();
+                if pos.material_advantage_of(c) > SeeScore(0) {
+                    return Tuned::more_minors_but_no_pawns().into();
+                }
             }
         }
         Tuned::Score::default()

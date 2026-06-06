@@ -1,13 +1,13 @@
-use crate::games::chess::Color::{Black, White};
 use crate::games::chess::moves::Move;
 use crate::games::chess::pieces::PieceType::*;
-use crate::games::chess::pieces::{NUM_CHESS_PIECES, PieceType};
+use crate::games::chess::pieces::{PieceType, NUM_CHESS_PIECES};
 use crate::games::chess::squares::{ChessboardSize, Square};
-use crate::games::chess::{Board, PAWN_CAPTURES};
+use crate::games::chess::Color::{Black, White};
+use crate::games::chess::{Board, Color, PAWN_CAPTURES};
 use crate::games::{AbstractPieceType, BoardTrait};
 use crate::general::attacks::ChessSliderGenerator;
 use crate::general::bitboards::chessboard::Bitboard;
-use crate::general::bitboards::{BitboardTrait, KnownSizeBitboard};
+use crate::general::bitboards::{BitboardTrait, KnownSizeBitboard, RawBitboardTrait};
 use crate::general::board::BitboardBoard;
 use derive_more::{Add, AddAssign, Neg, Sub, SubAssign};
 use std::mem::swap;
@@ -125,13 +125,23 @@ impl Board {
     pub fn see_at_least(&self, mov: Move, beta: SeeScore) -> bool {
         self.see(mov, beta - SeeScore(1), beta).0 >= beta.0
     }
+
+    /// Material advantage of [`us`] according to piece SEE values (so e.g. Knight vs Pawn would return 200)
+    pub fn material_advantage_of(&self, us: Color) -> SeeScore {
+        let mut res = 0;
+        for p in PieceType::non_king_pieces() {
+            let count = self.col_piece_bb(us, p).num_ones() as i32 - self.col_piece_bb(!us, p).num_ones() as i32;
+            res += count * SEE_SCORES[p as usize].0;
+        }
+        SeeScore(res)
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::games::BoardTrait;
     use crate::games::chess::Board;
+    use crate::games::BoardTrait;
     use crate::general::board::BoardHelpers;
     use crate::general::board::Strictness::Relaxed;
     use crate::general::common::parse_int_from_str;
