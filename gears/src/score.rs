@@ -24,7 +24,6 @@ use crate::search::NodeType;
 use crate::search::NodeType::{Exact, FailHigh, FailLow};
 use anyhow::anyhow;
 use derive_more::{Add, AddAssign, Neg, Sub, SubAssign};
-use num::ToPrimitive;
 use num::traits::WrappingAdd;
 use std::fmt::{Display, Formatter};
 use std::num::Wrapping;

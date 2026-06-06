@@ -2,21 +2,21 @@ use std::fmt::Display;
 
 use crate::eval::chess::lite_values::*;
 use crate::eval::chess::{
-    pawn_advanced_center_idx, pawn_passive_center_idx, pawn_shield_idx, DiagonalOpenness, FileOpenness, FLANK,
-    REACHABLE_PAWNS,
+    DiagonalOpenness, FLANK, FileOpenness, REACHABLE_PAWNS, pawn_advanced_center_idx, pawn_passive_center_idx,
+    pawn_shield_idx,
 };
+use gears::games::chess::Color::{Black, White};
 use gears::games::chess::castling::CastleRight::Kingside;
 use gears::games::chess::moves::Move;
 use gears::games::chess::pieces::PieceType;
 use gears::games::chess::pieces::PieceType::*;
 use gears::games::chess::squares::{ChessboardSize, Square};
-use gears::games::chess::Color::{Black, White};
-use gears::games::chess::{Board, ChessBitboardTrait, Color, CHESS_PIECE_PHASE};
+use gears::games::chess::{Board, CHESS_PIECE_PHASE, ChessBitboardTrait, Color};
 use gears::games::{ColorTrait, CoordinatesTrait};
 use gears::games::{DimT, PosHash};
 use gears::general::attacks::ChessSliderGenerator;
-use gears::general::bitboards::chessboard::{Bitboard, COLORED_SQUARES};
 use gears::general::bitboards::RawBitboardTrait;
+use gears::general::bitboards::chessboard::{Bitboard, COLORED_SQUARES};
 use gears::general::bitboards::{BitboardTrait, KnownSizeBitboard};
 use gears::general::board::{BitboardBoard, BoardTrait};
 use gears::general::common::StaticallyNamedEntity;
@@ -233,6 +233,16 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
         Self::pawn_center(pos) + Self::pawns_for(pos, White, passers) - Self::pawns_for(pos, Black, passers)
     }
 
+    fn more_minors_no_pawns(pos: &Board, c: Color) -> Tuned::Score {
+        if pos.col_piece_bb(c, Pawn).is_zero() {
+            let minor_pieces = pos.piece_bb(Knight) | pos.piece_bb(Bishop);
+            if (minor_pieces & pos.player_bb(c)).num_ones() * 2 > minor_pieces.num_ones() {
+                return Tuned::more_minors_but_no_pawns().into();
+            }
+        }
+        Tuned::Score::default()
+    }
+
     fn open_lines(pos: &Board, color: Color) -> Tuned::Score {
         let mut score = Tuned::Score::default();
         let our_pawns = pos.col_piece_bb(color, Pawn);
@@ -371,6 +381,7 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
         let mut score = Tuned::Score::default();
         state.stm_bonus = [Tuned::Score::default(), Tuned::Score::default()];
         for color in Color::iter() {
+            score += Self::more_minors_no_pawns(pos, color);
             score += Self::bishop_pair(pos, color);
             score += Self::bad_bishop(pos, color);
             score += Self::open_lines(pos, color);
