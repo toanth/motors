@@ -1126,8 +1126,7 @@ impl Caps {
         // ******************************************************
 
         if self.search_stack[ply].tried_moves.is_empty() {
-            // TODO: Test storing to the TT
-            return Some(game_result_to_score(pos.no_moves_result().unwrap(), ply));
+            best_score = game_result_to_score(pos.no_moves_result().unwrap(), ply);
         }
 
         let tt_entry: TTEntry<Board> =
@@ -1147,7 +1146,7 @@ impl Caps {
         {
             self.state.custom.corr_hist.update(pos, continued, depth, eval, best_score);
         }
-        if ply > 0 && bound_so_far == FailLow {
+        if ply > 0 && best_score < alpha {
             // give a smaller bonus to the parent's move if we fail low. This rewards PVS researches that don't cause a fail high in the parent.
             let parent_move = self.search_stack[ply - 1].last_tried_move();
             if !parent_move.is_null() {
