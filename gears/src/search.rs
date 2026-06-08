@@ -438,7 +438,7 @@ pub struct SearchLimit {
     pub depth: DepthPly,
     pub nodes: NodesLimit,
     pub soft_nodes: NodesLimit,
-    pub mate: DepthPly,
+    pub mate: isize, // isize instead of `DepthPly` because a negative limit can be used for finding a forced loss
     pub start_time: Instant,
 }
 
@@ -451,7 +451,7 @@ impl Default for SearchLimit {
             depth: MAX_DEPTH,
             nodes: NodesLimit::new(u64::MAX).unwrap(),
             soft_nodes: NodesLimit::new(u64::MAX).unwrap(),
-            mate: DepthPly::new(0), // only finding a mate in 0 would stop the search
+            mate: 0, // only finding a mate in 0 would stop the search
             start_time: Instant::now(),
         }
     }
@@ -478,8 +478,12 @@ impl Display for SearchLimit {
         if self.soft_nodes.get() != u64::MAX {
             limits.push(format!("{} soft nodes", self.soft_nodes.get()));
         }
-        if self.mate != DepthPly::new(0) {
-            limits.push(format!("mate in {} plies", self.mate.get()));
+        if self.mate != 0 {
+            if self.mate < 0 {
+                limits.push(format!("getting mated in {} plies", -self.mate));
+            } else {
+                limits.push(format!("mate in {} plies", self.mate));
+            }
         }
         if limits.len() == 1 { write!(f, "{}", limits[0]) } else { write!(f, "[{}]", limits.iter().format(",")) }
     }
@@ -506,12 +510,12 @@ impl SearchLimit {
         Self::depth(DepthPly::new(depth))
     }
 
-    pub fn mate(depth: DepthPly) -> Self {
-        Self { mate: depth, ..Self::infinite() }
+    pub fn mate_in_ply(ply: isize) -> Self {
+        Self { mate: ply, ..Self::infinite() }
     }
 
-    pub fn mate_in_moves(num_moves: usize) -> Self {
-        Self::mate(DepthPly::new(num_moves * 2))
+    pub fn mate_in_moves(num_moves: isize) -> Self {
+        if num_moves < 0 { Self::mate_in_ply(num_moves * 2 - 1) } else { Self::mate_in_ply(num_moves * 2) }
     }
 
     pub fn nodes(nodes: NodesLimit) -> Self {

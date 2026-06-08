@@ -1,17 +1,17 @@
 //! Everything related to loading and converting lists of annotated FENs into a [`Dataset`].
 
-use crate::eval::{Eval, WeightsInterpretation, count_occurrences};
-use crate::gd::{Batch, Dataset, Entry, EntryIdxT, Float, Outcome};
+use crate::eval::{count_occurrences, Eval, WeightsInterpretation};
+use crate::gd::{Batch, Dataset, Entry, EntryIdxT, Float, Outcome, SingleDatapoint};
 use crate::load_data::Perspective::SideToMove;
 use derive_more::Display;
-use gears::GameResult;
 use gears::colored::Colorize;
 use gears::games::ColorTrait;
 use gears::general::board::BoardTrait;
 use gears::general::board::Strictness::Relaxed;
 use gears::general::common::anyhow::{anyhow, bail};
-use gears::general::common::{Res, Tokens, parse_fp_from_str, tokens};
+use gears::general::common::{parse_fp_from_str, tokens, Res, Tokens};
 use gears::itertools::Itertools;
+use gears::GameResult;
 use rayon::prelude::*;
 use serde::Deserialize;
 use std::fs::File;
@@ -128,7 +128,7 @@ impl<B: BoardTrait, E: Eval<B>> FenReader<B, E> {
         let perspective = input_file.perspective;
         println!("Loading FENs from file '{0}' (Outcomes are {perspective} relative)", input_file.path.as_str().bold());
         let reader = BufReader::new(file);
-        let id = || (Dataset::new(E::num_weights()), 0);
+        let id = || (Dataset::new_with_tuned(E::num_weights(), E::num_tuned_weights()), 0);
         let (dataset, num_lines) = reader
             .lines()
             .enumerate()
@@ -154,7 +154,7 @@ impl<B: BoardTrait, E: Eval<B>> FenReader<B, E> {
     ///
     /// This is primarily intended for debugging and small examples.
     pub fn load_from_str(annotated_fens: &str, perspective: Perspective) -> Res<Dataset> {
-        let mut res = Dataset::new(E::num_weights());
+        let mut res = Dataset::new_with_tuned(E::num_weights(), E::num_tuned_weights());
         for (idx, line) in annotated_fens.lines().enumerate() {
             Self::load_datapoint_from_annotated_fen(line, idx, perspective, &mut res)?;
         }
@@ -171,11 +171,17 @@ impl<B: BoardTrait, E: Eval<B>> FenReader<B, E> {
     }
 
     pub fn load_from_file_list(files: &[AnnotatedFenFile], remove_uncommon: Option<Float>) -> Res<Dataset> {
-        let mut res = Dataset::new(E::num_weights());
+        let mut res = Dataset::new_with_tuned(E::num_weights(), E::num_tuned_weights());
         for file in files {
             let file_res = Self::load_from_file_impl(file)?;
             res.union(file_res);
         }
+        println!(
+            "Loaded {0} entries; Size: {1} bytes for data points and {2} bytes for entries",
+            res.num_datapoints(),
+            res.num_datapoints() * size_of::<SingleDatapoint>(),
+            res.as_batch().num_entries() * size_of::<Entry>()
+        );
         if let Some(max_occurrence) = remove_uncommon {
             println!("Finding and removing uncommon entries...");
             let uncommon = list_uncommon::<E>(res.as_batch(), max_occurrence);
@@ -209,10 +215,10 @@ pub fn list_with_features(batch: Batch, features: Vec<usize>) -> Vec<FeatureAppe
         let d = batch.entries_of(dp);
         debug_assert!(d.iter().map(|f| f.idx).is_sorted());
         for e in d {
-            if features.binary_search(&e.idx).is_ok() {
+            if features.binary_search(&e.idx()).is_ok() {
                 let appearance = FeatureAppearance {
                     entries: d.iter().copied().collect_vec(),
-                    weight_idx: e.idx,
+                    weight_idx: e.idx(),
                     global_start_idx: dp.start_idx,
                 };
                 res.push(appearance);

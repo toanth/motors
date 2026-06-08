@@ -18,6 +18,7 @@ use crate::search::{
     SearchStateFor,
 };
 use crate::send_debug_msg;
+use gears::PlayerResult;
 use gears::PlayerResult::{Lose, Win};
 use gears::colored::Colorize;
 use gears::games::BoardHistDyn;
@@ -45,7 +46,6 @@ use gears::search::NodeType::*;
 use gears::search::*;
 use gears::ugi::EngineOptionName::*;
 use gears::ugi::{EngineOptionNameForProtocol, EngineOptionType};
-use gears::{PlayerResult, track};
 
 type DefaultEval = LiTEval;
 
@@ -234,7 +234,7 @@ impl Engine<Board> for Caps {
         let mut limit = self.params.limit;
         let pos = self.params.pos;
         limit.fixed_time = min(limit.fixed_time, limit.tc.remaining);
-        self.ply_hard_limit = if limit.mate.get() == 0 { PLY_HARD_LIMIT } else { limit.mate.get() };
+        self.ply_hard_limit = if limit.mate == 0 { PLY_HARD_LIMIT } else { limit.mate.abs() as usize };
         let soft_limit =
             limit.tc.remaining.saturating_sub(limit.tc.increment) / cc::soft_limit_div() + limit.tc.increment;
         self.params.limit = limit;
@@ -260,7 +260,7 @@ impl Engine<Board> for Caps {
             max {nodes} nodes, soft limit {soft}ms, {ignored} ignored moves. {elapsed} microseconds have already elapsed ({e2} since starting the search in this thread)",
             time = limit.tc.remaining.as_micros(),
             incr = limit.tc.increment.as_millis(),
-            mate = limit.mate.get(),
+            mate = limit.mate,
             depth = limit.depth.get(),
             nodes = limit.nodes.get(),
             fixed = limit.fixed_time.as_millis(),
@@ -533,6 +533,7 @@ impl Caps {
         mut expected_node_type: NodeType,
     ) -> Option<Score> {
         debug_assert!(alpha < beta, "{alpha} {beta} {pos} {ply} {depth}");
+        debug_assert!([MIN_ALPHA, alpha, beta, MAX_BETA].is_sorted(), "{alpha} {beta} {ply} {depth} {pos}");
         debug_assert!(ply <= PLY_HARD_LIMIT, "{ply} {depth} {pos}");
         debug_assert!(depth <= ID_ITERS_SOFT_LIMIT.isize() * DEPTH_INCREMENT as isize, "{ply} {depth} {pos}"); // TODO: Remove?
         debug_assert!(self.params.history.len() >= ply, "{ply} {depth} {pos}, {:?}", self.params.history);
@@ -588,7 +589,7 @@ impl Caps {
         if in_check {
             depth += cc::check_extension();
         }
-        // limit.mate() is the min of the original limit.mate and DEPTH_HARD_LIMIT
+        // self.ply_hard_limit is the min of the original limit.mate and DEPTH_HARD_LIMIT
         if depth <= 0 || ply >= self.ply_hard_limit {
             return self.qsearch(pos, alpha, beta, ply, pv_node);
         }
@@ -630,16 +631,15 @@ impl Caps {
                 best_move = tt_move;
             }
             let tt_score = tt_entry.score();
+            let tt_depth = tt_entry.depth() as isize;
             // TT cutoffs. If we've already seen this position, and the TT entry has more valuable information (higher depth),
             // and we're not a PV node, and the saved score is either exact or at least known to be outside (alpha, beta),
             // simply return it.
-            let depth_diff = 0.max(depth - tt_entry.depth as isize);
+            let depth_diff = 0.max(depth - tt_depth);
             // idea from david: Do TT cutoffs even if the tt depth is lower than the current depth, as long as the tt bound is far above beta
             let beta_cutoff_threshold =
                 beta + Score((depth_diff * depth_diff * cc::tt_cutoff_margin() / (128 * 128)) as ScoreT);
-            if !pv_node
-                && (tt_entry.depth as isize >= depth || (tt_bound != FailLow && tt_score >= beta_cutoff_threshold))
-            {
+            if !pv_node && (tt_depth >= depth || (tt_bound != FailLow && tt_score >= beta_cutoff_threshold)) {
                 if (tt_bound == NodeType::lower_bound() && tt_score >= beta_cutoff_threshold)
                     || (tt_bound == NodeType::upper_bound() && tt_score <= alpha)
                     || tt_bound == Exact
@@ -653,7 +653,7 @@ impl Caps {
                         self.update_histories(best_move, depth, ply, tt_score - beta);
                     }
                     return Some(tt_score);
-                } else if depth <= cc::low_depth_tt_extension_depth() && tt_entry.depth as isize >= depth {
+                } else if depth <= cc::low_depth_tt_extension_depth() && tt_depth >= depth {
                     // also from stormphrax
                     depth += cc::tt_extension();
                 }
@@ -1212,10 +1212,11 @@ impl Caps {
                 || (bound == NodeType::upper_bound() && tt_score <= alpha)
                 || bound == Exact
             {
-                if pv_node {
+                if pv_node && !in_check {
                     return Some(tt_score.clamp(MIN_NORMAL_SCORE, MAX_NORMAL_SCORE));
+                } else if !pv_node {
+                    return Some(tt_score);
                 }
-                return Some(tt_score);
             }
             raw_eval = tt_entry.raw_eval();
             eval = self.state.custom.corr_hist.correct(pos, continued, raw_eval);
@@ -1577,7 +1578,7 @@ mod tests {
             let mut root_entry = TTEntry::<Board>::default();
             if let Some(tt) = tt.clone() {
                 root_entry = tt.load(pos.hash_pos(), 0).unwrap();
-                assert!(root_entry.depth <= 2 * DEPTH_INCREMENT as u16); // possible extensions
+                assert!(root_entry.depth() as usize <= 2 * DEPTH_INCREMENT); // possible extensions
                 assert_eq!(root_entry.bound(), Exact);
                 assert!(root_entry.mov(&pos).is_some());
             }
@@ -1592,7 +1593,7 @@ mod tests {
                     let Some(entry) = entry else {
                         continue; // it's possible that a position is not in the TT because qsearch didn't save it
                     };
-                    assert!(entry.depth <= 2 * DEPTH_INCREMENT as u16, "{entry:?} {new_pos}");
+                    assert!(entry.depth() as usize <= 2 * DEPTH_INCREMENT, "{entry:?} {new_pos}");
                     assert!(-entry.score <= root_entry.score, "{entry:?}\n{root_entry:?}\n{new_pos}");
                 }
             }

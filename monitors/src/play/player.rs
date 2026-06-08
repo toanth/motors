@@ -385,7 +385,7 @@ impl PlayerBuilder {
         let fixed_time = args.move_time.unwrap_or(Duration::MAX);
         let byoyomi = Duration::ZERO; // not currently supported
         let depth = args.depth.unwrap_or(DepthPly::MAX);
-        let mate = args.mate.unwrap_or(DepthPly::MAX);
+        let mate = args.mate.unwrap_or(MAX_DEPTH.isize());
         let nodes = args.nodes.unwrap_or(NodesLimit::MAX);
         let soft_nodes = NodesLimit::MAX;
         let default_limit =
