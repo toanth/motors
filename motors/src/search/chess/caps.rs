@@ -632,17 +632,20 @@ impl Caps {
             }
             let tt_score = tt_entry.score();
             let tt_depth = tt_entry.depth() as isize;
+
             // TT cutoffs. If we've already seen this position, and the TT entry has more valuable information (higher depth),
             // and we're not a PV node, and the saved score is either exact or at least known to be outside (alpha, beta),
             // simply return it.
             let depth_diff = 0.max(depth - tt_depth);
-            // idea from david: Do TT cutoffs even if the tt depth is lower than the current depth, as long as the tt bound is far above beta
-            let beta_cutoff_threshold =
-                beta + Score((depth_diff * depth_diff * cc::tt_cutoff_margin() / (128 * 128)) as ScoreT);
-            if !pv_node && (tt_depth >= depth || (tt_bound != FailLow && tt_score >= beta_cutoff_threshold)) {
-                if (tt_bound == NodeType::lower_bound() && tt_score >= beta_cutoff_threshold)
-                    || (tt_bound == NodeType::upper_bound() && tt_score <= alpha)
-                    || tt_bound == Exact
+            // idea from david: Do TT cutoffs even if the tt depth is lower than the current depth, as long as the tt bound
+            // is far away from our current alpha / beta bounds
+            let fail_high_cutoff_threshold =
+                beta + Score((depth_diff * depth_diff * cc::tt_beta_cutoff_margin() / (128 * 128)) as ScoreT);
+            let fail_low_cutoff_threshold =
+                alpha - Score((depth_diff * depth_diff * cc::tt_alpha_cutoff_margin() / (128 * 128)) as ScoreT);
+            if !pv_node {
+                if (tt_bound != FailLow && tt_score >= fail_high_cutoff_threshold)
+                    || (tt_bound != FailHigh && tt_score <= fail_low_cutoff_threshold)
                 {
                     // Idea from stormphrax
                     if tt_score >= beta
@@ -657,10 +660,8 @@ impl Caps {
                     // also from stormphrax
                     depth += cc::tt_extension();
                 }
-            }
-            // Even though we didn't get a cutoff from the TT, we can still use the score and bound to update our guess
-            // at what the type of this node is going to be.
-            if !pv_node {
+                // Even though we didn't get a cutoff from the TT, we can still use the score and bound to update our guess
+                // at what the type of this node is going to be.
                 expected_node_type = if tt_bound != Exact {
                     tt_bound
                 } else if tt_score <= alpha {
