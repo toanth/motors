@@ -15,29 +15,29 @@
  *  You should have received a copy of the GNU General Public License
  *  along with Motors. If not, see <https://www.gnu.org/licenses/>.
  */
-use crate::io::SearchType::Normal;
 use crate::io::command::{
-    AbstractGoState, Command, CommandList, GoState, Standard, SubCommandsFn, coords_options, go_options, move_command,
-    moves_options, named_entity_to_command, options_options, piece_options, position_options, query_options,
-    select_command, ugi_commands,
+    coords_options, go_options, move_command, moves_options, named_entity_to_command, options_options, piece_options, position_options, query_options,
+    select_command, ugi_commands, AbstractGoState, Command, CommandList, GoState,
+    Standard, SubCommandsFn,
 };
+use crate::io::SearchType::Normal;
 use crate::io::{AbstractEngineUgiState, EngineUGI, SearchType};
 use crate::search::{AbstractEvalBuilder, AbstractSearcherBuilder, EvalList, SearcherList};
 use edit_distance::edit_distance;
-use gears::MatchStatus::Ongoing;
-use gears::ProgramStatus::Run;
 use gears::arrayvec::ArrayVec;
 use gears::colored::Colorize;
 use gears::games::OutputList;
 use gears::general::board::{BoardHelpers, BoardTrait, Symmetry};
 use gears::general::common::anyhow::anyhow;
-use gears::general::common::{Name, NamedEntity, Res, Tokens, tokens};
+use gears::general::common::{tokens, Name, NamedEntity, Res, Tokens};
 use gears::general::moves::MoveTrait;
 use gears::itertools::Itertools;
 use gears::output::{Message, OutputBuilder, OutputOpts};
 use gears::rand::prelude::IndexedRandom;
-use gears::rand::{RngExt, rng};
+use gears::rand::{rng, RngExt};
 use gears::ugi::EngineOption;
+use gears::MatchStatus::Ongoing;
+use gears::ProgramStatus::Run;
 use gears::{ProgramStatus, Quitting};
 use inquire::autocompletion::Replacement;
 use inquire::{Autocomplete, CustomUserError};
@@ -250,7 +250,7 @@ impl<B: BoardTrait> AbstractEngineUgiState for ACState<B> {
     fn handle_go(&mut self, _initial_search_type: SearchType, _words: &mut Tokens) -> Res<()> {
         Ok(())
     }
-    fn handle_stop(&mut self, _suppress_best_move: bool) -> Res<()> {
+    fn handle_stop(&mut self) -> Res<()> {
         Ok(())
     }
     fn handle_ponderhit(&mut self) -> Res<()> {

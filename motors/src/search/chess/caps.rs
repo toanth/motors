@@ -5,47 +5,47 @@ use std::ops::{Deref, DerefMut};
 use std::sync::atomic::Ordering::Relaxed;
 use std::time::{Duration, Instant};
 
+use crate::eval::chess::lite::{lc, LiTEval};
 use crate::eval::Eval;
-use crate::eval::chess::lite::{LiTEval, lc};
 use crate::io::ugi_output::{color_for_score, score_gradient};
 use crate::search::chess::caps_values::cc;
-use crate::search::chess::histories::{ContHist, HIST_DIVISOR, HistScoreT};
-use crate::search::chess::move_picker::{BAD_SEE_OFFSET, MovePicker, MovePickerStage};
+use crate::search::chess::histories::{ContHist, HistScoreT, HIST_DIVISOR};
+use crate::search::chess::move_picker::{MovePicker, MovePickerStage, BAD_SEE_OFFSET};
 use crate::search::chess::*;
-use crate::search::tt::{TTEntry, ttc};
+use crate::search::tt::{ttc, TTEntry};
 use crate::search::{
-    AbstractSearchState, DEFAULT_CHECK_TIME_INTERVAL, Engine, EngineInfo, MoveScore, NormalEngine, PVData, SearchState,
-    SearchStateFor,
+    AbstractSearchState, Engine, EngineInfo, MoveScore, NormalEngine, PVData, SearchState, SearchStateFor,
+    DEFAULT_CHECK_TIME_INTERVAL,
 };
 use crate::send_debug_msg;
-use gears::PlayerResult;
-use gears::PlayerResult::{Lose, Win};
 use gears::colored::Colorize;
-use gears::games::BoardHistDyn;
 use gears::games::chess::bitbase::{Bitbase, PAWN_V_KING_TABLE};
 use gears::games::chess::moves::Move;
 use gears::games::chess::pieces::PieceType::Pawn;
 use gears::games::chess::see::SeeScore;
-use gears::games::chess::upcoming_repetition::{UPCOMING_REPETITION_TABLE, UpcomingRepetitionTable};
+use gears::games::chess::upcoming_repetition::{UpcomingRepetitionTable, UPCOMING_REPETITION_TABLE};
 use gears::games::chess::zobrist::ZOBRIST_KEYS;
-use gears::games::chess::{Board, unverified::UnverifiedBoard};
+use gears::games::chess::{unverified::UnverifiedBoard, Board};
+use gears::games::BoardHistDyn;
 use gears::general::bitboards::RawBitboardTrait;
 use gears::general::board::Strictness::Strict;
 use gears::general::board::{BitboardBoard, BoardTrait, UnverifiedBoardTrait};
 use gears::general::common::Description::NoDescription;
-use gears::general::common::{Res, StaticallyNamedEntity, parse_int_from_str, select_name_static};
+use gears::general::common::{parse_int_from_str, select_name_static, Res, StaticallyNamedEntity};
 use gears::general::move_list::InplaceMoveList;
 use gears::general::moves::{MoveTrait, UntrustedMove};
 use gears::itertools::Itertools;
 use gears::num::traits::WrappingAdd;
 use gears::score::{
-    BITBASE_LOSS, BITBASE_WIN, MAX_BETA, MAX_NORMAL_SCORE, MAX_SCORE_LOST, MIN_ALPHA, MIN_NORMAL_SCORE, NO_SCORE_YET,
-    SCORE_LOST, SCORE_WON, Score, ScoreT, game_result_to_score,
+    game_result_to_score, Score, ScoreT, BITBASE_LOSS, BITBASE_WIN, MAX_BETA, MAX_NORMAL_SCORE, MAX_SCORE_LOST,
+    MIN_ALPHA, MIN_NORMAL_SCORE, NO_SCORE_YET, SCORE_LOST, SCORE_WON,
 };
 use gears::search::NodeType::*;
 use gears::search::*;
 use gears::ugi::EngineOptionName::*;
 use gears::ugi::{EngineOptionNameForProtocol, EngineOptionType};
+use gears::PlayerResult;
+use gears::PlayerResult::{Lose, Win};
 
 type DefaultEval = LiTEval;
 
@@ -253,6 +253,7 @@ impl Engine<Board> for Caps {
                 self.repeated_before_root.push(hist.0[i]);
             }
         }
+        debug_assert_eq!(self.uci_nodes(), 0);
 
         send_debug_msg!(
             self,
@@ -407,6 +408,7 @@ impl Caps {
             soft_limit_fail_low_extension = 1.0;
             if budget > cc::soft_limit_node_scale_min_budget() && self.multi_pvs.len() == 1 {
                 let node_frac = self.root_move_nodes.frac_1024(self.cur_pv_data().pv.list[0], self.uci_nodes());
+                debug_assert!((0..=1024).contains(&node_frac));
                 soft_limit = soft_limit
                     .mul_f64(((1024 + 512 - node_frac) * cc::soft_limit_node_scale()) as f64 / (1024.0 * 1024.0));
             }
@@ -1053,7 +1055,9 @@ impl Caps {
             );
 
             if root {
-                self.state.custom.root_move_nodes.update(mov, self.state.uci_nodes() - nodes_before_move);
+                let n = self.state.uci_nodes();
+                debug_assert!(n >= nodes_before_move, "{n} {nodes_before_move} {:?}", self.params);
+                self.state.custom.root_move_nodes.update(mov, n - nodes_before_move);
                 let move_num = self.search_stack[0].tried_moves.len() - 1;
                 if move_num < 5 && self.limit().start_time.elapsed().as_millis() >= 3000 {
                     self.send_refutation(mov, score, move_num);

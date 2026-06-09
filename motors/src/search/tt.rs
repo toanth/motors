@@ -1,23 +1,23 @@
 use crate::spsa_params;
 use derive_more::Index;
-use gears::games::PosHash;
 #[cfg(feature = "chess")]
 use gears::games::chess::Board;
+use gears::games::PosHash;
 use gears::general::board::BoardTrait;
 use gears::general::moves::{MoveTrait, UntrustedMove};
 use gears::itertools::Itertools;
-use gears::score::{CompactScoreT, SCORE_WON, Score, ScoreT};
+use gears::score::{CompactScoreT, Score, ScoreT, SCORE_WON};
 use gears::search::NodeType;
 use rayon::prelude::*;
 #[cfg(all(feature = "unsafe", target_arch = "x86_64", target_feature = "sse"))]
-use std::arch::x86_64::{_MM_HINT_T1, _mm_prefetch};
-use std::fmt::{Display, Formatter};
+use std::arch::x86_64::{_mm_prefetch, _MM_HINT_T1};
+use std::fmt::{Debug, Display, Formatter};
 use std::hash::{Hash, Hasher};
 use std::marker::PhantomData;
 use std::mem::size_of;
-use std::sync::Arc;
 use std::sync::atomic::AtomicU32;
 use std::sync::atomic::Ordering::Relaxed;
+use std::sync::Arc;
 
 #[derive(Debug, Default, Copy, Clone, Eq, PartialEq, derive_more::Display)]
 pub struct Age(u8);
@@ -211,7 +211,7 @@ age_diff_mult: isize = 4; 0..=128; step=4;
 ];
 
 /// Resizing the TT during search will wait until the search is finished (all threads will receive a new arc)
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct TT {
     tt: Arc<[TTBucket]>,
     pub age: Age,
@@ -220,6 +220,12 @@ pub struct TT {
 impl Default for TT {
     fn default() -> Self {
         if cfg!(miri) { Self::minimal() } else { Self::new_with_mib(DEFAULT_HASH_SIZE_MIB) }
+    }
+}
+
+impl Debug for TT {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "[TT of {0} entries with age {1}]", self.tt.len(), self.age)
     }
 }
 
@@ -450,10 +456,10 @@ mod test {
     use crate::search::chess::caps::Caps;
     use crate::search::multithreading::AtomicSearchState;
     use crate::search::{AbstractSearchState, Engine, NormalEngine, SearchParams};
-    use gears::games::ZobristHistory;
     use gears::games::chess::moves::Move;
+    use gears::games::ZobristHistory;
     use gears::rand::distr::Uniform;
-    use gears::rand::{Rng, RngExt, rng};
+    use gears::rand::{rng, Rng, RngExt};
     use gears::score::{MAX_NORMAL_SCORE, MIN_NORMAL_SCORE};
     use gears::search::NodeType::{Exact, FailHigh, FailLow};
     use gears::search::{DepthPly, SearchLimit};

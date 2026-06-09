@@ -15,32 +15,32 @@
  *  You should have received a copy of the GNU General Public License
  *  along with Motors. If not, see <https://www.gnu.org/licenses/>.
  */
-use crate::io::SearchType::{Auto, Bench, Normal, Perft, Ponder, SplitPerft};
 use crate::io::autocomplete::AutoCompleteState;
 use crate::io::command::Standard::*;
+use crate::io::SearchType::{Auto, Bench, Normal, Perft, Ponder, SplitPerft};
 use crate::io::{AbstractEngineUgiState, EngineUGI, SearchType};
-use gears::GameResult;
-use gears::MatchStatus::{Ongoing, Over};
-use gears::ProgramStatus::Run;
-use gears::Quitting::{QuitMatch, QuitProgram};
 use gears::arrayvec::ArrayVec;
 use gears::cli::Game;
 use gears::colored::Colorize;
-use gears::games::CharType::{Ascii, Unicode};
 #[cfg(feature = "fairy")]
 use gears::games::fairy::Board;
+use gears::games::CharType::{Ascii, Unicode};
 use gears::games::{AbstractPieceType, ColorTrait, ColoredPieceTrait, SizeTrait};
 use gears::general::board::{BoardHelpers, BoardTrait, ColPieceTypeOf, Strictness};
 use gears::general::common::anyhow::{anyhow, bail};
 use gears::general::common::{
-    Name, NamedEntity, Res, Tokens, parse_duration_ms, parse_int, parse_int_from_str, tokens,
+    parse_duration_ms, parse_int, parse_int_from_str, tokens, Name, NamedEntity, Res, Tokens,
 };
 use gears::general::moves::{ExtendedFormat, MoveTrait};
 use gears::itertools::Itertools;
 use gears::output::Message::Warning;
 use gears::output::OutputOpts;
-use gears::search::{DepthPly, MAX_DEPTH, NodesLimit, SearchLimit};
-use gears::ugi::{EngineOption, EngineOptionType, only_load_ugi_position};
+use gears::search::{DepthPly, NodesLimit, SearchLimit, MAX_DEPTH};
+use gears::ugi::{only_load_ugi_position, EngineOption, EngineOptionType};
+use gears::GameResult;
+use gears::MatchStatus::{Ongoing, Over};
+use gears::ProgramStatus::Run;
+use gears::Quitting::{QuitMatch, QuitProgram};
 use std::fmt;
 use std::fmt::{Debug, Display, Formatter};
 use std::time::{Duration, Instant};
@@ -201,7 +201,7 @@ pub fn ugi_commands() -> CommandList {
             --> |state: &mut dyn AutoCompleteState| state.go_subcmds(Normal),
             recurse = true
         ),
-        command!(stop, All, "Stop the current search. No effect if not searching", |ugi, _, _| ugi.handle_stop(false)),
+        command!(stop, All, "Stop the current search. No effect if not searching", |ugi, _, _| ugi.handle_stop()),
         command!(
             position | pos | p,
             All,
