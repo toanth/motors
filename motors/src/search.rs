@@ -14,15 +14,15 @@ use gears::games::{BoardHistDyn, ZobristHistory};
 use gears::general::board::Strictness::Relaxed;
 use gears::general::board::{BoardHelpers, BoardTrait};
 use gears::general::common::anyhow::bail;
-use gears::general::common::{EntityList, Name, NamedEntity, Res, StaticallyNamedEntity, dbg_print, dbg_reset};
+use gears::general::common::{dbg_print, dbg_reset, EntityList, Name, NamedEntity, Res, StaticallyNamedEntity};
 use gears::general::move_list::MoveListTrait;
 use gears::general::moves::MoveTrait;
 use gears::itertools::Itertools;
 use gears::output::Message;
 use gears::output::Message::Warning;
-use gears::rand::SeedableRng;
 use gears::rand::prelude::SmallRng;
-use gears::score::{MAX_BETA, MIN_ALPHA, NO_SCORE_YET, SCORE_LOST, SCORE_WON, Score, ScoreT};
+use gears::rand::SeedableRng;
+use gears::score::{Score, ScoreT, MAX_BETA, MIN_ALPHA, NO_SCORE_YET, SCORE_LOST, SCORE_WON};
 use gears::search::{Budget, DepthPly, NodeType, NodesLimit, SearchInfo, SearchLimit, SearchResult, TimeControl};
 use gears::ugi::{EngineOption, EngineOptionNameForProtocol, EngineOptionType};
 use std::collections::HashMap;
@@ -33,7 +33,7 @@ use std::hint::spin_loop;
 use std::marker::PhantomData;
 use std::num::NonZeroUsize;
 use std::ops::{Deref, DerefMut};
-use std::sync::atomic::Ordering::{AcqRel, Acquire, SeqCst};
+use std::sync::atomic::Ordering::{AcqRel, Acquire, Release, SeqCst};
 use std::sync::{Arc, Mutex};
 use std::thread::spawn;
 use std::time::{Duration, Instant};
@@ -517,7 +517,9 @@ pub trait NormalEngine<B: BoardTrait>: Engine<B> {
             self.search_state().stop_search();
             return true;
         }
-        if nodes % DEFAULT_CHECK_TIME_INTERVAL != 0 {
+        // Node limits are per-thread, but time limits are only checked on the main thread, which then
+        // sets the stop flag for all threads.
+        if nodes % DEFAULT_CHECK_TIME_INTERVAL != 0 || !self.search_state().is_main_thread() {
             return false;
         }
         let elapsed = self.search_state().start_time().elapsed();
@@ -541,7 +543,7 @@ pub trait NormalEngine<B: BoardTrait>: Engine<B> {
         Self: Sized,
     {
         let state = self.search_state();
-        if iter <= 1 {
+        if iter <= 1 || !self.search_state().is_main_thread() {
             return false;
         }
         let score = state.best_score();
@@ -598,7 +600,7 @@ impl<B: BoardTrait> SearchParams<B> {
         tt: TT,
         atomic: Arc<AtomicSearchState<B>>,
     ) -> Self {
-        Self::create(pos, limit, history, tt, None, 0, Score(0), atomic, Auxiliary)
+        Self::create(pos, limit, history, tt, None, 0, Score(0), atomic, SingleAndNoOutput)
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -663,8 +665,6 @@ impl<B: BoardTrait> SearchParams<B> {
     }
 
     pub fn auxiliary(&self, atomic: Arc<AtomicSearchState<B>>) -> Self {
-        // allow calling this on an auxiliary thread as well
-        //assert!(matches!(self.thread_type, Main(_)));
         Self {
             pos: self.pos.clone(),
             limit: self.limit,
@@ -681,16 +681,28 @@ impl<B: BoardTrait> SearchParams<B> {
     /// this will block if
     /// a) this is a main thread (i.e., it actually outputs), and
     /// b) the search is an infinite search from `go infinite` but not `ponder`, and
-    /// c) the search hasn't been cancelled yet. It will wait until the search has been cancelled.
+    /// c) the search hasn't been canceled yet. It will wait until the search has been canceled.
     /// Auxiliary threads and ponder searches both return instantly from this function, without printing anything.
     /// If the search result has chosen a null move, this instead outputs a warning and a random legal move.
     fn end_and_send(&self, res: &mut SearchResult<B>) {
         let Main(data) = &self.thread_type else {
-            self.atomic.set_searching(false);
+            self.atomic.currently_searching.store(false, Release);
             return;
         };
         if [Infinite, Ponder].contains(&data.search_type) {
             while !self.atomic.stop_flag() {
+                spin_loop();
+            }
+        }
+        // make sure all auxiliary threads stop as well, no matter which condition made the main thread
+        // stop. However, this means that `go nodes n` only applies to the main thread; auxiliary
+        // threads may search fewer nodes. Depending on the stop condition, it's possible that
+        // auxiliary threads have already stopped.
+        for atomic in data.auxiliary_threads() {
+            atomic.should_stop.store(true, Release);
+        }
+        for atomic in data.auxiliary_threads() {
+            while atomic.currently_searching.load(Acquire) {
                 spin_loop();
             }
         }
@@ -842,6 +854,10 @@ pub trait AbstractSearchState<B: BoardTrait> {
     }
     /// Engine-specific info, like the contents of history tables.
     fn write_internal_info(&self, pos: &B) -> Option<String>;
+
+    fn is_main_thread(&self) -> bool {
+        !matches!(self.search_params().thread_type, Auxiliary)
+    }
 }
 
 #[derive(Debug)]
@@ -855,7 +871,6 @@ pub struct SearchState<B: BoardTrait, E: SearchStackEntry<B>, C: CustomInfo<B>> 
     // The internal engine depth (if applicable) is represented as `Budget` and can be fractional.
     // This is different from the UCI "depth", expressed as `DepthPly`, which is the ID loop counter for a/b engines with ID.
     budget: Budget,
-    dummy: Vec<isize>,
     execution_start_time: Instant,
     last_msg_time: Instant,
     age: Age,
@@ -934,10 +949,6 @@ impl<B: BoardTrait, E: SearchStackEntry<B>, C: CustomInfo<B>> AbstractSearchStat
     }
 
     fn end_search(&mut self, res: &mut SearchResult<B>) {
-        self.dummy.push(self.uci_nodes() as isize);
-        if self.dummy.len() > 12345 {
-            println!("AHA");
-        }
         dbg_print();
         send_debug_msg!(
             self,
@@ -1136,7 +1147,6 @@ impl<B: BoardTrait, E: SearchStackEntry<B>, C: CustomInfo<B>> SearchState<B, E, 
             excluded_moves: vec![],
             current_pv_num: 0,
             budget: Budget::new(0),
-            dummy: vec![],
             execution_start_time: now,
             last_msg_time: now,
             age: Age::default(),
