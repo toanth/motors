@@ -1,7 +1,8 @@
 use std::cmp::min;
 use std::fmt::Display;
 use std::mem::take;
-use std::ops::{Deref, DerefMut};
+use std::ops::ControlFlow::{Break, Continue};
+use std::ops::{ControlFlow, Deref, DerefMut};
 use std::sync::atomic::Ordering::Relaxed;
 use std::time::{Duration, Instant};
 
@@ -271,12 +272,14 @@ impl Engine<Board> for Caps {
             e2 = self.execution_start_time.elapsed().as_micros()
         );
 
-        let incomplete = self.iterative_deepening(&pos, soft_limit);
-        if incomplete || self.output_minimal() {
+        let needs_final_info = self.iterative_deepening(&pos, soft_limit);
+        send_debug_msg!(self, "Finished iterative deepening; last search incomplete: {needs_final_info}");
+        if needs_final_info || self.output_minimal() {
             // Send one final search info, but don't send empty PVs.
             // Even for aborted searches, we never send unproven mates.
             if !self.current_mpv_pv().is_empty() {
                 self.search_state().send_search_info(true);
+                send_debug_msg!(self, "Wrote final search info with best move {:?}", self.to_search_info(true).pv[0]);
             }
         }
         self.search_result()
@@ -334,7 +337,7 @@ impl Caps {
                 self.cur_pv_data_mut().bound = None;
                 let scaled_soft_limit = soft_limit.mul_f64(soft_limit_scale);
                 self.state.params.atomic.reset_seldepth();
-                let (keep_searching, incomplete, score) =
+                let (keep_searching, needs_final_info, score) =
                     self.aspiration(pos, scaled_soft_limit, iter, budget as isize);
 
                 let atomic = &self.state.params.atomic;
@@ -348,8 +351,6 @@ impl Caps {
                         atomic.set_ponder_move(ponder_move);
                     }
                     self.state.multi_pvs[self.state.current_pv_num].pv.assign_from(pv);
-                    // We can't really trust FailHigh scores. Even though we should still prefer a fail high move, we don't
-                    // want a mate limit condition to trigger, so we clamp the fail high score to MAX_NORMAL_SCORE.
                     if let Some(score) = score {
                         debug_assert!(score.is_valid());
                         if pv_num == 0 {
@@ -360,8 +361,8 @@ impl Caps {
                     }
                 }
 
-                if !keep_searching {
-                    return incomplete;
+                if keep_searching == Break(()) {
+                    return needs_final_info;
                 }
                 if let Some(chosen_move) = self.search_stack[0].pv.get(0) {
                     self.excluded_moves.push(chosen_move);
@@ -396,9 +397,10 @@ impl Caps {
         unscaled_soft_limit: Duration,
         iter: usize,
         budget: isize,
-    ) -> (bool, bool, Option<Score>) {
+    ) -> (ControlFlow<()>, bool, Option<Score>) {
         let mut soft_limit_fail_low_extension = 1.0;
         let mut aw_budget = budget;
+        let mut needs_final_info = false;
         loop {
             let alpha = self.cur_pv_data().alpha;
             let beta = self.cur_pv_data().beta;
@@ -430,10 +432,18 @@ impl Caps {
             ) {
                 // increase the node counter by one to ensure the game is reproducible
                 _ = self.atomic().count_node();
-                send_debug_msg!(self, "Not starting negamax after {} microseconds", elapsed.as_micros());
-                return (false, false, None);
+                send_debug_msg!(
+                    self,
+                    "Not starting negamax after {0} microseconds, {iter} iterations. PV: {1:?}, best move: {2:?}",
+                    elapsed.as_micros(),
+                    self.to_search_info(true).pv,
+                    self.atomic().best_move()
+                );
+                debug_assert_eq!(self.pv_data()[0].pv.get(0).unwrap(), self.atomic().best_move());
+                return (Break(()), needs_final_info, None);
             }
             send_debug_msg!(self, "Starting new aspiration window search after {} microseconds", elapsed.as_micros());
+            needs_final_info = true;
 
             let asp_start_time = Instant::now();
             let Some(pv_score) = self.negamax(pos, 0, aw_budget, alpha, beta, Exact) else {
@@ -442,7 +452,7 @@ impl Caps {
                     "Exiting aw window after reaching a stop condition in negamax, after {} microseconds",
                     self.start_time().elapsed().as_micros()
                 );
-                return (false, true, None);
+                return (Break(()), true, None);
             };
 
             send_debug_msg!(
@@ -510,9 +520,10 @@ impl Caps {
 
             if node_type == Exact {
                 self.send_search_info(false);
-                return (true, true, Some(pv_score));
+                return (Continue(()), true, Some(pv_score));
             } else if asp_start_time.elapsed().as_millis() >= 1000 {
                 self.send_search_info(false);
+                needs_final_info = false;
             }
         }
     }
