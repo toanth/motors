@@ -15,16 +15,16 @@
  *  You should have received a copy of the GNU General Public License
  *  along with Motors. If not, see <https://www.gnu.org/licenses/>.
  */
-use crate::eval::chess::FileOpenness;
 use crate::eval::chess::lite_values::{Lite, LiteValues};
-use gears::games::DimT;
-use gears::games::chess::Color;
-use gears::games::chess::Color::White;
+use crate::eval::chess::FileOpenness;
 use gears::games::chess::pieces::PieceType;
 use gears::games::chess::pieces::PieceType::King;
 use gears::games::chess::squares::Square;
+use gears::games::chess::Color;
+use gears::games::chess::Color::White;
+use gears::games::DimT;
 use gears::general::common::StaticallyNamedEntity;
-use gears::score::{PhasedScore, p};
+use gears::score::{p, PhasedScore};
 use std::fmt::Display;
 
 #[rustfmt::skip]
@@ -86,6 +86,10 @@ impl LiteValues for KingGambotValues {
 
     fn more_minors_but_no_pawns() -> PhasedScore {
         Lite::more_minors_but_no_pawns()
+    }
+
+    fn opposite_colored_bishops() -> PhasedScore {
+        Lite::opposite_colored_bishops()
     }
 
     fn passed_pawn(square: Square) -> PhasedScore {

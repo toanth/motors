@@ -1,24 +1,24 @@
 //! The hand-crafted eval used by the `caps` chess engine.
 
-use crate::eval::EvalScale::Scale;
 use crate::eval::chess::lite::LiteFeatureSubset::*;
-use crate::eval::chess::{SkipChecks, write_phased_psqt, write_psqts};
+use crate::eval::chess::{write_phased_psqt, write_psqts, SkipChecks};
+use crate::eval::EvalScale::Scale;
 use crate::eval::{
-    Eval, EvalScale, WeightsInterpretation, changed_at_least, write_2d_range_phased, write_phased, write_range_phased,
+    changed_at_least, write_2d_range_phased, write_phased, write_range_phased, Eval, EvalScale, WeightsInterpretation,
 };
 use crate::gd::{Float, Weight, Weights};
 use crate::trace::{FeatureSubSet, SingleFeature, SparseTrace, TraceTrait};
-use gears::games::DimT;
-use gears::games::chess::Color::White;
 use gears::games::chess::pieces::PieceType::*;
-use gears::games::chess::pieces::{NUM_CHESS_PIECES, PieceType};
+use gears::games::chess::pieces::{PieceType, NUM_CHESS_PIECES};
 use gears::games::chess::see::SEE_SCORES;
-use gears::games::chess::squares::{NUM_SQUARES, Square};
+use gears::games::chess::squares::{Square, NUM_SQUARES};
+use gears::games::chess::Color::White;
 use gears::games::chess::{Board, Color};
+use gears::games::DimT;
 use gears::general::common::StaticallyNamedEntity;
-use motors::eval::chess::FileOpenness::*;
 use motors::eval::chess::lite::GenericLiTEval;
 use motors::eval::chess::lite_values::{LiteValues, MAX_MOBILITY};
+use motors::eval::chess::FileOpenness::*;
 use motors::eval::chess::{FileOpenness, NUM_PAWN_SHIELD_CONFIGURATIONS};
 use std::fmt;
 use std::fmt::{Display, Formatter};
@@ -35,6 +35,7 @@ struct LiTETrace {}
 pub enum LiteFeatureSubset {
     Psqt,
     MoreMinorsNoPawns,
+    OppositeColoredBishops,
     BishopPair,
     BadBishop,
     RookOpenness,
@@ -73,6 +74,7 @@ impl FeatureSubSet for LiteFeatureSubset {
         match self {
             Psqt => NUM_SQUARES * NUM_CHESS_PIECES,
             MoreMinorsNoPawns => 1,
+            OppositeColoredBishops => 1,
             BishopPair => 1,
             BadBishop => 9,
             RookOpenness => 3,
@@ -118,6 +120,9 @@ impl FeatureSubSet for LiteFeatureSubset {
             }
             MoreMinorsNoPawns => {
                 write!(f, "\nconst MORE_MINORS_NO_PAWNS: PhasedScore = ")?;
+            }
+            OppositeColoredBishops => {
+                write!(f, "const OPPOSITE_COLORED_BISHOPS: PhasedScore = ")?;
             }
             BishopPair => {
                 write!(f, "const BISHOP_PAIR: PhasedScore = ")?;
@@ -318,6 +323,10 @@ impl LiteValues for LiTETrace {
 
     fn more_minors_but_no_pawns() -> SingleFeature {
         SingleFeature::new(MoreMinorsNoPawns, 0)
+    }
+
+    fn opposite_colored_bishops() -> SingleFeature {
+        SingleFeature::new(OppositeColoredBishops, 0)
     }
 
     fn passed_pawn(square: Square) -> SingleFeature {
