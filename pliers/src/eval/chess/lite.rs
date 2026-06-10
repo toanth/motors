@@ -62,6 +62,7 @@ pub enum LiteFeatureSubset {
     KingZoneAttack,
     CanGiveCheck,
     CheckStm,
+    SafeCheckStm,
     DiscoveredCheckStm,
     DiscoveredCheck,
     Pin,
@@ -100,6 +101,7 @@ impl FeatureSubSet for LiteFeatureSubset {
             KingZoneAttack => NUM_CHESS_PIECES,
             CanGiveCheck => NUM_CHESS_PIECES - 1,
             CheckStm => 1,
+            SafeCheckStm => 1,
             DiscoveredCheckStm => 1,
             DiscoveredCheck => NUM_CHESS_PIECES,
             Pin => NUM_CHESS_PIECES - 1,
@@ -259,6 +261,9 @@ impl FeatureSubSet for LiteFeatureSubset {
             }
             CheckStm => {
                 write!(f, "const CHECK_STM: PhasedScore = ")?;
+            }
+            SafeCheckStm => {
+                write!(f, "const SAFE_CHECK_STM: PhasedScore = ")?;
             }
             DiscoveredCheckStm => {
                 write!(f, "const DISCOVERED_CHECK_STM: PhasedScore = ")?;
@@ -456,6 +461,10 @@ impl LiteValues for LiTETrace {
 
     fn check_stm() -> SingleFeature {
         SingleFeature::new(CheckStm, 0)
+    }
+
+    fn safe_check_stm() -> SingleFeature {
+        SingleFeature::new(SafeCheckStm, 0)
     }
 }
 

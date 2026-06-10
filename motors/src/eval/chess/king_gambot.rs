@@ -208,4 +208,8 @@ impl LiteValues for KingGambotValues {
     fn check_stm() -> PhasedScore {
         Lite::check_stm()
     }
+
+    fn safe_check_stm() -> PhasedScore {
+        Lite::safe_check_stm()
+    }
 }
