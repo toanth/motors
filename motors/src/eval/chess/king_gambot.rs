@@ -15,16 +15,16 @@
  *  You should have received a copy of the GNU General Public License
  *  along with Motors. If not, see <https://www.gnu.org/licenses/>.
  */
-use crate::eval::chess::FileOpenness;
 use crate::eval::chess::lite_values::{Lite, LiteValues};
-use gears::games::DimT;
-use gears::games::chess::Color;
-use gears::games::chess::Color::White;
+use crate::eval::chess::FileOpenness;
 use gears::games::chess::pieces::PieceType;
 use gears::games::chess::pieces::PieceType::King;
 use gears::games::chess::squares::Square;
+use gears::games::chess::Color;
+use gears::games::chess::Color::White;
+use gears::games::DimT;
 use gears::general::common::StaticallyNamedEntity;
-use gears::score::{PhasedScore, p};
+use gears::score::{p, PhasedScore};
 use std::fmt::Display;
 
 #[rustfmt::skip]
@@ -187,6 +187,10 @@ impl LiteValues for KingGambotValues {
 
     fn king_zone_attack(attacking: PieceType) -> PhasedScore {
         Lite::king_zone_attack(attacking) / 2
+    }
+
+    fn weak_backrank() -> PhasedScore {
+        Lite::weak_backrank()
     }
 
     fn can_give_check(piece: PieceType) -> PhasedScore {

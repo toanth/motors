@@ -16,7 +16,7 @@ use gears::games::chess::{Board, ChessBitboardTrait, Color, CHESS_PIECE_PHASE};
 use gears::games::{ColorTrait, CoordinatesTrait};
 use gears::games::{DimT, PosHash};
 use gears::general::attacks::ChessSliderGenerator;
-use gears::general::bitboards::chessboard::{Bitboard, COLORED_SQUARES};
+use gears::general::bitboards::chessboard::{Bitboard, COLORED_SQUARES, KINGS};
 use gears::general::bitboards::RawBitboardTrait;
 use gears::general::bitboards::{BitboardTrait, KnownSizeBitboard};
 use gears::general::board::{BitboardBoard, BoardTrait};
@@ -70,7 +70,7 @@ pub const TEMPO: Score = Score(lc::tempo());
 // TODO: Differentiate between rooks and kings in front of / behind pawns?
 
 fn openness(ray: Bitboard, our_pawns: Bitboard, their_pawns: Bitboard) -> FileOpenness {
-    if !ray.intersects(our_pawns) && !ray.intersects(their_pawns) {
+    if !ray.intersects(our_pawns | their_pawns) {
         Open
     } else if !ray.intersects(our_pawns) {
         SemiOpen
@@ -280,6 +280,7 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
         result
     }
 
+    // TODO: Use already computed pinners
     fn pins_and_discovered_checks(state: &mut EvalState<Tuned>, pos: &Board, color: Color) -> Tuned::Score {
         let mut score = Tuned::Score::default();
         let their_king = pos.king_sq(!color);
@@ -374,6 +375,23 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
                 if attacks.intersects(passer_close) {
                     score += Tuned::passer_protection();
                 }
+            }
+        }
+        let their_king = pos.king_sq(!us);
+        let king_rank = their_king.rank();
+        let king_rank_bb = Bitboard::rank(king_rank);
+        let mut rook_sliders = pos.piece_bb(Rook) | pos.piece_bb(Queen);
+        if Bitboard::backranks().contains(king_rank_bb)
+            && (KINGS[their_king] & !(king_rank_bb  |pos.occupied_bb() | all_attacks)).is_zero()
+            // && !king_rank_bb.contains(pos.col_piece_bb(!us, Rook) | pos.col_piece_bb(!us, Queen))
+            && rook_sliders.intersects(pos.player_bb(us))
+        {
+            let rook_on_open_file = rook_sliders
+                .any(|r| file_openness(r.file(), pos.col_piece_bb(us, Pawn), pos.col_piece_bb(!us, Pawn)) == Open);
+            // let rook_attacks = all_rook_attacks(rook_sliders & pos.player_bb(us), pos.empty_bb());
+            // maybe remove this condition for now? Could make sense as a separate term
+            if rook_on_open_file {
+                score += Tuned::weak_backrank();
             }
         }
         score
