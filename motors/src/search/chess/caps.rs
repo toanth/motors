@@ -278,7 +278,7 @@ impl Engine<Board> for Caps {
             // Send one final search info, but don't send empty PVs.
             // Even for aborted searches, we never send unproven mates.
             if !self.current_mpv_pv().is_empty() {
-                self.search_state().send_search_info(true);
+                self.send_search_info(true);
                 send_debug_msg!(self, "Wrote final search info with best move {:?}", self.to_search_info(true).pv[0]);
             }
         }
@@ -308,6 +308,36 @@ impl NormalEngine<Board> for Caps {
 
 #[allow(clippy::too_many_arguments)]
 impl Caps {
+    fn to_search_info(&self, final_info: bool) -> SearchInfo<'_, Board> {
+        let mut info = self.state.to_search_info(final_info);
+        // Loading a score from the TT can give us an incorrect mate that ignores the 50 move rule.
+        // Because that is the only path-dependent effect that can give incorrect mate scores in chess, we simply
+        // ignore it during search and fix it up here.
+        if info.score.is_won_or_lost() {
+            let mut pos = info.pos;
+            for (i, &m) in info.pv.iter().enumerate() {
+                pos = pos.make_move(m).unwrap();
+                if pos.is_50mr_draw() {
+                    info.score = info.score.clamp(MIN_NORMAL_SCORE, MAX_NORMAL_SCORE);
+                    info.pv = &info.pv[..i];
+                    break;
+                }
+            }
+            // This can happen if we're loading the TT entry of an earlier search, which comes from a higher depth than our current search
+            if info.score.plies_until_game_over().is_some_and(|s| s as usize > info.pv.len()) {
+                info.score = info.score.clamp(MIN_NORMAL_SCORE, MAX_NORMAL_SCORE);
+            }
+        }
+        info
+    }
+
+    fn send_search_info(&self, final_info: bool) {
+        let info = self.to_search_info(final_info);
+        if let Some(mut output) = self.search_params().thread_type.output() {
+            output.write_search_info(info);
+        }
+    }
+
     /// Iterative Deepening (ID): Do a depth 1 search, then a depth 2 search, then a depth 3 search, etc.
     /// This has two advantages: It allows the search to be stopped at any time, and it actually improves strength:
     /// The low-depth searches fill the TT and various heuristics, which improves move ordering and therefore results in
@@ -1112,7 +1142,7 @@ impl Caps {
                     if let Some(n) = best_score.plies_until_game_over()
                         && score < beta
                     {
-                        assert_eq!(n, (cur_pv.len() + ply) as isize, "{best_score} {ply} {depth} '{pos}' {cur_pv:?}");
+                        assert!(n >= (cur_pv.len() + ply) as isize, "{best_score} {ply} {depth} '{pos}' {cur_pv:?}");
                     }
                     if depth > 256
                         && self.params.thread_type.num_threads() == Some(1)
@@ -1227,9 +1257,7 @@ impl Caps {
                 || (bound == NodeType::upper_bound() && tt_score <= alpha)
                 || bound == Exact
             {
-                if pv_node && !in_check {
-                    return Some(tt_score.clamp(MIN_NORMAL_SCORE, MAX_NORMAL_SCORE));
-                } else if !pv_node {
+                if !pv_node {
                     return Some(tt_score);
                 }
             }
@@ -1248,7 +1276,7 @@ impl Caps {
                 || (bound == NodeType::upper_bound() && tt_score <= eval)
             {
                 // we don't want to return mate scores unless we can prove there is a mate by also returning a matching PV
-                eval = tt_score.clamp(MIN_NORMAL_SCORE, MAX_NORMAL_SCORE);
+                eval = tt_score;
             };
             if let Some(mov) = tt_entry.mov(pos) {
                 best_move = mov;
@@ -1271,7 +1299,9 @@ impl Caps {
 
         if best_score > alpha {
             bound_so_far = Exact;
-            alpha = best_score;
+            // use alpha-1 so that we don't cut off our pv by not considering the move that gave this eval in qsearch,
+            // which is important for mate scores.
+            alpha = best_score - 1;
         }
         self.record_pos(pos, best_score, ply);
 
@@ -1323,7 +1353,7 @@ impl Caps {
                 let ([.., current], [child, ..]) = self.search_stack.split_at_mut(ply + 1) else { unreachable!() };
                 current.pv.extend(best_move, &child.pv);
                 if let Some(n) = best_score.plies_until_game_over() {
-                    assert_eq!(n, (current.pv.len() + ply) as isize, "{best_score} {ply} '{pos}' {:?}", current.pv);
+                    assert!(n >= (current.pv.len() + ply) as isize, "{best_score} {ply} '{pos}' {:?}", current.pv);
                 }
             }
         }

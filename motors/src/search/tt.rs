@@ -625,11 +625,11 @@ mod test {
         let bad_move = Move::from_compact_text("a2a3", &pos).unwrap();
         let age = Age(42);
         let hash = pos.hash_pos();
-        let entry: TTEntry<Board> = TTEntry::new(hash, MAX_NORMAL_SCORE, MIN_NORMAL_SCORE, bad_move, 123, Exact, age);
+        let entry: TTEntry<Board> = TTEntry::new(hash, MAX_NORMAL_SCORE, MAX_NORMAL_SCORE, bad_move, 123, Exact, age);
         tt.store(entry, hash, 0);
         let next_pos = pos.make_move(bad_move).unwrap();
         let next_entry: TTEntry<Board> =
-            TTEntry::new(next_pos.hash_pos(), MIN_NORMAL_SCORE, MAX_NORMAL_SCORE, Move::NULL, 122, Exact, age);
+            TTEntry::new(next_pos.hash_pos(), MIN_NORMAL_SCORE, MIN_NORMAL_SCORE, Move::NULL, 122, Exact, age);
         tt.store(next_entry, next_pos.hash_pos(), 1);
         let mov = engine.search_with_tt(pos, SearchLimit::depth(DepthPly::new(1)), tt.clone()).chosen_move;
         assert_eq!(mov, bad_move);
