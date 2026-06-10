@@ -998,11 +998,11 @@ impl Caps {
                 }
                 // Futility Reduction: If this move is not a TT move, good SEE capture or killer, and our eval is significantly
                 // less than alpha, reduce.
-                if !in_check
-                    && depth >= cc::min_fr_depth()
-                    && move_score < KILLER_SCORE
-                    && eval + cc::fr_base() + ((depth * cc::fr_scale() / 1024) as ScoreT) < alpha
-                {
+                let mut margin = cc::fr_base() + ((depth * cc::fr_scale() / 1024) as ScoreT);
+                if old_entry.is_some() {
+                    margin = margin * cc::fr_tt_eval_mul() / 1024;
+                }
+                if !in_check && depth >= cc::min_fr_depth() && move_score < KILLER_SCORE && eval + margin < alpha {
                     // TODO: Constants, multiply instead of div (changes bench)
                     reduction += (1 + depth / 512).ilog2() as isize * cc::fr_mult();
                 }

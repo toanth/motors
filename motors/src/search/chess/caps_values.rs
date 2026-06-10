@@ -91,6 +91,7 @@ spsa_params![
     min_fr_depth: isize = 7 * 128; 1..=8192; step=64;
     fr_base: ScoreT = 400; 100..=800; step=16;
     fr_scale: isize = 32 * 8; 64..=1024; step=8;
+    fr_tt_eval_mul: ScoreT = 512; 0..=1024; step=16;
     fr_mult: isize = 128; 32..=256; step=4;
     tt_capt_reduction: isize = 128; 32..=256; step=8;
     lmr_bad_capthist: i16 = -500; -1000..=0; step=16;
