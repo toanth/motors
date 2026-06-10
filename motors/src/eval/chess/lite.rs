@@ -350,8 +350,21 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
         }
         for piece in PieceType::non_pawn_pieces() {
             for square in pos.col_piece_bb(us, piece) {
+                let blockers = match piece {
+                    Bishop => pos.occupied_bb() ^ pos.col_piece_bb(us, Bishop) ^ pos.col_piece_bb(us, Queen),
+                    Rook => pos.occupied_bb() ^ pos.col_piece_bb(us, Rook) ^ pos.col_piece_bb(us, Queen),
+                    Queen => {
+                        let rook_rays = Bitboard::rank(square.rank()) | Bitboard::file(square.file());
+                        let bishop_rays = Bitboard::diagonal(square) | Bitboard::anti_diagonal(square);
+                        pos.occupied_bb()
+                            ^ (pos.col_piece_bb(us, Bishop) & bishop_rays)
+                            ^ (pos.col_piece_bb(us, Rook) & rook_rays)
+                            ^ pos.col_piece_bb(us, Queen)
+                    }
+                    _ => pos.occupied_bb(),
+                };
                 // TODO: Maybe it makes sense to ensure the compiler unrolls this loop
-                let attacks = Board::threatening_attacks(square, piece, us, &generator);
+                let attacks = Board::threatening_attacks(square, piece, us, &ChessSliderGenerator::new(blockers));
                 all_attacks |= attacks;
                 let attacks_no_pawn_recapture = attacks & !attacked_by_pawn;
                 let mobility = (attacks_no_pawn_recapture & !pos.player_bb(us)).num_ones();
