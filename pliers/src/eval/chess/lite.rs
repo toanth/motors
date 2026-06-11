@@ -1,24 +1,24 @@
 //! The hand-crafted eval used by the `caps` chess engine.
 
-use crate::eval::EvalScale::Scale;
 use crate::eval::chess::lite::LiteFeatureSubset::*;
-use crate::eval::chess::{SkipChecks, write_phased_psqt, write_psqts};
+use crate::eval::chess::{write_phased_psqt, write_psqts, SkipChecks};
+use crate::eval::EvalScale::Scale;
 use crate::eval::{
-    Eval, EvalScale, WeightsInterpretation, changed_at_least, write_2d_range_phased, write_phased, write_range_phased,
+    changed_at_least, write_2d_range_phased, write_phased, write_range_phased, Eval, EvalScale, WeightsInterpretation,
 };
 use crate::gd::{Float, Weight, Weights};
 use crate::trace::{FeatureSubSet, SingleFeature, SparseTrace, TraceTrait};
-use gears::games::DimT;
-use gears::games::chess::Color::White;
 use gears::games::chess::pieces::PieceType::*;
-use gears::games::chess::pieces::{NUM_CHESS_PIECES, PieceType};
+use gears::games::chess::pieces::{PieceType, NUM_CHESS_PIECES};
 use gears::games::chess::see::SEE_SCORES;
-use gears::games::chess::squares::{NUM_SQUARES, Square};
+use gears::games::chess::squares::{Square, NUM_SQUARES};
+use gears::games::chess::Color::White;
 use gears::games::chess::{Board, Color};
+use gears::games::DimT;
 use gears::general::common::StaticallyNamedEntity;
-use motors::eval::chess::FileOpenness::*;
 use motors::eval::chess::lite::GenericLiTEval;
 use motors::eval::chess::lite_values::{LiteValues, MAX_MOBILITY};
+use motors::eval::chess::FileOpenness::*;
 use motors::eval::chess::{FileOpenness, NUM_PAWN_SHIELD_CONFIGURATIONS};
 use std::fmt;
 use std::fmt::{Display, Formatter};
@@ -61,6 +61,7 @@ pub enum LiteFeatureSubset {
     Defense,
     KingZoneAttack,
     CanGiveCheck,
+    SafeCheck,
     CheckStm,
     SafeCheckStm,
     DiscoveredCheckStm,
@@ -100,6 +101,7 @@ impl FeatureSubSet for LiteFeatureSubset {
             Defense => (NUM_CHESS_PIECES - 1) * NUM_CHESS_PIECES,
             KingZoneAttack => NUM_CHESS_PIECES,
             CanGiveCheck => NUM_CHESS_PIECES - 1,
+            SafeCheck => NUM_CHESS_PIECES - 1,
             CheckStm => 1,
             SafeCheckStm => 1,
             DiscoveredCheckStm => 1,
@@ -258,6 +260,9 @@ impl FeatureSubSet for LiteFeatureSubset {
             }
             CanGiveCheck => {
                 write!(f, "const CAN_GIVE_CHECK: [PhasedScore; 5] = ")?;
+            }
+            SafeCheck => {
+                write!(f, "const SAFE_CHECK: [PhasedScore; 5] = ")?;
             }
             CheckStm => {
                 write!(f, "const CHECK_STM: PhasedScore = ")?;
@@ -445,6 +450,10 @@ impl LiteValues for LiTETrace {
 
     fn can_give_check(piece: PieceType) -> SingleFeature {
         SingleFeature::new(CanGiveCheck, piece as usize)
+    }
+
+    fn safe_check(piece: PieceType) -> SingleFeature {
+        SingleFeature::new(SafeCheck, piece as usize)
     }
 
     fn pin(piece: PieceType) -> SingleFeature {

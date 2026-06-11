@@ -377,6 +377,7 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
                         state.stm_bonus[us] += Tuned::check_stm();
                     }
                     if attacks_no_recapture.intersects(checking_squares[piece as usize] & !pos.player_bb(us)) {
+                        score += Tuned::safe_check(piece);
                         state.stm_bonus[us] += Tuned::safe_check_stm();
                     }
                 }
