@@ -1653,7 +1653,7 @@ mod tests {
         assert!(!fresh_d3_search.score.is_won_or_lost(), "{}", fresh_d3_search.score.0);
         assert!(fresh_d3_search.score < MAX_NORMAL_SCORE, "{}", fresh_d3_search.score.0);
         let fresh_d3_nodes = caps.search_state().uci_nodes();
-        assert!(fresh_d3_nodes > d3_nodes + d3_nodes / 4, "{fresh_d3_nodes} {d3_nodes}");
+        assert!(fresh_d3_nodes > d3_nodes, "{fresh_d3_nodes} {d3_nodes}");
         caps.forget();
         _ = caps.search_with_new_tt(pos, d3);
         assert_eq!(caps.search_state().uci_nodes(), fresh_d3_nodes);

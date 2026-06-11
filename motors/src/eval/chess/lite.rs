@@ -362,6 +362,8 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
                 let attacks_no_recapture = attacks & !their_attacks;
                 let mobility = (attacks_no_pawn_recapture & !pos.player_bb(us)).num_ones();
                 score += Tuned::mobility(piece, mobility);
+                let safe_squares = (attacks_no_recapture & !pos.player_bb(us)).num_ones().min(MAX_SAFE_MOBILITY);
+                score += Tuned::safe_squares(piece, safe_squares);
                 for threatened_piece in PieceType::pieces() {
                     let attacked = pos.col_piece_bb(!us, threatened_piece) & attacks;
                     score += Tuned::threats(piece, threatened_piece) * attacked.num_ones();
