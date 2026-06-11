@@ -1144,14 +1144,6 @@ impl Caps {
                     {
                         assert!(n >= (cur_pv.len() + ply) as isize, "{best_score} {ply} {depth} '{pos}' {cur_pv:?}");
                     }
-                    if depth > 256
-                        && self.params.thread_type.num_threads() == Some(1)
-                        && score < beta
-                        && !score.is_won_lost_or_draw_score()
-                    {
-                        let bound = self.tt().load::<Board>(new_pos.hash_pos(), ply + 1).unwrap().bound();
-                        debug_assert_eq!(bound, Exact);
-                    }
                 }
             }
 
@@ -1257,7 +1249,7 @@ impl Caps {
                 || (bound == NodeType::upper_bound() && tt_score <= alpha)
                 || bound == Exact
             {
-                if !pv_node {
+                if !(pv_node || in_check) {
                     return Some(tt_score);
                 }
             }
@@ -1299,9 +1291,7 @@ impl Caps {
 
         if best_score > alpha {
             bound_so_far = Exact;
-            // use alpha-1 so that we don't cut off our pv by not considering the move that gave this eval in qsearch,
-            // which is important for mate scores.
-            alpha = best_score - 1;
+            alpha = best_score;
         }
         self.record_pos(pos, best_score, ply);
 
@@ -1537,7 +1527,7 @@ mod tests {
         let fen = "6rk/PP1PPPnp/1N1BN2P/7R/4B3/2Q5/P3KP2/6R1 w - -";
         let pos = Board::from_fen(fen, Relaxed).unwrap();
         let mut caps = Caps::for_eval::<LiTEval>();
-        let res = caps.search_with_new_tt(pos, SearchLimit::depth_(1));
+        let res = caps.search_with_new_tt(pos, SearchLimit::depth_(3));
         assert_eq!(res.score.plies_until_game_won(), Some(3));
         let state = caps.search_state();
         let pv_data = &state.pv_data()[0];
@@ -1547,7 +1537,7 @@ mod tests {
         assert!(state.uci_nodes() <= 500);
         assert!(!state.atomic().currently_searching.load(std::sync::atomic::Ordering::Relaxed));
         assert_eq!(state.atomic().score(), res.score);
-        assert_eq!(state.atomic().iterations().isize(), 1);
+        assert_eq!(state.atomic().iterations().isize(), 3);
     }
 
     #[test]
