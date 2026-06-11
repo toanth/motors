@@ -365,6 +365,7 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
                 for threatened_piece in PieceType::pieces() {
                     let attacked = pos.col_piece_bb(!us, threatened_piece) & attacks;
                     score += Tuned::threats(piece, threatened_piece) * attacked.num_ones();
+                    score += Tuned::hanging(piece, threatened_piece) * (attacked & !their_attacks).num_ones();
                     let defended = pos.col_piece_bb(us, threatened_piece) & attacks_no_pawn_recapture;
                     score += Tuned::defended(piece, threatened_piece) * defended.num_ones();
                 }
