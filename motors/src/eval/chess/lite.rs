@@ -15,7 +15,7 @@ use gears::games::chess::Color::{Black, White};
 use gears::games::chess::{Board, ChessBitboardTrait, Color, CHESS_PIECE_PHASE};
 use gears::games::{ColorTrait, CoordinatesTrait};
 use gears::games::{DimT, PosHash};
-use gears::general::attacks::ChessSliderGenerator;
+use gears::general::attacks::{all_knight_attacks, ChessSliderGenerator};
 use gears::general::bitboards::chessboard::{Bitboard, COLORED_SQUARES};
 use gears::general::bitboards::RawBitboardTrait;
 use gears::general::bitboards::{BitboardTrait, KnownSizeBitboard};
@@ -388,6 +388,10 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
                     score += Tuned::passer_protection();
                 }
             }
+        }
+        let knight_attacks_on_queen = all_knight_attacks(pos.col_piece_bb(!us, Queen)) & !their_attacks;
+        if all_knight_attacks(pos.col_piece_bb(us, Knight)).intersects(knight_attacks_on_queen) {
+            score += Tuned::knight_attacks_on_queen();
         }
         (score, all_attacks)
     }

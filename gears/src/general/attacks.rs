@@ -15,19 +15,19 @@
  *  You should have received a copy of the GNU General Public License
  *  along with Gears. If not, see <https://www.gnu.org/licenses/>.
  */
-use crate::games::SizeTrait;
 #[cfg(feature = "chess")]
 use crate::games::chess::squares::Square;
+use crate::games::SizeTrait;
 #[cfg(all(feature = "unsafe", target_arch = "x86_64", target_feature = "avx2"))]
 use crate::general::attacks::avx2::U64x4;
-use crate::general::bitboards::RayDirections::{AntiDiagonal, Diagonal, Horizontal, Vertical};
 #[cfg(feature = "chess")]
 use crate::general::bitboards::chessboard::Bitboard;
 #[allow(unused)]
 use crate::general::bitboards::chessboard::KNIGHTS;
+use crate::general::bitboards::RayDirections::{AntiDiagonal, Diagonal, Horizontal, Vertical};
 use crate::general::bitboards::{
-    ANTI_DIAGONALS_U64, ANTI_DIAGONALS_U128, BitboardTrait, DIAGONALS_U64, DIAGONALS_U128, ExtendedRawBitboard,
-    KnownSizeBitboard, MAX_WIDTH, RawBitboardTrait, RawStandardBitboard, RayDirections, STEPS_U64, STEPS_U128,
+    BitboardTrait, ExtendedRawBitboard, KnownSizeBitboard, RawBitboardTrait, RawStandardBitboard, RayDirections,
+    ANTI_DIAGONALS_U128, ANTI_DIAGONALS_U64, DIAGONALS_U128, DIAGONALS_U64, MAX_WIDTH, STEPS_U128, STEPS_U64,
 };
 use crate::general::squares::RectangularCoordinates;
 use crate::general::squares::RectangularSize;
@@ -282,6 +282,24 @@ pub fn all_knight_attacks_avx2(knights: Bitboard) -> U64x4 {
         res |= knights >> shifts_down;
         res
     }
+}
+
+#[cfg(all(feature = "unsafe", target_arch = "x86_64", target_feature = "avx2"))]
+pub fn all_knight_attacks(knights: Bitboard) -> Bitboard {
+    unsafe {
+        let attacks = all_knight_attacks_avx2(knights);
+        let [a, b, c, d]: [u64; 4] = transmute(attacks);
+        Bitboard::new(a | b | c | d)
+    }
+}
+
+#[cfg(not(all(feature = "unsafe", target_arch = "x86_64", target_feature = "avx2")))]
+pub fn all_knight_attacks(knights: Bitboard) -> Bitboard {
+    let mut res = Bitboard::default();
+    for n in knights {
+        res |= KNIGHTS[n];
+    }
+    res
 }
 
 // Factoring out the similarities with `ChessSliderGenerator` into a trait doesn't really reduce the amount of boilerplate
@@ -914,7 +932,7 @@ mod tests {
         let expected = Bitboard::new(0xff92ef9282bdff82);
         assert_eq!(attacks, expected);
     }
-    
+
     #[cfg(not(all(feature = "unsafe", target_arch = "x86_64", target_feature = "avx2")))]
     #[test]
     fn test_all_bishop_attacks() {

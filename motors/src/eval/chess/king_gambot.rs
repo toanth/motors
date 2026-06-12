@@ -189,6 +189,10 @@ impl LiteValues for KingGambotValues {
         Lite::defended(protecting, target)
     }
 
+    fn knight_attacks_on_queen() -> PhasedScore {
+        Lite::knight_attacks_on_queen()
+    }
+
     fn king_zone_attack(attacking: PieceType) -> PhasedScore {
         Lite::king_zone_attack(attacking) / 2
     }
