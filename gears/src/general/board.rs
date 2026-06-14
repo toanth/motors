@@ -15,30 +15,30 @@
  *  You should have received a copy of the GNU General Public License
  *  along with Gears. If not, see <https://www.gnu.org/licenses/>.
  */
-use crate::PlayerResult::{Draw, Lose};
 use crate::games::CharType::Ascii;
 use crate::games::{
-    AbstractPieceType, BoardHistory, CharType, ColorTrait, ColoredPieceTrait, ColoredPieceTypeTrait, CoordinatesTrait,
-    DimT, PosHash, SettingsTrait, SizeTrait, file_to_char,
+    file_to_char, AbstractPieceType, BoardHistory, CharType, ColorTrait, ColoredPieceTrait, ColoredPieceTypeTrait,
+    CoordinatesTrait, DimT, PosHash, SettingsTrait, SizeTrait,
 };
 use crate::general::bitboards::{BitboardTrait, RawBitboardTrait};
 use crate::general::board::SelfChecks::{Assertion, Verify};
 use crate::general::board::Strictness::{Relaxed, Strict};
 use crate::general::common::Description::NoDescription;
 use crate::general::common::{
-    EntityList, GenericSelect, NamedEntity, Res, StaticallyNamedEntity, Tokens, TokensToString, select_name_static,
-    tokens,
+    select_name_static, tokens, EntityList, GenericSelect, NamedEntity, Res, StaticallyNamedEntity, Tokens,
+    TokensToString,
 };
 use crate::general::move_list::{MoveIter, MoveListTrait};
 use crate::general::moves::ExtendedFormat::Standard;
 use crate::general::moves::Legality::{Legal, PseudoLegal};
 use crate::general::moves::MoveTrait;
 use crate::general::squares::{RectangularCoordinates, RectangularSize, SquareColor};
-use crate::output::OutputOpts;
 use crate::output::text_output::BoardFormatter;
+use crate::output::OutputOpts;
 use crate::search::DepthPly;
 use crate::ugi::Protocol;
-use crate::{GameOver, GameOverReason, MatchResult, PlayerResult, player_res_to_match_res};
+use crate::PlayerResult::{Draw, Lose};
+use crate::{player_res_to_match_res, GameOver, GameOverReason, MatchResult, PlayerResult};
 use anyhow::{anyhow, bail, ensure};
 use arbitrary::Arbitrary;
 use colored::Colorize;
@@ -924,7 +924,12 @@ pub fn default_bitboards_from_name<B: BitboardBoard>(pos: &B) -> BBSelect<B> {
         GenericSelect::full("empty", None, "All empty squares", pos.empty_bb().raw()),
         GenericSelect::full("occupied", None, "All non-empty squares", pos.occupied_bb().raw()),
         GenericSelect::full("all", None, "All squares on the board", pos.mask_bb().raw()),
-        GenericSelect::full("can_move_to", Some("dest"), "Squares which the active player can move to", dest_squares),
+        GenericSelect::full(
+            "can_move_to",
+            Some("dest"),
+            "Squares which the active player can pseudolegally move to",
+            dest_squares,
+        ),
     ];
     let s = pos.settings();
     for p in PieceTypeOf::<B>::non_empty(s) {
@@ -1148,12 +1153,15 @@ pub trait BitboardBoard: BoardTrait<Coordinates: RectangularCoordinates> {
     /// This bitboard has ones on all squares and zeros otherwise.
     fn mask_bb(&self) -> Self::Bitboard;
 
-    /// Returns a bitboard of all squares that a piece of the active player can move to, which corresponds to "threats" in games like chess.
+    /// Returns a bitboard of all squares that a piece of the active player can move to.
+    /// This isn't the same as threats in games like chess: Threats are pseudolegal captures if there was a captured piece on a square,
+    /// this counts only moves that are actually legal. For example, this considers pawn pushes but not captures unless there is a
+    /// captured piece, and it takes pins into account.
     /// The default implementation is general but slow and can sometimes be implemented much more efficiently.
     fn calc_move_dest_bb(&self) -> Self::Bitboard {
         let mut res = self.zero_bb();
         let size = self.size();
-        for m in self.legal_moves_slow().iter_moves() {
+        for m in self.pseudolegal_moves().iter_moves() {
             res |= Self::Bitboard::single_piece_for(m.dest_square_in(self), size);
         }
         res

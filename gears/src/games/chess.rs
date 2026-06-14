@@ -1,46 +1,46 @@
-use crate::PlayerResult;
-use crate::PlayerResult::{Draw, Lose};
-use crate::games::chess::Color::{Black, White};
 use crate::games::chess::castling::CastleRight::*;
 use crate::games::chess::castling::{CastleRight, CastlingFlags};
 use crate::games::chess::movegen::CountMoves;
 use crate::games::chess::moves::Move;
 use crate::games::chess::pieces::PieceType::*;
-use crate::games::chess::pieces::{ColoredPieceType, NUM_CHESS_PIECES, Piece, PieceType};
+use crate::games::chess::pieces::{ColoredPieceType, Piece, PieceType, NUM_CHESS_PIECES};
 use crate::games::chess::squares::{
-    A_FILE_NUM, B_FILE_NUM, C_FILE_NUM, ChessboardSize, D_FILE_NUM, E_FILE_NUM, F_FILE_NUM, G_FILE_NUM, H_FILE_NUM,
-    NUM_SQUARES, Square,
+    ChessboardSize, Square, A_FILE_NUM, B_FILE_NUM, C_FILE_NUM, D_FILE_NUM, E_FILE_NUM, F_FILE_NUM, G_FILE_NUM,
+    H_FILE_NUM, NUM_SQUARES,
 };
 use crate::games::chess::unverified::UnverifiedBoard;
 use crate::games::chess::zobrist::ZOBRIST_KEYS;
+use crate::games::chess::Color::{Black, White};
 use crate::games::{
-    AbstractPieceType, BoardHistory, BoardTrait, CharType, ColorTrait, ColoredPieceTrait, ColoredPieceTypeTrait, DimT,
-    NUM_COLORS, PosHash, SettingsTrait, n_fold_repetition,
+    n_fold_repetition, AbstractPieceType, BoardHistory, BoardTrait, CharType, ColorTrait, ColoredPieceTrait, ColoredPieceTypeTrait,
+    DimT, PosHash, SettingsTrait, NUM_COLORS,
 };
-use crate::general::bitboards::chessboard::{Bitboard, KINGS, dark_squares, light_squares};
+use crate::general::bitboards::chessboard::{dark_squares, light_squares, Bitboard, KINGS};
 use crate::general::bitboards::{BitboardTrait, KnownSizeBitboard, RawBitboardTrait, RawStandardBitboard};
 use crate::general::board::SelfChecks::CheckFen;
 use crate::general::board::Strictness::{Relaxed, Strict};
 use crate::general::board::{
-    AxesFormat, BBSelect, BitboardBoard, BoardHelpers, NameToPos, PieceTypeOf, Strictness, Symmetry,
-    UnverifiedBoardTrait, board_from_name, default_bitboards_from_name, position_fen_part, read_common_fen_part,
-    read_two_move_numbers,
+    board_from_name, default_bitboards_from_name, position_fen_part, read_common_fen_part, read_two_move_numbers, AxesFormat, BBSelect, BitboardBoard,
+    BoardHelpers, NameToPos, PieceTypeOf, Strictness, Symmetry,
+    UnverifiedBoardTrait,
 };
-use crate::general::common::{EntityList, GenericSelect, Res, StaticallyNamedEntity, Tokens, parse_int_from_str};
+use crate::general::common::{parse_int_from_str, EntityList, GenericSelect, Res, StaticallyNamedEntity, Tokens};
 use crate::general::move_list::InplaceMoveList;
 use crate::general::squares::{RectangularCoordinates, SquareColor};
-use crate::output::OutputOpts;
 use crate::output::text_output::{
-    AdaptFormatter, BoardFormatter, DefaultBoardFormatter, board_to_string, display_board_pretty, display_color,
+    board_to_string, display_board_pretty, display_color, AdaptFormatter, BoardFormatter, DefaultBoardFormatter,
 };
+use crate::output::OutputOpts;
 use crate::score::PhaseType;
 use crate::search::DepthPly;
+use crate::PlayerResult;
+use crate::PlayerResult::{Draw, Lose};
 use anyhow::{anyhow, bail, ensure};
 use arbitrary::Arbitrary;
 use colored::Color::Red;
 use colored::Colorize;
-use rand::Rng;
 use rand::prelude::IteratorRandom;
+use rand::Rng;
 use std::fmt;
 use std::fmt::{Display, Formatter};
 use std::ops::{Index, IndexMut, Not};
@@ -882,11 +882,6 @@ impl BitboardBoard for Board {
     fn mask_bb(&self) -> Self::Bitboard {
         Bitboard::new(!0)
     }
-
-    fn calc_move_dest_bb(&self) -> Self::Bitboard {
-        let us = self.active;
-        self.calc_threats_of(us) | self.pawn_advance_dests()
-    }
 }
 
 impl Board {
@@ -1187,14 +1182,14 @@ mod tests {
     use strum::IntoEnumIterator;
 
     use crate::games::chess::pieces::ColoredPieceType::WhiteBishop;
-    use crate::games::chess::squares::{B_FILE_NUM, E_FILE_NUM, F_FILE_NUM, G_FILE_NUM, H_FILE_NUM, sq};
-    use crate::games::{BoardHistDyn, CoordinatesTrait, NoHistory, ZobristHistory, char_to_file};
+    use crate::games::chess::squares::{sq, B_FILE_NUM, E_FILE_NUM, F_FILE_NUM, G_FILE_NUM, H_FILE_NUM};
+    use crate::games::{char_to_file, BoardHistDyn, CoordinatesTrait, NoHistory, ZobristHistory};
     use crate::general::board::RectangularBoard;
     use crate::general::board::Strictness::Relaxed;
     use crate::general::moves::MoveTrait;
+    use crate::general::perft::perft;
     use crate::general::perft::Bulkness::{Bulk, NoBulk};
     use crate::general::perft::Parallelize::*;
-    use crate::general::perft::perft;
     use crate::search::DepthPly;
 
     use super::*;

@@ -335,8 +335,7 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
         let attacked_by_pawn = pos.col_piece_bb(!us, Pawn).pawn_attacks(!us);
         let king_zone = Board::normal_king_attacks_from(pos.king_sq(!us));
         let our_pawns = pos.col_piece_bb(us, Pawn);
-        // handling double pawn pushes lost elo, somehow
-        let pawn_advance_threats = (our_pawns.pawn_advance(us) & pos.empty_bb()).pawn_attacks(us);
+        let pawn_advance_threats = pos.pawn_push_dests(us).pawn_attacks(us);
         let passer_close = (pos.player_bb(us) & state.passers).moore_inclusive();
         let pawn_attacks = our_pawns.pawn_attacks(us);
         if pawn_attacks.intersects(king_zone) {
