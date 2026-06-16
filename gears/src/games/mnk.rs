@@ -8,30 +8,30 @@ use std::hash::{DefaultHasher, Hash, Hasher};
 use std::mem::size_of;
 use strum_macros::EnumIter;
 
-use crate::PlayerResult;
-use crate::PlayerResult::{Draw, Lose};
 use crate::games::mnk::PieceType::{Empty, O, X};
 use crate::games::*;
 use crate::general::attacks::BitReverseSliderGenerator;
 use crate::general::bitboards::{
-    BitboardTrait, DynamicallySizedBitboard, ExtendedRawBitboard, MAX_WIDTH, RawBitboardTrait,
+    BitboardTrait, DynamicallySizedBitboard, ExtendedRawBitboard, RawBitboardTrait, MAX_WIDTH,
 };
 use crate::general::board::SelfChecks::CheckFen;
 use crate::general::board::Strictness::{Relaxed, Strict};
 use crate::general::board::{
-    BBSelect, BitboardBoard, BoardHelpers, NameToPos, PieceTypeOf, RectangularBoard, SelfChecks, Strictness, Symmetry,
-    UnverifiedBoardTrait, board_from_name, default_bitboards_from_name, read_common_fen_part, read_single_move_number,
-    simple_fen,
+    board_from_name, default_bitboards_from_name, read_common_fen_part, read_single_move_number, simple_fen, BBSelect, BitboardBoard, BoardHelpers, NameToPos,
+    PieceTypeOf, RectangularBoard, SelfChecks, Strictness, Symmetry,
+    UnverifiedBoardTrait,
 };
 use crate::general::common::*;
 use crate::general::move_list::InplaceMoveList;
 use crate::general::moves::Legality::Legal;
 use crate::general::moves::{Legality, MoveTrait, UntrustedMove};
 use crate::general::squares::{GridCoordinates, GridSize, RectangularCoordinates, SquareColor};
+use crate::output::text_output::{board_to_string, display_board_pretty, BoardFormatter, DefaultBoardFormatter};
 use crate::output::OutputOpts;
-use crate::output::text_output::{BoardFormatter, DefaultBoardFormatter, board_to_string, display_board_pretty};
 use crate::search::DepthPly;
 use crate::ugi::Protocol;
+use crate::PlayerResult;
+use crate::PlayerResult::{Draw, Lose};
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Default)]
 #[must_use]

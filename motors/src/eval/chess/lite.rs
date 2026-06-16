@@ -249,14 +249,7 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
         }
         let white_bishops = pos.col_piece_bb(White, Bishop);
         let black_bishops = pos.col_piece_bb(Black, Bishop);
-        let major = pos.piece_bb(Rook) | pos.piece_bb(Queen);
-        if
-        /* !pos.piece_bb(Queen).has_any()
-        && pos.col_piece_bb(White, Rook).num_ones() == pos.col_piece_bb(Black, Rook).num_ones()
-        && pos.col_piece_bb(White, Knight).num_ones() == pos.col_piece_bb(Black, Knight).num_ones()
-        &&*/
-        (major & pos.player_bb(White)).num_ones() == (major & pos.player_bb(Black)).num_ones()
-            && pos.col_piece_bb(c, Pawn).has_any()
+        if pos.col_piece_bb(c, Pawn).has_any()
             && white_bishops.has_any()
             && black_bishops.has_any()
             && ((light_squares().contains(white_bishops) && dark_squares().contains(black_bishops))
@@ -357,8 +350,7 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
         let attacked_by_pawn = pos.col_piece_bb(!us, Pawn).pawn_attacks(!us);
         let king_zone = Board::normal_king_attacks_from(pos.king_sq(!us));
         let our_pawns = pos.col_piece_bb(us, Pawn);
-        // handling double pawn pushes lost elo, somehow
-        let pawn_advance_threats = (our_pawns.pawn_advance(us) & pos.empty_bb()).pawn_attacks(us);
+        let pawn_advance_threats = pos.pawn_push_dests(us).pawn_attacks(us);
         let passer_close = (pos.player_bb(us) & state.passers).moore_inclusive();
         let pawn_attacks = our_pawns.pawn_attacks(us);
         if pawn_attacks.intersects(king_zone) {

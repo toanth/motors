@@ -19,7 +19,6 @@ use gears::general::common::StaticallyNamedEntity;
 use motors::eval::chess::lite::GenericLiTEval;
 use motors::eval::chess::lite_values::{LiteValues, MAX_MOBILITY, MAX_SAFE_MOBILITY};
 use motors::eval::chess::FileOpenness::*;
-use motors::eval::chess::FileOpenness::*;
 use motors::eval::chess::{FileOpenness, NUM_PAWN_SHIELD_CONFIGURATIONS};
 use motors::eval::SingleFeatureScore;
 use std::fmt;

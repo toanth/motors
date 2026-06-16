@@ -2,15 +2,13 @@ mod board_impl;
 mod common;
 mod perft_test;
 
-use crate::PlayerResult;
-use crate::PlayerResult::{Draw, Lose, Win};
-use crate::games::ataxx::Color::{O, X};
 use crate::games::ataxx::common::AtaxxPieceType::Occupied;
 use crate::games::ataxx::common::ColoredPieceType::{Blocked, Empty, OPiece, XPiece};
-use crate::games::ataxx::common::{ColoredPieceType, MAX_MOVES_IN_POS, Move};
+use crate::games::ataxx::common::{ColoredPieceType, Move, MAX_MOVES_IN_POS};
+use crate::games::ataxx::Color::{O, X};
 use crate::games::{
     BoardHistory, BoardTrait, CharType, ColorTrait, ColoredPieceTrait, ColoredPieceTypeTrait, CoordinatesTrait,
-    GenericPiece, NUM_COLORS, NoHistory, PosHash, SettingsTrait, SizeTrait,
+    GenericPiece, NoHistory, PosHash, SettingsTrait, SizeTrait, NUM_COLORS,
 };
 use crate::general::bitboards::chessboard::{ATAXX_LEAPERS, KINGS};
 use crate::general::bitboards::{
@@ -19,22 +17,24 @@ use crate::general::bitboards::{
 use crate::general::board::SelfChecks::{Assertion, CheckFen};
 use crate::general::board::Strictness::Strict;
 use crate::general::board::{
-    BBSelect, BitboardBoard, BoardHelpers, PieceTypeOf, SelfChecks, Strictness, Symmetry, UnverifiedBoardTrait,
-    default_bitboards_from_name, simple_fen,
+    default_bitboards_from_name, simple_fen, BBSelect, BitboardBoard, BoardHelpers, PieceTypeOf, SelfChecks, Strictness,
+    Symmetry, UnverifiedBoardTrait,
 };
-use crate::general::common::{Res, StaticallyNamedEntity, Tokens, ith_one_u64};
+use crate::general::common::{ith_one_u64, Res, StaticallyNamedEntity, Tokens};
 use crate::general::move_list::InplaceMoveList;
 use crate::general::moves::MoveTrait;
 use crate::general::squares::SquareColor::White;
 use crate::general::squares::{SmallGridSize, SmallGridSquare, SquareColor};
+use crate::output::text_output::{board_to_string, display_board_pretty, BoardFormatter, DefaultBoardFormatter};
 use crate::output::OutputOpts;
-use crate::output::text_output::{BoardFormatter, DefaultBoardFormatter, board_to_string, display_board_pretty};
 use crate::search::DepthPly;
+use crate::PlayerResult;
+use crate::PlayerResult::{Draw, Lose, Win};
 use anyhow::{bail, ensure};
 use arbitrary::Arbitrary;
+use rand::prelude::IndexedRandom;
 use rand::Rng;
 use rand::RngExt;
-use rand::prelude::IndexedRandom;
 use std::cmp::Ordering;
 use std::fmt::{Display, Formatter};
 use std::ops::Not;
@@ -618,9 +618,9 @@ mod tests {
     use super::*;
     use crate::general::board::Strictness::Relaxed;
     use crate::general::moves::MoveTrait;
+    use crate::general::perft::perft;
     use crate::general::perft::Bulkness::Bulk;
     use crate::general::perft::Parallelize::SingleThreaded;
-    use crate::general::perft::perft;
 
     #[test]
     fn startpos_test() {
