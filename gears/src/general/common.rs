@@ -495,22 +495,33 @@ impl Entry {
         _ = self.sum.fetch_add(val, Relaxed);
         _ = self.calls.fetch_add(1, Relaxed);
     }
+    pub fn record_sum(&self, val: i64) {
+        _ = self.sum.fetch_add(val, Relaxed);
+    }
     pub fn reset(&self) {
         self.sum.store(0, Relaxed);
         self.calls.store(0, Relaxed);
     }
 
-    pub fn print(&self) {
+    pub fn print(&self, percent: bool) {
         let sum = self.sum.load(Relaxed);
         let calls = self.calls.load(Relaxed);
         let avg = sum as f64 / calls as f64;
         let name = self.name;
-        println!("{name}: Sum {sum} of {calls} calls (average {avg:3})");
+        if percent {
+            let percent = avg * 100.;
+            println!("{name}: {sum} of {calls} nodes ({percent:.2}%)");
+        } else {
+            println!("{name}: Sum {sum} of {calls} calls (average {avg:.3})");
+        }
     }
 }
 
 #[distributed_slice]
 pub static TRACKED_VALUES: [Entry];
+
+#[distributed_slice]
+pub static TRACKED_NODE_RELATIVE: [Entry];
 
 #[macro_export]
 macro_rules! track {
@@ -524,9 +535,24 @@ macro_rules! track {
     ($val: expr) => {{ track!(stringify!($val), $val) }};
 }
 
+#[macro_export]
+macro_rules! track_rel {
+    ($name: expr, $val: expr) => {{
+        #[linkme::distributed_slice($crate::general::common::TRACKED_NODE_RELATIVE)]
+        static ENTRY: $crate::general::common::Entry = $crate::general::common::Entry::new(const { $name });
+        let value = $val;
+        ENTRY.record_sum(value as i64);
+        value
+    }};
+    ($name: expr) => {{ track_rel!($name, 1) }};
+}
+
 pub fn dbg_print() {
     for e in TRACKED_VALUES {
-        e.print();
+        e.print(false);
+    }
+    for e in TRACKED_NODE_RELATIVE {
+        e.print(true);
     }
 }
 
@@ -534,13 +560,22 @@ pub fn dbg_reset() {
     for e in TRACKED_VALUES {
         e.reset();
     }
+    for e in TRACKED_NODE_RELATIVE {
+        e.reset();
+    }
+}
+
+pub fn dbg_end_search(nodes: u64) {
+    for e in TRACKED_NODE_RELATIVE {
+        _ = e.calls.fetch_add(nodes, Relaxed);
+    }
 }
 
 #[cfg(test)]
 mod tests {
-    use rand::{RngExt, rng};
+    use rand::{rng, RngExt};
 
-    use crate::general::common::{ith_one_u64, ith_one_u128};
+    use crate::general::common::{ith_one_u128, ith_one_u64};
     // TODO: Test this on bitboards instead
     // #[test]
     // fn pop_lsb64_test() {

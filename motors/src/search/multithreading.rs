@@ -10,7 +10,7 @@ use gears::dyn_clone::clone_box;
 use gears::games::ZobristHistory;
 use gears::general::board::BoardTrait;
 use gears::general::common::anyhow::{anyhow, bail, ensure};
-use gears::general::common::{parse_int_from_str, Name, NamedEntity, Res};
+use gears::general::common::{dbg_print, dbg_reset, parse_int_from_str, Name, NamedEntity, Res};
 use gears::general::moves::ExtendedFormat::Standard;
 use gears::general::moves::MoveTrait;
 use gears::output::Message::*;
@@ -305,7 +305,9 @@ impl<B: BoardTrait> EngineThread<B> {
     fn handle_input(&mut self, received: EngineReceives<B>) -> Res<bool> {
         match received {
             Search(params) => {
+                dbg_reset();
                 self.search(params);
+                dbg_print();
             }
             Quit => {
                 return Ok(true);

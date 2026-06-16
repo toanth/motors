@@ -17,9 +17,11 @@ use gears::games::chess::{Board, Color};
 use gears::games::DimT;
 use gears::general::common::StaticallyNamedEntity;
 use motors::eval::chess::lite::GenericLiTEval;
-use motors::eval::chess::lite_values::{LiteValues, MAX_MOBILITY};
+use motors::eval::chess::lite_values::{LiteValues, MAX_MOBILITY, MAX_SAFE_MOBILITY};
+use motors::eval::chess::FileOpenness::*;
 use motors::eval::chess::FileOpenness::*;
 use motors::eval::chess::{FileOpenness, NUM_PAWN_SHIELD_CONFIGURATIONS};
+use motors::eval::SingleFeatureScore;
 use std::fmt;
 use std::fmt::{Display, Formatter};
 use std::iter::Iterator;
@@ -58,11 +60,14 @@ pub enum LiteFeatureSubset {
     PawnAttacks,
     PawnAdvanceThreat,
     Mobility,
+    SafeSquares,
     Threat,
     Defense,
     KingZoneAttack,
     CanGiveCheck,
+    SafeCheck,
     CheckStm,
+    SafeCheckStm,
     DiscoveredCheckStm,
     DiscoveredCheck,
     Pin,
@@ -97,11 +102,14 @@ impl FeatureSubSet for LiteFeatureSubset {
             PawnAttacks => NUM_CHESS_PIECES,
             PawnAdvanceThreat => NUM_CHESS_PIECES,
             Mobility => (MAX_MOBILITY + 1) * (NUM_CHESS_PIECES - 1),
+            SafeSquares => (MAX_SAFE_MOBILITY + 1) * (NUM_CHESS_PIECES - 1),
             Threat => (NUM_CHESS_PIECES - 1) * NUM_CHESS_PIECES,
             Defense => (NUM_CHESS_PIECES - 1) * NUM_CHESS_PIECES,
             KingZoneAttack => NUM_CHESS_PIECES,
             CanGiveCheck => NUM_CHESS_PIECES - 1,
+            SafeCheck => NUM_CHESS_PIECES - 1,
             CheckStm => 1,
+            SafeCheckStm => 1,
             DiscoveredCheckStm => 1,
             DiscoveredCheck => NUM_CHESS_PIECES,
             Pin => NUM_CHESS_PIECES - 1,
@@ -221,12 +229,28 @@ impl FeatureSubSet for LiteFeatureSubset {
             Mobility => {
                 writeln!(f, "\npub const MAX_MOBILITY: usize = 7 + 7 + 7 + 6;")?;
                 writeln!(f, "const MOBILITY: [[PhasedScore; MAX_MOBILITY + 1]; NUM_CHESS_PIECES - 1] = [")?;
-                for _piece in PieceType::non_pawn_pieces() {
+                for piece in PieceType::non_pawn_pieces() {
                     write_range_phased(
                         f,
                         weights,
-                        self.start_idx() + (_piece as usize - 1) * (MAX_MOBILITY + 1),
+                        self.start_idx() + (piece as usize - 1) * (MAX_MOBILITY + 1),
                         MAX_MOBILITY + 1,
+                        special,
+                        true,
+                    )?;
+                    writeln!(f, ",")?;
+                }
+                return writeln!(f, "];");
+            }
+            SafeSquares => {
+                writeln!(f, "\npub const MAX_SAFE_MOBILITY: usize = 14;")?;
+                writeln!(f, "const SAFE_SQUARES: [[PhasedScore; MAX_SAFE_MOBILITY + 1]; NUM_CHESS_PIECES - 1] = [")?;
+                for piece in PieceType::non_pawn_pieces() {
+                    write_range_phased(
+                        f,
+                        weights,
+                        self.start_idx() + (piece as usize - 1) * (MAX_SAFE_MOBILITY + 1),
+                        MAX_SAFE_MOBILITY + 1,
                         special,
                         true,
                     )?;
@@ -262,8 +286,14 @@ impl FeatureSubSet for LiteFeatureSubset {
             CanGiveCheck => {
                 write!(f, "const CAN_GIVE_CHECK: [PhasedScore; 5] = ")?;
             }
+            SafeCheck => {
+                write!(f, "const SAFE_CHECK: [PhasedScore; 5] = ")?;
+            }
             CheckStm => {
                 write!(f, "const CHECK_STM: PhasedScore = ")?;
+            }
+            SafeCheckStm => {
+                write!(f, "const SAFE_CHECK_STM: PhasedScore = ")?;
             }
             DiscoveredCheckStm => {
                 write!(f, "const DISCOVERED_CHECK_STM: PhasedScore = ")?;
@@ -433,6 +463,12 @@ impl LiteValues for LiTETrace {
         SingleFeature::new(Mobility, idx)
     }
 
+    fn safe_squares(piece: PieceType, num_squares: usize) -> SingleFeatureScore<Self::Score> {
+        assert!(num_squares <= MAX_SAFE_MOBILITY);
+        let idx = (piece as usize - 1) * (MAX_SAFE_MOBILITY + 1) + num_squares;
+        SingleFeature::new(SafeSquares, idx)
+    }
+
     fn threats(attacking: PieceType, targeted: PieceType) -> SingleFeature {
         let idx = (attacking as usize - 1) * NUM_CHESS_PIECES + targeted as usize;
         SingleFeature::new(Threat, idx)
@@ -451,6 +487,10 @@ impl LiteValues for LiTETrace {
         SingleFeature::new(CanGiveCheck, piece as usize)
     }
 
+    fn safe_check(piece: PieceType) -> SingleFeature {
+        SingleFeature::new(SafeCheck, piece as usize)
+    }
+
     fn pin(piece: PieceType) -> SingleFeature {
         SingleFeature::new(Pin, piece as usize)
     }
@@ -465,6 +505,10 @@ impl LiteValues for LiTETrace {
 
     fn check_stm() -> SingleFeature {
         SingleFeature::new(CheckStm, 0)
+    }
+
+    fn safe_check_stm() -> SingleFeature {
+        SingleFeature::new(SafeCheckStm, 0)
     }
 }
 

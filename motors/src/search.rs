@@ -14,7 +14,9 @@ use gears::games::{BoardHistDyn, ZobristHistory};
 use gears::general::board::Strictness::Relaxed;
 use gears::general::board::{BoardHelpers, BoardTrait};
 use gears::general::common::anyhow::bail;
-use gears::general::common::{dbg_print, dbg_reset, EntityList, Name, NamedEntity, Res, StaticallyNamedEntity};
+use gears::general::common::{
+    dbg_end_search, dbg_print, dbg_reset, EntityList, Name, NamedEntity, Res, StaticallyNamedEntity,
+};
 use gears::general::move_list::MoveListTrait;
 use gears::general::moves::MoveTrait;
 use gears::itertools::Itertools;
@@ -685,6 +687,7 @@ impl<B: BoardTrait> SearchParams<B> {
     /// Auxiliary threads and ponder searches both return instantly from this function, without printing anything.
     /// If the search result has chosen a null move, this instead outputs a warning and a random legal move.
     fn end_and_send(&self, res: &mut SearchResult<B>) {
+        dbg_end_search(self.atomic.nodes());
         let Main(data) = &self.thread_type else {
             self.atomic.currently_searching.store(false, Release);
             return;
@@ -913,7 +916,6 @@ impl<B: BoardTrait, E: SearchStackEntry<B>, C: CustomInfo<B>> AbstractSearchStat
     }
 
     fn new_search(&mut self, mut parameters: SearchParams<B>) {
-        dbg_reset();
         parameters.atomic.set_searching(true);
         self.forget(false);
         let moves = parameters.pos.legal_moves_slow();
@@ -949,7 +951,6 @@ impl<B: BoardTrait, E: SearchStackEntry<B>, C: CustomInfo<B>> AbstractSearchStat
     }
 
     fn end_search(&mut self, res: &mut SearchResult<B>) {
-        dbg_print();
         send_debug_msg!(
             self,
             "Ending a search that took {0} microseconds ({1} microseconds since starting searching in this thread)",
@@ -1208,6 +1209,7 @@ pub fn run_bench_with<B: BoardTrait>(
     bench_positions: &[B],
     tt: Option<TT>,
 ) -> BenchResult {
+    dbg_reset();
     let mut hasher = DefaultHasher::new();
     let mut total = BenchResult::default();
     let mut tt = tt.unwrap_or_default();
@@ -1224,6 +1226,7 @@ pub fn run_bench_with<B: BoardTrait>(
         total.depth = Some(limit.depth);
     }
     total.hash = hasher.finish();
+    dbg_print();
     total
 }
 

@@ -181,6 +181,10 @@ impl LiteValues for KingGambotValues {
         Lite::mobility(piece, mobility)
     }
 
+    fn safe_squares(piece: PieceType, num: usize) -> PhasedScore {
+        Lite::safe_squares(piece, num)
+    }
+
     fn threats(attacking: PieceType, targeted: PieceType) -> PhasedScore {
         Lite::threats(attacking, targeted)
     }
@@ -197,6 +201,10 @@ impl LiteValues for KingGambotValues {
         Lite::can_give_check(piece) / 2
     }
 
+    fn safe_check(piece: PieceType) -> PhasedScore {
+        Lite::safe_check(piece) / 2
+    }
+
     fn pin(piece: PieceType) -> PhasedScore {
         Lite::pin(piece)
     }
@@ -211,5 +219,9 @@ impl LiteValues for KingGambotValues {
 
     fn check_stm() -> PhasedScore {
         Lite::check_stm()
+    }
+
+    fn safe_check_stm() -> PhasedScore {
+        Lite::safe_check_stm()
     }
 }

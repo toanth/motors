@@ -238,9 +238,9 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
         if state.material == Tuned::Score::default() {
             return Tuned::Score::default();
         }
-        let advantage = pos.material_advantage_of(White);
+        let white_advantage = pos.material_advantage_of(White);
         let mut res = Tuned::Score::default();
-        let c = if advantage > SeeScore(0) { White } else { Black };
+        let c = if white_advantage > SeeScore(0) { White } else { Black };
         if pos.col_piece_bb(c, Pawn).is_zero() {
             let minor_pieces = pos.piece_bb(Knight) | pos.piece_bb(Bishop);
             if (minor_pieces & pos.player_bb(c)).num_ones() * 2 > minor_pieces.num_ones() {
@@ -249,7 +249,15 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
         }
         let white_bishops = pos.col_piece_bb(White, Bishop);
         let black_bishops = pos.col_piece_bb(Black, Bishop);
-        if white_bishops.has_any()
+        let major = pos.piece_bb(Rook) | pos.piece_bb(Queen);
+        if
+        /* !pos.piece_bb(Queen).has_any()
+        && pos.col_piece_bb(White, Rook).num_ones() == pos.col_piece_bb(Black, Rook).num_ones()
+        && pos.col_piece_bb(White, Knight).num_ones() == pos.col_piece_bb(Black, Knight).num_ones()
+        &&*/
+        (major & pos.player_bb(White)).num_ones() == (major & pos.player_bb(Black)).num_ones()
+            && pos.col_piece_bb(c, Pawn).has_any()
+            && white_bishops.has_any()
             && black_bishops.has_any()
             && ((light_squares().contains(white_bishops) && dark_squares().contains(black_bishops))
                 || (light_squares().contains(black_bishops) && dark_squares().contains(white_bishops)))
@@ -257,7 +265,7 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
             res += Tuned::opposite_colored_bishops();
         }
 
-        if advantage > SeeScore(0) { res } else { -res }
+        if white_advantage > SeeScore(0) { res } else { -res }
     }
 
     fn open_lines(pos: &Board, color: Color) -> Tuned::Score {
@@ -335,14 +343,19 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
         score
     }
 
-    fn mobility_and_threats(state: &mut EvalState<Tuned>, pos: &Board, us: Color) -> Tuned::Score {
+    fn mobility_and_threats(
+        state: &mut EvalState<Tuned>,
+        pos: &Board,
+        us: Color,
+        their_attacks: Bitboard,
+    ) -> (Tuned::Score, Bitboard) {
         let mut score = Tuned::Score::default();
         let generator = pos.slider_generator();
 
         let checking_squares = Self::checking(pos, !us, &generator);
 
-        let attacked_by_pawn = pos.col_piece_bb(us.other(), Pawn).pawn_attacks(us.other());
-        let king_zone = Board::normal_king_attacks_from(pos.king_sq(us.other()));
+        let attacked_by_pawn = pos.col_piece_bb(!us, Pawn).pawn_attacks(!us);
+        let king_zone = Board::normal_king_attacks_from(pos.king_sq(!us));
         let our_pawns = pos.col_piece_bb(us, Pawn);
         // handling double pawn pushes lost elo, somehow
         let pawn_advance_threats = (our_pawns.pawn_advance(us) & pos.empty_bb()).pawn_attacks(us);
@@ -368,10 +381,13 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
                 let attacks = Board::threatening_attacks(square, piece, us, &generator);
                 all_attacks |= attacks;
                 let attacks_no_pawn_recapture = attacks & !attacked_by_pawn;
+                let attacks_no_recapture = attacks & !their_attacks;
                 let mobility = (attacks_no_pawn_recapture & !pos.player_bb(us)).num_ones();
                 score += Tuned::mobility(piece, mobility);
+                let safe_squares = (attacks_no_recapture & !pos.player_bb(us)).num_ones().min(MAX_SAFE_MOBILITY);
+                score += Tuned::safe_squares(piece, safe_squares);
                 for threatened_piece in PieceType::pieces() {
-                    let attacked = pos.col_piece_bb(us.other(), threatened_piece) & attacks;
+                    let attacked = pos.col_piece_bb(!us, threatened_piece) & attacks;
                     score += Tuned::threats(piece, threatened_piece) * attacked.num_ones();
                     let defended = pos.col_piece_bb(us, threatened_piece) & attacks_no_pawn_recapture;
                     score += Tuned::defended(piece, threatened_piece) * defended.num_ones();
@@ -379,34 +395,43 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
                 if attacks_no_pawn_recapture.intersects(king_zone) {
                     score += Tuned::king_zone_attack(piece);
                 }
-                if piece != King
-                    && (attacks_no_pawn_recapture & !pos.player_bb(us) & checking_squares[piece as usize]).has_any()
-                {
-                    score += Tuned::can_give_check(piece);
-                    state.stm_bonus[us] += Tuned::check_stm();
+                if piece != King {
+                    if attacks_no_pawn_recapture.intersects(checking_squares[piece as usize] & !pos.player_bb(us)) {
+                        score += Tuned::can_give_check(piece);
+                        state.stm_bonus[us] += Tuned::check_stm();
+                    }
+                    if attacks_no_recapture.intersects(checking_squares[piece as usize] & !pos.player_bb(us)) {
+                        score += Tuned::safe_check(piece);
+                        state.stm_bonus[us] += Tuned::safe_check_stm();
+                    }
                 }
+
                 if attacks.intersects(passer_close) {
                     score += Tuned::passer_protection();
                 }
             }
         }
-        score
+        (score, all_attacks)
     }
 
     // should be called last because it uses information set by other functions
     fn recomputed_every_time(state: &mut EvalState<Tuned>, pos: &Board) -> Tuned::Score {
         let mut score = Tuned::Score::default();
         state.stm_bonus = [Tuned::Score::default(), Tuned::Score::default()];
-        for color in Color::iter() {
+        let us = pos.active_player();
+        let mut their_attacks = pos.threats();
+        for color in [us, !us] {
             score += Self::bishop_pair(pos, color);
             score += Self::bad_bishop(pos, color);
             score += Self::open_lines(pos, color);
-            score += Self::mobility_and_threats(state, pos, color);
+            let (s, a) = Self::mobility_and_threats(state, pos, color, their_attacks);
+            score += s;
+            their_attacks = a;
             score += Self::pins_and_discovered_checks(state, pos, color);
             score = -score;
         }
-        score += Self::useless_material_advantage(state, pos);
-        score
+        let score = if us.is_first() { score } else { -score };
+        score + Self::useless_material_advantage(state, pos)
     }
 
     fn psqt_delta(
