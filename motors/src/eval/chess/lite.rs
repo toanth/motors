@@ -367,10 +367,12 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
             let threatened_by_pawn_advance = pawn_advance_threats & pos.col_piece_bb(!us, piece);
             score += Tuned::pawn_advance_threat(piece) * threatened_by_pawn_advance.num_ones();
         }
+        let mut double_attacks = Bitboard::default();
         for piece in PieceType::non_pawn_pieces() {
             for square in pos.col_piece_bb(us, piece) {
                 // TODO: Maybe it makes sense to ensure the compiler unrolls this loop
                 let attacks = Board::threatening_attacks(square, piece, us, &generator);
+                double_attacks |= attacks & all_attacks; // TODO: Doesn't consider batteries or two pawns attacking a square
                 all_attacks |= attacks;
                 let attacks_no_pawn_recapture = attacks & !attacked_by_pawn;
                 let attacks_no_recapture = attacks & !their_attacks;
@@ -402,6 +404,10 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
                     score += Tuned::passer_protection();
                 }
             }
+        }
+        for threatened in PieceType::non_king_pieces() {
+            score +=
+                Tuned::double_attacks(threatened) * (double_attacks & pos.col_piece_bb(!us, threatened)).num_ones();
         }
         (score, all_attacks)
     }

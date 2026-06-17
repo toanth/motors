@@ -62,6 +62,7 @@ pub enum LiteFeatureSubset {
     SafeSquares,
     Threat,
     Defense,
+    DoubleAttack,
     KingZoneAttack,
     CanGiveCheck,
     SafeCheck,
@@ -104,6 +105,7 @@ impl FeatureSubSet for LiteFeatureSubset {
             SafeSquares => (MAX_SAFE_MOBILITY + 1) * (NUM_CHESS_PIECES - 1),
             Threat => (NUM_CHESS_PIECES - 1) * NUM_CHESS_PIECES,
             Defense => (NUM_CHESS_PIECES - 1) * NUM_CHESS_PIECES,
+            DoubleAttack => NUM_CHESS_PIECES - 1,
             KingZoneAttack => NUM_CHESS_PIECES,
             CanGiveCheck => NUM_CHESS_PIECES - 1,
             SafeCheck => NUM_CHESS_PIECES - 1,
@@ -278,6 +280,9 @@ impl FeatureSubSet for LiteFeatureSubset {
                     NUM_CHESS_PIECES - 1,
                     special,
                 );
+            }
+            DoubleAttack => {
+                write!(f, "const DOUBLE_ATTACKED: [PhasedScore; NUM_CHESS_PIECES - 1] = ")?;
             }
             KingZoneAttack => {
                 write!(f, "const KING_ZONE_ATTACK: [PhasedScore; 6] = ")?;
@@ -476,6 +481,10 @@ impl LiteValues for LiTETrace {
     fn defended(protecting: PieceType, target: PieceType) -> SingleFeature {
         let idx = (protecting as usize - 1) * NUM_CHESS_PIECES + target as usize;
         SingleFeature::new(Defense, idx)
+    }
+
+    fn double_attacks(threatened: PieceType) -> SingleFeature {
+        SingleFeature::new(DoubleAttack, threatened as usize)
     }
 
     fn king_zone_attack(attacking: PieceType) -> SingleFeature {
