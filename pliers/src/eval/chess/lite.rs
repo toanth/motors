@@ -36,6 +36,7 @@ struct LiTETrace {}
 pub enum LiteFeatureSubset {
     Psqt,
     MoreMinorsNoPawns,
+    OppositeColoredBishops,
     BishopPair,
     BadBishop,
     RookOpenness,
@@ -77,6 +78,7 @@ impl FeatureSubSet for LiteFeatureSubset {
         match self {
             Psqt => NUM_SQUARES * NUM_CHESS_PIECES,
             MoreMinorsNoPawns => 1,
+            OppositeColoredBishops => 1,
             BishopPair => 1,
             BadBishop => 9,
             RookOpenness => 3,
@@ -125,6 +127,9 @@ impl FeatureSubSet for LiteFeatureSubset {
             }
             MoreMinorsNoPawns => {
                 write!(f, "\nconst MORE_MINORS_NO_PAWNS: PhasedScore = ")?;
+            }
+            OppositeColoredBishops => {
+                write!(f, "const OPPOSITE_COLORED_BISHOPS: PhasedScore = ")?;
             }
             BishopPair => {
                 write!(f, "const BISHOP_PAIR: PhasedScore = ")?;
@@ -347,6 +352,10 @@ impl LiteValues for LiTETrace {
 
     fn more_minors_but_no_pawns() -> SingleFeature {
         SingleFeature::new(MoreMinorsNoPawns, 0)
+    }
+
+    fn opposite_colored_bishops() -> SingleFeature {
+        SingleFeature::new(OppositeColoredBishops, 0)
     }
 
     fn passed_pawn(square: Square) -> SingleFeature {

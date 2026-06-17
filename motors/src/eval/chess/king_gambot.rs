@@ -88,6 +88,10 @@ impl LiteValues for KingGambotValues {
         Lite::more_minors_but_no_pawns()
     }
 
+    fn opposite_colored_bishops() -> PhasedScore {
+        Lite::opposite_colored_bishops()
+    }
+
     fn passed_pawn(square: Square) -> PhasedScore {
         Lite::passed_pawn(square)
     }

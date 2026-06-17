@@ -16,7 +16,7 @@ use gears::games::chess::{Board, ChessBitboardTrait, Color, CHESS_PIECE_PHASE};
 use gears::games::{ColorTrait, CoordinatesTrait};
 use gears::games::{DimT, PosHash};
 use gears::general::attacks::ChessSliderGenerator;
-use gears::general::bitboards::chessboard::{Bitboard, COLORED_SQUARES};
+use gears::general::bitboards::chessboard::{dark_squares, light_squares, Bitboard, COLORED_SQUARES};
 use gears::general::bitboards::RawBitboardTrait;
 use gears::general::bitboards::{BitboardTrait, KnownSizeBitboard};
 use gears::general::board::{BitboardBoard, BoardTrait};
@@ -234,16 +234,31 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
         Self::pawn_center(pos) + Self::pawns_for(pos, White, passers) - Self::pawns_for(pos, Black, passers)
     }
 
-    fn more_minors_no_pawns(pos: &Board, c: Color) -> Tuned::Score {
+    fn useless_material_advantage(state: &mut EvalState<Tuned>, pos: &Board) -> Tuned::Score {
+        if state.material == Tuned::Score::default() {
+            return Tuned::Score::default();
+        }
+        let white_advantage = pos.material_advantage_of(White);
+        let mut res = Tuned::Score::default();
+        let c = if white_advantage > SeeScore(0) { White } else { Black };
         if pos.col_piece_bb(c, Pawn).is_zero() {
             let minor_pieces = pos.piece_bb(Knight) | pos.piece_bb(Bishop);
             if (minor_pieces & pos.player_bb(c)).num_ones() * 2 > minor_pieces.num_ones() {
-                if pos.material_advantage_of(c) > SeeScore(0) {
-                    return Tuned::more_minors_but_no_pawns().into();
-                }
+                res += Tuned::more_minors_but_no_pawns();
             }
         }
-        Tuned::Score::default()
+        let white_bishops = pos.col_piece_bb(White, Bishop);
+        let black_bishops = pos.col_piece_bb(Black, Bishop);
+        if pos.col_piece_bb(c, Pawn).has_any()
+            && white_bishops.has_any()
+            && black_bishops.has_any()
+            && ((light_squares().contains(white_bishops) && dark_squares().contains(black_bishops))
+                || (light_squares().contains(black_bishops) && dark_squares().contains(white_bishops)))
+        {
+            res += Tuned::opposite_colored_bishops();
+        }
+
+        if white_advantage > SeeScore(0) { res } else { -res }
     }
 
     fn open_lines(pos: &Board, color: Color) -> Tuned::Score {
@@ -398,7 +413,6 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
         let us = pos.active_player();
         let mut their_attacks = pos.threats();
         for color in [us, !us] {
-            score += Self::more_minors_no_pawns(pos, color);
             score += Self::bishop_pair(pos, color);
             score += Self::bad_bishop(pos, color);
             score += Self::open_lines(pos, color);
@@ -408,7 +422,8 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
             score += Self::pins_and_discovered_checks(state, pos, color);
             score = -score;
         }
-        if us.is_first() { score } else { -score }
+        let score = if us.is_first() { score } else { -score };
+        score + Self::useless_material_advantage(state, pos)
     }
 
     fn psqt_delta(
