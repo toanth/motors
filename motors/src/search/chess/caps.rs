@@ -705,7 +705,7 @@ impl Caps {
         // However, captures and promos are generally good moves, so if our eval is the static eval instead of adjusted from the TT,
         // a noisy condition would mean we're doing even better than expected. // TODO: Apply noisy for RFP etc only if eval is TT eval?
         // If it's from the TT, however, and the first move didn't produce a beta cutoff, we're probably worse than expected
-        let pos_noisy = in_check || (best_move != Move::default() && best_move.is_tactical(pos));
+        let pos_noisy = in_check || best_move.is_tactical(pos);
 
         // Like the commonly used `improving` and `regressing`, these variables compare the current static eval with
         // the static eval 2 plies ago to recognize blunders. Conceptually, `improving` and `regressing` can be seen as
@@ -788,6 +788,7 @@ impl Caps {
                 && expected_node_type == FailHigh
                 && !*self.nmp_disabled_for(us)
                 && has_nonpawns
+                && !pos_noisy
             {
                 self.tt().prefetch(pos.hash_pos() ^ ZOBRIST_KEYS.side_to_move_key);
                 // `make_nullmove` resets the 50mr counter, so we don't consider positions after a nullmove as repetitions,
@@ -1184,8 +1185,6 @@ impl Caps {
 
     /// Search only "tactical" moves to quieten down the position before calling eval
     fn qsearch(&mut self, pos: &Board, mut alpha: Score, beta: Score, ply: usize, pv_node: bool) -> Option<Score> {
-        // updating seldepth only in qsearch meaningfully increased performance and was even measurable in a [0, 10] SPRT.
-        // TODO: That's weird, retest
         self.atomic().update_seldepth(ply);
 
         let in_check = pos.is_in_check();
@@ -1240,10 +1239,6 @@ impl Caps {
             // and propagate that up to a qsearch parent node, where it gets saved with a depth of 0, so game over scores
             // with a depth of 0 in the TT are possible
             // exact scores should have already caused a cutoff
-            // TODO: Removing the `&& !tt_entry.score.is_game_over_score()` condition here and in `negamax` *failed* a
-            // nonregression SPRT with `[-7, 0]` bounds even though I don't know why, and those conditions make it fail
-            // the re-search test case. So the conditions are still disabled for now,
-            // test reintroducing them at some point in the future after I have TT aging!
             if (bound == NodeType::lower_bound() && tt_score >= eval)
                 || (bound == NodeType::upper_bound() && tt_score <= eval)
             {
