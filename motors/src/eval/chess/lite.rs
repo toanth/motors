@@ -405,9 +405,8 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
                 }
             }
         }
-        for threatened in PieceType::non_king_pieces() {
-            score +=
-                Tuned::double_attacks(threatened) * (double_attacks & pos.col_piece_bb(!us, threatened)).num_ones();
+        if (double_attacks & !attacked_by_pawn & king_zone).has_any() {
+            score += Tuned::double_kingzone_attack();
         }
         (score, all_attacks)
     }

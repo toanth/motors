@@ -193,8 +193,8 @@ impl LiteValues for KingGambotValues {
         Lite::defended(protecting, target)
     }
 
-    fn double_attacks(threatened: PieceType) -> PhasedScore {
-        Lite::double_attacks(threatened)
+    fn double_kingzone_attack() -> PhasedScore {
+        Lite::double_kingzone_attack()
     }
 
     fn king_zone_attack(attacking: PieceType) -> PhasedScore {
