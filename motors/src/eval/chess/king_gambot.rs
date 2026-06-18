@@ -112,6 +112,10 @@ impl LiteValues for KingGambotValues {
         Lite::passer_protection()
     }
 
+    fn passer_can_push() -> PhasedScore {
+        Lite::passer_can_push()
+    }
+
     fn candidate_passer(rank: DimT) -> PhasedScore {
         Lite::candidate_passer(rank)
     }
