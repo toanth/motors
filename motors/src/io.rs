@@ -747,7 +747,8 @@ impl<B: BoardTrait> EngineUGI<B> {
                         self.output().write_ugi(&format_args!("# unique positions at depth {i}: {num_unique}",))
                     } else {
                         let parallelize = if threads == 1 { SingleThreaded } else { Parallel };
-                        let perft_res = perft_for(DepthPly::new(i), &positions, parallelize, pseudo_bulk);
+                        let hash = opts.override_hash_size.map(|n| n * (1 << 20));
+                        let perft_res = perft_for(DepthPly::new(i), &positions, parallelize, pseudo_bulk, hash);
                         self.output().write_ugi(&format_args!(
                             "{}{perft_res}",
                             if i == limit.depth.get() { String::new() } else { format!("depth {i}: ") }
@@ -768,7 +769,8 @@ impl<B: BoardTrait> EngineUGI<B> {
                 }
                 let pseudo_bulk = if opts.no_bulk { NoBulk } else { Bulk };
                 let parallelize = if threads == 1 { SingleThreaded } else { Parallel };
-                let res = split_perft(limit.depth, board, parallelize, pseudo_bulk);
+                let hash = opts.override_hash_size.map(|n| n * (1 << 20));
+                let res = split_perft(limit.depth, board, parallelize, pseudo_bulk, hash);
                 self.write_ugi(&format_args!("{res}"));
                 if self.go_state_mut().get_mut().compare {
                     compare_splitperft(self, res)?;

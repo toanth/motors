@@ -6,9 +6,9 @@ mod tests {
     use crate::games::ataxx::Board;
     use crate::general::board::BoardHelpers;
     use crate::general::board::Strictness::Strict;
+    use crate::general::perft::perft;
     use crate::general::perft::Bulkness::Bulk;
     use crate::general::perft::Parallelize::SingleThreaded;
-    use crate::general::perft::perft;
     use crate::search::DepthPly;
 
     #[rustfmt::skip]
@@ -76,7 +76,7 @@ mod tests {
         for (fen, counts) in positions {
             let pos = Board::from_fen(fen, Strict).unwrap();
             for (depth, &count) in counts.iter().enumerate() {
-                let res = perft(DepthPly::new(depth), pos, SingleThreaded, Bulk);
+                let res = perft(DepthPly::new(depth), pos, SingleThreaded, Bulk, None);
                 assert_eq!(res.nodes, count, "{fen}");
             }
         }

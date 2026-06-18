@@ -16,28 +16,28 @@
  *  along with Gears. If not, see <https://www.gnu.org/licenses/>.
  */
 
-/// The following test cases are adapted from test cases for the [`Board`] implementation
-use crate::PlayerResult;
-use crate::PlayerResult::{Draw, Lose};
 use crate::games::chess::squares::{F_FILE_NUM, G_FILE_NUM};
-use crate::games::fairy::Side::{Kingside, Queenside};
 use crate::games::fairy::attacks::MoveKind;
 use crate::games::fairy::moves::Move;
 use crate::games::fairy::rules::{RulesBuilder, RulesRef};
+use crate::games::fairy::Side::{Kingside, Queenside};
 use crate::games::fairy::{Bitboard, Board, Color, Side, Square, UnverifiedBoard};
 use crate::games::{
-    AbstractPieceType, BoardHistDyn, ColorTrait, ColoredPieceTrait, CoordinatesTrait, NoHistory, SizeTrait,
-    ZobristHistory, chess, n_fold_repetition,
+    chess, n_fold_repetition, AbstractPieceType, BoardHistDyn, ColorTrait, ColoredPieceTrait, CoordinatesTrait,
+    NoHistory, SizeTrait, ZobristHistory,
 };
 use crate::general::bitboards::{BitboardTrait, RawBitboardTrait};
 use crate::general::board::Strictness::{Relaxed, Strict};
 use crate::general::board::{BoardHelpers, BoardTrait, UnverifiedBoardTrait};
 use crate::general::moves::MoveTrait;
+use crate::general::perft::perft;
 use crate::general::perft::Bulkness::{Bulk, NoBulk};
 use crate::general::perft::Parallelize::*;
-use crate::general::perft::perft;
 use crate::general::squares::{GridCoordinates, GridSize, RectangularCoordinates};
 use crate::search::DepthPly;
+/// The following test cases are adapted from test cases for the [`Board`] implementation
+use crate::PlayerResult;
+use crate::PlayerResult::{Draw, Lose};
 use itertools::Itertools;
 use rand::rng;
 use std::collections::HashSet;
@@ -210,7 +210,7 @@ fn many_moves_test() {
     let board = Board::from_fen(fen, Relaxed).unwrap();
     let moves = board.pseudolegal_moves();
     assert_eq!(moves.len(), 265);
-    let perft_res = perft(DepthPly::new(1), board, SingleThreaded, Bulk);
+    let perft_res = perft(DepthPly::new(1), board, SingleThreaded, Bulk, None);
     assert_eq!(perft_res.nodes, 265);
 }
 
@@ -218,33 +218,33 @@ fn many_moves_test() {
 fn simple_perft_test() {
     let endgame_fen = "6k1/8/6K1/8/3B1N2/8/8/7R w - - 0 1";
     let board = Board::from_fen(endgame_fen, Relaxed).unwrap();
-    let perft_res = perft(DepthPly::new(1), board, SingleThreaded, NoBulk);
+    let perft_res = perft(DepthPly::new(1), board, SingleThreaded, NoBulk, None);
     assert_eq!(perft_res.depth, DepthPly::new(1));
     assert_eq!(perft_res.nodes, 5 + 7 + 13 + 14);
     let board = Board::default();
-    let perft_res = perft(DepthPly::new(1), board.clone(), Parallel, NoBulk);
+    let perft_res = perft(DepthPly::new(1), board.clone(), Parallel, NoBulk, None);
     assert_eq!(perft_res.depth, DepthPly::new(1));
     assert_eq!(perft_res.nodes, 20);
-    let perft_res = perft(DepthPly::new(2), board, SingleThreaded, NoBulk);
+    let perft_res = perft(DepthPly::new(2), board, SingleThreaded, NoBulk, None);
     assert_eq!(perft_res.depth, DepthPly::new(2));
     assert_eq!(perft_res.nodes, 20 * 20);
 
     let board = Board::from_fen("r1bqkbnr/1pppNppp/p1n5/8/8/8/PPPPPPPP/R1BQKBNR b KQkq - 0 3", Strict).unwrap();
-    let perft_res = perft(DepthPly::new(1), board.clone(), Parallel, NoBulk);
+    let perft_res = perft(DepthPly::new(1), board.clone(), Parallel, NoBulk, None);
     assert_eq!(perft_res.nodes, 26);
-    assert_eq!(perft(DepthPly::new(3), board, Parallel, Bulk).nodes, 16790);
+    assert_eq!(perft(DepthPly::new(3), board, Parallel, Bulk, Some(1 << 10)).nodes, 16790);
 
     let board =
         Board::from_fen("rbbqQ1kr/1p2p1pp/6n1/p1pp1p2/2P4P/P7/BP1PPPP1/R1B1NNKR b KQkq - 0 10", Strict).unwrap();
     assert_eq!(board.num_legal_moves(), 2);
     let board = Board::from_fen("rbbqn1kr/pp2p1pp/6n1/2pp1p2/2P4P/P7/BP1PPPP1/R1BQNNKR w HAha - 0 9", Strict).unwrap();
-    let perft_res = perft(DepthPly::new(4), board, Parallel, Bulk);
+    let perft_res = perft(DepthPly::new(4), board, Parallel, Bulk, Some(1 << 22));
     assert_eq!(perft_res.nodes, 890_435);
 
     // DFRC
     let board =
         Board::from_fen("r1q1k1rn/1p1ppp1p/1npb2b1/p1N3p1/8/1BP4P/PP1PPPP1/1RQ1KRBN w BFag - 0 9", Strict).unwrap();
-    assert_eq!(perft(DepthPly::new(4), board, Parallel, Bulk).nodes, 1_187_103);
+    assert_eq!(perft(DepthPly::new(4), board, Parallel, Bulk, Some(123)).nodes, 1_187_103);
 }
 
 #[test]
@@ -404,7 +404,7 @@ fn weird_position_test() {
     let fen = "q2k2q1/2nqn2b/1n1P1n1b/2rnr2Q/1NQ1QN1Q/3Q3B/2RQR2B/Q2K2Q1 w - - 0 1";
     let board = Board::from_fen(fen, Strict).unwrap();
     assert_eq!(board.active_player(), Color::first());
-    assert_eq!(perft(DepthPly::new(3), board, Parallel, Bulk).nodes, 568_299);
+    assert_eq!(perft(DepthPly::new(3), board, Parallel, Bulk, None).nodes, 568_299);
     // not a legal chess position, but the board should support this
     let fen = "RRRRRRRR/RRRRRRRR/BBBBBBBB/BBBBBBBB/QQQQQQQQ/QQQQQQQQ/QPPPPPPP/K6k b - - 0 1";
     let board = Board::from_fen(fen, Relaxed).unwrap();
@@ -482,7 +482,7 @@ fn ep_test() {
     let new_pos = pos.clone().make_move_from_str("c7c5").unwrap();
     assert_eq!(new_pos.ep, Some(Square::from_str("c6").unwrap()));
     let _ = new_pos.debug_verify_invariants(Strict).unwrap();
-    let perft = perft(DepthPly::new(4), pos, Parallel, Bulk);
+    let perft = perft(DepthPly::new(4), pos, Parallel, Bulk, None);
     assert_eq!(perft.nodes, 5020);
 }
 

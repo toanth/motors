@@ -1,4 +1,6 @@
+use crate::games::PosHash;
 use crate::general::board::{BoardHelpers, BoardTrait};
+use crate::general::common::PcgXslRr128_64Oneseq;
 use crate::general::moves::MoveTrait;
 use crate::general::perft::Bulkness::Bulk;
 use crate::search::DepthPly;
@@ -6,10 +8,12 @@ use colored::Colorize;
 use itertools::Itertools;
 use rayon::prelude::*;
 use std::collections::HashSet;
-use std::fmt;
 use std::fmt::{Display, Formatter};
 use std::hash::{Hash, Hasher};
+use std::sync::atomic::AtomicU64;
+use std::sync::atomic::Ordering::Relaxed;
 use std::time::{Duration, Instant};
+use std::{fmt, iter};
 
 #[derive(Copy, Clone, Debug)]
 pub struct PerftRes {
@@ -70,7 +74,80 @@ pub enum Parallelize {
     Parallel,
 }
 
-fn do_perft<B: BoardTrait>(depth: usize, pos: B, pseudo_bulk: Bulkness, parallelize: bool) -> u64 {
+#[derive(Debug, Default)]
+pub struct PerftTTEntry {
+    hash: AtomicU64,
+    // The lower 8 bits encode the depth, the uper 56 bits encode the nodes.
+    // If either depth or nodes don't fit, we don't store to the TT.
+    nodes_and_depth: AtomicU64,
+}
+
+const DEPTH_KEYS: [PosHash; 256] = {
+    let mut res = [PosHash(0); 256];
+    let mut rng = PcgXslRr128_64Oneseq::new(0x123456789abcdef);
+    let mut i = 0;
+    while i < res.len() {
+        res[i] = rng.generate();
+        i += 1;
+    }
+    res
+};
+
+#[derive(Debug, Copy, Clone)]
+pub struct PerftTTRef<'a> {
+    array: &'a [PerftTTEntry],
+}
+
+impl<'a> PerftTTRef<'a> {
+    fn new(array: &'a Option<Box<[PerftTTEntry]>>) -> Option<Self> {
+        Some(Self { array: array.as_ref()? })
+    }
+
+    fn len(&self) -> usize {
+        self.array.len()
+    }
+
+    fn index_of(&self, hash: PosHash) -> usize {
+        // Like the TT in motors, this uses Lemire's multiplication trick:
+        // <https://lemire.me/blog/2016/06/27/a-fast-alternative-to-the-modulo-reduction/>
+        ((hash.0 as u128 * self.len() as u128) >> 64) as usize
+    }
+
+    fn lookup(&self, hash: PosHash, depth: usize) -> Option<u64> {
+        if depth > 255 {
+            return None;
+        }
+        let hash = hash ^ DEPTH_KEYS[depth];
+        let idx = self.index_of(hash);
+        let entry = &self.array[idx];
+        let (entry_hash, nodes_and_depth) = (entry.hash.load(Relaxed), entry.nodes_and_depth.load(Relaxed));
+        let entry_depth = nodes_and_depth & 0xff;
+        let entry_nodes = nodes_and_depth >> 8;
+        if entry_hash == hash.0 && entry_depth as usize == depth {
+            return Some(entry_nodes);
+        }
+        None
+    }
+
+    fn store(&self, hash: PosHash, depth: usize, nodes: u64) {
+        if depth > 255 || nodes > u64::MAX >> 8 {
+            return;
+        }
+        let hash = hash ^ DEPTH_KEYS[depth];
+        let idx = self.index_of(hash);
+        let nodes_and_hash = (nodes << 8) | depth as u64;
+        self.array[idx].hash.store(hash.0, Relaxed);
+        self.array[idx].nodes_and_depth.store(nodes_and_hash, Relaxed);
+    }
+}
+
+fn do_perft<B: BoardTrait>(
+    depth: usize,
+    pos: B,
+    pseudo_bulk: Bulkness,
+    parallelize: bool,
+    tt: Option<PerftTTRef>,
+) -> u64 {
     if depth == 0 {
         return 1;
     }
@@ -82,30 +159,59 @@ fn do_perft<B: BoardTrait>(depth: usize, pos: B, pseudo_bulk: Bulkness, parallel
     if pseudo_bulk == Bulk && depth == 1 {
         return pos.num_legal_moves() as u64;
     }
+    let hash = pos.hash_pos();
+    // Returning TT entries can of course give us incorrect results in case of hash collision,
+    // but those should be *relatively* rare.
+    if let Some(tt) = tt
+        && let Some(nodes) = tt.lookup(hash, depth)
+    {
+        return nodes;
+    }
+    let mut nodes = 0;
     if depth + 2 > pos.default_perft_depth().get() && parallelize {
-        pos.children().par_bridge().map(|pos| do_perft(depth - 1, pos, pseudo_bulk, parallelize)).sum()
+        nodes = pos.children().par_bridge().map(|pos| do_perft(depth - 1, pos, pseudo_bulk, parallelize, tt)).sum();
     } else {
         let mut has_children = false;
-        let mut nodes = 0;
         pos.gen_pseudolegal(|m| {
             let Some(new_pos) = pos.clone().make_move(m) else { return };
-            nodes += do_perft(depth - 1, new_pos, pseudo_bulk, parallelize);
+            nodes += do_perft(depth - 1, new_pos, pseudo_bulk, parallelize, tt);
             has_children = true;
         });
         // Unlike the other move generation functions, `gen_pseudolegal` doesn't deal with forced passing moves,
         // so we have to do that here ourselves
         if !has_children && pos.no_moves_result().is_none() {
-            nodes += do_perft(depth - 1, pos.make_nullmove().unwrap(), pseudo_bulk, parallelize);
+            nodes += do_perft(depth - 1, pos.make_nullmove().unwrap(), pseudo_bulk, parallelize, tt);
         }
-        nodes
     }
+    // Currently, we're just always replacing. In the future, it might make sense to use buckets and a better replacement policy.
+    if let Some(tt) = tt {
+        tt.store(hash, depth, nodes);
+    }
+    nodes
     // no need to handle the case of no legal moves, since `children()` and `num_legal_moves()`
     // already take care of forced passing moves.
 }
 
-pub fn perft<B: BoardTrait>(depth: DepthPly, pos: B, parallelize: Parallelize, pseudo_bulk: Bulkness) -> PerftRes {
+fn create_tt(tt_bytes: Option<usize>) -> Option<Box<[PerftTTEntry]>> {
+    let len = tt_bytes? / size_of::<PerftTTEntry>().min(1);
+    Some(if cfg!(feature = "unsafe") {
+        unsafe { Box::new_zeroed_slice(len).assume_init() }
+    } else {
+        iter::repeat_with(|| PerftTTEntry::default()).take(len).collect_vec().into_boxed_slice()
+    })
+}
+
+pub fn perft<B: BoardTrait>(
+    depth: DepthPly,
+    pos: B,
+    parallelize: Parallelize,
+    pseudo_bulk: Bulkness,
+    tt_bytes: Option<usize>,
+) -> PerftRes {
+    let tt = create_tt(tt_bytes);
+    let tt = PerftTTRef::new(&tt);
     let start = Instant::now();
-    let nodes = do_perft(depth.get(), pos, pseudo_bulk, parallelize == Parallelize::Parallel);
+    let nodes = do_perft(depth.get(), pos, pseudo_bulk, parallelize == Parallelize::Parallel, tt);
     let time = start.elapsed();
 
     PerftRes { time, nodes, depth }
@@ -116,8 +222,11 @@ pub fn split_perft<B: BoardTrait>(
     pos: B,
     parallelize: Parallelize,
     pseudo_bulk: Bulkness,
+    tt_bytes: Option<usize>,
 ) -> SplitPerftRes<B> {
     assert!(depth.get() > 0);
+    let tt = create_tt(tt_bytes);
+    let tt = PerftTTRef::new(&tt);
     let mut nodes = 0;
     let start = Instant::now();
     let mut children: Vec<(B::Move, u64)> = vec![];
@@ -129,7 +238,7 @@ pub fn split_perft<B: BoardTrait>(
             .par_iter()
             .map(|&mov| {
                 let child_nodes =
-                    do_perft(depth.get() - 1, pos.clone().make_move(mov).unwrap(), pseudo_bulk, parallelize);
+                    do_perft(depth.get() - 1, pos.clone().make_move(mov).unwrap(), pseudo_bulk, parallelize, tt);
                 (mov, child_nodes)
             })
             .collect_into_vec(&mut children);
@@ -138,7 +247,7 @@ pub fn split_perft<B: BoardTrait>(
         for mov in pos.legal_moves_slow() {
             let new_pos = pos.clone().make_move(mov).expect("playing a legal move cannot fail");
             let child_nodes =
-                if depth.get() == 1 { 1 } else { do_perft(depth.get() - 1, new_pos, pseudo_bulk, parallelize) };
+                if depth.get() == 1 { 1 } else { do_perft(depth.get() - 1, new_pos, pseudo_bulk, parallelize, tt) };
             children.push((mov, child_nodes));
             nodes += child_nodes;
         }
@@ -154,11 +263,12 @@ pub fn perft_for<B: BoardTrait>(
     positions: &[B],
     parallelize: Parallelize,
     pseudo_bulk: Bulkness,
+    tt_bytes: Option<usize>,
 ) -> PerftRes {
     let mut res = PerftRes { time: Duration::default(), nodes: 0, depth };
     for pos in positions {
         let depth = if depth.get() == 0 { pos.default_perft_depth() } else { depth };
-        let this_res = perft(depth, pos.clone(), parallelize, pseudo_bulk);
+        let this_res = perft(depth, pos.clone(), parallelize, pseudo_bulk, tt_bytes);
         res.time += this_res.time;
         res.nodes += this_res.nodes;
         res.depth = res.depth.max(this_res.depth);
@@ -310,8 +420,8 @@ mod tests {
         let mut res1 = 0;
         let mut res2 = 0;
         for i in 0..3 {
-            res1 += perft(DepthPly::new(i), pos, SingleThreaded, Bulk).nodes;
-            res2 += perft(DepthPly::new(i), fairy_pos.clone(), SingleThreaded, Bulk).nodes;
+            res1 += perft(DepthPly::new(i), pos, SingleThreaded, Bulk, None).nodes;
+            res2 += perft(DepthPly::new(i), fairy_pos.clone(), SingleThreaded, Bulk, None).nodes;
             assert_eq!(res1, res2);
             assert_eq!(num_unique_positions_up_to(DepthPly::new(i), pos), res2, "{i}");
             assert_eq!(num_unique_positions_up_to(DepthPly::new(i), fairy_pos.clone()), res2);
@@ -324,14 +434,14 @@ mod tests {
         assert_eq!(num_unique_positions_up_to(DepthPly::new(1), pos), 3);
         assert_eq!(num_unique_positions_up_to(DepthPly::new(2), pos), 4);
         assert_eq!(num_unique_positions_up_to(DepthPly::new(3), pos), 6);
-        assert_eq!(perft(DepthPly::new(1), pos, SingleThreaded, Bulk).nodes, 2);
-        assert_eq!(perft(DepthPly::new(2), pos, SingleThreaded, Bulk).nodes, 1);
-        assert_eq!(perft(DepthPly::new(3), pos, SingleThreaded, NoBulk).nodes, 2);
-        assert_eq!(perft(DepthPly::new(1), fairy_pos.clone(), SingleThreaded, Bulk).nodes, 2);
+        assert_eq!(perft(DepthPly::new(1), pos, SingleThreaded, Bulk, None).nodes, 2);
+        assert_eq!(perft(DepthPly::new(2), pos, SingleThreaded, Bulk, None).nodes, 1);
+        assert_eq!(perft(DepthPly::new(3), pos, SingleThreaded, NoBulk, Some(1024)).nodes, 2);
+        assert_eq!(perft(DepthPly::new(1), fairy_pos.clone(), SingleThreaded, Bulk, None).nodes, 2);
         for p in descendants_up_to(DepthPly::new(2), pos) {
             println!("{p}");
         }
-        assert_eq!(perft(DepthPly::new(2), fairy_pos.clone(), SingleThreaded, Bulk).nodes, 1);
-        assert_eq!(perft(DepthPly::new(3), fairy_pos.clone(), SingleThreaded, Bulk).nodes, 2);
+        assert_eq!(perft(DepthPly::new(2), fairy_pos.clone(), SingleThreaded, Bulk, None).nodes, 1);
+        assert_eq!(perft(DepthPly::new(3), fairy_pos.clone(), SingleThreaded, Bulk, Some(12)).nodes, 2);
     }
 }

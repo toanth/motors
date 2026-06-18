@@ -15,20 +15,20 @@
  *  You should have received a copy of the GNU General Public License
  *  along with Gears. If not, see <https://www.gnu.org/licenses/>.
  */
-use crate::games::NoHistory;
+use crate::games::uttt::uttt_square::Square;
 use crate::games::uttt::Color::*;
 use crate::games::uttt::ColoredPieceType::{OStone, XStone};
-use crate::games::uttt::uttt_square::Square;
 use crate::games::uttt::{Board, Move, SubSquare, UnverifiedBoard};
+use crate::games::NoHistory;
 use crate::general::bitboards::RawBitboardTrait;
 use crate::general::board::Strictness::Strict;
 use crate::general::board::{BoardHelpers, BoardTrait, UnverifiedBoardTrait};
+use crate::general::perft::perft;
 use crate::general::perft::Bulkness::Bulk;
 use crate::general::perft::Parallelize::SingleThreaded;
-use crate::general::perft::perft;
 use crate::search::DepthPly;
-use rand::SeedableRng;
 use rand::prelude::SmallRng;
+use rand::SeedableRng;
 
 #[test]
 fn perft_tests() {
@@ -38,7 +38,7 @@ fn perft_tests() {
         println!("{pos}");
         let n = if cfg!(debug_assertions) { 7 } else { 100 };
         for (depth, nodes) in perft_res.iter().enumerate().take(n) {
-            let res = perft(DepthPly::new(depth), pos, SingleThreaded, Bulk);
+            let res = perft(DepthPly::new(depth), pos, SingleThreaded, Bulk, Some(1024));
             assert_eq!(res.nodes, *nodes, "{fen}, depth {depth}: {0} should be {1}", res.nodes, *nodes);
         }
         let mut rng = SmallRng::seed_from_u64(seed);

@@ -718,6 +718,12 @@ pub(super) fn go_options_impl(
                 Ok(())
             }
         ));
+        res.push(command!(
+            hash | h | tt | cache,
+            Custom,
+            "Use a TT of n MiB for perft. Can in theory cause incorrect results",
+            |state, words, _| state.go_state_mut().override_hash(words)
+        ));
     } else {
         let mut additional: CommandList = vec![
             Command {

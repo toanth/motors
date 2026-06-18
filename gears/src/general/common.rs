@@ -1,3 +1,4 @@
+use crate::games::PosHash;
 use crate::general::common::Description::WithDescription;
 use crate::score::Score;
 pub use anyhow;
@@ -481,6 +482,28 @@ pub fn nonzero_u64(val: u64, name: &str) -> Res<NonZeroU64> {
     NonZeroU64::new(val).ok_or_else(|| anyhow::anyhow!("{name} can't be zero"))
 }
 
+/// A simple `const` random number generator adapted from my C++ algebra implementation,
+/// originally from here: <https://www.pcg-random.org/> (I hate that website)
+pub struct PcgXslRr128_64Oneseq(u128);
+
+const MUTLIPLIER: u128 = (2_549_297_995_355_413_924 << 64) + 4_865_540_595_714_422_341;
+const INCREMENT: u128 = (6_364_136_223_846_793_005 << 64) + 1_442_695_040_888_963_407;
+
+// the pcg xsl rr 128 64 oneseq generator, aka pcg64_oneseq (most other pcg generators have additional problems)
+impl PcgXslRr128_64Oneseq {
+    pub const fn new(seed: u128) -> Self {
+        Self(seed.wrapping_add(INCREMENT).wrapping_mul(MUTLIPLIER).wrapping_add(INCREMENT))
+    }
+
+    pub const fn generate(&mut self) -> PosHash {
+        self.0 = self.0.wrapping_mul(MUTLIPLIER);
+        self.0 = self.0.wrapping_add(INCREMENT);
+        let upper = (self.0 >> 64) as u64;
+        let xored = upper ^ (self.0 as u64);
+        PosHash(xored.rotate_right((upper >> (122 - 64)) as u32))
+    }
+}
+
 pub struct Entry {
     sum: AtomicI64,
     calls: AtomicU64,
@@ -573,6 +596,7 @@ pub fn dbg_end_search(nodes: u64) {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
     use rand::{rng, RngExt};
 
     use crate::general::common::{ith_one_u128, ith_one_u64};
@@ -646,5 +670,18 @@ mod tests {
         let val = (0b1_0010_1101_1010_1010 << 80) + 0b1_1101;
         assert_eq!(ith_one_u128(3, val), 4);
         assert_eq!(ith_one_u128(4, val), 81);
+    }
+
+    #[test]
+    fn pcg_test() {
+        let mut generator = PcgXslRr128_64Oneseq::new(42);
+        assert_eq!(generator.0 >> 64, 1_610_214_578_838_163_691);
+        assert_eq!(generator.0 & ((1 << 64) - 1), 13_841_303_961_814_150_380);
+        let rand = generator.generate();
+        assert_eq!(rand.0, 2_915_081_201_720_324_186);
+        let rand = generator.generate();
+        assert_eq!(rand.0, 13_533_757_442_135_995_717);
+        let rand = generator.generate();
+        assert_eq!(rand.0, 13_172_715_927_431_628_928);
     }
 }

@@ -22,9 +22,9 @@ use crate::eval::mnk::base::BasicMnkEval;
 use crate::eval::rand_eval::RandEval;
 #[cfg(feature = "uttt")]
 use crate::eval::uttt::lute::Lute;
-use crate::io::EngineUGI;
-use crate::io::cli::{EngineOpts, parse_cli};
+use crate::io::cli::{parse_cli, EngineOpts};
 use crate::io::ugi_output::UgiOutput;
+use crate::io::EngineUGI;
 #[cfg(feature = "caps")]
 use crate::search::chess::caps::Caps;
 #[cfg(feature = "gaps")]
@@ -35,12 +35,10 @@ use crate::search::generic::random_mover::RandomMover;
 use crate::search::multithreading::EngineWrapper;
 use crate::search::tt::TT;
 use crate::search::{
-    AbstractEvalBuilder, AbstractSearcherBuilder, Engine, EvalBuilder, EvalList, SearcherBuilder, SearcherList,
-    run_bench_with,
+    run_bench_with, AbstractEvalBuilder, AbstractSearcherBuilder, Engine, EvalBuilder, EvalList, SearcherBuilder,
+    SearcherList,
 };
-use gears::Quitting::*;
 use gears::cli::{ArgIter, Game};
-use gears::games::OutputList;
 #[cfg(feature = "ataxx")]
 use gears::games::ataxx;
 #[cfg(feature = "chess")]
@@ -51,11 +49,12 @@ use gears::games::fairy;
 use gears::games::mnk;
 #[cfg(feature = "uttt")]
 use gears::games::uttt;
+use gears::games::OutputList;
 use gears::general::board::Strictness::Relaxed;
 use gears::general::board::{BoardHelpers, BoardTrait};
-use gears::general::common::Description::WithDescription;
 use gears::general::common::anyhow::anyhow;
-use gears::general::common::{Res, select_name_dyn};
+use gears::general::common::Description::WithDescription;
+use gears::general::common::{select_name_dyn, Res};
 use gears::general::perft::Bulkness::Bulk;
 use gears::general::perft::Parallelize::Parallel;
 use gears::general::perft::{perft, split_perft};
@@ -64,7 +63,8 @@ use gears::output::normal_outputs;
 use gears::rand::prelude::SmallRng;
 use gears::search::{DepthPly, SearchLimit};
 use gears::ugi::load_ugi_pos_simple;
-use gears::{AbstractRun, AnyRunnable, OutputArgs, Quitting, create_selected_output_builders};
+use gears::Quitting::*;
+use gears::{create_selected_output_builders, AbstractRun, AnyRunnable, OutputArgs, Quitting};
 use std::fmt::{Display, Formatter};
 
 pub mod eval;
@@ -146,10 +146,10 @@ impl<B: BoardTrait> AbstractRun for PerftRun<B> {
         };
         let depth = self.depth.unwrap_or(pos.default_perft_depth());
         if self.split {
-            let res = split_perft(depth, pos, Parallel, Bulk);
+            let res = split_perft(depth, pos, Parallel, Bulk, None);
             println!("{res}");
         } else {
-            let res = perft(depth, pos, Parallel, Bulk);
+            let res = perft(depth, pos, Parallel, Bulk, None);
             println!("{res}");
         }
         QuitProgram

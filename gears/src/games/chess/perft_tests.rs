@@ -19,20 +19,20 @@ mod tests {
     #[test]
     fn kiwipete_test() {
         let board = Board::from_name("kiwipete").unwrap();
-        let res = perft(DepthPly::new(4), board, SingleThreaded, Bulk);
+        let res = perft(DepthPly::new(4), board, SingleThreaded, Bulk, None);
         assert_eq!(res.nodes, 4_085_603);
         // Disabled in debug mode because that would take too long. TODO: Optimize movegen, especially in debug mode.
         if !cfg!(debug_assertions) {
             // kiwipete after white castles (cheaper to run than increasing the depth of kiwipete, and failed perft once)
             let board =
                 Board::from_fen("r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R4RK1 b kq - 1 1", Strict).unwrap();
-            let res = perft(DepthPly::new(4), board, Parallel, Bulk);
+            let res = perft(DepthPly::new(4), board, Parallel, Bulk, Some(1 << 22));
             assert_eq!(res.nodes, 4_119_629);
             // kiwipete after white plays a2a3
             let board =
                 Board::from_fen("r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/P1N2Q1p/1PPBBPPP/R3K2R b KQkq - 0 1", Strict)
                     .unwrap();
-            let res = perft(DepthPly::new(4), board, SingleThreaded, Bulk);
+            let res = perft(DepthPly::new(4), board, SingleThreaded, Bulk, Some(1 << 22));
             assert_eq!(res.nodes, 4_627_439);
         }
     }
@@ -41,15 +41,15 @@ mod tests {
     fn leonids_position_test() {
         let board =
             Board::from_fen("q2k2q1/2nqn2b/1n1P1n1b/2rnr2Q/1NQ1QN1Q/3Q3B/2RQR2B/Q2K2Q1 w - - 0 1", Strict).unwrap();
-        let res = perft(DepthPly::new(1), board, Parallel, NoBulk);
+        let res = perft(DepthPly::new(1), board, Parallel, NoBulk, None);
         assert_eq!(res.nodes, 99);
         assert!(res.time.as_millis() <= 20);
-        let res = perft(DepthPly::new(2), board, Parallel, NoBulk);
+        let res = perft(DepthPly::new(2), board, Parallel, NoBulk, None);
         assert_eq!(res.nodes, 6271);
-        let res = perft(DepthPly::new(3), board, Parallel, NoBulk);
+        let res = perft(DepthPly::new(3), board, Parallel, NoBulk, None);
         assert_eq!(res.nodes, 568_299);
         if cfg!(not(debug_assertions)) {
-            let res = perft(DepthPly::new(4), board, SingleThreaded, Bulk);
+            let res = perft(DepthPly::new(4), board, SingleThreaded, Bulk, None);
             assert_eq!(res.nodes, 34_807_627);
         }
     }
@@ -69,7 +69,7 @@ mod tests {
             53117779,
         ];
         for (depth, perft_num) in expected.iter().enumerate() {
-            assert_eq!(perft(DepthPly::new(depth + 1), pos, SingleThreaded, Bulk).nodes, *perft_num);
+            assert_eq!(perft(DepthPly::new(depth + 1), pos, SingleThreaded, Bulk, Some(1 << 22)).nodes, *perft_num);
         }
     }
 
@@ -77,7 +77,9 @@ mod tests {
     fn no_choice_test() {
         let fen = "5b1k/4p1p1/4P1P1/8/8/1p1p4/1P1P4/K1B5 w - - 0 1";
         let pos = Board::from_fen(fen, Strict).unwrap();
-        let res = perft(DepthPly::new(500), pos, SingleThreaded, Bulk);
+        let res = perft(DepthPly::new(500), pos, SingleThreaded, Bulk, None);
+        assert_eq!(res.nodes, 1);
+        let res = perft(DepthPly::new(500), pos, SingleThreaded, Bulk, Some(1 << 22));
         assert_eq!(res.nodes, 1);
     }
 
@@ -143,7 +145,7 @@ mod tests {
         for (fen, results) in tests {
             let pos = Board::from_fen(fen, Relaxed).unwrap();
             for (idx, &expected) in results.iter().enumerate() {
-                let result = perft(DepthPly::new(idx), pos, SingleThreaded, NoBulk);
+                let result = perft(DepthPly::new(idx), pos, SingleThreaded, NoBulk, None);
                 assert_eq!(result.nodes, expected, "depth {idx}: {fen}");
             }
         }
@@ -172,7 +174,7 @@ mod tests {
         for (fen, results) in tests {
             let pos = Board::from_fen(fen, Relaxed).unwrap();
             for (idx, &expected) in results.iter().enumerate() {
-                let result = perft(DepthPly::new(idx), pos, SingleThreaded, NoBulk);
+                let result = perft(DepthPly::new(idx), pos, SingleThreaded, NoBulk, None);
                 assert_eq!(result.nodes, expected, "depth {idx}: {fen}");
             }
         }
@@ -198,7 +200,7 @@ mod tests {
         for (fen, results) in tests {
             let pos = Board::from_fen(fen, Relaxed).unwrap();
             for (idx, &expected) in results.iter().enumerate() {
-                let result = perft(DepthPly::new(idx), pos, SingleThreaded, NoBulk);
+                let result = perft(DepthPly::new(idx), pos, SingleThreaded, NoBulk, None);
                 assert_eq!(result.nodes, expected, "depth {idx}: {fen}");
             }
         }
@@ -223,7 +225,7 @@ mod tests {
         for (fen, results) in tests {
             let pos = Board::from_fen(fen, Relaxed).unwrap();
             for (idx, &expected) in results.iter().enumerate() {
-                let result = perft(DepthPly::new(idx), pos, SingleThreaded, NoBulk);
+                let result = perft(DepthPly::new(idx), pos, SingleThreaded, NoBulk, None);
                 assert_eq!(result.nodes, expected, "depth {idx}: {fen}");
             }
         }
@@ -322,7 +324,8 @@ mod tests {
             m2.sort();
             assert_eq!(all_moves.as_slice(), m2.as_slice());
             for (depth, expected_count) in expected.res.iter().enumerate().filter(|&(_, x)| *x != INVALID) {
-                let res = perft(DepthPly::new(depth), board, SingleThreaded, Bulk);
+                let tt_bytes = if depth < 5 { None } else { Some(1 << 24) };
+                let res = perft(DepthPly::new(depth), board, SingleThreaded, Bulk, tt_bytes);
                 assert_eq!(res.depth.get(), depth);
                 assert_eq!(res.nodes, *expected_count, "{depth} {board}");
                 println!(

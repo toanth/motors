@@ -15,16 +15,15 @@
  *  You should have received a copy of the GNU General Public License
  *  along with Gears. If not, see <https://www.gnu.org/licenses/>.
  */
-use crate::PlayerResult::Draw;
-use crate::games::chess::Color::{Black, White};
-use crate::games::chess::bitbase::{PAWN_V_KING_TABLE, query_pawn_v_king};
+use crate::games::chess::bitbase::{query_pawn_v_king, PAWN_V_KING_TABLE};
 use crate::games::chess::pieces::ColoredPieceType::{BlackKing, BlackPawn, WhiteKing, WhitePawn};
 use crate::games::chess::pieces::PieceType::{Bishop, Empty, King, Knight, Pawn, Queen, Rook};
-use crate::games::chess::pieces::{ColoredPieceType, NUM_CHESS_PIECES, PieceType};
+use crate::games::chess::pieces::{ColoredPieceType, PieceType, NUM_CHESS_PIECES};
 use crate::games::chess::squares::{
-    A_FILE_NUM, B_FILE_NUM, C_FILE_NUM, ChessboardSize, D_FILE_NUM, NUM_SQUARES, Square,
+    ChessboardSize, Square, A_FILE_NUM, B_FILE_NUM, C_FILE_NUM, D_FILE_NUM, NUM_SQUARES,
 };
 use crate::games::chess::unverified::UnverifiedBoard;
+use crate::games::chess::Color::{Black, White};
 use crate::games::chess::{Board, ChessBitboardTrait, Color, EDGE_SQUARES, PAWN_CAPTURES};
 use crate::games::{ColorTrait, ColoredPieceTypeTrait, CoordinatesTrait, DimT, NUM_COLORS};
 use crate::general::attacks::ChessSliderGenerator;
@@ -33,16 +32,17 @@ use crate::general::bitboards::{BitboardTrait, KnownSizeBitboard, RawBitboardTra
 use crate::general::board::Strictness::Strict;
 use crate::general::board::{BitboardBoard, BoardTrait, SelfChecks, Strictness, UnverifiedBoardTrait};
 use crate::general::squares::RectangularCoordinates;
+use crate::PlayerResult::Draw;
 use itertools::Itertools;
 use rayon::prelude::*;
-use std::cmp::{Ordering, max};
+use std::cmp::{max, Ordering};
 use std::collections::HashMap;
 use std::io;
 use std::io::Write;
 use std::mem::swap;
-use std::sync::LazyLock;
 use std::sync::atomic::Ordering::{AcqRel, Relaxed};
-use std::sync::atomic::{AtomicI8, AtomicUsize, fence};
+use std::sync::atomic::{fence, AtomicI8, AtomicUsize};
+use std::sync::LazyLock;
 use std::time::Instant;
 
 type Entry = AtomicI8;
@@ -1495,15 +1495,15 @@ fn probe_dtz(mut pos: Board) -> i8 {
 #[allow(unused)]
 mod tests {
     use super::*;
-    use crate::games::chess::BitboardRepr;
     use crate::games::chess::pieces::ColoredPieceType::{BlackKing, WhiteKing};
     use crate::games::chess::pieces::Piece;
     use crate::games::chess::squares::sq;
+    use crate::games::chess::BitboardRepr;
     use crate::general::bitboards::chessboard::Bitboard;
     use crate::general::board::BoardHelpers;
-    use rand::SeedableRng;
     use rand::distr::{Distribution, Uniform};
     use rand::prelude::SmallRng;
+    use rand::SeedableRng;
     use std::sync::atomic::AtomicBool;
 
     #[test]
