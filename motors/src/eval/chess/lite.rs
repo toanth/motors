@@ -356,9 +356,14 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
         if pawn_attacks.intersects(king_zone) {
             score += Tuned::king_zone_attack(Pawn);
         }
+        for passer_push in (state.passers & pos.player_bb(us)).pawn_advance(us) {
+            if !(their_attacks | pos.player_bb(!us)).has(passer_push) {
+                score += Tuned::passer_can_push();
+            }
+        }
         let mut all_attacks = pawn_attacks;
         // let pawn_king_attacks = (pawn_attacks & king_zone).num_ones();
-        // score += Tuned::king_zone_attack(Pawn) * pawn_king_attacks;
+        // score += Tuned::king_zone_attamasterck(Pawn) * pawn_king_attacks;
         for piece in PieceType::pieces() {
             let protected_by_pawns = pawn_attacks & pos.col_piece_bb(us, piece);
             score += Tuned::pawn_protection(piece) * protected_by_pawns.num_ones();

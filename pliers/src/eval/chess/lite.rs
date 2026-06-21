@@ -50,6 +50,7 @@ pub enum LiteFeatureSubset {
     CloseKingPasser,
     ImmobilePasser,
     ProtectedPasser,
+    PasserCanPush,
     PassedPawn,
     CandidatePasser,
     UnsupportedPawn,
@@ -92,6 +93,7 @@ impl FeatureSubSet for LiteFeatureSubset {
             CloseKingPasser => 1,
             ImmobilePasser => 1,
             ProtectedPasser => 1,
+            PasserCanPush => 1,
             PassedPawn => NUM_SQUARES,
             CandidatePasser => 6,
             UnsupportedPawn => 1,
@@ -197,6 +199,9 @@ impl FeatureSubSet for LiteFeatureSubset {
             }
             ProtectedPasser => {
                 write!(f, "const PROTECTED_PASSER: PhasedScore = ")?;
+            }
+            PasserCanPush => {
+                write!(f, "const PASSER_CAN_PUSH: PhasedScore = ")?;
             }
             PassedPawn => {
                 writeln!(f, "\n#[rustfmt::skip]")?;
@@ -382,6 +387,10 @@ impl LiteValues for LiTETrace {
 
     fn passer_protection() -> SingleFeature {
         SingleFeature::new(ProtectedPasser, 0)
+    }
+
+    fn passer_can_push() -> SingleFeature {
+        SingleFeature::new(PasserCanPush, 0)
     }
 
     fn candidate_passer(rank: DimT) -> SingleFeature {
