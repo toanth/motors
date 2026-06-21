@@ -21,9 +21,9 @@ mod tests {
     use crate::games::fairy::Board;
     use crate::general::board::BoardHelpers;
     use crate::general::board::Strictness::Relaxed;
+    use crate::general::perft::perft;
     use crate::general::perft::Bulkness::Bulk;
     use crate::general::perft::Parallelize::Parallel;
-    use crate::general::perft::perft;
     use crate::search::DepthPly;
     use crate::ugi::load_ugi_pos_simple;
     use std::time::Instant;

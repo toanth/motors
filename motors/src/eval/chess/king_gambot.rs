@@ -140,6 +140,10 @@ impl LiteValues for KingGambotValues {
         Lite::bad_bishop(num_pawns)
     }
 
+    fn bishop_cant_attack(major_piece: PieceType) -> PhasedScore {
+        Lite::bishop_cant_attack(major_piece)
+    }
+
     fn rook_openness(openness: FileOpenness) -> PhasedScore {
         Lite::rook_openness(openness)
     }

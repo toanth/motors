@@ -138,18 +138,28 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
         (material, psqt)
     }
 
-    fn bishop_pair(pos: &Board, color: Color) -> SingleFeatureScore<Tuned::Score> {
-        if pos.col_piece_bb(color, Bishop).more_than_one_bit_set() { Tuned::bishop_pair() } else { Default::default() }
-    }
-
-    fn bad_bishop(pos: &Board, color: Color) -> Tuned::Score {
-        let mut score = Tuned::Score::default();
-        let pawns = pos.col_piece_bb(color, Pawn);
-        for bishop in pos.col_piece_bb(color, Bishop) {
-            let sq_color = bishop.square_color();
-            score += Tuned::bad_bishop((COLORED_SQUARES[sq_color as usize] & pawns).num_ones().min(8));
+    fn bishops(pos: &Board, us: Color) -> Tuned::Score {
+        let mut res = Tuned::Score::default();
+        let our_bishops = pos.col_piece_bb(us, Bishop);
+        if our_bishops.more_than_one_bit_set() {
+            res += Tuned::bishop_pair()
         }
-        score
+        let pawns = pos.col_piece_bb(us, Pawn);
+        for bishop in our_bishops {
+            let sq_color = bishop.square_color();
+            res += Tuned::bad_bishop((COLORED_SQUARES[sq_color as usize] & pawns).num_ones().min(8));
+        }
+        let safe_squares = if COLORED_SQUARES[0].contains(our_bishops) {
+            COLORED_SQUARES[1]
+        } else if COLORED_SQUARES[1].contains(our_bishops) {
+            COLORED_SQUARES[0]
+        } else {
+            return res;
+        };
+        for piece in [Rook, Queen, King] {
+            res += Tuned::bishop_cant_attack(piece) * (pos.col_piece_bb(!us, piece) & safe_squares).num_ones();
+        }
+        res
     }
 
     fn pawn_shield_for(pos: &Board, color: Color) -> SingleFeatureScore<Tuned::Score> {
@@ -423,8 +433,7 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
         let us = pos.active_player();
         let mut their_attacks = pos.threats();
         for color in [us, !us] {
-            score += Self::bishop_pair(pos, color);
-            score += Self::bad_bishop(pos, color);
+            score += Self::bishops(pos, color);
             score += Self::open_lines(pos, color);
             let (s, a) = Self::mobility_and_threats(state, pos, color, their_attacks);
             score += s;

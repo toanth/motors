@@ -39,6 +39,7 @@ pub enum LiteFeatureSubset {
     OppositeColoredBishops,
     BishopPair,
     BadBishop,
+    BishopCantAttack,
     RookOpenness,
     KingOpenness,
     BishopOpenness,
@@ -83,6 +84,7 @@ impl FeatureSubSet for LiteFeatureSubset {
             OppositeColoredBishops => 1,
             BishopPair => 1,
             BadBishop => 9,
+            BishopCantAttack => 3,
             RookOpenness => 3,
             KingOpenness => 3,
             BishopOpenness => 4 * 8,
@@ -140,6 +142,9 @@ impl FeatureSubSet for LiteFeatureSubset {
             }
             BadBishop => {
                 write!(f, "const BAD_BISHOP: [PhasedScore; 9] = ")?;
+            }
+            BishopCantAttack => {
+                write!(f, "const BISHOP_CANT_ATTACK: [PhasedScore; 3] = ")?;
             }
             RookOpenness => {
                 for (i, openness) in ["OPEN", "CLOSED", "SEMIOPEN"].iter().enumerate() {
@@ -415,6 +420,10 @@ impl LiteValues for LiTETrace {
 
     fn bad_bishop(num_pawns: usize) -> SingleFeature {
         SingleFeature::new(BadBishop, num_pawns)
+    }
+
+    fn bishop_cant_attack(major_piece: PieceType) -> SingleFeature {
+        SingleFeature::new(BishopCantAttack, major_piece as usize - Rook as usize)
     }
 
     fn rook_openness(openness: FileOpenness) -> SingleFeature {
