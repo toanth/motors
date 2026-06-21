@@ -18,7 +18,7 @@ use std::{fmt, iter};
 #[derive(Copy, Clone, Debug)]
 pub struct PerftRes {
     pub time: Duration,
-    pub nodes: u64, // Can't use NodesLimit because it's possible to have 0 leafs at the given depth
+    pub nodes: u64, // Can't use NodesLimit because it's possible to have 0 nodes at the given depth
     pub depth: DepthPly,
 }
 
