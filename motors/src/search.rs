@@ -3,7 +3,6 @@ use crate::io::ugi_output::{AbstractUgiOutput, UgiOutput};
 use crate::search::multithreading::SearchThreadType::*;
 use crate::search::multithreading::SearchType::*;
 use crate::search::multithreading::{AtomicSearchState, EngineReceives, EngineThread, SearchThreadType, Sender};
-use crate::search::statistics::{Statistics, Summary};
 use crate::search::tt::{Age, TT};
 use crossbeam_channel::unbounded;
 use derive_more::{Add, Neg, Sub};
@@ -15,17 +14,19 @@ use gears::games::{BoardHistDyn, ZobristHistory};
 use gears::general::board::Strictness::Relaxed;
 use gears::general::board::{BoardHelpers, BoardTrait};
 use gears::general::common::anyhow::bail;
-use gears::general::common::{EntityList, Name, NamedEntity, Res, StaticallyNamedEntity};
+use gears::general::common::{
+    dbg_end_search, dbg_print, dbg_reset, EntityList, Name, NamedEntity, Res, StaticallyNamedEntity,
+};
 use gears::general::move_list::MoveListTrait;
 use gears::general::moves::MoveTrait;
 use gears::itertools::Itertools;
 use gears::output::Message;
 use gears::output::Message::Warning;
+use gears::rand::prelude::SmallRng;
 use gears::rand::SeedableRng;
-use gears::rand::prelude::StdRng;
-use gears::score::{MAX_BETA, MIN_ALPHA, NO_SCORE_YET, SCORE_WON, Score, ScoreT};
+use gears::score::{Score, ScoreT, MAX_BETA, MIN_ALPHA, NO_SCORE_YET, SCORE_LOST, SCORE_WON};
 use gears::search::{Budget, DepthPly, NodeType, NodesLimit, SearchInfo, SearchLimit, SearchResult, TimeControl};
-use gears::ugi::{EngineOption, EngineOptionNameForProto, EngineOptionType};
+use gears::ugi::{EngineOption, EngineOptionNameForProtocol, EngineOptionType};
 use std::collections::HashMap;
 use std::fmt;
 use std::fmt::{Debug, Display, Formatter};
@@ -34,7 +35,7 @@ use std::hint::spin_loop;
 use std::marker::PhantomData;
 use std::num::NonZeroUsize;
 use std::ops::{Deref, DerefMut};
-use std::sync::atomic::Ordering::{Acquire, SeqCst};
+use std::sync::atomic::Ordering::{AcqRel, Acquire, Release, SeqCst};
 use std::sync::{Arc, Mutex};
 use std::thread::spawn;
 use std::time::{Duration, Instant};
@@ -42,18 +43,16 @@ use std::time::{Duration, Instant};
 #[cfg(feature = "chess")]
 pub mod chess;
 pub mod generic;
-mod move_picker;
 pub mod multithreading;
 pub(crate) mod spsa_param;
-pub mod statistics;
 pub(super) mod tt;
 
 // only evaluate the debug message if debug mode is actually enabled
 #[macro_export]
 macro_rules! send_debug_msg {
     ($state: expr, $($args: tt)*) => {
-        if $state.should_show_debug_msg() {
-            $state.send_non_ugi(Message::Debug, &format_args!($($args)*))
+        if let Some(mut output) = $state.search_params().thread_type.output() && output.show_debug_output {
+            output.write_message(gears::output::Message::Debug, &format_args!($($args)*));
         }
     };
 }
@@ -66,7 +65,7 @@ pub struct EngineInfo {
     version: String,
     default_bench_depth: DepthPly,
     default_bench_nodes: NodesLimit,
-    options: HashMap<EngineOptionNameForProto, EngineOptionType>,
+    options: HashMap<EngineOptionNameForProtocol, EngineOptionType>,
     max_threads: usize,
     pub internal_state_description: Option<String>,
 }
@@ -159,12 +158,12 @@ pub struct BenchResult {
     pub time: Duration,
     pub max_iterations: DepthPly,
     pub depth: Option<DepthPly>,
-    pub pv_score_hash: u64,
+    pub hash: u64,
 }
 
 impl Default for BenchResult {
     fn default() -> Self {
-        Self { nodes: 0, time: Duration::default(), depth: None, max_iterations: DepthPly::new(0), pv_score_hash: 0 }
+        Self { nodes: 0, time: Duration::default(), depth: None, max_iterations: DepthPly::new(0), hash: 0 }
     }
 }
 
@@ -178,7 +177,7 @@ impl Display for BenchResult {
             Colorize::bold(self.nodes.to_string().as_str()),
             self.time.as_millis().to_string().color(Red),
             (self.nodes as f64 / self.time.as_millis() as f64 * 1000.0).round().to_string().color(Red),
-            self.pv_score_hash,
+            self.hash,
         )
     }
 }
@@ -216,7 +215,6 @@ impl<B: BoardTrait, const LIMIT: usize> Pv<B, LIMIT> {
         self.list.is_empty()
     }
 
-    #[cold]
     pub fn clear(&mut self) {
         self.list.clear();
     }
@@ -408,7 +406,13 @@ pub trait Engine<B: BoardTrait>: StaticallyNamedEntity + Send + 'static {
 
     /// Reset the engine into a fresh state, e.g. by clearing the TT and various heuristics.
     fn forget(&mut self) {
+        let start = Instant::now();
         self.search_state_mut_dyn().forget(true);
+        send_debug_msg!(
+            self.search_state_dyn(),
+            "Forgetting all search state took {} microseconds",
+            start.elapsed().as_micros()
+        );
     }
     /// Returns information about this engine, such as the name, version and default bench depth.
     fn engine_info(&self) -> EngineInfo;
@@ -429,7 +433,7 @@ pub trait Engine<B: BoardTrait>: StaticallyNamedEntity + Send + 'static {
     /// Sets an option with the name 'option' to the value 'value'.
     fn set_option(
         &mut self,
-        option: EngineOptionNameForProto,
+        option: EngineOptionNameForProtocol,
         old_value: &mut EngineOptionType,
         value: String,
     ) -> Res<()> {
@@ -462,18 +466,23 @@ pub trait Engine<B: BoardTrait>: StaticallyNamedEntity + Send + 'static {
     /// Start a new search and return the best move and score.
     /// 'parameters' contains information like the board history and allows the search to output intermediary results.
     fn search(&mut self, search_params: SearchParams<B>) -> SearchResult<B> {
-        let before = Instant::now();
-        self.search_state_mut_dyn().new_search(search_params);
-        let after = Instant::now();
-        let total_elapsed = after.duration_since(self.search_state_dyn().search_params().limit.start_time).as_micros();
-        send_debug_msg!(
-            self.search_state_mut_dyn(),
-            "Preparing the search state for a new search took {0} microseconds, {1} have elapsed since the search request",
-            after.duration_since(before).as_micros(),
-            total_elapsed
-        );
-        let res = self.do_search();
-        self.search_state_mut_dyn().end_search(&res);
+        if !self.search_state_dyn().should_show_debug_msg() {
+            self.search_state_mut_dyn().new_search(search_params);
+        } else {
+            let before = Instant::now();
+            self.search_state_mut_dyn().new_search(search_params);
+            let after_setup = Instant::now();
+            let total_elapsed =
+                after_setup.duration_since(self.search_state_dyn().search_params().limit.start_time).as_micros();
+            send_debug_msg!(
+                self.search_state_dyn(),
+                "Preparing the search state for a new search took {0} microseconds, {1} have elapsed since the search request",
+                after_setup.duration_since(before).as_micros(),
+                total_elapsed
+            );
+        }
+        let mut res = self.do_search();
+        self.search_state_mut_dyn().end_search(&mut res);
         res
     }
 
@@ -506,11 +515,13 @@ pub trait NormalEngine<B: BoardTrait>: Engine<B> {
         let limit = self.limit();
         // Do the less expensive checks first to avoid querying the time in each node, but also
         // to ensure the game is reproducible
-        if nodes >= limit.nodes.get() || state.stop_flag() {
+        if nodes >= limit.nodes.get() || (state.stop_flag() && state.atomic().iterations().get() > 1) {
             self.search_state().stop_search();
             return true;
         }
-        if nodes % DEFAULT_CHECK_TIME_INTERVAL != 0 {
+        // Node limits are per-thread, but time limits are only checked on the main thread, which then
+        // sets the stop flag for all threads.
+        if nodes % DEFAULT_CHECK_TIME_INTERVAL != 0 || !self.search_state().is_main_thread() {
             return false;
         }
         let elapsed = self.search_state().start_time().elapsed();
@@ -528,16 +539,20 @@ pub trait NormalEngine<B: BoardTrait>: Engine<B> {
         soft_nodes: u64,
         iter: isize,
         max_soft_iter: isize,
-        mate_depth: DepthPly,
+        mate_depth: isize,
     ) -> bool
     where
         Self: Sized,
     {
         let state = self.search_state();
-        iter > 1
-            && (elapsed >= soft_limit
+        if iter <= 1 || !self.search_state().is_main_thread() {
+            return false;
+        }
+        let score = state.best_score();
+        (elapsed >= soft_limit
             // even in a multipv search, we stop as soon as a single mate is found
-            || state.best_score() >= Score(SCORE_WON.0 - mate_depth.get() as ScoreT))
+            || score >= Score(SCORE_WON.0 - mate_depth as ScoreT))
+            || (score > SCORE_LOST && score <= Score(SCORE_LOST.0 - mate_depth as ScoreT))
             || state.uci_nodes() >= soft_nodes
             || iter > max_soft_iter
     }
@@ -554,23 +569,6 @@ pub struct MoveScore(pub i16);
 
 impl MoveScore {
     const MAX: MoveScore = MoveScore(i16::MAX);
-}
-
-pub trait MoveScorer<B: BoardTrait, E: Engine<B>>: Debug {
-    /// This gets called when inserting a move into the move list
-    fn score_move_eager_part(&self, mov: B::Move, state: &SearchStateFor<B, E>) -> MoveScore;
-    /// This gets called upon choosing the next move, and if it returns `false`, the move is deferred until all moves
-    /// where this returned `true` have been tried. This results in a bucketed sort, where this function determines the bucket.
-    /// Because most nodes never look at most moves, this lazy computation can be a speedup.
-    fn defer_playing_move(&self, mov: B::Move) -> bool;
-
-    fn complete_move_score(&self, mov: B::Move, state: &SearchStateFor<B, E>) -> MoveScore {
-        let eager = self.score_move_eager_part(mov, state);
-        if self.defer_playing_move(mov) { eager + Self::DEFERRED_OFFSET } else { eager }
-    }
-
-    /// Negative value that gets added to the score of deferred moves
-    const DEFERRED_OFFSET: MoveScore;
 }
 
 /// A struct bundling parameters that modify the core search.
@@ -604,7 +602,7 @@ impl<B: BoardTrait> SearchParams<B> {
         tt: TT,
         atomic: Arc<AtomicSearchState<B>>,
     ) -> Self {
-        Self::create(pos, limit, history, tt, None, 0, Score(0), atomic, Auxiliary)
+        Self::create(pos, limit, history, tt, None, 0, Score(0), atomic, SingleAndNoOutput)
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -669,8 +667,6 @@ impl<B: BoardTrait> SearchParams<B> {
     }
 
     pub fn auxiliary(&self, atomic: Arc<AtomicSearchState<B>>) -> Self {
-        // allow calling this on an auxiliary thread as well
-        //assert!(matches!(self.thread_type, Main(_)));
         Self {
             pos: self.pos.clone(),
             limit: self.limit,
@@ -687,16 +683,29 @@ impl<B: BoardTrait> SearchParams<B> {
     /// this will block if
     /// a) this is a main thread (i.e., it actually outputs), and
     /// b) the search is an infinite search from `go infinite` but not `ponder`, and
-    /// c) the search hasn't been cancelled yet. It will wait until the search has been cancelled.
+    /// c) the search hasn't been canceled yet. It will wait until the search has been canceled.
     /// Auxiliary threads and ponder searches both return instantly from this function, without printing anything.
     /// If the search result has chosen a null move, this instead outputs a warning and a random legal move.
-    fn end_and_send(&self, res: &SearchResult<B>) {
+    fn end_and_send(&self, res: &mut SearchResult<B>) {
+        dbg_end_search(self.atomic.nodes());
         let Main(data) = &self.thread_type else {
-            self.atomic.set_searching(false);
+            self.atomic.currently_searching.store(false, Release);
             return;
         };
         if [Infinite, Ponder].contains(&data.search_type) {
             while !self.atomic.stop_flag() {
+                spin_loop();
+            }
+        }
+        // make sure all auxiliary threads stop as well, no matter which condition made the main thread
+        // stop. However, this means that `go nodes n` only applies to the main thread; auxiliary
+        // threads may search fewer nodes. Depending on the stop condition, it's possible that
+        // auxiliary threads have already stopped.
+        for atomic in data.auxiliary_threads() {
+            atomic.should_stop.store(true, Release);
+        }
+        for atomic in data.auxiliary_threads() {
+            while atomic.currently_searching.load(Acquire) {
                 spin_loop();
             }
         }
@@ -706,23 +715,30 @@ impl<B: BoardTrait> SearchParams<B> {
         }
         let pos = &self.pos;
         let mut output = data.output.lock().unwrap();
-        // do this before sending 'bestmove' to avoid a race condition where we send bestmove, the gui sends a new 'go', the uci thread tries
-        // to start a new search, but the searching flag is still not unset, so it fails
-        self.atomic.set_searching(false);
         if res.chosen_move == B::Move::default() {
-            let mut rng = StdRng::seed_from_u64(42); // keep everything deterministic
-            let chosen_move = pos.random_legal_move(&mut rng).unwrap_or_default();
-            if chosen_move != B::Move::default() {
-                debug_assert!(pos.is_move_legal(chosen_move), "{} {pos}", chosen_move.compact_formatter(pos));
-                output.write_message(
-                    Warning,
-                    &format_args!("Engine did not return a best move, playing a random move instead"),
-                );
-                output.write_search_res(&SearchResult::<B>::move_only(chosen_move, pos.clone()));
-                return;
+            let mut rng = SmallRng::seed_from_u64(42); // keep everything deterministic
+            match pos.random_legal_move(&mut rng) {
+                None => {
+                    output.write_message(Warning, &format_args!("search() called in a position with no legal moves"))
+                }
+                Some(chosen_move) => {
+                    debug_assert!(pos.is_move_legal(chosen_move), "{} {pos}", chosen_move.compact_formatter(pos));
+                    output.write_message(
+                        Warning,
+                        &format_args!("Engine did not return a best move, playing a random move instead"),
+                    );
+                    *res = SearchResult::<B>::move_only(chosen_move, pos.clone());
+                }
             }
-            output.write_message(Warning, &format_args!("search() called in a position with no legal moves"));
         }
+        // Do this before setting the searching flag so that we have a result when we claim to have finished.
+        // This is useful for being able to unit test search commands through the UCI interface.
+        output.previous_search_res = Some(res.clone());
+        // Do this before sending 'bestmove' to avoid a race condition:
+        // We send bestmove, the GUI sends a new 'go', the uci thread tries to start a new search,
+        // but the searching flag is still not unset, so it fails.
+        // We use a combined load and store with `AcqRel` to guarantee(?) the correct order.
+        _ = self.atomic.currently_searching.swap(false, AcqRel);
         debug_assert!(res.chosen_move == B::Move::default() || pos.is_move_legal(res.chosen_move));
 
         output.write_search_res(res);
@@ -735,6 +751,7 @@ pub trait SearchStackEntry<B: BoardTrait>: Default + Clone + Debug {
     }
     fn pv(&self) -> Option<&[B::Move]>;
     fn last_played_move(&self) -> Option<B::Move>;
+    fn hash(&self, hasher: &mut impl Hasher);
 }
 
 #[derive(Copy, Clone, Default, Debug)]
@@ -748,6 +765,8 @@ impl<B: BoardTrait> SearchStackEntry<B> for EmptySearchStackEntry {
     fn last_played_move(&self) -> Option<B::Move> {
         None
     }
+
+    fn hash(&self, _hasher: &mut impl Hasher) {}
 }
 
 pub trait CustomInfo<B: BoardTrait>: Default + Clone + Debug {
@@ -805,7 +824,7 @@ impl<B: BoardTrait> PVData<B> {
 pub trait AbstractSearchState<B: BoardTrait> {
     fn forget(&mut self, hard: bool);
     fn new_search(&mut self, params: SearchParams<B>);
-    fn end_search(&mut self, res: &SearchResult<B>);
+    fn end_search(&mut self, res: &mut SearchResult<B>);
     fn search_params(&self) -> &SearchParams<B>;
     /// Returns the number of nodes looked at so far, including normal search and quiescent search.
     /// Can be called during search.
@@ -816,7 +835,6 @@ pub trait AbstractSearchState<B: BoardTrait> {
     fn pv_data(&self) -> &[PVData<B>];
     fn to_bench_res(&self) -> BenchResult;
     fn to_search_info(&self, final_info: bool) -> SearchInfo<'_, B>;
-    fn aggregated_statistics(&self) -> Statistics;
     fn send_search_info(&self, final_info: bool);
     fn should_show_debug_msg(&self) -> bool {
         self.search_params().thread_type.output().is_some_and(|o| o.show_debug_output)
@@ -839,6 +857,10 @@ pub trait AbstractSearchState<B: BoardTrait> {
     }
     /// Engine-specific info, like the contents of history tables.
     fn write_internal_info(&self, pos: &B) -> Option<String>;
+
+    fn is_main_thread(&self) -> bool {
+        !matches!(self.search_params().thread_type, Auxiliary)
+    }
 }
 
 #[derive(Debug)]
@@ -854,8 +876,6 @@ pub struct SearchState<B: BoardTrait, E: SearchStackEntry<B>, C: CustomInfo<B>> 
     budget: Budget,
     execution_start_time: Instant,
     last_msg_time: Instant,
-    statistics: Statistics,
-    aggregated_statistics: Statistics, // statistics aggregated over all searches of the current match
     age: Age,
 }
 
@@ -873,14 +893,14 @@ impl<B: BoardTrait, E: SearchStackEntry<B>, C: CustomInfo<B>> DerefMut for Searc
 }
 
 impl<B: BoardTrait, E: SearchStackEntry<B>, C: CustomInfo<B>> AbstractSearchState<B> for SearchState<B, E, C> {
+    // `hard` is false when starting a new search and true when receiving `ucinewgame`
     fn forget(&mut self, hard: bool) {
         self.last_msg_time = Instant::now();
         self.execution_start_time = self.last_msg_time;
-        // TODO: Remove or at least only do if `hard` is true
-        for e in &mut self.search_stack {
-            e.forget();
-        }
         if hard {
+            for e in &mut self.search_stack {
+                e.forget();
+            }
             self.custom.hard_forget_except_tt();
             self.params.atomic.reset(false);
         } else {
@@ -890,7 +910,6 @@ impl<B: BoardTrait, E: SearchStackEntry<B>, C: CustomInfo<B>> AbstractSearchStat
             self.custom.new_search();
         }
         self.params.history.clear(); // will get overwritten later
-        self.statistics.clone_from(&Statistics::default());
         for pv in &mut self.multi_pvs {
             pv.reset();
         }
@@ -925,15 +944,13 @@ impl<B: BoardTrait, E: SearchStackEntry<B>, C: CustomInfo<B>> AbstractSearchStat
         if let Some(mut output) = self.params.thread_type.output() {
             output.new_search();
         }
+        parameters.limit.soft_nodes = parameters.limit.soft_nodes.min(parameters.limit.nodes);
         self.params = parameters;
         // it's possible that a stop command has already been received and handled, which means the stop flag
         // can already be set
     }
 
-    fn end_search(&mut self, res: &SearchResult<B>) {
-        self.statistics_mut().end_search();
-        self.send_statistics();
-        self.aggregate_match_statistics();
+    fn end_search(&mut self, res: &mut SearchResult<B>) {
         send_debug_msg!(
             self,
             "Ending a search that took {0} microseconds ({1} microseconds since starting searching in this thread)",
@@ -973,6 +990,9 @@ impl<B: BoardTrait, E: SearchStackEntry<B>, C: CustomInfo<B>> AbstractSearchStat
                 mov.hash(&mut hasher);
             }
         }
+        for entry in &self.search_stack {
+            entry.hash(&mut hasher);
+        }
         // the score can differ even if the pv is the same, so make sure to include that in the hash
         self.best_score().hash(&mut hasher);
         // The pv doesn't necessarily contain the best move for multipv searches. Additionally, bench is important for debugging, so to catch
@@ -985,7 +1005,7 @@ impl<B: BoardTrait, E: SearchStackEntry<B>, C: CustomInfo<B>> AbstractSearchStat
             time: self.execution_start_time().elapsed(),
             max_iterations: self.iterations(),
             depth: None,
-            pv_score_hash: hash,
+            hash,
         }
     }
 
@@ -1015,10 +1035,6 @@ impl<B: BoardTrait, E: SearchStackEntry<B>, C: CustomInfo<B>> AbstractSearchStat
             res.num_threads = shared.len();
         }
         res
-    }
-
-    fn aggregated_statistics(&self) -> Statistics {
-        self.aggregated_statistics.clone()
     }
 
     fn send_search_info(&self, final_info: bool) {
@@ -1127,8 +1143,6 @@ impl<B: BoardTrait, E: SearchStackEntry<B>, C: CustomInfo<B>> SearchState<B, E, 
         Self {
             search_stack,
             custom,
-            statistics: Statistics::default(),
-            aggregated_statistics: Statistics::default(),
             multi_pvs: vec![],
             params,
             excluded_moves: vec![],
@@ -1173,30 +1187,6 @@ impl<B: BoardTrait, E: SearchStackEntry<B>, C: CustomInfo<B>> SearchState<B, E, 
         self.execution_start_time
     }
 
-    /// If the 'statistics' feature is enabled, this collects additional statistics.
-    /// If not, this still keeps track of nodes, depth and seldepth, which is used for UCI output.
-    #[inline(always)]
-    fn statistics(&self) -> &Statistics {
-        &self.statistics
-    }
-
-    #[inline(always)]
-    fn statistics_mut(&mut self) -> &mut Statistics {
-        &mut self.statistics
-    }
-
-    fn aggregate_match_statistics(&mut self) {
-        self.aggregated_statistics.aggregate_searches(&self.statistics);
-    }
-
-    fn send_statistics(&mut self) {
-        // don't pay the performance penalty of aggregating statistics unless they are shown,
-        // especially since the "statistics" feature is likely turned off
-        if cfg!(feature = "statistics") {
-            self.send_non_ugi(Message::Debug, &format_args!("{}", Summary::new(self.statistics())));
-        }
-    }
-
     fn current_mpv_pv(&self) -> &[B::Move] {
         // self.search_stack[0].pv doesn't have to be the same as `self.multi_pvs[self.current_pv_num].pv`
         // because it gets cleared when visiting the root,
@@ -1212,13 +1202,6 @@ impl<B: BoardTrait, E: SearchStackEntry<B>, C: CustomInfo<B>> SearchState<B, E, 
     }
 }
 
-// TODO: Necessary?
-pub fn run_bench<B: BoardTrait>(engine: &mut dyn Engine<B>, with_nodes: bool, positions: &[B]) -> BenchResult {
-    let nodes = if with_nodes { Some(SearchLimit::nodes(engine.default_bench_nodes())) } else { None };
-    let depth = SearchLimit::depth(engine.default_bench_depth());
-    run_bench_with(engine, depth, nodes, positions, None)
-}
-
 pub fn run_bench_with<B: BoardTrait>(
     engine: &mut dyn Engine<B>,
     limit: SearchLimit,
@@ -1226,11 +1209,12 @@ pub fn run_bench_with<B: BoardTrait>(
     bench_positions: &[B],
     tt: Option<TT>,
 ) -> BenchResult {
+    dbg_reset();
     let mut hasher = DefaultHasher::new();
     let mut total = BenchResult::default();
     let mut tt = tt.unwrap_or_default();
     for position in bench_positions {
-        // don't reset the engine state between searches to make `bench` reflect how aging etc affect search.
+        // don't reset the engine state between searches to make `bench` reflect how aging etc. affect search.
         tt.age.increment();
         single_bench(position, engine, limit, tt.clone(), 0, &mut total, &mut hasher);
         if let Some(limit) = second_limit {
@@ -1241,10 +1225,8 @@ pub fn run_bench_with<B: BoardTrait>(
     if limit.depth != SearchLimit::infinite().depth {
         total.depth = Some(limit.depth);
     }
-    total.pv_score_hash = hasher.finish();
-    if cfg!(feature = "statistics") {
-        eprintln!("{}", Summary::new(&engine.search_state_dyn().aggregated_statistics()));
-    }
+    total.hash = hasher.finish();
+    dbg_print();
     total
 }
 
@@ -1263,11 +1245,45 @@ fn single_bench<B: BoardTrait>(
         limit.fixed_time = limit.fixed_time.min(Duration::from_millis(20));
         limit
     };
-    let res = engine.bench(pos.clone(), limit, tt, additional_pvs);
+    let res = engine.bench(pos.clone(), limit, tt.clone(), additional_pvs);
     total.nodes += res.nodes;
     total.time += res.time;
     total.max_iterations = total.max_iterations.max(res.max_iterations);
-    res.pv_score_hash.hash(hasher);
+    res.hash.hash(hasher);
+    tt.hash_first_1k_entries(hasher);
+}
+
+/// Runs bench with the given limit, then clears the engine state and runs everything again,
+/// this time with the nodes of the first run as limit. Panics if anything doesn't match.
+pub fn test_reproducible<B: BoardTrait>(
+    positions: &[B],
+    engine: &mut dyn Engine<B>,
+    limit: SearchLimit,
+    tt_size_mib: usize,
+) {
+    let old_tt = TT::new_with_mib(tt_size_mib);
+    engine.forget();
+    let mut results = Vec::with_capacity(positions.len());
+    for p in positions {
+        let res = engine.bench(p.clone(), limit, old_tt.clone(), 1);
+        results.push(res);
+    }
+
+    engine.forget();
+    let new_tt = TT::new_with_mib(tt_size_mib);
+    for (pos, r) in positions.iter().zip_eq(results.iter()) {
+        let limit = SearchLimit::nodes_(r.nodes);
+        let res = engine.bench(pos.clone(), limit, new_tt.clone(), 1);
+        assert_eq!(res.max_iterations, r.max_iterations, "{} {pos}", r.nodes);
+        assert_eq!(res.depth, r.depth, "{} {pos}", r.nodes);
+        assert_eq!(res.nodes, r.nodes, "{pos}");
+        assert_eq!(res.hash, r.hash, "{} {pos}", r.nodes)
+    }
+    assert_eq!(old_tt.age, new_tt.age);
+    let entries = old_tt.all_entries::<B>().zip_eq(new_tt.all_entries());
+    for (i, (a, b)) in entries.enumerate() {
+        assert_eq!(a, b, "{i}");
+    }
 }
 
 #[cfg(test)]
@@ -1314,9 +1330,10 @@ mod tests {
 
     fn determinism_test<B: BoardTrait>(engine: &mut dyn Engine<B>) {
         engine.forget();
-        let limit = SearchLimit::nodes_(1234);
-        for p in B::bench_positions().into_iter().take(10) {
+        let positions = B::bench_positions().into_iter().collect_vec();
+        for p in positions.iter().take(10) {
             engine.forget();
+            let limit = SearchLimit::nodes_(1234);
             let params = SearchParams::for_pos(p.clone(), limit);
             let res = engine.search(params);
             engine.forget();
@@ -1339,5 +1356,7 @@ mod tests {
             assert_eq!(nodes, nodes2, "{p}");
             assert_eq!(res, res2, "{p}");
         }
+        let limit = SearchLimit::soft_nodes_(1000).and(SearchLimit::nodes_(2000));
+        test_reproducible(&positions, engine, limit, 1);
     }
 }

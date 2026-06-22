@@ -15,16 +15,16 @@
  *  You should have received a copy of the GNU General Public License
  *  along with Motors. If not, see <https://www.gnu.org/licenses/>.
  */
-use crate::eval::chess::FileOpenness;
 use crate::eval::chess::lite_values::{Lite, LiteValues};
-use gears::games::DimT;
-use gears::games::chess::Color;
-use gears::games::chess::Color::White;
+use crate::eval::chess::FileOpenness;
 use gears::games::chess::pieces::PieceType;
 use gears::games::chess::pieces::PieceType::King;
 use gears::games::chess::squares::Square;
+use gears::games::chess::Color;
+use gears::games::chess::Color::White;
+use gears::games::DimT;
 use gears::general::common::StaticallyNamedEntity;
-use gears::score::{PhasedScore, p};
+use gears::score::{p, PhasedScore};
 use std::fmt::Display;
 
 #[rustfmt::skip]
@@ -72,12 +72,24 @@ impl StaticallyNamedEntity for KingGambotValues {
 impl LiteValues for KingGambotValues {
     type Score = PhasedScore;
 
+    fn material(piece: PieceType) -> PhasedScore {
+        Lite::material(piece)
+    }
+
     fn psqt(&self, square: Square, piece: PieceType, color: Color) -> PhasedScore {
         if color == self.us && piece == King {
             KING_GAMBOT_VALUES[square.flip_if(color == White).bb_idx()]
         } else {
             Lite::default().psqt(square, piece, color)
         }
+    }
+
+    fn more_minors_but_no_pawns() -> PhasedScore {
+        Lite::more_minors_but_no_pawns()
+    }
+
+    fn opposite_colored_bishops() -> PhasedScore {
+        Lite::opposite_colored_bishops()
     }
 
     fn passed_pawn(square: Square) -> PhasedScore {
@@ -98,6 +110,10 @@ impl LiteValues for KingGambotValues {
 
     fn passer_protection() -> PhasedScore {
         Lite::passer_protection()
+    }
+
+    fn passer_can_push() -> PhasedScore {
+        Lite::passer_can_push()
     }
 
     fn candidate_passer(rank: DimT) -> PhasedScore {
@@ -169,6 +185,10 @@ impl LiteValues for KingGambotValues {
         Lite::mobility(piece, mobility)
     }
 
+    fn safe_squares(piece: PieceType, num: usize) -> PhasedScore {
+        Lite::safe_squares(piece, num)
+    }
+
     fn threats(attacking: PieceType, targeted: PieceType) -> PhasedScore {
         Lite::threats(attacking, targeted)
     }
@@ -177,12 +197,20 @@ impl LiteValues for KingGambotValues {
         Lite::defended(protecting, target)
     }
 
+    fn double_kingzone_attack() -> PhasedScore {
+        Lite::double_kingzone_attack()
+    }
+
     fn king_zone_attack(attacking: PieceType) -> PhasedScore {
         Lite::king_zone_attack(attacking) / 2
     }
 
     fn can_give_check(piece: PieceType) -> PhasedScore {
         Lite::can_give_check(piece) / 2
+    }
+
+    fn safe_check(piece: PieceType) -> PhasedScore {
+        Lite::safe_check(piece) / 2
     }
 
     fn pin(piece: PieceType) -> PhasedScore {
@@ -199,5 +227,9 @@ impl LiteValues for KingGambotValues {
 
     fn check_stm() -> PhasedScore {
         Lite::check_stm()
+    }
+
+    fn safe_check_stm() -> PhasedScore {
+        Lite::safe_check_stm()
     }
 }

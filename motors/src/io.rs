@@ -23,48 +23,50 @@ mod input;
 pub mod ugi_output;
 
 use crate::eval::Eval;
-use crate::io::SearchType::*;
 use crate::io::ascii_art::print_as_ascii_art;
 use crate::io::cli::EngineOpts;
 use crate::io::command::Standard::Custom;
 use crate::io::command::{
-    AbstractGoState, CommandList, GoState, accept_depth, go_options, query_options, ugi_commands,
+    accept_depth, go_options, query_options, ugi_commands, AbstractGoState, CommandList, GoState,
 };
 use crate::io::input::Input;
 use crate::io::ugi_output::{
-    AbstractUgiOutput, UgiOutput, color_for_score, pretty_score, pretty_variation_simple, score_gradient, suffix_for,
+    color_for_score, pretty_score, pretty_variation_simple, score_gradient, suffix_for, AbstractUgiOutput, UgiOutput,
 };
+use crate::io::SearchType::*;
 use crate::search::multithreading::EngineWrapper;
-use crate::search::tt::{DEFAULT_HASH_SIZE_MB, EndTTPvMove, TT, TTEntry};
-use crate::search::{EvalList, SearchParams, SearcherList, run_bench_with};
+use crate::search::tt::{EndTTPvMove, TTEntry, DEFAULT_HASH_SIZE_MIB, TT};
+use crate::search::{run_bench_with, EvalList, SearchParams, SearcherList};
 use crate::{create_engine_box_from_str, create_engine_from_str, create_eval_from_str, create_match};
-use gears::MatchStatus::*;
-use gears::ProgramStatus::{Quit, Run};
-use gears::Quitting::QuitProgram;
 use gears::cli::select_game;
 use gears::colored::Color::Red;
 use gears::colored::Colorize;
-use gears::games::CharType::Ascii;
 use gears::games::chess::UCI_CHESS960;
-use gears::games::{AbstractPieceType, BoardHistDyn, ColorTrait, ColoredPieceTrait, ColoredPieceTypeTrait, OutputList};
+use gears::games::CharType::Ascii;
+use gears::games::{
+    AbstractPieceType, BoardHistDyn, ColorTrait, ColoredPieceTrait, ColoredPieceTypeTrait, OutputList, SizeTrait,
+};
+use gears::general::bitboards::RawBitboardTrait;
 use gears::general::board::Strictness::{Relaxed, Strict};
 use gears::general::board::{BoardHelpers, BoardTrait, ColPieceTypeOf, Strictness, Symmetry, UnverifiedBoardTrait};
-use gears::general::common::Description::{NoDescription, WithDescription};
 use gears::general::common::anyhow::{anyhow, bail, ensure};
+use gears::general::common::Description::{NoDescription, WithDescription};
 use gears::general::common::{
-    NamedEntity, parse_bool_from_str, parse_duration_ms, parse_int_from_str, select_name_static, tokens,
-    tokens_to_string,
+    parse_bool_from_str, parse_duration_ms, parse_int_from_str, select_name_static, tokens, tokens_to_string,
+    NamedEntity,
 };
 use gears::general::common::{Res, Tokens};
 use gears::general::moves::ExtendedFormat::{Alternative, Standard};
 use gears::general::moves::MoveTrait;
 use gears::general::perft::Bulkness::{Bulk, NoBulk};
-use gears::general::perft::{SplitPerftRes, num_unique_positions_up_to, perft_for, split_perft};
+use gears::general::perft::Parallelize::{Parallel, SingleThreaded};
+use gears::general::perft::{num_unique_positions_up_to, perft_for, split_perft, SplitPerftRes};
 use gears::itertools::Itertools;
-use gears::output::Message::*;
+use gears::num::{Num, Zero};
 use gears::output::logger::LoggerBuilder;
 use gears::output::pgn::parse_pgn;
-use gears::output::text_output::{AdaptFormatter, display_color};
+use gears::output::text_output::{display_color, AdaptFormatter};
+use gears::output::Message::*;
 use gears::output::{Message, OutputBox, OutputBuilder, OutputOpts};
 use gears::rand::rng;
 use gears::score::{Score, ScoreT};
@@ -73,12 +75,15 @@ use gears::ugi::EngineOptionName::*;
 use gears::ugi::EngineOptionType::*;
 use gears::ugi::Protocol::{Interactive, UGI};
 use gears::ugi::{
-    EngineOption, EngineOptionName, EngineOptionNameForProto, Protocol, UgiCheck, UgiCombo, UgiSpin, UgiString,
-    load_ugi_pos_simple,
+    load_ugi_pos_simple, EngineOption, EngineOptionName, EngineOptionNameForProtocol, Protocol, UgiCheck, UgiCombo, UgiSpin,
+    UgiString,
 };
+use gears::MatchStatus::*;
+use gears::ProgramStatus::{Quit, Run};
+use gears::Quitting::QuitProgram;
 use gears::{
-    AbstractRun, AbstractUgiPosState, GameState, MatchState, MatchStatus, PlayerResult, ProgramStatus, Quitting,
-    UgiPosState, output_builder_from_str,
+    output_builder_from_str, AbstractRun, AbstractUgiPosState, GameState, MatchState, MatchStatus, PlayerResult, ProgramStatus,
+    Quitting, UgiPosState,
 };
 use std::cell::RefCell;
 use std::collections::HashSet;
@@ -210,7 +215,7 @@ impl<B: BoardTrait> GameState<B> for EngineGameState<B> {
 
     // The reason for doing this weird loop instead of just letting the engine thread print
     // the engine state is that printing multiple lines while waiting for input
-    // from enquire (used in the interactive ui) causes weird formatting issues
+    // from inquire (used in the interactive ui) causes weird formatting issues
     fn print_engine_state(&self) -> Res<String> {
         self.engine.get_engine_info().internal_state_description = None;
         self.engine.send_print(self.go_state.pos.clone())?;
@@ -326,8 +331,8 @@ fn handle_ugi_input(ugi: &mut dyn AbstractEngineUgi, mut words: Tokens, game_nam
             // This allows precomputing commands, resolves potential conflicts with commands, and speeds up autocompletion
             if ugi.handle_move_fen_or_pgn(first_word, words)? {
                 return Ok(());
-            } else if first_word.eq_ignore_ascii_case("barbecue") {
-                ugi.write_ugi_msg(&print_as_ascii_art("lol", 2));
+            } else if first_word.eq_ignore_ascii_case("barbeque") {
+                ugi.write_ugi_msg(&print_as_ascii_art("barbeque!", 2));
             }
             ugi.write_message(
                 Warning,
@@ -420,10 +425,12 @@ impl<B: BoardTrait> EngineUGI<B> {
             failed_cmd: None,
         };
         if res.debug_mode() {
-            res.handle_debug(&mut tokens(""))?;
+            res.handle_debug_impl(&mut tokens(""), false)?;
         }
         if let Some(cmd) = opts.cmd {
-            res.handle_input(&cmd)?;
+            for line in cmd.split(';') {
+                res.handle_input(line)?;
+            }
         }
         Ok(res)
     }
@@ -471,8 +478,8 @@ impl<B: BoardTrait> EngineUGI<B> {
             let res = handle_ugi_input(self, tokens(&input), &game_name);
             match res {
                 Ok(()) => {
-                    if let Quit(quitting) = &self.state.status {
-                        return *quitting;
+                    if let &Quit(quitting) = &self.state.status {
+                        return quitting;
                     }
                 }
                 Err(err) => {
@@ -564,7 +571,10 @@ impl<B: BoardTrait> EngineUGI<B> {
         )
     }
 
-    fn set_option(&mut self, name: EngineOptionNameForProto, value: String) -> Res<()> {
+    fn set_option(&mut self, name: EngineOptionNameForProtocol, value: String) -> Res<()> {
+        if value.trim().is_empty() {
+            bail!("Missing value for '{}' in setoption command", name.to_string().bold());
+        }
         match name.name {
             EngineOptionName::Ponder => {
                 self.allow_ponder = parse_bool_from_str(&value, "ponder")?;
@@ -631,29 +641,28 @@ impl<B: BoardTrait> EngineUGI<B> {
         }
         let mut name = String::default();
         loop {
-            let next_word = words.next().unwrap_or_default();
-            if next_word.is_empty() {
+            let Some(next_word) = words.next() else {
                 // input didn't contain 'value', so assume the first token is the name and the rest is the value
                 let mut words = tokens(&name);
-                let name = words.next().unwrap_or_default();
+                let Some(name) = words.next() else { bail!("Missing name in setoption command") };
                 let value = words.join(" ");
-                let name = EngineOptionNameForProto::parse(name.trim(), self.protocol())?;
+                let name = EngineOptionNameForProtocol::parse(name.trim(), self.protocol())?;
                 return self.set_option(name, value);
-            }
+            };
             if next_word.eq_ignore_ascii_case("value") {
+                if name.trim().is_empty() {
+                    bail!("Missing name in setoption command");
+                }
                 break;
             }
             name = name + " " + next_word;
         }
-        let mut value = words.next().unwrap().to_string();
-        loop {
-            let next_word = words.next().unwrap_or_default();
-            if next_word.is_empty() {
-                break;
-            }
+        let Some(value) = words.next() else { bail!("Missing value after '{}' in setoption command", "value".bold()) };
+        let mut value = value.to_string();
+        for next_word in words {
             value = value + " " + next_word;
         }
-        let name = EngineOptionNameForProto::parse(name.trim(), self.protocol()).unwrap();
+        let name = EngineOptionNameForProtocol::parse(name.trim(), self.protocol())?;
         self.set_option(name, value)
     }
 
@@ -731,13 +740,19 @@ impl<B: BoardTrait> EngineUGI<B> {
                     bail!("Depth {0} is larger than the maximum perft depth of {1}", limit.depth, B::max_perft_depth());
                 }
                 let pseudo_bulk = if opts.no_bulk { NoBulk } else { Bulk };
-                for i in 1..=limit.depth.get() {
+                let start = if opts.upto { 1 } else { limit.depth.get() };
+                for i in start..=limit.depth.get() {
                     if opts.unique {
                         let num_unique = num_unique_positions_up_to(DepthPly::new(i), board.clone()).to_string().bold();
                         self.output().write_ugi(&format_args!("# unique positions at depth {i}: {num_unique}",))
                     } else {
-                        let perft_res = perft_for(DepthPly::new(i), &positions, threads != 1, pseudo_bulk);
-                        self.output().write_ugi(&format_args!("{perft_res}"))
+                        let parallelize = if threads == 1 { SingleThreaded } else { Parallel };
+                        let hash = opts.override_hash_size.map(|n| n * (1 << 20));
+                        let perft_res = perft_for(DepthPly::new(i), &positions, parallelize, pseudo_bulk, hash);
+                        self.output().write_ugi(&format_args!(
+                            "{}{perft_res}",
+                            if i == limit.depth.get() { String::new() } else { format!("depth {i}: ") }
+                        ));
                     }
                 }
             }
@@ -753,7 +768,9 @@ impl<B: BoardTrait> EngineUGI<B> {
                     bail!("Depth {0} is too large; maximum splitperft depth: {1}", limit.depth, B::max_perft_depth());
                 }
                 let pseudo_bulk = if opts.no_bulk { NoBulk } else { Bulk };
-                let res = split_perft(limit.depth, board, threads != 1, pseudo_bulk);
+                let parallelize = if threads == 1 { SingleThreaded } else { Parallel };
+                let hash = opts.override_hash_size.map(|n| n * (1 << 20));
+                let res = split_perft(limit.depth, board, parallelize, pseudo_bulk, hash);
                 self.write_ugi(&format_args!("{res}"));
                 if self.go_state_mut().get_mut().compare {
                     compare_splitperft(self, res)?;
@@ -876,7 +893,7 @@ impl<B: BoardTrait> EngineUGI<B> {
                     let diagram = show_eval_pos(&state.board, state.last_move(), eval);
                     diagram
                         + &format!(
-                            "Eval Score: {}\n",
+                            "Raw Eval Score: {}\n",
                             pretty_score(eval_score, None, None, &score_gradient(), true, false)
                         )
                 } else {
@@ -932,7 +949,7 @@ impl<B: BoardTrait> EngineUGI<B> {
                     Ok(None)
                 } else {
                     // Even though "pretty" can look better than "prettyascii", it's also significantly more risky
-                    // because how it looks very much depends on the terminal.
+                    // because how it looks very much depends on the terminal and installed fonts.
                     self.select_output(&mut tokens("prettyascii"))
                 }
             }
@@ -940,14 +957,57 @@ impl<B: BoardTrait> EngineUGI<B> {
     }
 
     #[cold]
+    fn read_bb(&mut self, words: &mut Tokens) -> Res<B::RawBitboard> {
+        let Some(name) = words.next() else { bail!("Missing bitboard after '{}' output", "bitboard".bold()) };
+        let list = self.state.pos().bitboard_from_name();
+        let select =
+            |bb| select_name_static(bb, list.iter(), "bitboard name", self.game_name(), WithDescription).map(|r| r.val);
+        let bb = select(name);
+        if let Ok(bb) = bb {
+            return Ok(bb);
+        }
+        if name == "attacks_of" {
+            let bb = self.read_bb(words)?;
+            let mut res = B::RawBitboard::zero();
+            let pos = self.state.pos();
+            let size = pos.size();
+            for idx in bb.one_indices() {
+                let sq = size.check_coordinates(size.to_coordinates_unchecked(idx))?;
+                res |= pos.attacks_of(sq);
+            }
+            self.write_ugi(&format_args!("Printing attacks of bitboard '{}':", format!("{bb:#x}").bold()));
+            return Ok(res);
+        }
+        if let Some(val) = name.strip_prefix("0x").and_then(|name| B::RawBitboard::from_str_radix(name, 16).ok()) {
+            return Ok(val);
+        }
+        let n = format!("square_{name}");
+        if let Ok(bb) = select(&n) {
+            return Ok(bb); // we accept 'a1', but we don't suggest it in autocompletion to avoid cluttering suggestions
+        }
+        if let Some(next) = words.next()
+            && let Ok(bb) = select(&format!("{name} {next}"))
+        {
+            Ok(bb)
+        } else {
+            bail!("'{}' is not a valid name of a bitboard or an integer representing a bitboard", name.red())
+        }
+    }
+
+    #[cold]
     fn handle_print_impl(&mut self, words: &mut Tokens, opts: OutputOpts) -> Res<()> {
-        let output = self.select_output(words)?;
+        let mut output = self.select_output(words)?;
+        if let Some(o) = output.as_mut()
+            && o.short_name() == "bb"
+        {
+            return self.handle_bb(words);
+        }
         let print = |this: &Self, output: Option<OutputBox<B>>, state| match output {
             None => {
-                this.output().show(state, opts);
+                this.output().show(state, opts, None);
             }
             Some(mut output) => {
-                output.show(state, opts);
+                output.show(state, opts, None);
             }
         };
         if words.peek().is_some() {
@@ -961,11 +1021,15 @@ impl<B: BoardTrait> EngineUGI<B> {
         } else {
             print(self, output, &self.state);
         }
+        if self.debug_mode() {
+            let pos = self.state.pos().clone();
+            self.write_message(Debug, &format_args!("Current position debug print: '{pos:?}'"));
+        }
         Ok(())
     }
 
     #[cold]
-    fn handle_output_impl(&mut self, words: &mut Tokens) -> Res<()> {
+    fn handle_output_impl(&mut self, words: &mut Tokens, show: bool) -> Res<()> {
         let mut next = words.next().unwrap_or_default();
         let output_ptr = self.output.clone();
         let mut output = output_ptr.lock().unwrap();
@@ -989,7 +1053,7 @@ impl<B: BoardTrait> EngineUGI<B> {
                     })?
                     .for_engine(&self.state)?,
             );
-            if self.is_interactive() {
+            if show {
                 drop(output);
                 self.print_board(OutputOpts::default());
             }
@@ -998,16 +1062,18 @@ impl<B: BoardTrait> EngineUGI<B> {
     }
 
     #[cold]
-    fn handle_debug_impl(&mut self, words: &mut Tokens) -> Res<()> {
+    fn handle_debug_impl(&mut self, words: &mut Tokens, show: bool) -> Res<()> {
         match words.next().unwrap_or("on") {
             "on" => {
                 self.state.debug_mode = true;
                 // make sure to print all the messages that can be sent (adding an existing output is a no-op)
-                self.handle_output(&mut tokens("error"))?;
-                self.handle_output(&mut tokens("debug"))?;
-                self.handle_output(&mut tokens("info"))?;
+                self.handle_output_impl(&mut tokens("error"), false)?;
+                self.handle_output_impl(&mut tokens("debug"), false)?;
+                self.handle_output_impl(&mut tokens("info"), false)?;
                 self.output().set_debug(true);
-                self.print_board(OutputOpts::default());
+                if show {
+                    self.print_board(OutputOpts::default());
+                }
                 self.write_message(Debug, &format_args!("Debug mode enabled"));
                 // don't change the log stream if it's already set
                 if self.output().additional_outputs.iter().any(|o| o.is_logger()) {
@@ -1083,9 +1149,9 @@ impl<B: BoardTrait> EngineUGI<B> {
         // However, we make an exception for threads and hash
         self.state.engine = engine;
         // We set those options after changing the engine, so if we get an error this doesn't prevent us from using the new engine.
-        let h = EngineOptionNameForProto { name: Hash, proto: self.protocol() };
+        let h = EngineOptionNameForProtocol { name: Hash, proto: self.protocol() };
         self.state.engine.set_option(h, hash.to_string())?;
-        let t = EngineOptionNameForProto { name: Threads, proto: self.protocol() };
+        let t = EngineOptionNameForProtocol { name: Threads, proto: self.protocol() };
         self.state.engine.set_option(t, threads.to_string())?;
         self.write_engine_ascii_art();
         Ok(())
@@ -1132,7 +1198,7 @@ impl<B: BoardTrait> EngineUGI<B> {
             let value = match opt {
                 Hash => Spin(UgiSpin {
                     val: self.state.engine.next_tt().size_in_mib() as i64,
-                    default: Some(DEFAULT_HASH_SIZE_MB as i64),
+                    default: Some(DEFAULT_HASH_SIZE_MIB as i64),
                     min: Some(0),
                     max: Some(10_000_000), // use at most 10 terabytes (should be enough for anybody™)
                 }),
@@ -1204,7 +1270,7 @@ impl<B: BoardTrait> EngineUGI<B> {
                 }),
                 Other(_) => continue,
             };
-            let name = EngineOptionNameForProto { name: opt, proto: self.protocol() };
+            let name = EngineOptionNameForProtocol { name: opt, proto: self.protocol() };
             res.push(EngineOption { name, value });
         }
         res.extend(self.state.engine.get_engine_info().additional_options());
@@ -1249,7 +1315,7 @@ trait AbstractEngineUgiState: Debug {
 
     fn handle_go(&mut self, initial_search_type: SearchType, words: &mut Tokens) -> Res<()>;
 
-    fn handle_stop(&mut self, suppress_best_move: bool) -> Res<()>;
+    fn handle_stop(&mut self) -> Res<()>;
 
     fn handle_ponderhit(&mut self) -> Res<()>;
 
@@ -1264,6 +1330,8 @@ trait AbstractEngineUgiState: Debug {
     fn handle_output(&mut self, words: &mut Tokens) -> Res<()>;
 
     fn handle_print(&mut self, words: &mut Tokens, opts: OutputOpts) -> Res<()>;
+
+    fn handle_bb(&mut self, words: &mut Tokens) -> Res<()>;
 
     fn handle_engine_print(&mut self) -> Res<()>;
 
@@ -1384,10 +1452,10 @@ impl<B: BoardTrait> AbstractEngineUgiState for EngineUGI<B> {
         self.handle_go_impl(initial_search_type, words)
     }
 
-    fn handle_stop(&mut self, suppress_best_move: bool) -> Res<()> {
-        self.state.engine.send_stop(suppress_best_move);
+    fn handle_stop(&mut self) -> Res<()> {
+        self.state.engine.send_stop(false);
         if let Some(tmp) = &mut self.state.temp_engine {
-            tmp.send_stop(suppress_best_move);
+            tmp.send_stop(false);
         }
         Ok(())
     }
@@ -1415,7 +1483,7 @@ impl<B: BoardTrait> AbstractEngineUgiState for EngineUGI<B> {
     }
 
     fn handle_debug(&mut self, words: &mut Tokens) -> Res<()> {
-        self.handle_debug_impl(words)
+        self.handle_debug_impl(words, true)
     }
 
     fn handle_log(&mut self, words: &mut Tokens) -> Res<()> {
@@ -1423,11 +1491,19 @@ impl<B: BoardTrait> AbstractEngineUgiState for EngineUGI<B> {
     }
 
     fn handle_output(&mut self, words: &mut Tokens) -> Res<()> {
-        self.handle_output_impl(words)
+        self.handle_output_impl(words, self.is_interactive())
     }
 
     fn handle_print(&mut self, words: &mut Tokens, opts: OutputOpts) -> Res<()> {
         self.handle_print_impl(words, opts)
+    }
+
+    #[cold]
+    fn handle_bb(&mut self, words: &mut Tokens) -> Res<()> {
+        let mut o = self.select_output(&mut tokens("bb"))?.unwrap();
+        let bb = self.read_bb(words)?;
+        o.show(&self.state, OutputOpts::default(), Some(bb));
+        Ok(())
     }
 
     #[cold]
@@ -1524,7 +1600,7 @@ impl<B: BoardTrait> AbstractEngineUgiState for EngineUGI<B> {
     #[cold]
     fn handle_assist(&mut self, words: &mut Tokens) -> Res<()> {
         if let Some(next) = words.next() {
-            let opt = EngineOptionNameForProto { name: RespondToMove, proto: self.protocol() };
+            let opt = EngineOptionNameForProtocol { name: RespondToMove, proto: self.protocol() };
             self.set_option(opt, next.to_string())
         } else {
             self.play_engine_move(None)
@@ -1569,7 +1645,7 @@ impl<B: BoardTrait> AbstractEngineUgiState for EngineUGI<B> {
         let Some(coords) = words.next() else { bail!("Missing square from which to remove a piece") };
         let coords = B::Coordinates::from_str(coords)?;
         let piece = B::Piece::new(piece, coords);
-        let pos = self.state.pos().clone().place_piece(piece)?;
+        let pos = self.state.pos().clone().replace_piece(piece)?;
         let pos = pos.verify(self.strictness)?;
         self.state.set_new_pos_state(UgiPosState::new(pos), true);
         self.print_board(OutputOpts::default());
@@ -1899,7 +1975,7 @@ fn format_tt_entry<B: BoardTrait>(state: MatchState<B>, entry: TTEntry<B>, tt: T
         pretty_score(score, None, None, &score_gradient(), true, false),
         entry.bound(),
         pretty_score(entry.raw_eval(), None, None, &score_gradient(), true, false),
-        entry.depth.to_string().bold(),
+        entry.depth().to_string().bold(),
         entry.age(),
         move_string,
         pos.hash_pos(),
@@ -2023,9 +2099,34 @@ fn compare_splitperft<B: BoardTrait>(ugi: &mut EngineUGI<B>, perft_res: SplitPer
     ugi.write_message(Info, &format_args!("Received input: '{compare_text}'"));
     let mut seen = HashSet::default();
     let mut errors = vec![];
-    for line in compare_text.lines().filter(|l| !l.trim().is_empty()) {
-        if let Err(err) = splitperft_line(line, &perft_res, &mut seen) {
+    let lines = compare_text.lines().filter(|l| !l.trim().is_empty());
+    let move_strings = perft_res
+        .children
+        .iter()
+        .map(|(m, _n)| {
+            (
+                *m,
+                [
+                    m.compact_formatter(&perft_res.pos).to_string(),
+                    m.to_extended_text(&perft_res.pos, Standard),
+                    m.to_extended_text(&perft_res.pos, Alternative),
+                ],
+            )
+        })
+        .collect_vec();
+    for line in lines.clone() {
+        if let Err(err) = splitperft_line(line, &perft_res, &mut seen, &move_strings) {
             errors.push(err.to_string());
+        }
+    }
+    // for splitperft depth 1, we also accept a list of moves without node counts, optionally all on the same line
+    if perft_res.perft_res.depth.get() == 1 && errors.len() == lines.count() {
+        errors.clear();
+        let text = tokens(&compare_text).join(" 1\n") + " 1\n";
+        for line in text.lines() {
+            if let Err(err) = splitperft_line(line, &perft_res, &mut seen, &move_strings) {
+                errors.push(err.to_string());
+            }
         }
     }
     for (unseen, nodes) in perft_res.children.iter().filter(|(m, _n)| !seen.contains(m)) {
@@ -2047,7 +2148,12 @@ fn compare_splitperft<B: BoardTrait>(ugi: &mut EngineUGI<B>, perft_res: SplitPer
     Ok(())
 }
 
-fn splitperft_line<B: BoardTrait>(line: &str, perft_res: &SplitPerftRes<B>, seen: &mut HashSet<B::Move>) -> Res<()> {
+fn splitperft_line<B: BoardTrait>(
+    line: &str,
+    perft_res: &SplitPerftRes<B>,
+    seen: &mut HashSet<B::Move>,
+    move_strings: &[(B::Move, [String; 3])],
+) -> Res<()> {
     let mut words = tokens(line).map(|w| w.to_ascii_lowercase());
     let mov = words.next().unwrap();
     let mov = mov.trim_end_matches(':');
@@ -2061,13 +2167,8 @@ fn splitperft_line<B: BoardTrait>(line: &str, perft_res: &SplitPerftRes<B>, seen
     let mov = match B::Move::from_text(mov, &perft_res.pos) {
         Ok(m) => m,
         Err(_) => {
-            let mut matching = perft_res.children.iter().filter_map(|(m, _n)| {
-                let strings = [
-                    m.compact_formatter(&perft_res.pos).to_string(),
-                    m.to_extended_text(&perft_res.pos, Standard),
-                    m.to_extended_text(&perft_res.pos, Alternative),
-                ];
-                if strings.iter().any(|s| s.eq_ignore_ascii_case(mov)) { Some(*m) } else { None }
+            let mut matching = move_strings.iter().filter_map(|(mv, strings)| {
+                if strings.iter().any(|s| s.eq_ignore_ascii_case(mov)) { Some(*mv) } else { None }
             });
             let Some(m) = matching.next() else {
                 bail!("Invalid move '{0}' ({1} nodes)", mov.red(), nodes.to_string().bold())
@@ -2106,20 +2207,43 @@ fn splitperft_line<B: BoardTrait>(line: &str, perft_res: &SplitPerftRes<B>, seen
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{list_chess_evals, list_chess_outputs, list_chess_searchers};
-    use gears::cli::Game::Chess;
+    use crate::{
+        list_chess_evals, list_chess_outputs, list_chess_searchers, list_fairy_evals, list_fairy_outputs,
+        list_fairy_searchers,
+    };
+    use gears::cli::Game::{Chess, Fairy};
     use gears::create_selected_output_builders;
-    use gears::games::chess::Board;
+    use gears::games::chess;
     use gears::games::chess::Color::Black;
+    use gears::games::fairy;
+    use gears::games::fairy::moves::Move;
     use gears::rand::prelude::SliceRandom;
-    use gears::rand::rngs::StdRng;
-    use gears::rand::{Rng, SeedableRng};
+    use gears::rand::rngs::SmallRng;
+    use gears::rand::{RngExt, SeedableRng};
 
-    fn create_chess_game() -> Box<EngineUGI<Board>> {
+    fn create_chess_game() -> Box<EngineUGI<chess::Board>> {
         let outputs = list_chess_outputs();
         let searchers = list_chess_searchers();
         let evals = list_chess_evals();
         let opts = EngineOpts::for_game(Chess, true);
+        Box::new(
+            EngineUGI::create(
+                opts.clone(),
+                create_selected_output_builders(&opts.outputs, &outputs).unwrap(),
+                outputs,
+                searchers,
+                evals,
+            )
+            .unwrap(),
+        )
+    }
+
+    #[cfg(feature = "fairy")]
+    fn create_fairy_game() -> Box<EngineUGI<fairy::Board>> {
+        let outputs = list_fairy_outputs();
+        let searchers = list_fairy_searchers();
+        let evals = list_fairy_evals();
+        let opts = EngineOpts::for_game(Fairy, true);
         Box::new(
             EngineUGI::create(
                 opts.clone(),
@@ -2139,15 +2263,16 @@ mod tests {
         ugi.handle_input("idk").unwrap();
         ugi.handle_input("idk off").unwrap();
         let state = ugi.state.match_state.clone();
-        assert_eq!(state.pos_before_moves, Board::default());
+        assert_eq!(state.pos_before_moves, chess::Board::default());
         assert_eq!(state.pos().active_player(), Black);
         assert_eq!(state.mov_hist.len(), 1);
         assert_eq!(state.board_hist.len(), 1);
         assert_eq!(state.status, Run(NotStarted));
         ugi.handle_input("undo").unwrap();
-        assert_eq!(*ugi.state.pos(), Board::default());
+        assert_eq!(*ugi.state.pos(), chess::Board::default());
         assert_eq!(ugi.state.mov_hist.len(), 0);
-        ugi.handle_input("position startpos e2e4").unwrap();
+        ugi.handle_input("kiwipete").unwrap();
+        ugi.handle_input("position old e2e4").unwrap();
         ugi.handle_input("randomize").unwrap();
         ugi.handle_input("gb").unwrap();
         assert_eq!(ugi.state.pos().active_player(), Black);
@@ -2166,17 +2291,47 @@ mod tests {
             "move_piece b2 b3",
             "help",
             "eval",
+            "bb attacks_of active",
         ];
         let seed = rng().random::<u64>();
         // let seed = 1880428284001215887;
         eprintln!("Seed: {seed}");
-        let mut rng = StdRng::seed_from_u64(seed);
+        let mut rng = SmallRng::seed_from_u64(seed);
         cmds.shuffle(&mut rng);
         for c in cmds {
             eprintln!("<EXECUTING> {c}");
             ugi.handle_input(c).unwrap();
         }
-        sleep(Duration::from_millis(5000));
+        sleep(Duration::from_millis(500));
+        ugi.quit().unwrap(); // can't use handle_input("quit") because that gets ignored in fuzzing mode
+        assert_eq!(ugi.state.status, Quit(QuitProgram));
+    }
+
+    #[test]
+    #[cfg(feature = "fairy")]
+    fn fairy_test() {
+        let mut ugi = create_fairy_game();
+        ugi.handle_input("variant crazyhouse").unwrap();
+        ugi.handle_input("sp 1").unwrap();
+        ugi.handle_input("place black knight g4").unwrap();
+        ugi.handle_input("move_piece d8 f3").unwrap();
+        ugi.handle_input("flip").unwrap();
+        ugi.handle_input("e").unwrap();
+        ugi.handle_input("listoptions").unwrap();
+        ugi.handle_input("debug off").unwrap();
+        let state = ugi.state.match_state.clone();
+        assert!(state.mov_hist.is_empty());
+        assert_eq!(state.pos().active_player(), fairy::Color::second());
+        assert_eq!(ugi.state.previous_states().len(), 3);
+        assert_eq!(state.status, Run(NotStarted));
+        ugi.handle_input("g inf m 1 d 5 n 3000 sn 2500 byoyomi 500 p c engine gaps h 1 mtg 42 mpv 2 t 1 winc 1 binc 1")
+            .unwrap();
+        ugi.handle_input("wait").unwrap();
+        let res = ugi.output.lock().unwrap().previous_search_res.clone();
+        let res = res.unwrap();
+        assert!(ugi.state.pos().is_move_legal(res.chosen_move));
+        println!("{}", res.chosen_move.to_extended_text(ugi.state.pos(), Standard));
+        assert_eq!(res.chosen_move, Move::from_text("Qxf2#", ugi.state.pos()).unwrap());
         ugi.quit().unwrap(); // can't use handle_input("quit") because that gets ignored in fuzzing mode
         assert_eq!(ugi.state.status, Quit(QuitProgram));
     }

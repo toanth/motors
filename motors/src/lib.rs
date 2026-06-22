@@ -4,7 +4,6 @@ use std::marker::PhantomData;
 use std::sync::{Arc, Mutex};
 
 use gears::dyn_clone::clone_box;
-use gears::rand::rngs::StdRng;
 
 use crate::Mode::{Bench, Perft};
 
@@ -23,9 +22,9 @@ use crate::eval::mnk::base::BasicMnkEval;
 use crate::eval::rand_eval::RandEval;
 #[cfg(feature = "uttt")]
 use crate::eval::uttt::lute::Lute;
-use crate::io::EngineUGI;
-use crate::io::cli::{EngineOpts, parse_cli};
+use crate::io::cli::{parse_cli, EngineOpts};
 use crate::io::ugi_output::UgiOutput;
+use crate::io::EngineUGI;
 #[cfg(feature = "caps")]
 use crate::search::chess::caps::Caps;
 #[cfg(feature = "gaps")]
@@ -36,12 +35,10 @@ use crate::search::generic::random_mover::RandomMover;
 use crate::search::multithreading::EngineWrapper;
 use crate::search::tt::TT;
 use crate::search::{
-    AbstractEvalBuilder, AbstractSearcherBuilder, Engine, EvalBuilder, EvalList, SearcherBuilder, SearcherList,
-    run_bench_with,
+    run_bench_with, AbstractEvalBuilder, AbstractSearcherBuilder, Engine, EvalBuilder, EvalList, SearcherBuilder,
+    SearcherList,
 };
-use gears::Quitting::*;
 use gears::cli::{ArgIter, Game};
-use gears::games::OutputList;
 #[cfg(feature = "ataxx")]
 use gears::games::ataxx;
 #[cfg(feature = "chess")]
@@ -52,18 +49,22 @@ use gears::games::fairy;
 use gears::games::mnk;
 #[cfg(feature = "uttt")]
 use gears::games::uttt;
+use gears::games::OutputList;
 use gears::general::board::Strictness::Relaxed;
 use gears::general::board::{BoardHelpers, BoardTrait};
-use gears::general::common::Description::WithDescription;
 use gears::general::common::anyhow::anyhow;
-use gears::general::common::{Res, select_name_dyn};
+use gears::general::common::Description::WithDescription;
+use gears::general::common::{select_name_dyn, Res};
 use gears::general::perft::Bulkness::Bulk;
+use gears::general::perft::Parallelize::Parallel;
 use gears::general::perft::{perft, split_perft};
 use gears::itertools::Itertools;
 use gears::output::normal_outputs;
+use gears::rand::prelude::SmallRng;
 use gears::search::{DepthPly, SearchLimit};
 use gears::ugi::load_ugi_pos_simple;
-use gears::{AbstractRun, AnyRunnable, OutputArgs, Quitting, create_selected_output_builders};
+use gears::Quitting::*;
+use gears::{create_selected_output_builders, AbstractRun, AnyRunnable, OutputArgs, Quitting};
 use std::fmt::{Display, Formatter};
 
 pub mod eval;
@@ -145,10 +146,10 @@ impl<B: BoardTrait> AbstractRun for PerftRun<B> {
         };
         let depth = self.depth.unwrap_or(pos.default_perft_depth());
         if self.split {
-            let res = split_perft(depth, pos, true, Bulk);
+            let res = split_perft(depth, pos, Parallel, Bulk, None);
             println!("{res}");
         } else {
-            let res = perft(depth, pos, true, Bulk);
+            let res = perft(depth, pos, Parallel, Bulk, None);
             println!("{res}");
         }
         QuitProgram
@@ -305,7 +306,7 @@ pub fn list_fairy_evals() -> EvalList<fairy::Board> {
 #[must_use]
 pub fn generic_searchers<B: BoardTrait>() -> SearcherList<B> {
     vec![
-        Box::new(SearcherBuilder::<B, RandomMover<B, StdRng>>::default()),
+        Box::new(SearcherBuilder::<B, RandomMover<B, SmallRng>>::default()),
         #[cfg(feature = "proof_number")]
         Box::new(SearcherBuilder::<B, ProofNumberSearcher<B>>::default()),
         #[cfg(feature = "gaps")]
@@ -364,7 +365,35 @@ pub fn create_match(args: EngineOpts) -> Res<AnyRunnable> {
     }
 }
 
+fn version_string() -> String {
+    let mut res = "Motors-".to_string();
+    res += std::env::consts::ARCH;
+    // currently, we're not using any intrinsics more modern than ssse3 apart from pext/pdep, but in practice most cpus should
+    // support avx2 or even avx512. Rust even enables sse2 by default, so it's unlikely we'll get the -compat case.
+    if cfg!(target_feature = "avx512f") {
+        res += "-avx512"
+    } else if cfg!(target_feature = "avx2") {
+        res += "-avx2"
+    } else if cfg!(target_feature = "avx") {
+        res += "-avx"
+    } else if cfg!(target_feature = "ssse3") {
+        res += "-ssse3"
+    } else if cfg!(target_feature = "sse2") {
+        res += "-sse2";
+    } else {
+        res += "-compat";
+    }
+    if cfg!(debug_assertions) {
+        res += " (debug version)";
+    }
+    if !cfg!(feature = "unsafe") {
+        res += " [unsafe features disabled]";
+    }
+    res
+}
+
 pub fn run_program_with_args(args: ArgIter) -> Res<()> {
+    println!("{}", version_string());
     let args = parse_cli(args).map_err(|err| anyhow!("Failed to parse command line arguments: {err}"))?;
     let mode = args.mode;
     let mut the_match = create_match(args).map_err(|err| anyhow!("Couldn't start the {mode}: {err}"))?;

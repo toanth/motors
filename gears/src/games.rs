@@ -94,11 +94,7 @@ pub trait ColorTrait: Debug + Default + Copy + Clone + PartialEq + Eq + Send + H
             if let Some(c) = chars.next()
                 && chars.next().is_none()
             {
-                if c.eq_ignore_ascii_case(&Self::first().to_char(settings)) {
-                    return Some(Self::first());
-                } else if c.eq_ignore_ascii_case(&Self::second().to_char(settings)) {
-                    return Some(Self::second());
-                }
+                return Self::from_char(c, settings);
             }
             None
         }
@@ -152,7 +148,7 @@ pub trait AbstractPieceType<B: BoardTrait>: Eq + Copy + Debug + Default {
 
     /// Names for colored pieces don't have to (but can) include the color, i.e. `x` and `o` could be named `"x"` and `"o"` but
     /// white and black pawn could both be named `"pawn"`, but also `"white pawn"` and `"black pawn"`.
-    fn name(&self, _settings: &B::Settings) -> impl AsRef<str>;
+    fn name(&self, _settings: &B::Settings) -> impl AsRef<str> + ToString;
 
     fn from_name(name: &str, settings: &B::Settings) -> Option<Self> {
         for piece in Self::non_empty(settings) {
@@ -415,7 +411,8 @@ pub trait SizeTrait<C: CoordinatesTrait>:
 
     /// Converts coordinates into an internal key. This function is injective, but **no further guarantees** are
     /// given. In particular, returned value do not have to be 0-based and do not have to be consecutive.
-    /// E.g. for Ataxx, this returns the index of embedding the ataxx board into a 8x8 board.
+    /// E.g. for Ataxx, this returns the index of embedding the ataxx board into a 8x8 board;
+    /// for UTTT, it iterates over squares of a sub board one subboard at a time
     fn internal_key(self, coordinates: C) -> usize;
 
     /// Converts an internal key into coordinates, the inverse of `to_internal_key`.

@@ -151,12 +151,12 @@ pub enum EngineOptionName {
 }
 
 #[derive(Debug, Clone, Eq, PartialEq, Hash)]
-pub struct EngineOptionNameForProto {
+pub struct EngineOptionNameForProtocol {
     pub name: EngineOptionName,
     pub proto: Protocol,
 }
 
-impl NamedEntity for EngineOptionNameForProto {
+impl NamedEntity for EngineOptionNameForProtocol {
     fn short_name(&self) -> String {
         self.name.name(self.proto).to_string()
     }
@@ -242,13 +242,13 @@ impl EngineOptionName {
     }
 }
 
-impl Display for EngineOptionNameForProto {
+impl Display for EngineOptionNameForProtocol {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.short_name())
     }
 }
 
-impl EngineOptionNameForProto {
+impl EngineOptionNameForProtocol {
     pub fn parse(s: &str, proto: Protocol) -> Res<Self> {
         let name = match s.to_ascii_lowercase().as_str() {
             "tt" => EngineOptionName::Hash,
@@ -257,13 +257,13 @@ impl EngineOptionNameForProto {
                 .find(|n| n.name(proto).eq_ignore_ascii_case(name))
                 .unwrap_or_else(|| EngineOptionName::Other(s.to_string())),
         };
-        Ok(EngineOptionNameForProto { name, proto })
+        Ok(EngineOptionNameForProtocol { name, proto })
     }
 }
 
 #[derive(Debug, Clone)]
 pub struct EngineOption {
-    pub name: EngineOptionNameForProto,
+    pub name: EngineOptionNameForProtocol,
     pub value: EngineOptionType,
 }
 
@@ -293,20 +293,22 @@ impl NamedEntity for EngineOption {
     }
 }
 
-pub fn parse_ugi_position_part_impl<B: BoardTrait>(
+fn parse_ugi_position_part_impl<B: BoardTrait>(
     first_word: &str,
     rest: &mut Tokens,
     current_pos: &B,
+    old_pos: Option<&B>,
     strictness: Strictness,
 ) -> Res<B> {
     Ok(match first_word.to_ascii_lowercase().as_str() {
         "fen" | "f" | "sfen" => B::read_fen_and_advance_input_for(rest, strictness, current_pos.settings_ref())?,
         "startpos" | "s" => B::startpos_for_settings(current_pos.settings_ref()),
         "current" | "c" => current_pos.clone(),
+        "old" | "o" | "previous" => old_pos.ok_or_else(|| anyhow!("There is no previous position"))?.clone(),
         // this is effectively just ignored, but it's nice to get autocompletion specifically for position names
         "name" | "pos_name" => {
             let Some(next) = rest.next() else { bail!("Expected a position name after 'name' subcommand") };
-            parse_ugi_position_part_impl(next, rest, current_pos, strictness)?
+            parse_ugi_position_part_impl(next, rest, current_pos, old_pos, strictness)?
         }
         "" => bail!("Empty position description, expected 'fen', 'startpos', 'current' or a name"),
         name => match B::from_name(name) {
@@ -328,6 +330,7 @@ pub fn parse_ugi_position_part<B: BoardTrait>(
     rest: &mut Tokens,
     allow_position_part: bool,
     current_pos: &B,
+    old: Option<&B>,
     strictness: Strictness,
 ) -> Res<B> {
     let mut first = first_word;
@@ -341,7 +344,7 @@ pub fn parse_ugi_position_part<B: BoardTrait>(
     }
     let remaining = rest.clone();
     let copy = rest.clone();
-    let res = parse_ugi_position_part_impl(first, rest, current_pos, strictness);
+    let res = parse_ugi_position_part_impl(first, rest, current_pos, old, strictness);
     let Err(err) = res else { return res };
     // If parsing the position failed, we try to insert 'fen' at the beginning and parse it again.
     // (So 'mnk 3 3 3 3/3/3 x 1' is valid)
@@ -360,7 +363,7 @@ pub fn parse_ugi_position_part<B: BoardTrait>(
     // TODO: Use protocol
     let pos = B::variant_for(first, rest, Protocol::Interactive).map_err(|_| err)?;
     let first = rest.next().unwrap_or("startpos");
-    parse_ugi_position_part_impl(first, rest, &pos, strictness).or(Ok(pos))
+    parse_ugi_position_part_impl(first, rest, &pos, old, strictness).or(Ok(pos))
 }
 
 fn ignore_move_number(input: &str) -> Option<&str> {
@@ -471,7 +474,7 @@ pub fn parse_ugi_position_and_moves<B: BoardTrait>(
     state: &mut dyn ParseUgiPosState<B>,
 ) -> Res<()> {
     let mut input_copy = rest.clone();
-    let pos = parse_ugi_position_part(first_word, rest, accept_pos_word, state.pos(), strictness);
+    let pos = parse_ugi_position_part(first_word, rest, accept_pos_word, state.pos(), state.previous(), strictness);
     // don't reset the position if all we got was moves
     // (i.e. 'p mv e4' allows going back to a position before the current position, unlike `p c mv e4`)
     if let Ok(pos) = &pos {
@@ -522,21 +525,25 @@ pub fn only_load_ugi_position<B: BoardTrait>(
 }
 
 pub trait ParseUgiPosState<B: BoardTrait> {
-    fn pos(&mut self) -> &mut B;
+    fn pos(&self) -> &B;
+    fn pos_mut(&mut self) -> &mut B;
     fn initial(&self) -> &B;
     fn previous(&self) -> Option<&B>;
     fn finish_pos_part(&mut self, pos: &B);
     fn make_move(&mut self, mov: B::Move) -> Res<()>;
 }
 
-struct SimpleParseUgiPosState<B: BoardTrait> {
-    pos: B,
-    initial_pos: B,
-    previous_pos: Option<B>,
+pub struct SimpleParseUgiPosState<B: BoardTrait> {
+    pub pos: B,
+    pub initial_pos: B,
+    pub previous_pos: Option<B>,
 }
 
 impl<B: BoardTrait> ParseUgiPosState<B> for SimpleParseUgiPosState<B> {
-    fn pos(&mut self) -> &mut B {
+    fn pos(&self) -> &B {
+        &self.pos
+    }
+    fn pos_mut(&mut self) -> &mut B {
         &mut self.pos
     }
     fn initial(&self) -> &B {
@@ -585,7 +592,7 @@ mod tests {
     #[cfg(feature = "chess")]
     #[test]
     fn test_chess_parsing() {
-        let input = "startpos moves e2e4 e7e5 yolo";
+        let input = "startpos moves 1.e2e4 e7e5 yolo";
         let mut pos = Board::startpos();
         assert!(load_ugi_pos_simple(input, Relaxed, &pos).is_err());
         assert!(only_load_ugi_position("position", &mut tokens(input), &pos, Strict, false, false).is_err());

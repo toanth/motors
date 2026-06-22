@@ -5,7 +5,6 @@ use gears::general::board::BoardTrait;
 
 use crate::eval::Eval;
 use crate::eval::rand_eval::RandEval;
-use crate::search::statistics::SearchType::MainSearch;
 use crate::search::{
     AbstractSearchState, EmptySearchStackEntry, Engine, EngineInfo, NoCustomInfo, NormalEngine, SearchState,
     SearchStateFor,
@@ -104,7 +103,6 @@ impl<B: BoardTrait> Engine<B> for Gaps<B> {
         let pos = self.state.params.pos.clone();
         limit.fixed_time = limit.fixed_time.min(limit.tc.remaining);
 
-        self.state.statistics.next_id_iteration();
         self.state.search_params_mut().limit = limit;
 
         'id: for depth in 1..=max_depth {
@@ -128,11 +126,11 @@ impl<B: BoardTrait> Engine<B> for Gaps<B> {
                 self.state.atomic().set_iteration(depth as usize);
                 self.state.atomic().update_seldepth(depth as usize);
                 let iteration_score = self.negamax(pos.clone(), 0, depth, SCORE_LOST, SCORE_WON);
-                self.state.cur_pv_data_mut().score = iteration_score;
                 if self.state.stop_flag() {
                     self.state.cur_pv_data_mut().bound = None;
                     break 'id;
                 }
+                self.state.cur_pv_data_mut().score = iteration_score;
                 self.state.cur_pv_data_mut().bound = Some(Exact);
                 // only set now so that incomplete iterations are discarded
                 let best_mpv_move = self.state.cur_pv_data().pv.get(0).unwrap_or_default();
@@ -144,7 +142,6 @@ impl<B: BoardTrait> Engine<B> for Gaps<B> {
                 self.state.excluded_moves.push(best_mpv_move);
             }
             self.state.excluded_moves.truncate(self.state.excluded_moves.len() - self.state.multi_pv());
-            self.state.statistics.next_id_iteration();
         }
         if !self.state.stop_flag() {
             // count an additional node to ensure the game remains reproducible
@@ -185,7 +182,6 @@ impl<B: BoardTrait> Gaps<B> {
         debug_assert!(alpha < beta);
         debug_assert!(ply <= MAX_DEPTH.get() * 2);
         debug_assert!(depth <= MAX_DEPTH.isize());
-        self.state.statistics.count_node_started(MainSearch);
 
         if self.count_node_and_test_stop() {
             return SCORE_TIME_UP;
@@ -211,7 +207,6 @@ impl<B: BoardTrait> Gaps<B> {
             if ply == 0 && self.state.excluded_moves.contains(&mov) {
                 continue;
             }
-            self.state.statistics.count_legal_make_move(MainSearch);
 
             self.state.params.history.push(pos.hash_pos());
 
@@ -238,8 +233,6 @@ impl<B: BoardTrait> Gaps<B> {
             }
             break;
         }
-        let node_type = best_score.node_type(alpha, beta);
-        self.state.statistics.count_complete_node(MainSearch, node_type, depth, ply, num_children);
         if num_children == 0 {
             if let Some(res) = pos.no_moves_result() {
                 return game_result_to_score(res, ply);
@@ -258,17 +251,34 @@ mod tests {
     use crate::eval::ataxx::bate::Bate;
     use crate::eval::chess::lite::LiTEval;
     use crate::eval::mnk::base::BasicMnkEval;
+    use crate::eval::uttt::lute::Lute;
     use crate::search::tests::generic_engine_test;
-    use gears::games::ataxx;
     use gears::games::chess;
     use gears::games::fairy;
-    use gears::games::mnk::Board;
+    use gears::games::{ataxx, mnk, uttt};
 
     #[test]
-    fn generic_test() {
+    fn generic_chess_test() {
         generic_engine_test::<chess::Board, Gaps<chess::Board>>(Gaps::for_eval::<LiTEval>());
-        generic_engine_test::<Board, Gaps<Board>>(Gaps::for_eval::<BasicMnkEval>());
+    }
+
+    #[test]
+    fn generic_mnk_test() {
+        generic_engine_test::<mnk::Board, Gaps<mnk::Board>>(Gaps::for_eval::<BasicMnkEval>());
+    }
+
+    #[test]
+    fn generic_ataxx_test() {
         generic_engine_test::<ataxx::Board, Gaps<ataxx::Board>>(Gaps::for_eval::<Bate>());
+    }
+
+    #[test]
+    fn generic_uttt_test() {
+        generic_engine_test::<uttt::Board, Gaps<uttt::Board>>(Gaps::for_eval::<Lute>());
+    }
+
+    #[test]
+    fn generic_fairy_test() {
         generic_engine_test::<fairy::Board, Gaps<fairy::Board>>(Gaps::for_eval::<RandEval>())
     }
 }

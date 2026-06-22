@@ -18,23 +18,28 @@
 use crate::games::SizeTrait;
 #[cfg(feature = "chess")]
 use crate::games::chess::squares::Square;
+#[cfg(all(feature = "unsafe", target_arch = "x86_64", target_feature = "avx2"))]
+use crate::general::attacks::avx2::U64x4;
 use crate::general::bitboards::RayDirections::{AntiDiagonal, Diagonal, Horizontal, Vertical};
 #[cfg(feature = "chess")]
 use crate::general::bitboards::chessboard::Bitboard;
+#[allow(unused)]
+use crate::general::bitboards::chessboard::KNIGHTS;
 use crate::general::bitboards::{
     ANTI_DIAGONALS_U64, ANTI_DIAGONALS_U128, BitboardTrait, DIAGONALS_U64, DIAGONALS_U128, ExtendedRawBitboard,
     KnownSizeBitboard, MAX_WIDTH, RawBitboardTrait, RawStandardBitboard, RayDirections, STEPS_U64, STEPS_U128,
 };
 use crate::general::squares::RectangularCoordinates;
 use crate::general::squares::RectangularSize;
-use crate::shift_left;
 use num::traits::WrappingSub;
 use std::fmt::Debug;
 use std::marker::PhantomData;
+#[cfg(all(feature = "unsafe", target_arch = "x86_64", target_feature = "avx2"))]
+use std::mem::transmute;
 use std::ops::{BitAnd, BitOr, BitXor, Sub};
 
 /// See <https://www.chessprogramming.org/SSSE3#SSSE3Version>, peshkov's optimization
-/// The Hyperbola Quintessence function, used to compute slider (actually, rider) attacks except for horizontal rays in chess.
+/// The Hyperbola Quintessence function, used to compute slider and rider attacks except for horizontal rays on u64 bitboards.
 #[inline]
 fn hq<W: WithRev>(square: W, ray: W, blockers: W) -> W {
     let blockers = blockers & ray;
@@ -92,7 +97,8 @@ impl ChessSliderGenerator {
     pub fn horizontal_attacks(&self, square: Square) -> Bitboard {
         let idx = square.bb_idx();
         let rank_shift = idx & 0b111_000;
-        let shifted = (self.blockers.bb() >> rank_shift) & (2 * 63);
+        // TODO: Probably better to not use an sse instruction for this; keep a separate blocker bb?
+        let shifted = (self.blockers.bb() >> rank_shift) & 0b0111_1110;
         let res = RANK_LOOKUP[(4 * shifted) as usize + (idx & 0b000_111)] as u64;
         Bitboard::new(res << rank_shift)
     }
@@ -122,6 +128,7 @@ impl ChessSliderGenerator {
         self.vertical_attacks(square) | self.horizontal_attacks(square)
     }
 
+    // TODO: Can probably use 256 bit SIMD to calculate diagonals and anti diagonals in parallel
     pub fn bishop_attacks(&self, square: Square) -> Bitboard {
         let idx = square.bb_idx();
         let res = self.hq(Diagonal, &CHESS_HQ_DATA[idx]) | self.hq(AntiDiagonal, &CHESS_HQ_DATA[idx]);
@@ -138,33 +145,143 @@ impl ChessSliderGenerator {
     }
 }
 
-/// See <https://www.chessprogramming.org/Kogge-Stone_Algorithm>
-pub fn kogge_stone<const DIR: isize>(sliders: Bitboard, mut allowed: Bitboard) -> Bitboard {
-    let mut res = sliders;
-    res |= allowed & shift_left!(res, DIR);
-    allowed &= shift_left!(allowed, DIR);
-    res |= allowed & shift_left!(res, 2 * DIR);
-    allowed &= shift_left!(allowed, 2 * DIR);
-    res |= allowed & shift_left!(res, 4 * DIR);
-    res
+#[cfg(not(all(feature = "unsafe", target_arch = "x86_64", target_feature = "avx2")))]
+/// See <https://www.chessprogramming.org/Kogge-Stone_Algorithm>; calculates all slider attacks along a direction and its reverse
+pub fn kogge_stone<const DIR: usize>(
+    sliders: Bitboard,
+    empty: Bitboard,
+    fwd_filter: Bitboard,
+    bwd_filter: Bitboard,
+) -> Bitboard {
+    let mut forward = sliders;
+    let mut fwd_allowed = empty & fwd_filter;
+    let mut backward = sliders;
+    let mut bwd_allowed = empty & bwd_filter;
+    forward |= fwd_allowed & (forward << DIR);
+    backward |= bwd_allowed & (backward >> DIR);
+    fwd_allowed &= fwd_allowed << DIR;
+    bwd_allowed &= bwd_allowed >> DIR;
+    forward |= fwd_allowed & (forward << 2 * DIR);
+    backward |= bwd_allowed & (backward >> 2 * DIR);
+    fwd_allowed &= fwd_allowed << 2 * DIR;
+    bwd_allowed &= bwd_allowed >> 2 * DIR;
+    forward |= fwd_allowed & (forward << 4 * DIR);
+    backward |= bwd_allowed & (backward >> 4 * DIR);
+    ((forward << DIR) & fwd_filter) | ((backward >> DIR) & bwd_filter)
 }
 
+#[cfg(all(feature = "unsafe", target_arch = "x86_64", target_feature = "avx2"))]
+/// executes four instances of [`kogge_stone`] in parallel, which means a single call calculates all slider attacks
+pub fn kogge_stone_sliders(
+    bishop_sliders: Bitboard,
+    rook_sliders: Bitboard,
+    empty: Bitboard,
+    fwd_filters: [Bitboard; 4],
+    bwd_filter: [Bitboard; 4],
+    dirs: [usize; 4],
+) -> U64x4 {
+    use std::arch::x86_64::_mm256_slli_epi64;
+    unsafe {
+        let sliders = U64x4::new([bishop_sliders, bishop_sliders, rook_sliders, rook_sliders]);
+        let fwd_filters = U64x4::new(fwd_filters);
+        let bwd_filters = U64x4::new(bwd_filter);
+        let empty = U64x4::new([empty; 4]);
+        let mut forward = sliders;
+        let mut backward = sliders;
+        let mut shift = U64x4::new(dirs.map(|d| Bitboard::new(d as u64)));
+        let shift_once = shift;
+        let mut fwd_allowed;
+        let mut bwd_allowed;
+        fwd_allowed = empty & fwd_filters;
+        bwd_allowed = empty & bwd_filters;
+        forward |= fwd_allowed & (forward << shift);
+        backward |= bwd_allowed & (backward >> shift);
+        for _ in 0..2 {
+            fwd_allowed &= fwd_allowed << shift;
+            bwd_allowed &= bwd_allowed >> shift;
+            shift = U64x4(_mm256_slli_epi64::<1>(shift.0));
+            forward |= fwd_allowed & (forward << shift);
+            backward |= bwd_allowed & (backward >> shift);
+        }
+        ((forward << shift_once) & fwd_filters) | ((backward >> shift_once) & bwd_filters)
+    }
+}
+
+#[cfg(not(all(feature = "unsafe", target_arch = "x86_64", target_feature = "avx2")))]
+#[allow(unused)]
 pub fn all_rook_attacks(sliders: Bitboard, empty: Bitboard) -> Bitboard {
-    let mut res = kogge_stone::<8>(sliders, empty) << 8;
-    res |= kogge_stone::<-8>(sliders, empty) >> 8;
-    res |= (kogge_stone::<1>(sliders, empty & !Bitboard::file_0()) << 1) & !Bitboard::file_0();
-    res |= (kogge_stone::<-1>(sliders, empty & !Bitboard::file(7)) >> 1) & !Bitboard::file(7);
-    res
+    let all = Bitboard::new(!0);
+    let vertical = kogge_stone::<8>(sliders, empty, all, all);
+    let horizontal = kogge_stone::<1>(sliders, empty, !Bitboard::file_0(), !Bitboard::file(7));
+    horizontal | vertical
 }
 
+#[cfg(not(all(feature = "unsafe", target_arch = "x86_64", target_feature = "avx2")))]
+#[allow(unused)]
 pub fn all_bishop_attacks(sliders: Bitboard, empty: Bitboard) -> Bitboard {
     let not_a_file = !Bitboard::file_0();
     let not_h_file = !Bitboard::file(7);
-    let mut res = (kogge_stone::<9>(sliders, empty & not_a_file) << 9) & not_a_file;
-    res |= (kogge_stone::<-9>(sliders, empty & not_h_file) >> 9) & not_h_file;
-    res |= (kogge_stone::<7>(sliders, empty & not_h_file) << 7) & not_h_file;
-    res |= (kogge_stone::<-7>(sliders, empty & not_a_file) >> 7) & not_a_file;
-    res
+    let diagonal = kogge_stone::<9>(sliders, empty, not_a_file, not_h_file);
+    let anti_diagonal = kogge_stone::<7>(sliders, empty, not_h_file, not_a_file);
+    diagonal | anti_diagonal
+}
+
+#[cfg(not(all(feature = "unsafe", target_arch = "x86_64", target_feature = "avx2")))]
+pub fn all_knight_and_slider_attacks(
+    knights: Bitboard,
+    bishop_sliders: Bitboard,
+    rook_sliders: Bitboard,
+    empty: Bitboard,
+) -> Bitboard {
+    let mut knight_attacks = Bitboard::default();
+    for knight in knights {
+        knight_attacks |= KNIGHTS[knight];
+    }
+    knight_attacks | all_bishop_attacks(bishop_sliders, empty) | all_rook_attacks(rook_sliders, empty)
+}
+
+#[cfg(all(feature = "unsafe", target_arch = "x86_64", target_feature = "avx2"))]
+pub fn all_knight_and_slider_attacks(
+    knights: Bitboard,
+    bishop_sliders: Bitboard,
+    rook_sliders: Bitboard,
+    empty: Bitboard,
+) -> Bitboard {
+    let not_a_file = !Bitboard::file_0();
+    let not_h_file = !Bitboard::file(7);
+    let all = Bitboard::new(!0);
+    let fwd_filters = [not_a_file, not_h_file, all, not_a_file];
+    let bwd_filters = [not_h_file, not_a_file, all, not_h_file];
+    let dirs = [9, 7, 8, 1];
+    let knights = all_knight_attacks_avx2(knights);
+    let sliders = kogge_stone_sliders(bishop_sliders, rook_sliders, empty, fwd_filters, bwd_filters, dirs);
+    let res = knights | sliders;
+    unsafe {
+        let [a, b, c, d]: [u64; 4] = transmute(res);
+        Bitboard::new(a | b | c | d)
+    }
+}
+
+#[cfg(all(feature = "unsafe", target_arch = "x86_64", target_feature = "avx2"))]
+#[inline]
+pub fn all_knight_attacks_avx2(knights: Bitboard) -> U64x4 {
+    use std::arch::x86_64::_mm256_setr_epi64x;
+    unsafe {
+        let knights = U64x4::new([knights; 4]);
+        let masks = [
+            !Bitboard::file(0),
+            !(Bitboard::file(0) | Bitboard::file(1)),
+            !Bitboard::file(7),
+            !(Bitboard::file(6) | Bitboard::file(7)),
+        ];
+        let masks = U64x4::new(masks);
+        let knights = knights & masks;
+        let shifts_up = U64x4(_mm256_setr_epi64x(2 * 8 - 1, 8 - 2, 2 * 8 + 1, 8 + 2));
+        let shifts_down = U64x4(_mm256_setr_epi64x(2 * 8 + 1, 8 + 2, 2 * 8 - 1, 8 - 2));
+        let mut res = knights << shifts_up;
+        res |= knights >> shifts_down;
+        res
+    }
 }
 
 // Factoring out the similarities with `ChessSliderGenerator` into a trait doesn't really reduce the amount of boilerplate
@@ -284,8 +401,6 @@ impl<'a, C: RectangularCoordinates, B: BitboardTrait<ExtendedRawBitboard, C>> Bi
 pub trait WithRev: Debug + Copy + Clone + BitAnd<Output = Self> + BitOr<Output = Self> + WrappingSub {
     type RawBitboard: RawBitboardTrait;
 
-    fn new(bb: Self::RawBitboard, reversed_bb: Self::RawBitboard) -> Self;
-
     fn bb(&self) -> Self::RawBitboard;
 
     fn rev_bb(&self) -> Self::RawBitboard;
@@ -296,77 +411,263 @@ pub trait WithRev: Debug + Copy + Clone + BitAnd<Output = Self> + BitOr<Output =
     }
 }
 
-// Sometimes (e.g. bishop attack gen), this gets auto vectorized
-#[derive(Debug, Default, Clone, Copy)]
-#[repr(align(16))]
-pub struct U64AndRev([RawStandardBitboard; 2]);
+#[cfg(all(feature = "unsafe", target_arch = "x86_64", target_feature = "avx2"))]
+mod avx2 {
+    use super::*;
+    use std::arch::x86_64::{__m256i, _mm256_and_si256, _mm256_or_si256, _mm256_sllv_epi64, _mm256_srlv_epi64};
+    use std::ops::{BitAndAssign, BitOrAssign, Shl, Shr};
 
-impl WithRev for U64AndRev {
-    type RawBitboard = RawStandardBitboard;
+    #[derive(Debug, Copy, Clone)]
+    pub struct U64x4(pub(super) __m256i);
 
-    fn new(bb: RawStandardBitboard, reversed: RawStandardBitboard) -> Self {
-        Self([bb, reversed])
+    impl U64x4 {
+        pub fn new(bbs: [Bitboard; 4]) -> Self {
+            unsafe { Self(transmute(bbs)) }
+        }
     }
 
-    #[inline]
-    fn bb(&self) -> RawStandardBitboard {
-        self.0[0]
+    impl BitAnd for U64x4 {
+        type Output = Self;
+
+        #[inline]
+        fn bitand(self, rhs: Self) -> Self::Output {
+            unsafe { Self(_mm256_and_si256(self.0, rhs.0)) }
+        }
     }
 
-    #[inline]
-    fn rev_bb(&self) -> Self::RawBitboard {
-        self.0[1]
+    impl BitAndAssign for U64x4 {
+        fn bitand_assign(&mut self, rhs: Self) {
+            *self = *self & rhs;
+        }
+    }
+
+    impl BitOr for U64x4 {
+        type Output = Self;
+
+        #[inline]
+        fn bitor(self, rhs: Self) -> Self::Output {
+            unsafe { Self(_mm256_or_si256(self.0, rhs.0)) }
+        }
+    }
+
+    impl BitOrAssign for U64x4 {
+        fn bitor_assign(&mut self, rhs: Self) {
+            *self = *self | rhs;
+        }
+    }
+
+    impl Shl for U64x4 {
+        type Output = Self;
+
+        fn shl(self, rhs: Self) -> Self {
+            unsafe { U64x4(_mm256_sllv_epi64(self.0, rhs.0)) }
+        }
+    }
+
+    impl Shr for U64x4 {
+        type Output = Self;
+
+        fn shr(self, rhs: Self) -> Self {
+            unsafe { U64x4(_mm256_srlv_epi64(self.0, rhs.0)) }
+        }
+    }
+}
+
+#[cfg(all(feature = "unsafe", target_arch = "x86_64", target_feature = "sse2"))]
+mod sse2 {
+    use super::*;
+    use std::arch::x86_64::__m128i;
+    #[allow(unused_imports)]
+    use std::arch::x86_64::{
+        _mm_and_si128, _mm_cvtsi128_si64, _mm_or_si128, _mm_set_epi64x, _mm_shuffle_epi8, _mm_sub_epi64, _mm_xor_si128,
+    };
+    use std::mem::transmute;
+    use std::ops::{BitAndAssign, BitOrAssign};
+
+    #[derive(Debug, Clone, Copy)]
+    pub struct U64X2(pub(super) __m128i);
+
+    impl WithRev for U64X2 {
+        type RawBitboard = RawStandardBitboard;
+
+        #[inline]
+        fn bb(&self) -> RawStandardBitboard {
+            unsafe { _mm_cvtsi128_si64(self.0) as RawStandardBitboard }
+        }
+
+        #[inline]
+        fn rev_bb(&self) -> Self::RawBitboard {
+            unreachable!("Should not need to be called for this implementation")
+        }
+
+        #[cfg(target_feature = "ssse3")]
+        fn finish(&self, _rev: impl FnOnce(Self::RawBitboard) -> Self::RawBitboard) -> Self::RawBitboard {
+            unsafe {
+                let byteswap_reverse = _mm_set_epi64x(i64::MAX, 0x08_09_0a_0b_0c_0d_0e_0f);
+                let reverse = _mm_shuffle_epi8(self.0, byteswap_reverse);
+                let r = _mm_xor_si128(self.0, reverse);
+                _mm_cvtsi128_si64(r) as RawStandardBitboard
+            }
+        }
+
+        #[cfg(not(target_feature = "ssse3"))]
+        fn finish(&self, rev: impl FnOnce(Self::RawBitboard) -> Self::RawBitboard) -> Self::RawBitboard {
+            // SAFETY: alignment isn't a concern for transmute
+            unsafe {
+                let [bb, reversed] = transmute::<__m128i, [u64; 2]>(self.0);
+                bb ^ rev(reversed)
+            }
+        }
+    }
+
+    impl U64X2 {
+        pub const fn new(bb: RawStandardBitboard, reversed: RawStandardBitboard) -> Self {
+            // unsafe {
+            //     let bb = _mm_cvtsi64_si128(bb as i64);
+            //     let reversed = _mm_cvtsi64_si128(reversed as i64);
+            //     Self(x86_64::_mm_unpacklo_epi64(bb, reversed))
+            // }
+
+            // intrinsics aren't const yet in stable rust
+            // SAFETY: __m128i is simply a "bag of bits" and alignment doesn't matter for transmute
+            unsafe { Self(transmute::<[u64; 2], __m128i>([bb, reversed])) }
+        }
+    }
+
+    impl Sub for U64X2 {
+        type Output = Self;
+
+        #[inline]
+        fn sub(self, rhs: Self) -> Self::Output {
+            unsafe { Self(_mm_sub_epi64(self.0, rhs.0)) }
+        }
+    }
+
+    impl WrappingSub for U64X2 {
+        #[inline]
+        fn wrapping_sub(&self, rhs: &Self) -> Self {
+            unsafe { Self(_mm_sub_epi64(self.0, rhs.0)) }
+        }
+    }
+
+    impl BitXor for U64X2 {
+        type Output = Self;
+
+        #[inline]
+        fn bitxor(self, rhs: Self) -> Self::Output {
+            unsafe { Self(_mm_xor_si128(self.0, rhs.0)) }
+        }
+    }
+
+    impl BitAnd for U64X2 {
+        type Output = Self;
+
+        #[inline]
+        fn bitand(self, rhs: Self) -> Self::Output {
+            unsafe { Self(_mm_and_si128(self.0, rhs.0)) }
+        }
+    }
+
+    impl BitAndAssign for U64X2 {
+        fn bitand_assign(&mut self, rhs: Self) {
+            *self = *self & rhs;
+        }
+    }
+
+    impl BitOr for U64X2 {
+        type Output = Self;
+
+        #[inline]
+        fn bitor(self, rhs: Self) -> Self::Output {
+            unsafe { Self(_mm_or_si128(self.0, rhs.0)) }
+        }
+    }
+
+    impl BitOrAssign for U64X2 {
+        fn bitor_assign(&mut self, rhs: Self) {
+            *self = *self | rhs;
+        }
     }
 }
 
-impl U64AndRev {
-    pub const fn unreversed(bb: RawStandardBitboard) -> Self {
-        Self([bb, bb])
+mod fallback {
+    use super::*;
+
+    #[derive(Debug, Default, Clone, Copy)]
+    #[repr(align(16))]
+    #[allow(unused)]
+    pub struct U64AndRev([RawStandardBitboard; 2]);
+
+    impl WithRev for U64AndRev {
+        type RawBitboard = RawStandardBitboard;
+
+        #[inline]
+        fn bb(&self) -> RawStandardBitboard {
+            self.0[0]
+        }
+
+        #[inline]
+        fn rev_bb(&self) -> Self::RawBitboard {
+            self.0[1]
+        }
+    }
+
+    impl U64AndRev {
+        #[allow(unused)]
+        pub const fn new(bb: RawStandardBitboard, reversed: RawStandardBitboard) -> Self {
+            Self([bb, reversed])
+        }
+    }
+
+    impl Sub for U64AndRev {
+        type Output = Self;
+
+        #[inline]
+        fn sub(self, rhs: Self) -> Self::Output {
+            Self([self.0[0] - rhs.0[0], self.0[1] - rhs.0[1]])
+        }
+    }
+
+    impl WrappingSub for U64AndRev {
+        #[inline]
+        fn wrapping_sub(&self, v: &Self) -> Self {
+            Self([self.0[0].wrapping_sub(v.0[0]), self.0[1].wrapping_sub(v.0[1])])
+        }
+    }
+
+    impl BitXor for U64AndRev {
+        type Output = Self;
+
+        #[inline]
+        fn bitxor(self, rhs: Self) -> Self::Output {
+            Self([self.0[0] ^ rhs.0[0], self.0[1] ^ rhs.0[1]])
+        }
+    }
+
+    impl BitAnd for U64AndRev {
+        type Output = Self;
+
+        #[inline]
+        fn bitand(self, rhs: Self) -> Self::Output {
+            Self([self.0[0] & rhs.0[0], self.0[1] & rhs.0[1]])
+        }
+    }
+
+    impl BitOr for U64AndRev {
+        type Output = Self;
+
+        #[inline]
+        fn bitor(self, rhs: Self) -> Self::Output {
+            Self([self.0[0] | rhs.0[0], self.0[1] | rhs.0[1]])
+        }
     }
 }
 
-impl Sub for U64AndRev {
-    type Output = Self;
+#[cfg(not(all(feature = "unsafe", target_arch = "x86_64", target_feature = "sse2")))]
+pub type U64AndRev = fallback::U64AndRev;
 
-    #[inline]
-    fn sub(self, rhs: Self) -> Self::Output {
-        Self([self.0[0] - rhs.0[0], self.0[1] - rhs.0[1]])
-    }
-}
-
-impl WrappingSub for U64AndRev {
-    #[inline]
-    fn wrapping_sub(&self, v: &Self) -> Self {
-        Self([self.0[0].wrapping_sub(v.0[0]), self.0[1].wrapping_sub(v.0[1])])
-    }
-}
-
-impl BitXor for U64AndRev {
-    type Output = Self;
-
-    #[inline]
-    fn bitxor(self, rhs: Self) -> Self::Output {
-        Self([self.0[0] ^ rhs.0[0], self.0[1] ^ rhs.0[1]])
-    }
-}
-
-impl BitAnd for U64AndRev {
-    type Output = Self;
-
-    #[inline]
-    fn bitand(self, rhs: Self) -> Self::Output {
-        Self([self.0[0] & rhs.0[0], self.0[1] & rhs.0[1]])
-    }
-}
-
-impl BitOr for U64AndRev {
-    type Output = Self;
-
-    #[inline]
-    fn bitor(self, rhs: Self) -> Self::Output {
-        Self([self.0[0] | rhs.0[0], self.0[1] | rhs.0[1]])
-    }
-}
+#[cfg(all(feature = "unsafe", target_arch = "x86_64", target_feature = "sse2"))]
+pub type U64AndRev = sse2::U64X2;
 
 #[derive(Debug, Default, Copy, Clone)]
 pub struct U128AndRev([ExtendedRawBitboard; 2]);
@@ -374,6 +675,10 @@ pub struct U128AndRev([ExtendedRawBitboard; 2]);
 impl U128AndRev {
     const fn bit_reversed(bb: ExtendedRawBitboard) -> Self {
         Self([bb, bb.reverse_bits()])
+    }
+
+    const fn new(bb: ExtendedRawBitboard, reversed_bb: ExtendedRawBitboard) -> Self {
+        Self([bb, reversed_bb])
     }
 }
 
@@ -410,10 +715,6 @@ impl Sub<Self> for U128AndRev {
 impl WithRev for U128AndRev {
     type RawBitboard = ExtendedRawBitboard;
 
-    fn new(bb: Self::RawBitboard, reversed_bb: Self::RawBitboard) -> Self {
-        Self([bb, reversed_bb])
-    }
-
     fn bb(&self) -> Self::RawBitboard {
         self.0[0]
     }
@@ -427,10 +728,10 @@ impl WithRev for U128AndRev {
 /// `static` instead of `const` because it's relatively large and used in multiple places
 #[allow(unused)]
 static CHESS_HQ_DATA: [HqDataByteswap<u64>; 64] = {
-    let zero = HqDataByteswap { square: U64AndRev::unreversed(0), rays: [U64AndRev::unreversed(0); 3] };
+    let zero = HqDataByteswap { square: U64AndRev::new(0, 0), rays: [U64AndRev::new(0, 0); 3] };
     let mut res = [zero; 64];
     const fn byteswapped(bb: RawStandardBitboard) -> U64AndRev {
-        U64AndRev([bb, bb.swap_bytes()])
+        U64AndRev::new(bb, bb.swap_bytes())
     }
     let mut i = 0;
     while i < 64 {
@@ -491,10 +792,44 @@ static BIT_REVERSE_HQ_DATA: [[U128BitReverseHq; 128]; MAX_WIDTH] = {
     res
 };
 
+// Attacks that go to the right on a cylindrical board.
+// Attacks that go to the left can be calculated by calling `.reverse_bits` before and after.
+// This special case function is necessary because attacks that wrap around break many assumptions of regular hq, such as indices within
+// a ray being monotonic.
+pub fn hq_right_horizontal_cylinder(
+    file: usize,
+    w: usize,
+    step: usize,
+    all_blockers: ExtendedRawBitboard,
+) -> ExtendedRawBitboard {
+    debug_assert!(step > 0 && step <= w, "{step} {w}");
+    let mut res = ExtendedRawBitboard::default();
+    let piece = ExtendedRawBitboard::single_piece_at(file);
+    let mut start = piece;
+    loop {
+        debug_assert!(start.is_single_piece());
+        let ray = STEPS_U128[step] << (start.trailing_zeros() as usize + step);
+        let blockers = all_blockers & ray;
+        let forward = (blockers.wrapping_sub(start) ^ blockers) & ray;
+        let wrap_around = forward & (!0 << w);
+        res |= forward & !wrap_around;
+        let wrap_around = (wrap_around >> w) & ((1 << w) - 1) & !res;
+        start = wrap_around.lsb();
+        if start.is_zero() {
+            break;
+        }
+        res |= start;
+        if all_blockers & start != 0 {
+            break;
+        }
+    }
+    res
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::general::bitboards::chessboard::white_squares;
+    use crate::general::bitboards::chessboard::light_squares;
     use crate::general::bitboards::{DynamicallySizedBitboard, KnownSizeBitboard};
     use crate::general::squares::{GridCoordinates, GridSize};
     use std::str::FromStr;
@@ -514,7 +849,7 @@ mod tests {
 
     #[test]
     fn chess_test() {
-        let blockers = white_squares();
+        let blockers = light_squares();
         let generator = ChessSliderGenerator::new(blockers);
         let attacks_bishop_a1 = generator.bishop_attacks(Square::from_bb_idx(0));
         assert_eq!(attacks_bishop_a1, Bitboard::diagonal(Square::from_bb_idx(0)) & !Bitboard::new(1));
@@ -570,6 +905,7 @@ mod tests {
         assert_eq!(attacks.raw(), (1 << 16) | (1 << 23), "{attacks}");
     }
 
+    #[cfg(not(all(feature = "unsafe", target_arch = "x86_64", target_feature = "avx2")))]
     #[test]
     fn test_all_rook_attacks() {
         let rooks = Bitboard::new(0x8000100000028000);
@@ -578,7 +914,8 @@ mod tests {
         let expected = Bitboard::new(0xff92ef9282bdff82);
         assert_eq!(attacks, expected);
     }
-
+    
+    #[cfg(not(all(feature = "unsafe", target_arch = "x86_64", target_feature = "avx2")))]
     #[test]
     fn test_all_bishop_attacks() {
         let bishops = Bitboard::new(0x8000100000021008);
@@ -586,5 +923,70 @@ mod tests {
         let attacks = all_bishop_attacks(bishops, !blockers);
         let expected = Bitboard::new(0x446820b84dae1728);
         assert_eq!(attacks, expected);
+    }
+
+    #[test]
+    fn test_all_slider_attaks() {
+        let bishops = Bitboard::new(0x420000004);
+        let rooks = Bitboard::new(0x2120000000);
+        let free = Bitboard::new(0x7f95ffdadf6dfffb);
+        let attacks = all_knight_and_slider_attacks(Bitboard::default(), bishops, rooks, free);
+        let expected = Bitboard::new(0x2335abfeff71ab21);
+        assert_eq!(attacks, expected);
+    }
+
+    #[test]
+    fn test_all_knight_attacks() {
+        let empty = Bitboard::default();
+        let knight = Bitboard::new(0x100);
+        let expected = Bitboard::new(0x2040004);
+        let attacks = all_knight_and_slider_attacks(knight, empty, empty, empty);
+        assert_eq!(attacks, expected);
+
+        let knights = Bitboard::new(0x2000008001000200);
+        let expected = Bitboard::new(0xc87204254c0208);
+        let attacks = all_knight_and_slider_attacks(knights, empty, empty, empty);
+        assert_eq!(attacks, expected);
+    }
+
+    #[test]
+    fn test_hq_right_horizontal_cylinder() {
+        let blockers = !0;
+        let attacks = hq_right_horizontal_cylinder(0, 8, 1, blockers);
+        debug_assert_eq!(attacks, 2);
+        let blockers = 17;
+        let attacks = hq_right_horizontal_cylinder(1, 9, 1, blockers);
+        debug_assert_eq!(attacks, 0b11100);
+        let blockers = 0;
+        let attacks = hq_right_horizontal_cylinder(2, 10, 1, blockers);
+        debug_assert_eq!(attacks, 0b11_1111_1111);
+        let blockers = 2;
+        let attacks = hq_right_horizontal_cylinder(4, 6, 1, blockers);
+        debug_assert_eq!(attacks, 0b10_0011);
+        for w in 2..=26 {
+            for file in 0..w {
+                for step in 1..(w + 1) {
+                    for blocker_step in 1..(w + 3) {
+                        for blocker_start in 0..(w + 3) {
+                            let blockers = STEPS_U128[blocker_step] << blocker_start;
+                            let attacks = hq_right_horizontal_cylinder(file, w, step, blockers);
+                            let mut expected = 0;
+                            let mut i = (file + step) % w;
+                            loop {
+                                expected |= 1 << i;
+                                if blockers.is_bit_set_at(i) || i == file {
+                                    break;
+                                }
+                                i = (i + step) % w;
+                            }
+                            assert_eq!(
+                                attacks, expected,
+                                "w {w}, file {file}, step {step}, blocker_step {blocker_step}, blocker_start {blocker_start}, blockers {blockers:x}"
+                            );
+                        }
+                    }
+                }
+            }
+        }
     }
 }

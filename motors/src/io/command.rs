@@ -15,32 +15,32 @@
  *  You should have received a copy of the GNU General Public License
  *  along with Motors. If not, see <https://www.gnu.org/licenses/>.
  */
-use crate::io::SearchType::{Auto, Bench, Normal, Perft, Ponder, SplitPerft};
 use crate::io::autocomplete::AutoCompleteState;
 use crate::io::command::Standard::*;
+use crate::io::SearchType::{Auto, Bench, Normal, Perft, Ponder, SplitPerft};
 use crate::io::{AbstractEngineUgiState, EngineUGI, SearchType};
-use gears::GameResult;
-use gears::MatchStatus::{Ongoing, Over};
-use gears::ProgramStatus::Run;
-use gears::Quitting::{QuitMatch, QuitProgram};
 use gears::arrayvec::ArrayVec;
 use gears::cli::Game;
 use gears::colored::Colorize;
-use gears::games::CharType::{Ascii, Unicode};
 #[cfg(feature = "fairy")]
 use gears::games::fairy::Board;
+use gears::games::CharType::{Ascii, Unicode};
 use gears::games::{AbstractPieceType, ColorTrait, ColoredPieceTrait, SizeTrait};
 use gears::general::board::{BoardHelpers, BoardTrait, ColPieceTypeOf, Strictness};
 use gears::general::common::anyhow::{anyhow, bail};
 use gears::general::common::{
-    Name, NamedEntity, Res, Tokens, parse_duration_ms, parse_int, parse_int_from_str, tokens,
+    parse_duration_ms, parse_int, parse_int_from_str, tokens, Name, NamedEntity, Res, Tokens,
 };
 use gears::general::moves::{ExtendedFormat, MoveTrait};
 use gears::itertools::Itertools;
 use gears::output::Message::Warning;
 use gears::output::OutputOpts;
-use gears::search::{DepthPly, NodesLimit, SearchLimit};
-use gears::ugi::{EngineOption, EngineOptionType, only_load_ugi_position};
+use gears::search::{DepthPly, NodesLimit, SearchLimit, MAX_DEPTH};
+use gears::ugi::{only_load_ugi_position, EngineOption, EngineOptionType};
+use gears::GameResult;
+use gears::MatchStatus::{Ongoing, Over};
+use gears::ProgramStatus::Run;
+use gears::Quitting::{QuitMatch, QuitProgram};
 use std::fmt;
 use std::fmt::{Debug, Display, Formatter};
 use std::time::{Duration, Instant};
@@ -58,7 +58,7 @@ pub type CommandList = Vec<Command>;
 
 fn display_cmd(f: &mut Formatter<'_>, cmd: &Command) -> fmt::Result {
     if let Some(desc) = cmd.description() {
-        write!(f, "{}: {desc}.", cmd.short_name().bold())
+        write!(f, "{}: {desc}.", cmd.short_name().bold().underline())
     } else {
         write!(f, "{}", cmd.short_name().bold())
     }
@@ -66,7 +66,7 @@ fn display_cmd(f: &mut Formatter<'_>, cmd: &Command) -> fmt::Result {
 
 type SubCommandFnT = Box<dyn Fn(&mut dyn AutoCompleteState) -> CommandList>;
 #[derive(Default)]
-struct SubCommandsFn(Option<SubCommandFnT>);
+pub(super) struct SubCommandsFn(Option<SubCommandFnT>);
 
 impl Debug for SubCommandsFn {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
@@ -75,8 +75,12 @@ impl Debug for SubCommandsFn {
 }
 
 impl SubCommandsFn {
-    pub fn new(cmd: fn(&mut dyn AutoCompleteState) -> CommandList) -> Self {
+    fn new(cmd: fn(&mut dyn AutoCompleteState) -> CommandList) -> Self {
         Self(Some(Box::new(cmd)))
+    }
+
+    pub(super) fn new_from_box(cmd: Box<dyn Fn(&mut dyn AutoCompleteState) -> CommandList>) -> Self {
+        Self(Some(cmd))
     }
 
     fn call(&self, state: &mut dyn AutoCompleteState) -> CommandList {
@@ -95,7 +99,7 @@ pub struct Command {
     pub standard: Standard,
     pub autocomplete_recurse: bool,
     pub func: fn(&mut dyn AbstractEngineUgiState, remaining_input: &mut Tokens, _cmd: &str) -> Res<()>,
-    sub_commands: SubCommandsFn,
+    pub(super) sub_commands: SubCommandsFn,
 }
 
 impl Command {
@@ -197,7 +201,7 @@ pub fn ugi_commands() -> CommandList {
             --> |state: &mut dyn AutoCompleteState| state.go_subcmds(Normal),
             recurse = true
         ),
-        command!(stop, All, "Stop the current search. No effect if not searching", |ugi, _, _| ugi.handle_stop(false)),
+        command!(stop, All, "Stop the current search. No effect if not searching", |ugi, _, _| ugi.handle_stop()),
         command!(
             position | pos | p,
             All,
@@ -224,7 +228,7 @@ pub fn ugi_commands() -> CommandList {
             --> |state| state.option_subcmds(false)
         ),
         command!(
-            uginewgame | ucinewgame | uainewgame | clear,
+            uginewgame | ucinewgame | uainewgame | clear | forget,
             All,
             "Resets the internal engine state (doesn't reset engine options)",
             |ugi, _, _| ugi.handle_uginewgame()
@@ -315,6 +319,12 @@ pub fn ugi_commands() -> CommandList {
             "Enables logging. Can optionally specify a file name, `stdout` / `stderr` or `off`",
             |ugi, words, _| ugi.handle_log(words)
         ),
+        command!(bb | bitboard,
+            Custom,
+            "Show a given bitboard. Numbers are assumed to be hexadecimal.",
+            |ugi, words, _| ugi.handle_bb(words),
+            --> |state| state.bb_subcmds()
+        ),
         command!(
             debug | d,
             Custom,
@@ -335,7 +345,7 @@ pub fn ugi_commands() -> CommandList {
             --> |state| state.engine_subcmds()
         ),
         command!(
-            set_eval | se,
+            set_eval | SetEval | se,
             Custom,
             "Sets the eval for the current engine. Doesn't reset the internal engine state",
             |ugi, words, _| ugi.handle_set_eval(words),
@@ -386,7 +396,7 @@ pub fn ugi_commands() -> CommandList {
         command!(
             place | place_piece | put,
             Custom,
-            "Places a piece of the given color on the given square, e.g. 'place white pawn e4",
+            "Places a piece of the given color on the given square, e.g. 'place white pawn e4'",
             |ugi, words, _| ugi.handle_place_piece(words),
             --> |state| state.piece_subcmds()
         ),
@@ -468,6 +478,7 @@ pub fn ugi_commands() -> CommandList {
 /// The purpose of this trait is to type erase the Board
 pub trait AbstractGoState: Debug {
     fn set_searchmoves(&mut self, words: &mut Tokens) -> Res<()>;
+    fn set_excludemoves(&mut self, words: &mut Tokens) -> Res<()>;
     fn set_time(&mut self, words: &mut Tokens, first: bool, inc: bool, name: &str) -> Res<()>;
     fn override_hash(&mut self, words: &mut Tokens) -> Res<()>;
     fn limit_mut(&mut self) -> &mut SearchLimit;
@@ -478,17 +489,30 @@ pub trait AbstractGoState: Debug {
     fn is_first_player_active(&self) -> bool;
 }
 
+fn set_sm_or_em<B: BoardTrait>(pos: &B, words: &mut Tokens, name: &str) -> Res<Vec<B::Move>> {
+    let mut moves = vec![];
+    while let Some(mov) = words.peek().and_then(|m| B::Move::from_text(m, pos).ok()) {
+        _ = words.next().unwrap();
+        moves.push(mov);
+    }
+    if moves.is_empty() {
+        let additional = words.peek().map(|w| format!(" (the next word is '{}')", w.red())).unwrap_or_default();
+        bail!("No valid moves after '{}' command{additional}", name.bold());
+    }
+    Ok(moves)
+}
+
 impl<B: BoardTrait> AbstractGoState for GoState<B> {
     fn set_searchmoves(&mut self, words: &mut Tokens) -> Res<()> {
-        let mut search_moves = vec![];
-        while let Some(mov) = words.peek().and_then(|m| B::Move::from_text(m, &self.pos).ok()) {
-            _ = words.next().unwrap();
-            search_moves.push(mov);
-        }
-        if search_moves.is_empty() {
-            bail!("No valid moves after 'searchmoves' command");
-        }
-        self.search_moves = Some(search_moves);
+        self.search_moves = Some(set_sm_or_em(&self.pos, words, "searchmoves")?);
+        Ok(())
+    }
+
+    fn set_excludemoves(&mut self, words: &mut Tokens) -> Res<()> {
+        let excluded = set_sm_or_em(&self.pos, words, "excludemoves")?;
+        let mut sm = self.search_moves.clone().unwrap_or_else(|| self.pos.legal_moves_slow().into_iter().collect_vec());
+        sm.retain(|m| !excluded.contains(m));
+        self.search_moves = Some(sm);
         Ok(())
     }
 
@@ -564,6 +588,7 @@ pub struct GenericGoState {
     pub multi_pv: usize,
     pub threads: Option<usize>,
     pub search_type: SearchType,
+    pub upto: bool,
     pub complete: bool,
     pub unique: bool,
     pub compare: bool,
@@ -617,6 +642,7 @@ impl<B: BoardTrait> GoState<B> {
                 multi_pv: 1,
                 threads: None,
                 search_type,
+                upto: false,
                 complete: false,
                 unique: false,
                 compare: false,
@@ -673,6 +699,15 @@ pub(super) fn go_options_impl(
     color_names: [String; 2],
 ) -> CommandList {
     let mut res = vec![depth_cmd()];
+    if mode.is_none_or(|m| m == Perft) {
+        res.push(command!(upto, Custom, "Print all perft results up to the given depth", |state, _words, _| {
+            if state.go_state_mut().get_mut().search_type != Perft {
+                bail!("The 'upto' option can only be used with 'perft' searches")
+            }
+            state.go_state_mut().get_mut().upto = true;
+            Ok(())
+        }));
+    }
     if matches!(mode.unwrap_or(Normal), Perft | SplitPerft) {
         res.push(command!(
             threads | t,
@@ -682,6 +717,12 @@ pub(super) fn go_options_impl(
                 state.go_state_mut().get_mut().threads = Some(parse_int(words, "threads")?);
                 Ok(())
             }
+        ));
+        res.push(command!(
+            hash | h | tt | cache,
+            Custom,
+            "Use a TT of n MiB for perft. Can in theory cause incorrect results",
+            |state, words, _| state.go_state_mut().override_hash(words)
         ));
     } else {
         let mut additional: CommandList = vec![
@@ -789,7 +830,14 @@ pub(super) fn go_options_impl(
             ),
             command!(mate | m, All, "Maximum depth in moves until a mate has to be found", |state, words, _| {
                 let depth: isize = parse_int(words, "mate move count")?;
-                state.go_state_mut().limit_mut().mate = DepthPly::try_new(depth * 2)?; // 'mate' is given in moves instead of plies
+                if depth.abs() > MAX_DEPTH.isize() / 2 {
+                    bail!(
+                        "Mate depth too large ({0}); maximum value is {1}",
+                        depth.to_string().red(),
+                        (MAX_DEPTH.isize() / 2).to_string().bold()
+                    )
+                }
+                state.go_state_mut().limit_mut().mate = depth * 2; // 'mate' is given in moves instead of plies
                 Ok(())
             }),
             command!(movetime | mt, All, "Maximum time in ms", |state, words, _| {
@@ -811,6 +859,13 @@ pub(super) fn go_options_impl(
                 --> |state| state.moves_subcmds(false, false),
                 recurse = true
             ),
+            command!(excludemoves | em | ignoremoves,
+            Custom,
+            "Don't search the specified moves; the dual of 'searchmoves'",
+            |state, words, _| state.go_state_mut().set_excludemoves(words),
+            --> |state| state.moves_subcmds(false, false),
+            recurse = true
+            ),
             command!(
                 multipv | mpv,
                 Custom,
@@ -829,7 +884,7 @@ pub(super) fn go_options_impl(
                     Ok(())
                 }
             ),
-            command!(hash | h | tt, Custom, "Search with a temporary TT of n MiB", |state, words, _| state
+            command!(hash | h | tt | cache, Custom, "Search with a temporary TT of n MiB", |state, words, _| state
                 .go_state_mut()
                 .override_hash(words)),
             command!(ponder, All, "Search on the opponent's time", |state, _, _| state
@@ -879,7 +934,7 @@ pub(super) fn go_options_impl(
     if mode.is_none_or(|m| m == Perft) {
         res.push(command!(unique, Custom, "Only count unique positions in perft", |state, _, _| {
             if state.go_state_mut().get_mut().search_type != Perft {
-                bail!("The 'all' option can only be used with 'perft' searches")
+                bail!("The 'unique' option can only be used with 'perft' searches")
             }
             state.go_state_mut().get_mut().unique = true;
             Ok(())

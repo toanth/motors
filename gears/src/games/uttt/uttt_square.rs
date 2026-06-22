@@ -141,7 +141,7 @@ impl Square {
     }
 
     pub fn to_u8(self) -> u8 {
-        self.sub_square.to_u8() + self.sub_board.to_u8() * 9
+        self.sub_square.as_u8() + self.sub_board.as_u8() * 9
     }
 
     pub fn from_bb_idx(idx: usize) -> Self {

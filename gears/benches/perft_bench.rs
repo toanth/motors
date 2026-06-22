@@ -1,13 +1,15 @@
+use std::hint::black_box;
 use std::time::Duration;
 
-use criterion::{Criterion, black_box, criterion_group, criterion_main};
+use criterion::{Criterion, criterion_group, criterion_main};
 use gears::games::chess::Board;
 use gears::games::chess::Color::White;
 use gears::general::bitboards::RawBitboardTrait;
 use gears::general::board::Strictness::Relaxed;
 use gears::general::board::{BitboardBoard, BoardHelpers, BoardTrait};
-use gears::general::perft::perft;
+use gears::general::perft::{Bulkness, perft};
 use gears::search::DepthPly;
+use itertools::Itertools;
 
 const QUEENS_FEN: &str = "k7/3Q3Q/8/2Q5/2Q3Q1/2Q5/2QQ3Q/KQ6 w - - 0 1";
 const ROOKS_FEN: &str = "k7/4R3/5R2/8/2R3R1/2R5/2RR3R/KRR5 w - - 0 1";
@@ -18,14 +20,14 @@ const PAWNS_FEN: &str = "k7/3P3P/7p/1p3pP1/2P5/3Pp3/2PP3P/K7 w - f6 0 2";
 pub fn perft_startpos_bench(c: &mut Criterion) {
     c.bench_function("perft 4 startpos", |b| {
         let pos = Board::default();
-        b.iter(|| perft(DepthPly::new(4), pos, false));
+        b.iter(|| perft(DepthPly::new(4), pos, false, Bulkness::NoBulk));
     });
 }
 
 pub fn perft_kiwipete_bench(c: &mut Criterion) {
     c.bench_function("perft 4 kiwipete", |b| {
         let pos = Board::from_name("kiwipete").unwrap();
-        b.iter(|| perft(DepthPly::new(4), pos, false));
+        b.iter(|| perft(DepthPly::new(4), pos, false, Bulkness::NoBulk));
     });
 }
 
@@ -90,9 +92,9 @@ pub fn play_pawn_moves(c: &mut Criterion) {
 
 pub fn bitboard_ones_bench(c: &mut Criterion) {
     c.bench_function("bitboard ones", |b| {
-        let positions = Board::bench_positions();
-        b.iter(|| {
-            for pos in &positions {
+        let positions = Board::bench_positions().into_iter().collect_vec();
+        b.iter(move || {
+            for &pos in &positions {
                 let mut sum = 0;
                 for piece in pos.player_bb(White) {
                     sum += piece.bb_idx();
@@ -105,10 +107,10 @@ pub fn bitboard_ones_bench(c: &mut Criterion) {
 
 pub fn bitboard_poplsb_bench(c: &mut Criterion) {
     c.bench_function("bitboard poplsb", |b| {
-        let positions = Board::bench_positions();
-        b.iter(|| {
+        let positions = Board::bench_positions().into_iter().collect_vec();
+        b.iter(move || {
             let mut sum = 0;
-            for pos in &positions {
+            for &pos in &positions {
                 let mut bb = pos.player_bb(White);
                 while bb.has_any() {
                     sum += bb.pop_lsb();

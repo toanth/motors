@@ -1,3 +1,4 @@
+use crate::games::PosHash;
 use crate::general::common::Description::WithDescription;
 use crate::score::Score;
 pub use anyhow;
@@ -5,6 +6,7 @@ use anyhow::bail;
 use colored::Colorize;
 use edit_distance::edit_distance;
 use itertools::Itertools;
+pub use linkme::distributed_slice;
 use num::{Float, PrimInt};
 #[cfg(all(target_arch = "x86_64", target_feature = "bmi2", feature = "unsafe"))]
 use std::arch::x86_64::{_pdep_u64, _pext_u64};
@@ -13,9 +15,11 @@ use std::io::stdin;
 use std::iter::Peekable;
 use std::num::{NonZeroU64, NonZeroUsize};
 use std::str::{FromStr, SplitAsciiWhitespace};
+use std::sync::atomic::Ordering::Relaxed;
+use std::sync::atomic::{AtomicI64, AtomicU64};
 use std::time::Duration;
-// The `bitintr` crate provides similar features, but unfortunately it is bugged and unmaintained.
 
+// The `bitintr` crate provides similar features, but unfortunately it is bugged and unmaintained.
 #[allow(unused)]
 fn pdep64_fallback(val: u64, mut mask: u64) -> u64 {
     let mut res = 0;
@@ -192,6 +196,7 @@ pub fn parse_duration_ms(words: &mut Tokens, name: &str) -> Res<Duration> {
 }
 
 /// Apparently, this will soon be unnecessary. Remove once stable Rust implements trait upcasting
+// TODO: Remove
 pub trait AsNamedEntity {
     fn upcast(&self) -> &dyn NamedEntity;
 }
@@ -292,18 +297,18 @@ impl Name {
 pub type EntityList<T> = Vec<T>;
 
 // TODO: Rework, description should be required
-pub struct GenericSelect<T> {
+pub struct SimpleSelect<T> {
     pub name: &'static str,
     pub val: T, // can be a factory function / object in many cases
 }
 
-impl<T> Debug for GenericSelect<T> {
+impl<T> Debug for SimpleSelect<T> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "GenericSelect({})", self.name)
     }
 }
 
-impl<T> NamedEntity for GenericSelect<T> {
+impl<T> NamedEntity for SimpleSelect<T> {
     fn short_name(&self) -> String {
         self.name.to_string()
     }
@@ -314,6 +319,48 @@ impl<T> NamedEntity for GenericSelect<T> {
 
     fn description(&self) -> Option<String> {
         None
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct GenericSelect<T: Debug> {
+    pub name: String,
+    pub alternative_name: Option<String>,
+    pub description: Option<String>,
+    pub val: T,
+}
+
+impl<T: Debug> GenericSelect<T> {
+    pub fn simple(name: &str, val: T) -> Self {
+        Self { name: name.to_string(), alternative_name: None, description: None, val }
+    }
+
+    pub fn full(name: &str, alternative: Option<&str>, description: &str, val: T) -> Self {
+        Self {
+            name: name.to_string(),
+            alternative_name: alternative.map(|s| s.to_string()),
+            description: Some(description.to_string()),
+            val,
+        }
+    }
+}
+
+impl<T: Debug> NamedEntity for GenericSelect<T> {
+    fn short_name(&self) -> String {
+        self.name.clone()
+    }
+
+    fn long_name(&self) -> String {
+        if let Some(name) = self.alternative_name.clone() { name } else { self.name.clone() }
+    }
+
+    fn description(&self) -> Option<String> {
+        self.description.clone()
+    }
+
+    fn matches(&self, name: &str) -> bool {
+        name.eq_ignore_ascii_case(&self.name)
+            || self.alternative_name.as_ref().is_some_and(|n| name.eq_ignore_ascii_case(n))
     }
 }
 
@@ -353,7 +400,7 @@ fn error_msg<I: Iterator + Clone, F: Fn(&I::Item) -> String>(
             let near_matches = list
                 .clone()
                 .filter(|x| {
-                    edit_distance(&to_name(x).to_ascii_lowercase(), &format!("'{}'", name.to_ascii_lowercase().bold()))
+                    edit_distance(to_name(x).to_ascii_lowercase(), format!("'{}'", name.to_ascii_lowercase().bold()))
                         <= 3
                 })
                 .collect_vec();
@@ -374,9 +421,9 @@ fn select_name_impl<I: Iterator + Clone, F: Fn(&I::Item) -> String, G: Fn(&I::It
     typ: &str,
     game_name: &str,
     to_name: F,
-    compare: G,
+    matches: G,
 ) -> Res<I::Item> {
-    let idx = list.clone().find(|entity| compare(entity, name));
+    let idx = list.clone().find(|entity| matches(entity, name));
     match idx {
         Some(res) => Ok(res),
         None => error_msg(name, list, typ, game_name, to_name),
@@ -435,11 +482,124 @@ pub fn nonzero_u64(val: u64, name: &str) -> Res<NonZeroU64> {
     NonZeroU64::new(val).ok_or_else(|| anyhow::anyhow!("{name} can't be zero"))
 }
 
+/// A simple `const` random number generator adapted from my C++ algebra implementation,
+/// originally from here: <https://www.pcg-random.org/> (I hate that website)
+pub struct PcgXslRr128_64Oneseq(u128);
+
+const MUTLIPLIER: u128 = (2_549_297_995_355_413_924 << 64) + 4_865_540_595_714_422_341;
+const INCREMENT: u128 = (6_364_136_223_846_793_005 << 64) + 1_442_695_040_888_963_407;
+
+// the pcg xsl rr 128 64 oneseq generator, aka pcg64_oneseq (most other pcg generators have additional problems)
+impl PcgXslRr128_64Oneseq {
+    pub const fn new(seed: u128) -> Self {
+        Self(seed.wrapping_add(INCREMENT).wrapping_mul(MUTLIPLIER).wrapping_add(INCREMENT))
+    }
+
+    pub const fn generate(&mut self) -> PosHash {
+        self.0 = self.0.wrapping_mul(MUTLIPLIER);
+        self.0 = self.0.wrapping_add(INCREMENT);
+        let upper = (self.0 >> 64) as u64;
+        let xored = upper ^ (self.0 as u64);
+        PosHash(xored.rotate_right((upper >> (122 - 64)) as u32))
+    }
+}
+
+pub struct Entry {
+    sum: AtomicI64,
+    calls: AtomicU64,
+    name: &'static str,
+}
+
+impl Entry {
+    pub const fn new(name: &'static str) -> Self {
+        Self { sum: AtomicI64::new(0), calls: AtomicU64::new(0), name }
+    }
+    pub fn record(&self, val: i64) {
+        _ = self.sum.fetch_add(val, Relaxed);
+        _ = self.calls.fetch_add(1, Relaxed);
+    }
+    pub fn record_sum(&self, val: i64) {
+        _ = self.sum.fetch_add(val, Relaxed);
+    }
+    pub fn reset(&self) {
+        self.sum.store(0, Relaxed);
+        self.calls.store(0, Relaxed);
+    }
+
+    pub fn print(&self, percent: bool) {
+        let sum = self.sum.load(Relaxed);
+        let calls = self.calls.load(Relaxed);
+        let avg = sum as f64 / calls as f64;
+        let name = self.name;
+        if percent {
+            let percent = avg * 100.;
+            println!("{name}: {sum} of {calls} nodes ({percent:.2}%)");
+        } else {
+            println!("{name}: Sum {sum} of {calls} calls (average {avg:.3})");
+        }
+    }
+}
+
+#[distributed_slice]
+pub static TRACKED_VALUES: [Entry];
+
+#[distributed_slice]
+pub static TRACKED_NODE_RELATIVE: [Entry];
+
+#[macro_export]
+macro_rules! track {
+    ($name: expr, $val: expr) => {{
+        #[linkme::distributed_slice($crate::general::common::TRACKED_VALUES)]
+        static ENTRY: $crate::general::common::Entry = $crate::general::common::Entry::new(const { $name });
+        let value = $val;
+        ENTRY.record(value as i64);
+        value
+    }};
+    ($val: expr) => {{ track!(stringify!($val), $val) }};
+}
+
+#[macro_export]
+macro_rules! track_rel {
+    ($name: expr, $val: expr) => {{
+        #[linkme::distributed_slice($crate::general::common::TRACKED_NODE_RELATIVE)]
+        static ENTRY: $crate::general::common::Entry = $crate::general::common::Entry::new(const { $name });
+        let value = $val;
+        ENTRY.record_sum(value as i64);
+        value
+    }};
+    ($name: expr) => {{ track_rel!($name, 1) }};
+}
+
+pub fn dbg_print() {
+    for e in TRACKED_VALUES {
+        e.print(false);
+    }
+    for e in TRACKED_NODE_RELATIVE {
+        e.print(true);
+    }
+}
+
+pub fn dbg_reset() {
+    for e in TRACKED_VALUES {
+        e.reset();
+    }
+    for e in TRACKED_NODE_RELATIVE {
+        e.reset();
+    }
+}
+
+pub fn dbg_end_search(nodes: u64) {
+    for e in TRACKED_NODE_RELATIVE {
+        _ = e.calls.fetch_add(nodes, Relaxed);
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use rand::{Rng, rng};
+    use super::*;
+    use rand::{rng, RngExt};
 
-    use crate::general::common::{ith_one_u64, ith_one_u128};
+    use crate::general::common::{ith_one_u128, ith_one_u64};
     // TODO: Test this on bitboards instead
     // #[test]
     // fn pop_lsb64_test() {
@@ -510,5 +670,18 @@ mod tests {
         let val = (0b1_0010_1101_1010_1010 << 80) + 0b1_1101;
         assert_eq!(ith_one_u128(3, val), 4);
         assert_eq!(ith_one_u128(4, val), 81);
+    }
+
+    #[test]
+    fn pcg_test() {
+        let mut generator = PcgXslRr128_64Oneseq::new(42);
+        assert_eq!(generator.0 >> 64, 1_610_214_578_838_163_691);
+        assert_eq!(generator.0 & ((1 << 64) - 1), 13_841_303_961_814_150_380);
+        let rand = generator.generate();
+        assert_eq!(rand.0, 2_915_081_201_720_324_186);
+        let rand = generator.generate();
+        assert_eq!(rand.0, 13_533_757_442_135_995_717);
+        let rand = generator.generate();
+        assert_eq!(rand.0, 13_172_715_927_431_628_928);
     }
 }

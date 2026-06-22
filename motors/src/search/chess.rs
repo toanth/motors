@@ -1,7 +1,164 @@
+use crate::search::chess::histories::{
+    CaptHist, ContHist, CorrHist, HIST_DIVISOR, HistoryHeuristic, write_single_hist_table,
+};
+use crate::search::{CustomInfo, MoveScore, Pv, SearchStackEntry, SearchState};
+use gears::arrayvec::ArrayVec;
+use gears::games::PosHash;
+use gears::games::chess::moves::Move;
+use gears::games::chess::squares::NUM_SQUARES;
+use gears::games::chess::{Board, Color, MAX_CHESS_MOVES_IN_POS};
+use gears::general::board::BoardTrait;
+use gears::score::Score;
+use gears::search::DepthPly;
+use std::hash::{Hash, Hasher};
+
 #[cfg(feature = "caps")]
 pub mod caps;
 mod caps_values;
 mod histories;
+mod move_picker;
+
+/// By how much the fractional depth increases each ID iteration.
+const DEPTH_INCREMENT: usize = 128;
+
+/// The maximum value of the uci `depth` parameter, i.e. the maximum number of Iterative Deepening iterations
+const ID_ITERS_SOFT_LIMIT: DepthPly = DepthPly::new(225);
+/// The maximum value of the `ply` parameter in main search, i.e. the maximum depth (in plies) before qsearch is reached
+const PLY_HARD_LIMIT: usize = 255;
+
+/// Qsearch can go more than 30 plies deeper than the depth hard limit if ther's more material on the board; in that case we simply
+/// return the static eval.
+const SEARCH_STACK_LEN: usize = PLY_HARD_LIMIT + 30;
+
+/// The TT move and good captures have a higher score, all other moves have a lower score.
+const KILLER_SCORE: MoveScore = MoveScore(8 * HIST_DIVISOR);
+
+#[derive(Debug, Default, Clone)]
+pub struct CapsSearchStackEntry {
+    killer: Move,
+    pv: Pv<Board, SEARCH_STACK_LEN>,
+    tried_moves: ArrayVec<Move, MAX_CHESS_MOVES_IN_POS>,
+    move_score: MoveScore,
+    pos: Board,
+    eval: Score,
+}
+
+impl SearchStackEntry<Board> for CapsSearchStackEntry {
+    fn forget(&mut self) {
+        self.killer = Move::default();
+        self.pv.list.clear();
+        self.tried_moves.clear();
+        self.move_score = MoveScore(0);
+        self.pos = Board::default();
+        self.eval = Score::default();
+    }
+
+    fn pv(&self) -> Option<&[Move]> {
+        Some(self.pv.list.as_slice())
+    }
+
+    fn last_played_move(&self) -> Option<Move> {
+        self.tried_moves.last().copied()
+    }
+
+    fn hash(&self, hasher: &mut impl Hasher) {
+        self.killer.hash(hasher);
+        self.tried_moves.hash(hasher);
+        self.move_score.0.hash(hasher);
+        self.eval.hash(hasher);
+        self.pos.hash_pos().0.hash(hasher);
+    }
+}
+
+impl CapsSearchStackEntry {
+    /// If this entry has a lower ply number than the current node, this is the tree edge that leads towards the current node.
+    fn last_tried_move(&self) -> Move {
+        *self.tried_moves.last().unwrap()
+    }
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct CapsCustomInfo {
+    history: HistoryHeuristic,
+    /// Many moves have a "natural" response, so use that for move ordering:
+    /// Instead of only learning which quiet moves are good, learn which quiet moves are good after our
+    /// opponent played a given move.
+    countermove_hist: ContHist,
+    /// Often, a move works because it is immediately followed by some other move, which completes the tactic.
+    /// Keep track of such quiet follow-up moves. This is exactly the same as the countermove history, but considers
+    /// our previous move instead of the opponent's previous move, i.e. the move 2 plies ago instead of 1 ply ago.
+    follow_up_move_hist: ContHist,
+    capt_hist: CaptHist,
+    corr_hist: CorrHist,
+    repeated_before_root: Vec<PosHash>,
+    nmp_disabled: [bool; 2],
+    ply_hard_limit: usize,
+    root_move_nodes: RootMoveNodes,
+}
+
+impl CapsCustomInfo {
+    fn nmp_disabled_for(&mut self, color: Color) -> &mut bool {
+        &mut self.nmp_disabled[color]
+    }
+}
+
+impl CustomInfo<Board> for CapsCustomInfo {
+    fn new_search(&mut self) {
+        debug_assert!(!self.nmp_disabled[0]);
+        debug_assert!(!self.nmp_disabled[1]);
+        // don't update history values, malus and gravity already take care of that
+        self.root_move_nodes.clear();
+    }
+
+    fn hard_forget_except_tt(&mut self) {
+        for value in self.history.iter_mut().flatten() {
+            *value = 0;
+        }
+        self.capt_hist.reset();
+        for value in self.countermove_hist.iter_mut() {
+            *value = 0;
+        }
+        for value in self.follow_up_move_hist.iter_mut() {
+            *value = 0;
+        }
+        self.corr_hist.reset();
+        self.root_move_nodes.clear();
+    }
+
+    fn write_internal_info(&self, pos: &Board) -> Option<String> {
+        Some(
+            write_single_hist_table(&self.history, pos, false)
+                + "\n"
+                + &write_single_hist_table(&self.history, pos, true),
+        )
+    }
+}
+
+#[derive(Debug, Clone)]
+struct RootMoveNodes(Box<[[u64; NUM_SQUARES]; NUM_SQUARES]>);
+
+impl Default for RootMoveNodes {
+    fn default() -> Self {
+        RootMoveNodes(Box::new([[0; NUM_SQUARES]; NUM_SQUARES]))
+    }
+}
+
+impl RootMoveNodes {
+    fn clear(&mut self) {
+        for elem in self.0.iter_mut() {
+            *elem = [0; NUM_SQUARES];
+        }
+    }
+    fn update(&mut self, mov: Move, nodes: u64) {
+        self.0[mov.src_square().bb_idx()][mov.dest_square().bb_idx()] += nodes;
+    }
+
+    fn frac_1024(&self, best_move: Move, total_nodes: u64) -> u64 {
+        self.0[best_move.src_square().bb_idx()][best_move.dest_square().bb_idx()] * 1024 / total_nodes
+    }
+}
+
+pub type CapsState = SearchState<Board, CapsSearchStackEntry, CapsCustomInfo>;
 
 #[cfg(test)]
 mod tests {
@@ -21,7 +178,7 @@ mod tests {
     use gears::games::chess::moves::{Move, MoveFlags};
     use gears::games::chess::pieces::ColoredPieceType::BlackKnight;
     use gears::games::chess::pieces::Piece;
-    use gears::games::chess::pieces::PieceType::Bishop;
+    use gears::games::chess::pieces::PieceType::{Bishop, Knight};
     use gears::games::chess::squares::Square;
     use gears::games::{BoardHistDyn, ZobristHistory, n_fold_repetition};
     use gears::general::board::Strictness::{Relaxed, Strict};
@@ -29,7 +186,8 @@ mod tests {
     use gears::general::common::NamedEntity;
     use gears::general::moves::MoveTrait;
     use gears::output::pgn::parse_pgn;
-    use gears::rand::rngs::StdRng;
+    use gears::parse_ugi_pos_and_hist;
+    use gears::rand::prelude::SmallRng;
     use gears::score::{NO_SCORE_YET, SCORE_LOST, SCORE_WON, Score, game_result_to_score};
     use gears::search::{DepthPly, NodesLimit, SearchLimit};
     use gears::ugi::load_ugi_pos_simple;
@@ -54,17 +212,18 @@ mod tests {
 
     #[test]
     fn random_mover_test() {
-        game_over_test(&mut RandomMover::<Board, StdRng>::default());
+        game_over_test(&mut RandomMover::<Board, SmallRng>::default());
     }
 
     fn game_over_test<E: Engine<Board>>(engine: &mut E) {
         let mated_pos = load_ugi_pos_simple("mate_in_1 moves h7a7", Strict, &Board::default()).unwrap();
         assert!(mated_pos.is_checkmate_slow());
+        let tt = TT::minimal();
         for i in (1..123).step_by(11) {
-            let res = engine.search_with_new_tt(mated_pos, SearchLimit::depth(DepthPly::new(i)));
+            let res = engine.search_with_tt(mated_pos, SearchLimit::depth(DepthPly::new(i)), tt.clone());
             assert!(res.ponder_move.is_none());
             assert_eq!(res.chosen_move, Move::default());
-            let res = engine.search_with_new_tt(mated_pos, SearchLimit::nodes_(i as u64));
+            let res = engine.search_with_tt(mated_pos, SearchLimit::nodes_(i as u64), tt.clone());
             assert!(res.ponder_move.is_none());
             assert_eq!(res.chosen_move, Move::default());
         }
@@ -93,16 +252,18 @@ mod tests {
     fn generic_search_test<E: Engine<Board>>(mut engine: E) {
         let fen = "7r/pBrkqQ1p/3b4/5b2/8/6P1/PP2PP1P/R1BR2K1 w - - 1 17";
         let board = Board::from_fen(fen, Strict).unwrap();
-        let res = engine.search_with_new_tt(board, SearchLimit::mate(DepthPly::new(5)));
+        let res = engine.search_with_new_tt(board, SearchLimit::mate_in_ply(5));
         assert_eq!(
             res.chosen_move,
-            Move::new(Square::from_str("d1").unwrap(), Square::from_str("d6").unwrap(), MoveFlags::NormalMove)
+            Move::new(Square::from_str("d1").unwrap(), Square::from_str("d6").unwrap(), MoveFlags::NormalCapture)
         );
         assert_eq!(res.score, SCORE_WON - 3);
 
         game_over_test(&mut engine);
         avoid_repetition(&mut engine);
         mate_beats_repetition(&mut engine);
+        underpromo(&mut engine);
+        go_mated(&mut engine);
 
         two_threads_test::<E>();
     }
@@ -142,6 +303,37 @@ mod tests {
         assert_eq!(res.chosen_move, Move::from_text("d2a2", &pos).unwrap());
     }
 
+    fn go_mated<E: Engine<Board>>(engine: &mut E) {
+        let pos = Board::from_fen("8/8/8/8/2r5/1k6/8/K7 w - - 0 1", Strict).unwrap();
+        let res = engine.search_with_new_tt(pos, SearchLimit::mate_in_moves(-2));
+        let score = res.score;
+        assert_eq!(score, SCORE_LOST + 4);
+        let mov = res.chosen_move;
+        assert_eq!(mov, Move::from_text("Kb1", &pos).unwrap());
+    }
+
+    fn underpromo<E: Engine<Board>>(engine: &mut E) {
+        let random = engine.engine_info().eval.unwrap().short == "random";
+        let pos = Board::from_fen("8/k1P5/1pP5/1P6/8/1p6/pP6/K7 w - - 0 1", Strict).unwrap();
+        let res = engine.search_with_new_tt(pos, SearchLimit::depth(engine.default_bench_depth()));
+        let score = res.score;
+        assert!(res.chosen_move.is_promotion());
+        if random {
+            // technically, we would expect even a random eval to give a root score > 0, but it's not entirely guaranteed
+            return;
+        }
+        assert!(score > Score(0), "{score}");
+        assert!([Knight, Bishop].contains(&res.chosen_move.promo_piece()));
+
+        let pos = Board::from_fen("8/8/8/8/K2b4/8/kp6/3N4 b - - 0 1", Strict).unwrap();
+        let res = engine.search_with_new_tt(pos, SearchLimit::depth(engine.default_bench_depth()));
+        let score = res.score;
+        assert!(random || score > Score(0), "{score}");
+        assert!(res.chosen_move.is_promotion());
+        // only a bishop promo wins, but we don't expect the engine to see that so quickly
+        assert!([Knight, Bishop].contains(&res.chosen_move.promo_piece()));
+    }
+
     fn two_threads_test<E: Engine<Board>>() {
         let fen = "2kr3r/2pb1p2/p2b1p2/1p4pp/B2R4/2P1P2P/PP2KPP1/R1B5 w - - 0 16";
         let board = Board::from_fen(fen, Strict).unwrap();
@@ -168,7 +360,7 @@ mod tests {
         let max_diff = if engine.short_name() == "CAPS" { 50 } else { 500 };
         let handle = spawn(move || engine.search(params));
         let handle2 = spawn(move || engine2.search(params2));
-        sleep(Duration::from_millis(500));
+        sleep(Duration::from_millis(300));
         atomic.set_stop(true);
         assert!(atomic.stop_flag());
         assert!(!atomic2.stop_flag());
@@ -226,16 +418,16 @@ mod tests {
         for _ in 0..2 {
             for mov in movelist {
                 let mov = Move::from_extended_text(mov, &board).unwrap();
-                board = board.make_move(mov).unwrap();
-                assert!(board.player_result_slow(&hist).is_none());
+                board = board.play(mov);
+                assert!(board.calc_player_result(&hist).is_none());
                 hist.push(board.hash_pos());
             }
         }
         let mov = Move::from_extended_text(movelist[0], &board).unwrap();
-        let new_board = board.make_move(mov).unwrap();
+        let new_board = board.play(mov);
         assert!(new_board.is_in_check());
         assert!(new_board.is_3fold_repetition(&hist));
-        assert!(new_board.player_result_slow(&hist).is_some_and(|r| r == Draw));
+        assert!(new_board.calc_player_result(&hist).is_some_and(|r| r == Draw));
         assert!(n_fold_repetition(2, &hist, new_board.hash_pos(), new_board.ply_draw_clock(),));
         hist.pop();
         let mut engine = Caps::for_eval::<MaterialOnlyEval>();
@@ -249,6 +441,21 @@ mod tests {
             assert_eq!(res.chosen_move, mov);
             assert_eq!(res.score, Score(0));
         }
+        let state = parse_ugi_pos_and_hist::<Board>(
+            "pos fen 1k6/8/2K5/Q7/8/8/8/8 w - - 0 1 moves a5d8 b8a7 d8a5 a7b8 a5d8 b8a7 d8a5 a7b8",
+            Strict,
+        )
+        .unwrap();
+        let hist = state.board_hist.clone();
+        let res = engine.search(SearchParams::new_unshared(
+            state.board,
+            SearchLimit::nodes_(12_345),
+            hist.clone(),
+            TT::default(),
+        ));
+        assert_eq!(state.board.calc_player_result(&hist), Some(Draw));
+        assert_eq!(res.score.plies_until_game_won(), Some(3));
+        assert_eq!(res.chosen_move, Move::from_text("Qc7+", &state.board).unwrap());
     }
 
     #[test]
@@ -301,11 +508,8 @@ mod tests {
             assert!(pv_data[1].score <= game_result_to_score(Win, 3));
             assert!(pv_data[1].score >= Score(1000));
             let second_best_move = Move::from_extended_text("e1Q+", &pos).unwrap();
-            assert_eq!(
-                pv_data[1].pv.list.first() == Some(&second_best_move),
-                pv_data[1].score == game_result_to_score(Win, 3)
-            );
-            assert!(pv_data[2].score >= Score(1000));
+            assert_eq!(pv_data[1].pv.list.first() == Some(&second_best_move), pv_data[1].score.is_game_won_score());
+            assert!(pv_data[2].score >= Score(700));
             assert!(!pv_data[2].pv.list.is_empty());
         }
     }

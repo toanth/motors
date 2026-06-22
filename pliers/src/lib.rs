@@ -190,14 +190,14 @@ pub fn optimize_for<B: BoardTrait, E: Eval<B>, O: Optimizer>(
     let e = E::default();
     let batch = dataset.as_batch();
     let scale = e.eval_scale().to_scaling_factor(batch, &e);
-    let mut optimizer = O::new(batch, scale);
+    let mut optimizer = O::new(batch);
 
     let average = batch.num_entries() as f64 / batch.num_datapoins() as f64;
     println!("\nAverage number of Entries per Position: {}\n", format!("{average:.3}").bold());
 
     let occurrences = Weights(count_occurrences(batch).into_iter().map(Weight).collect());
     println!("Occurrences:\n{}", display(&e, &occurrences, &[]));
-    let weights = optimize_dataset(&mut dataset, scale, num_epochs, &e, &mut optimizer);
+    let weights = optimize_dataset(&mut dataset, num_epochs, &e, scale, &mut optimizer);
     print_optimized_weights(&weights, dataset.as_batch(), scale, &e);
     Ok(())
 }
@@ -214,21 +214,21 @@ pub fn debug_eval_on_pos<B: BoardTrait, E: Eval<Board>>(pos: B) {
     let fen = format!("{} [1.0]", pos.as_fen());
     println!("(FEN: {fen}\n");
     let e = E::default();
-    let mut dataset = FenReader::<Board, E>::load_from_str(&fen, White).unwrap();
-    assert_eq!(dataset.num_weights(), E::num_weights());
     let scale = match e.eval_scale() {
         Scale(scale) => scale,
         InitialWeights(_) => 100.0, // Tuning the scaling factor one a single position is just going to result in inf or 0.
     };
-    let mut optimizer = DefaultOptimizer::new(dataset.as_batch(), scale);
-    let weights = optimize_dataset(&mut dataset, scale, 1, &e, &mut optimizer);
+    let mut dataset = FenReader::<Board, E>::load_from_str(&fen, White).unwrap();
+    assert_eq!(dataset.num_weights(), E::num_weights());
+    let mut optimizer = DefaultOptimizer::new(dataset.as_batch());
+    let weights = optimize_dataset(&mut dataset, 1, &e, scale, &mut optimizer);
     assert_eq!(weights.len(), E::num_weights());
     println!(
         "There are {0} out of {1} active weights",
         dataset.as_batch().datapoint_iter().next().unwrap().entries.len(),
         E::num_weights()
     );
-    print_optimized_weights(&weights, dataset.as_batch(), scale, &e);
+    print_optimized_weights(&(weights * scale), dataset.as_batch(), scale, &e);
     println!("\nEND DEBUG POSITION OUTPUT\n");
 }
 
@@ -245,8 +245,8 @@ mod tests {
 
     use crate::eval::chess::piston_eval::PistonEval;
     use crate::gd::{
-        Adam, AdamW, CpScore, CrossEntropyLoss, Float, Outcome, QuadraticLoss, cp_eval_for_weights, cp_to_wr, loss_for,
-        quadratic_sample_loss,
+        Adam, AdamW, CrossEntropyLoss, Float, Outcome, QuadraticLoss, ScaledCpScore, cp_eval_for_weights, cp_to_wr,
+        loss_for, quadratic_sample_loss,
     };
     use crate::load_data::Perspective::SideToMove;
     use PieceType::*;
@@ -260,6 +260,7 @@ mod tests {
     pub fn two_chess_positions_test() {
         let positions = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1 [0.5]
         7k/8/8/8/8/8/8/R6K w - - 0 1 [1-0]";
+        let eval_scale = 100.0;
         let mut positions = FenReader::<Board, PistonEval>::load_from_str(positions, SideToMove).unwrap();
         assert_eq!(positions.data().len(), 2);
         assert_eq!(positions.data()[0].outcome, Outcome::new(0.5));
@@ -270,16 +271,15 @@ mod tests {
         assert_eq!(batch.entries_at(0).len(), 0);
         assert_eq!(batch.entries_at(1).len(), 2); // 1 feature, 2 weights
         let batch = positions.batch(0, 1);
-        let eval_scale = 100.0;
-        let mut optimizer = AdamW::<CrossEntropyLoss>::new(batch, eval_scale);
+        let mut optimizer = AdamW::<CrossEntropyLoss>::new(batch);
         let startpos_weights =
-            optimize_dataset(&mut positions, eval_scale, 100, &PistonEval::default(), &mut optimizer);
+            optimize_dataset(&mut positions, 100, &PistonEval::default(), eval_scale, &mut optimizer);
         let batch = positions.batch(0, 1);
         let startpos_eval = cp_eval_for_weights(&startpos_weights, batch.datapoint_iter().next().unwrap());
-        assert_eq!(startpos_eval, CpScore(0.0));
-        let mut optimizer = Adam::<QuadraticLoss>::new(positions.as_batch(), eval_scale);
-        let weights = optimize_dataset(&mut positions, eval_scale, 500, &PistonEval::default(), &mut optimizer);
-        let loss = loss_for(&weights, positions.as_batch(), eval_scale, quadratic_sample_loss);
+        assert_eq!(startpos_eval, ScaledCpScore(0.0));
+        let mut optimizer = Adam::<QuadraticLoss>::new(positions.as_batch());
+        let weights = optimize_dataset(&mut positions, 500, &PistonEval::default(), eval_scale, &mut optimizer);
+        let loss = loss_for(&weights, positions.as_batch(), quadratic_sample_loss);
         assert!(loss <= 0.01, "{loss}");
     }
 
@@ -292,19 +292,21 @@ mod tests {
             Queen => 9,
             _ => panic!("not a non-king piece"),
         };
-        let eval_scale = 10.0;
+        // let eval_scale = 10.0;
         let mut fens = String::default();
         for piece in PieceType::non_king_pieces() {
             let str = format!(
                 "8/7{0}/8/8/8/k7/8/K7 w - - 0 1 | {1}\n",
                 ColoredPieceType::new(White, piece).to_char(CharType::Ascii, &Settings::default()),
-                cp_to_wr(CpScore(piece_val(piece) as Float), eval_scale),
+                cp_to_wr(ScaledCpScore(piece_val(piece) as Float / 10.)),
             );
             fens += &str;
         }
         let datapoints = FenReader::<Board, MaterialOnlyEval>::load_from_str(&fens, SideToMove).unwrap();
         let batch = datapoints.as_batch();
-        let weights = AdamW::<CrossEntropyLoss>::new(batch, eval_scale).optimize_simple(batch, eval_scale, 2000);
+        let mut optimizer = AdamW::<CrossEntropyLoss>::new(batch);
+        optimizer.hyper_params.lambda /= 100.;
+        let weights = optimizer.optimize_simple(batch, 2000);
         assert_eq!(weights.len(), 5);
         let weight = weights[0];
         for piece in PieceType::non_king_pieces() {

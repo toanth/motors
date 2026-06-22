@@ -15,28 +15,29 @@
  *  You should have received a copy of the GNU General Public License
  *  along with Motors. If not, see <https://www.gnu.org/licenses/>.
  */
-use crate::io::SearchType::Normal;
 use crate::io::command::{
-    AbstractGoState, Command, CommandList, GoState, coords_options, go_options, move_command, moves_options,
-    named_entity_to_command, options_options, piece_options, position_options, query_options, select_command,
-    ugi_commands,
+    coords_options, go_options, move_command, moves_options, named_entity_to_command, options_options, piece_options, position_options, query_options,
+    select_command, ugi_commands, AbstractGoState, Command, CommandList, GoState,
+    Standard, SubCommandsFn,
 };
+use crate::io::SearchType::Normal;
 use crate::io::{AbstractEngineUgiState, EngineUGI, SearchType};
 use crate::search::{AbstractEvalBuilder, AbstractSearcherBuilder, EvalList, SearcherList};
 use edit_distance::edit_distance;
-use gears::MatchStatus::Ongoing;
-use gears::ProgramStatus::Run;
+use gears::arrayvec::ArrayVec;
 use gears::colored::Colorize;
 use gears::games::OutputList;
 use gears::general::board::{BoardHelpers, BoardTrait, Symmetry};
 use gears::general::common::anyhow::anyhow;
-use gears::general::common::{Name, NamedEntity, Res, Tokens, tokens};
+use gears::general::common::{tokens, Name, NamedEntity, Res, Tokens};
 use gears::general::moves::MoveTrait;
 use gears::itertools::Itertools;
 use gears::output::{Message, OutputBuilder, OutputOpts};
 use gears::rand::prelude::IndexedRandom;
-use gears::rand::{Rng, rng};
+use gears::rand::{rng, RngExt};
 use gears::ugi::EngineOption;
+use gears::MatchStatus::Ongoing;
+use gears::ProgramStatus::Run;
 use gears::{ProgramStatus, Quitting};
 use inquire::autocompletion::Replacement;
 use inquire::{Autocomplete, CustomUserError};
@@ -80,6 +81,7 @@ pub(super) trait AutoCompleteState: Debug {
     fn query_subcmds(&self) -> CommandList;
     fn output_subcmds(&self) -> CommandList;
     fn print_subcmds(&self) -> CommandList;
+    fn bb_subcmds(&self) -> CommandList;
     fn engine_subcmds(&self) -> CommandList;
     fn set_eval_subcmds(&self) -> CommandList;
     fn coords_subcmds(&self, ac_coords: bool, only_occupied: bool) -> CommandList;
@@ -130,7 +132,30 @@ impl<B: BoardTrait> AutoCompleteState for ACState<B> {
         )
     }
     fn print_subcmds(&self) -> CommandList {
-        add(select_command::<dyn OutputBuilder<B>>(self.outputs.as_slice()), position_options(Some(self.pos()), true))
+        let mut res = select_command::<dyn OutputBuilder<B>>(self.outputs.as_slice());
+        for cmd in &mut res {
+            if cmd.primary_name == "bb" {
+                cmd.sub_commands = SubCommandsFn::new_from_box(Box::new(|state| state.bb_subcmds()));
+            }
+        }
+        add(res, position_options::<B>(None, true))
+    }
+    fn bb_subcmds(&self) -> CommandList {
+        let mut res = self.pos().bitboard_from_name().iter().map(|bb| named_entity_to_command(bb)).collect_vec();
+        // todo: accept an arbitrary bitboard after attacks_of and `bitor` the attacks of all pieces in that bitboard
+        // implement by adding a method attacks_for(bb) to BoardTrait
+        let mut other_names = ArrayVec::new();
+        other_names.push("attacks".to_string());
+        res.push(Command {
+            primary_name: "attacks_of".to_string(),
+            other_names,
+            help_text: Some("Attacks of all pieces on the given bitboard".to_string()),
+            standard: Standard::Custom,
+            autocomplete_recurse: false,
+            func: |_, _, _| Ok(()),
+            sub_commands: SubCommandsFn::new_from_box(Box::new(|state| state.bb_subcmds())),
+        });
+        res
     }
     fn engine_subcmds(&self) -> CommandList {
         select_command::<dyn AbstractSearcherBuilder<B>>(self.searchers.as_slice())
@@ -225,7 +250,7 @@ impl<B: BoardTrait> AbstractEngineUgiState for ACState<B> {
     fn handle_go(&mut self, _initial_search_type: SearchType, _words: &mut Tokens) -> Res<()> {
         Ok(())
     }
-    fn handle_stop(&mut self, _suppress_best_move: bool) -> Res<()> {
+    fn handle_stop(&mut self) -> Res<()> {
         Ok(())
     }
     fn handle_ponderhit(&mut self) -> Res<()> {
@@ -247,6 +272,9 @@ impl<B: BoardTrait> AbstractEngineUgiState for ACState<B> {
         Ok(())
     }
     fn handle_print(&mut self, _words: &mut Tokens, _opts: OutputOpts) -> Res<()> {
+        Ok(())
+    }
+    fn handle_bb(&mut self, _words: &mut Tokens) -> Res<()> {
         Ok(())
     }
     fn handle_engine_print(&mut self) -> Res<()> {

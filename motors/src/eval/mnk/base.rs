@@ -1,11 +1,11 @@
+use crate::eval::Eval;
 use gears::games::mnk::{Bitboard, Board, Color};
+use gears::general::attacks::BitReverseSliderGenerator;
 use gears::general::bitboards::BitboardTrait;
+use gears::general::board::BitboardBoard;
 use gears::general::common::StaticallyNamedEntity;
-use gears::general::hq::BitReverseSliderGenerator;
 use gears::score::{Score, ScoreT};
 use std::fmt::Display;
-
-use crate::eval::Eval;
 
 /// `BasE` (Basic m,n,k Eval) is a m,n,k specific-eval. Currently very simple.
 #[derive(Debug, Default, Clone)]

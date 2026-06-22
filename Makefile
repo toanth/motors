@@ -23,12 +23,18 @@ pliers:
 motors: release
 
 caps:
-	cargo rustc --release --package motors --bin motors --no-default-features --features=caps --features=unsafe -- --emit link=${EXE}
+	export RUSTFLAGS='-C target-cpu=native' && \
+	cargo rustc --release --package motors --bin motors --no-default-features --features='caps,unsafe' -- --emit link=${EXE}
+
+caps-safe:
+	export RUSTFLAGS='-C target-cpu=native' && \
+	cargo rustc --release --package motors --bin motors --no-default-features --features='caps' -- --emit link=${EXE}
 
 bench: release
 	./caps bench
 
 release:
+	export RUSTFLAGS='-C target-cpu=native' && \
 	cargo build --release --package motors --bin motors
 
 debug:

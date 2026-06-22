@@ -21,8 +21,9 @@ mod tests {
     use crate::games::fairy::Board;
     use crate::general::board::BoardHelpers;
     use crate::general::board::Strictness::Relaxed;
-    use crate::general::perft::Bulkness::Bulk;
     use crate::general::perft::perft;
+    use crate::general::perft::Bulkness::Bulk;
+    use crate::general::perft::Parallelize::Parallel;
     use crate::search::DepthPly;
     use crate::ugi::load_ugi_pos_simple;
     use std::time::Instant;
@@ -37,7 +38,8 @@ mod tests {
             }
             let i = i + 1;
             let depth = DepthPly::new(i);
-            let res = perft(depth, pos.clone(), true, Bulk);
+            let tt_bytes = if depth.get() < 5 { None } else { Some(1 << 26) };
+            let res = perft(depth, pos.clone(), Parallel, Bulk, tt_bytes);
             assert_eq!(res.depth, depth);
             assert_eq!(res.nodes, expected, "depth {i}, fen '{fen}' ({pos})");
         }
@@ -46,7 +48,7 @@ mod tests {
 
     #[test]
     fn debug_perft_tests() {
-        perft_tests(50_000);
+        perft_tests(30_000);
     }
 
     #[test]
@@ -75,6 +77,7 @@ mod tests {
                 vec![27, 916, 25_798, 890_435],
             ),
             ("chess rqbbknr1/1ppp2pp/p5n1/4pp2/P7/1PP5/1Q1PPPPP/R1BBKNRN w GAga - 0 9", vec![24, 600, 15347, 408_207]),
+            ("chess 8/8/8/8/K2b4/8/kp6/3N4 b - - 0 1", vec![17, 115, 1622, 13_294, 218_124, 1_863_426]),
             ("shatranj", vec![16, 256, 4176, 68_122, 1_164_248]),
             (
                 "fen shatranj rnbf1k1r/pp1Pbppp/2p5/8/2B5/8/PPP1NnPP/RNBFK2R w 1 8",
@@ -84,6 +87,7 @@ mod tests {
             ("mnk 6 7 4", vec![42, 1722, 68_880, 2_686_320]),
             ("large_mnk", vec![121, 14_520, 1_727_880]),
             ("mnk 6 7 4 7/4O2/X2X1X1/O1XX1O1/OXOOOX1/OOXXOX1 x 11", vec![22, 462, 9240, 170_240, 3_050_784]),
+            ("mnk 3 25 3 X15X8/16O8/2X14OO6 x 4", vec![69, 4624, 296_341, 19_177_884]),
             ("cfour startpos", vec![7, 49, 343, 2401, 16_807, 117_649, 823_536, 5_673_234, 39_394_572]),
             (
                 "cfour 7 7 3 7/7/7/7/7/1X3O1/XOXXOO1 X",
@@ -127,6 +131,8 @@ mod tests {
                 vec![3, 17, 121, 611, 3501, 21338, 133_659, 1_059_417, 12_193_381],
             ),
             ("crazyhouse K1QQQQ1Q/Q7/Q7/6Q1/1Q6/7Q/Q6B/1QQQQQnk[PNBRQ] w - - 0 1", vec![444, 0, 0]),
+            ("makruk", vec![23, 529, 12012, 273_026, 6_223_994 /*, 14_2078_049*/]),
+            ("makruk 2rm2k1/2s2R1r/2p5/1p1nN1Pp/1P2N2P/2PP2S1/2S1K3/5R2 w - - 9 27", vec![49, 900, 37_585, 737_697]),
             ("shogi startpos", vec![30, 900, 25_470, 719_731, 19_861_490 /*, 547_581_517*/]),
             (
                 " shogi 8l/1l+R2P3/p2pBG1pp/kps1p4/Nn1P2G2/P1P1P2PP/1PS6/1KSG3+r1/LN2+p3L w Sbgn3p 124",

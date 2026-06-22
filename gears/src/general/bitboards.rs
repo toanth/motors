@@ -1,6 +1,11 @@
 extern crate num;
 
 use arbitrary::{Arbitrary, Unstructured};
+use derive_more::{
+    BitAnd, BitAndAssign, BitOr, BitOrAssign, BitXor, BitXorAssign, Not, Shl, ShlAssign, Shr, ShrAssign, Sub,
+};
+use num::traits::{WrappingMul, WrappingSub};
+use num::{PrimInt, Unsigned};
 use std::fmt;
 use std::fmt::{Debug, Display, Formatter};
 use std::iter::FusedIterator;
@@ -8,17 +13,12 @@ use std::ops::{
     BitAnd, BitAndAssign, BitOr, BitOrAssign, BitXor, BitXorAssign, Deref, DerefMut, Not, Shl, ShlAssign, Shr,
     ShrAssign, Sub,
 };
-
-use derive_more::{
-    BitAnd, BitAndAssign, BitOr, BitOrAssign, BitXor, BitXorAssign, Not, Shl, ShlAssign, Shr, ShrAssign, Sub,
-};
-use num::traits::{WrappingMul, WrappingSub};
-use num::{PrimInt, Unsigned};
+use std::str::FromStr;
 use strum_macros::EnumIter;
 
 use crate::games::{DimT, KnownSize, SizeTrait};
+use crate::general::attacks::{U64AndRev, U128AndRev, WithRev};
 use crate::general::bitboards::chessboard::{Bitboard, RAYS_EXCLUSIVE, RAYS_INCLUSIVE};
-use crate::general::hq::{U64AndRev, U128AndRev, WithRev};
 use crate::general::squares::{RectangularCoordinates, RectangularSize, SmallGridSize, SmallGridSquare};
 
 /// Remove all `1` bits in `bb` strictly above the given `idx`, where `bb` is the type, like `u64`,
@@ -155,6 +155,7 @@ pub(super) static ANTI_DIAGONALS_U128: [[u128; 128]; MAX_WIDTH] = anti_diagonal_
 pub trait RawBitboardTrait:
     for<'a> Arbitrary<'a>
     + PrimInt
+    + FromStr
     + From<u8>
     + WrappingSub
     + WrappingMul
@@ -164,13 +165,16 @@ pub trait RawBitboardTrait:
     + ShlAssign<usize>
     + ShrAssign<usize>
     + Unsigned
+    + Copy
     + Display
     + Debug
-    + std::fmt::LowerHex
+    + fmt::UpperHex
+    + fmt::LowerHex
 {
     type WithRev: WithRev<RawBitboard = Self>;
 
     /// A `usize` may not be enough to hold all the bits, but sometimes that's fine.
+    // TODO: Remove?
     fn to_usize(self) -> usize;
 
     fn steps_bb(step_size: usize) -> Self;
@@ -200,6 +204,7 @@ pub trait RawBitboardTrait:
     }
 
     #[inline]
+    /// A Bitboard where only least significant bit of the current Bitboard is set, or `0` if `self == 0`.
     fn lsb(self) -> Self {
         self & Self::zero().wrapping_sub(&self)
     }
@@ -451,6 +456,11 @@ pub trait BitboardTrait<R: RawBitboardTrait, C: RectangularCoordinates>:
         self.size().height().val()
     }
 
+    #[inline]
+    fn reverse(self) -> Self {
+        Self::new(self.raw().reverse_bits(), self.size())
+    }
+
     fn flip_up_down(self) -> Self {
         let size = self.size();
         let mut bb = self;
@@ -487,13 +497,14 @@ pub trait BitboardTrait<R: RawBitboardTrait, C: RectangularCoordinates>:
 
     #[inline]
     /// This function is very general and can deal with arbitrary rays (e.g. riders in fairy chess),
-    /// but at the cost of calling `reverse` multiple times.
+    /// but at the cost of calling `reverse` multiple times. Like the other hq functions, it assumes that `ray`
+    ///  doesn't have a set bit at `idx`, which means it doens't matter whether `blockers` has a bit set at that position.
     fn hyperbola_quintessence_fallback<F>(idx: usize, blockers: Self, reverse: F, ray: Self) -> Self
     where
         F: Fn(Self) -> Self,
     {
         let piece = Self::new(R::single_piece_at(idx), blockers.size());
-        debug_assert!(!(piece & ray).is_zero());
+        debug_assert!(!ray.intersects(piece));
         let blockers = blockers & ray;
         let reversed_blockers = reverse(blockers);
         let forward = blockers.wrapping_sub(&piece);
@@ -903,7 +914,6 @@ impl<R: RawBitboardTrait, C: RectangularCoordinates> Debug for DynamicallySizedB
     }
 }
 
-// TODO: Bitboard overlay for board text output?
 impl<R: RawBitboardTrait, C: RectangularCoordinates> Display for DynamicallySizedBitboard<R, C> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         self.format(f)
@@ -1108,10 +1118,18 @@ macro_rules! do_shift {
     $width: expr,
     $file: expr,
     $bb: expr,
+    $cylinder: expr,
     $typ: ty) => {{
-        let shift = $horizontal_shift + $vertical_shift * $width;
-        if $file >= -$horizontal_shift
-            && $file + $horizontal_shift < $width
+        let h_shift = if $cylinder && $file < -$horizontal_shift {
+            ($horizontal_shift % $width + $width) % $width
+        } else if $cylinder && $file + $horizontal_shift >= $width {
+            ($file + $horizontal_shift) % $width - $file
+        } else {
+            $horizontal_shift
+        };
+        let shift = h_shift + $vertical_shift * $width;
+        if $file >= -h_shift
+            && $file + h_shift < $width
             && shift < <$typ>::BITS as isize
             && -shift < <$typ>::BITS as isize
         {
@@ -1126,11 +1144,11 @@ macro_rules! do_shift {
 // width is the internal width, so boards with a width less than 8, but height <= 8 can simply use 8 as the width
 #[macro_export]
 macro_rules! precompute_leaper_attacks {
-    ($square_idx: expr, $diff_1: expr, $diff_2: expr, $repeat: expr, $width: expr, $typ: ty) => {{
+    ($square_idx: expr, $diff_1: expr, $diff_2: expr, $width: expr, $typ: ty) => {{
         let diff_1 = $diff_1 as isize;
         let diff_2 = $diff_2 as isize;
         let width = $width as isize;
-        assert!(diff_1 <= diff_2); // an (a, b) leaper is the same as an (b, a) leaper
+        assert!(diff_1 >= diff_2); // an (a, b) leaper is the same as an (b, a) leaper
         let this_piece: $typ = 1 << $square_idx;
         let file = $square_idx as isize % width;
         let mut attacks: $typ = 0;
@@ -1139,34 +1157,11 @@ macro_rules! precompute_leaper_attacks {
         while i < 4 {
             let horizontal_dir = i / 2 * 2 - 1;
             let vertical_dir = i % 2 * 2 - 1;
-            let mut horizontal_offset = horizontal_dir;
-            let mut vertical_offset = vertical_dir;
-            let mut repetition = 0;
-            loop {
-                attacks |= $crate::do_shift!(
-                    diff_2 * horizontal_offset,
-                    diff_1 * vertical_offset,
-                    width,
-                    file,
-                    this_piece,
-                    $typ
-                );
-                attacks |= $crate::do_shift!(
-                    diff_1 * horizontal_offset,
-                    diff_2 * vertical_offset,
-                    width,
-                    file,
-                    this_piece,
-                    $typ
-                );
-                if !$repeat || repetition > $width {
-                    // TODO: max(width, height)
-                    break;
-                }
-                horizontal_offset += horizontal_dir;
-                vertical_offset += vertical_dir;
-                repetition += 1;
-            }
+            attacks |=
+                $crate::do_shift!(diff_1 * horizontal_dir, diff_2 * vertical_dir, width, file, this_piece, false, $typ);
+            attacks |=
+                $crate::do_shift!(diff_2 * horizontal_dir, diff_1 * vertical_dir, width, file, this_piece, false, $typ);
+
             i += 1;
         }
         attacks
@@ -1186,7 +1181,7 @@ pub mod chessboard {
         let mut res: [Bitboard; 64] = [Bitboard::new(0); 64];
         let mut i = 0;
         while i < 64 {
-            res[i] = Bitboard::new(precompute_leaper_attacks!(i, 1, 2, false, 8, u64));
+            res[i] = Bitboard::new(precompute_leaper_attacks!(i, 2, 1, 8, u64));
             i += 1;
         }
         res
@@ -1196,8 +1191,7 @@ pub mod chessboard {
         let mut res = [Bitboard::new(0); 64];
         let mut i = 0;
         while i < 64 {
-            let bb =
-                precompute_leaper_attacks!(i, 1, 1, false, 8, u64) | precompute_leaper_attacks!(i, 0, 1, false, 8, u64);
+            let bb = precompute_leaper_attacks!(i, 1, 1, 8, u64) | precompute_leaper_attacks!(i, 1, 0, 8, u64);
             res[i] = Bitboard::new(bb);
             i += 1;
         }
@@ -1236,9 +1230,9 @@ pub mod chessboard {
         let mut res = [Bitboard::new(0); 64];
         let mut i = 0;
         while i < 64 {
-            let bb = precompute_leaper_attacks!(i, 2, 2, false, 8, u64)
-                | precompute_leaper_attacks!(i, 1, 2, false, 8, u64)
-                | precompute_leaper_attacks!(i, 0, 2, false, 8, u64);
+            let bb = precompute_leaper_attacks!(i, 2, 2, 8, u64)
+                | precompute_leaper_attacks!(i, 2, 1, 8, u64)
+                | precompute_leaper_attacks!(i, 2, 0, 8, u64);
             res[i] = Bitboard::new(bb);
             i += 1;
         }
@@ -1302,7 +1296,7 @@ pub mod chessboard {
                 res[a][b] = if a == b {
                     0
                 } else if a % 8 == b % 8 {
-                    Bitboard::A_FILE.0 << b % 8
+                    Bitboard::A_FILE.0 << (b % 8)
                 } else if a / 8 == b / 8 {
                     Bitboard::FIRST_RANK.0 << (b / 8 * 8)
                 } else if DIAGONALS_U64[8][a] & (1 << b) != 0 {
@@ -1319,10 +1313,10 @@ pub mod chessboard {
         res
     };
 
-    pub const fn white_squares() -> Bitboard {
+    pub const fn light_squares() -> Bitboard {
         COLORED_SQUARES[0]
     }
-    pub const fn black_squares() -> Bitboard {
+    pub const fn dark_squares() -> Bitboard {
         COLORED_SQUARES[1]
     }
 
@@ -1336,8 +1330,8 @@ mod tests {
     use crate::games::{Height, Width, mnk};
     use crate::general::bitboards::chessboard::{ATAXX_LEAPERS, Bitboard, KINGS};
     use crate::general::squares::{GridCoordinates, GridSize};
-    use rand::rngs::StdRng;
-    use rand::{Rng, SeedableRng, random};
+    use rand::prelude::SmallRng;
+    use rand::{RngExt, SeedableRng, random};
 
     #[test]
     fn precomputed_test() {
@@ -1354,7 +1348,7 @@ mod tests {
         let size = GridSize::new(Height::new(11), Width::new(9));
         for i in 0..99 {
             let origin = SmallGridSquare::<11, 9, 9>::from_bb_idx(i);
-            let attacks = precompute_leaper_attacks!(i, 1, 2, false, 9, u128)
+            let attacks = precompute_leaper_attacks!(i, 2, 1, 9, u128)
                 & DynamicallySizedBitboard::<ExtendedRawBitboard, GridCoordinates>::valid_squares_for_size(size).raw();
             for sq in attacks.one_indices() {
                 let sq = SmallGridSquare::<11, 9, 9>::from_bb_idx(sq);
@@ -1364,8 +1358,8 @@ mod tests {
                 s.sort();
                 assert_eq!(s, [1, 2]);
             }
-            let neighbors = (precompute_leaper_attacks!(i, 0, 1, false, 9, u128)
-                ^ precompute_leaper_attacks!(i, 1, 1, false, 9, u128))
+            let neighbors = (precompute_leaper_attacks!(i, 1, 0, 9, u128)
+                ^ precompute_leaper_attacks!(i, 1, 1, 9, u128))
                 | (1 << i);
             assert_eq!(
                 neighbors,
@@ -1417,7 +1411,7 @@ mod tests {
     #[test]
     fn files_ranks_containing_test() {
         let seed = random();
-        let mut rng = StdRng::seed_from_u64(seed);
+        let mut rng = SmallRng::seed_from_u64(seed);
         let size = GridSize::new(Height(rng.random_range(3..=12)), Width(rng.random_range(2..=10)));
         let bb = rng.random::<u128>()
             & rng.random::<u128>()
@@ -1452,9 +1446,9 @@ mod tests {
             assert_eq!(
                 mnk::Bitboard::hyperbola_quintessence_fallback(
                     i,
-                    mnk::Bitboard::new(0, size),
-                    |x| mnk::Bitboard::new(x.reverse_bits(), size),
-                    mnk::Bitboard::new(0xff, size) << (row * 8)
+                    mnk::Bitboard::new(1 << i, size),
+                    mnk::Bitboard::reverse,
+                    (mnk::Bitboard::new(0xff, size) << (row * 8)) ^ mnk::Bitboard::new(1 << i, size)
                 ),
                 mnk::Bitboard::new(expected, size),
                 "{i}"
@@ -1463,10 +1457,20 @@ mod tests {
 
         assert_eq!(
             mnk::Bitboard::hyperbola_quintessence_fallback(
+                15,
+                mnk::Bitboard::new(0, size),
+                mnk::Bitboard::reverse,
+                mnk::Bitboard::new((STEPS_U128[8] << 7) ^ (1 << 15), size)
+            ),
+            mnk::Bitboard::new((STEPS_U128[8] << 7) ^ (1 << 15), size)
+        );
+
+        assert_eq!(
+            mnk::Bitboard::hyperbola_quintessence_fallback(
                 3,
                 mnk::Bitboard::new(0b_0100_0001, size),
                 |x| mnk::Bitboard::new(x.reverse_bits(), size),
-                mnk::Bitboard::new(0xff, size),
+                mnk::Bitboard::new(0xff ^ (1 << 3), size),
             ),
             mnk::Bitboard::new(0b_0111_0111, size),
         );
@@ -1476,7 +1480,7 @@ mod tests {
                 28,
                 mnk::Bitboard::new(0x1234_4000_0fed, size),
                 |x| mnk::Bitboard::new(x.reverse_bits(), size),
-                mnk::Bitboard::new(0xffff_ffff_ffff, size),
+                mnk::Bitboard::new(0xffff_ffff_ffff ^ (1 << 28), size),
             ),
             mnk::Bitboard::new(0x0000_6fff_f800, size),
         );
@@ -1486,7 +1490,7 @@ mod tests {
                 28,
                 mnk::Bitboard::new(0x0110_0200_0001_1111, size),
                 |x| mnk::Bitboard::new(x.reverse_bits(), size),
-                mnk::Bitboard::new(0x1111_1111_1111_1111, size),
+                mnk::Bitboard::new(0x1111_1111_1111_1111 ^ (1 << 28), size),
             ),
             mnk::Bitboard::new(0x0011_1111_0111_0000, size),
         );
@@ -1496,7 +1500,7 @@ mod tests {
                 16,
                 mnk::Bitboard::new(0xfffe_d002_a912, size),
                 |x| mnk::Bitboard::new(x.swap_bytes(), size),
-                mnk::Bitboard::new(0x0101_0101_0101, size),
+                mnk::Bitboard::new(0x0101_0101_0101 ^ (1 << 16), size),
             ),
             mnk::Bitboard::new(0x0101_0100_0100, size),
         );
@@ -1506,9 +1510,11 @@ mod tests {
                 20,
                 mnk::Bitboard::new(0xffff_ffef_ffff, size),
                 |x| mnk::Bitboard::new(x.swap_bytes(), size),
-                mnk::Bitboard::new(0x_ffff_ffff_ffff, size),
+                mnk::Bitboard::new(0x_ffff_ffff_ffff ^ (1 << 20), size),
             ),
             mnk::Bitboard::new(0, size),
         );
     }
+
+    // TODO: Testcases with bitboards that are very non-quadratic, like 10x2 or 3x20
 }

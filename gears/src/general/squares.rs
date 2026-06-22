@@ -382,7 +382,7 @@ impl<const H: usize, const W: usize, const INTERNAL_WIDTH: usize> SmallGridSquar
     }
 
     #[inline(always)]
-    pub const fn to_u8(self) -> u8 {
+    pub const fn as_u8(self) -> u8 {
         self.idx
     }
 

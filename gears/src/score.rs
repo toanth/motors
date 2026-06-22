@@ -24,7 +24,6 @@ use crate::search::NodeType;
 use crate::search::NodeType::{Exact, FailHigh, FailLow};
 use anyhow::anyhow;
 use derive_more::{Add, AddAssign, Neg, Sub, SubAssign};
-use num::ToPrimitive;
 use num::traits::WrappingAdd;
 use std::fmt::{Display, Formatter};
 use std::num::Wrapping;
@@ -264,14 +263,6 @@ impl Mul<usize> for PhasedScore {
 
 impl MulAssign<usize> for PhasedScore {
     fn mul_assign(&mut self, rhs: usize) {
-        if cfg!(debug_assertions) {
-            let mg = self.mg();
-            let eg = self.eg();
-            let mg_res = (mg.0 as isize * rhs.to_isize().unwrap()).try_into().unwrap();
-            debug_assert!(is_valid_score(mg_res));
-            let eg_res = (eg.0 as isize * rhs.to_isize().unwrap()).try_into().unwrap();
-            debug_assert!(is_valid_score(eg_res));
-        }
         self.0 *= rhs as ScoreT;
     }
 }

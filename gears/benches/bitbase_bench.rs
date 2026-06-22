@@ -15,8 +15,9 @@
  *  You should have received a copy of the GNU General Public License
  *  along with Gears. If not, see <https://www.gnu.org/licenses/>.
  */
-use criterion::{Criterion, black_box, criterion_group, criterion_main};
+use criterion::{Criterion, criterion_group, criterion_main};
 use gears::games::chess::bitbase::calc_pawn_vs_king;
+use std::hint::black_box;
 
 pub fn calc_pawn_vs_king_bench(c: &mut Criterion) {
     c.bench_function("calc bitbase", |b| {

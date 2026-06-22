@@ -15,9 +15,7 @@
  *  You should have received a copy of the GNU General Public License
  *  along with Gears. If not, see <https://www.gnu.org/licenses/>.
  */
-use crate::games::CharType::Ascii;
-use crate::games::fairy::Side::{Kingside, Queenside};
-use crate::games::fairy::algebraic_notation::{MoveParser, format_san};
+use crate::games::fairy::algebraic_notation::{format_san, MoveParser};
 use crate::games::fairy::attacks::{EffectRules, MoveKind};
 use crate::games::fairy::effects::{AfterMove, InCheck};
 use crate::games::fairy::moves::MoveEffect::{
@@ -25,14 +23,16 @@ use crate::games::fairy::moves::MoveEffect::{
     SetEp,
 };
 use crate::games::fairy::pieces::{ColoredPieceId, PieceId};
-use crate::games::fairy::rules::{MAX_NUM_IN_HAND, PromoMoveChar, Rules};
-use crate::games::fairy::{Bitboard, Board, Color, RawBitboard, Side, Size, Square, effects};
+use crate::games::fairy::rules::{PromoMoveChar, Rules, MAX_NUM_IN_HAND};
+use crate::games::fairy::Side::{Kingside, Queenside};
+use crate::games::fairy::{effects, Bitboard, Board, Color, RawBitboard, Side, Size, Square};
+use crate::games::CharType::Ascii;
 use crate::games::{AbstractPieceType, ColorTrait, ColoredPieceTypeTrait, DimT, SizeTrait};
 use crate::general::bitboards::{BitboardTrait, RawBitboardTrait};
 use crate::general::board::SelfChecks::Verify;
 use crate::general::board::Strictness::Relaxed;
 use crate::general::board::{BitboardBoard, BoardHelpers, BoardTrait, UnverifiedBoardTrait};
-use crate::general::common::{Res, tokens};
+use crate::general::common::{tokens, Res};
 use crate::general::moves::{ExtendedFormat, Legality, MoveTrait, UntrustedMove};
 use crate::general::squares::{CompactSquare, RectangularCoordinates};
 use anyhow::bail;
@@ -158,7 +158,7 @@ impl MoveTrait<Board> for Move {
     fn description(self, board: &Board) -> String {
         let from = self.src_square_in(board).unwrap_or_default().to_string().bold();
         let to = self.dest(board.size()).to_string().bold();
-        let piece = self.piece(board).name(board.settings()).as_ref().bold();
+        let piece = self.piece(board).name(board.settings()).bold();
         if self.is_null() {
             return "A passing move".to_string();
         }
@@ -176,7 +176,7 @@ impl MoveTrait<Board> for Move {
                     format!("Move the {piece} on {from} to {to}")
                 };
                 if let MoveKind::Promotion(promo) = self.kind() {
-                    let piece = ColoredPieceId::from_u8(promo).name(board.settings()).as_ref().bold();
+                    let piece = ColoredPieceId::from_u8(promo).name(board.settings()).bold();
                     format!("{text} and promote it to a {piece}")
                 } else {
                     text
@@ -449,7 +449,7 @@ fn effects_for(mov: Move, pos: &mut Board, r: EffectRules) -> Option<()> {
     } else {
         ResetEp.apply(pos);
     }
-    if pos.rules().has_castling {
+    if pos.rules().castling.is_some() {
         for color in Color::iter() {
             let castling_bb = pos.castling_bb() & pos.player_bb(color);
             if (mov.src_square_in(pos).is_some() && castling_bb.is_bit_set_at(pos.size().internal_key(from)))
@@ -560,8 +560,12 @@ impl Board {
         if self.settings().must_preserve_own_king[self.active] && self.royal_bb_for(self.active).is_zero() {
             return None;
         }
+        if self.settings().immobility_illegal && self.can_never_move(mov.dest(self.size())) {
+            return None;
+        }
         self.adjust_castling_rights();
         for c in Color::iter() {
+            // TODO: Compute and store attack bitboard together with checkers bitboard
             self.0.in_check[c] = self.compute_is_in_check(c);
             if self.in_check[c] {
                 self.emit(InCheck { color: c, last_move: mov })?;
@@ -611,15 +615,16 @@ impl Board {
 #[cfg(test)]
 mod tests {
     use crate::games::chess::UCI_CHESS960;
-    use crate::games::fairy::Side::Queenside;
     use crate::games::fairy::moves::Move;
+    use crate::games::fairy::Side::Queenside;
     use crate::games::fairy::{Board, Color, Square};
-    use crate::games::{ColorTrait, chess};
+    use crate::games::{chess, ColorTrait};
     use crate::general::board::Strictness::{Relaxed, Strict};
     use crate::general::board::{BoardHelpers, BoardTrait, UnverifiedBoardTrait};
     use crate::general::moves::MoveTrait;
-    use crate::general::perft::Bulkness::Bulk;
     use crate::general::perft::perft;
+    use crate::general::perft::Bulkness::Bulk;
+    use crate::general::perft::Parallelize::Parallel;
     use crate::search::DepthPly;
     use std::sync::atomic::Ordering;
 
@@ -644,7 +649,7 @@ mod tests {
                 assert!(!mov.is_capture());
                 assert!(pos.clone().make_move(mov).unwrap().debug_verify_invariants(Strict).is_ok());
             }
-            let perft_res = perft(DepthPly::new(3), pos.clone(), true, Bulk);
+            let perft_res = perft(DepthPly::new(3), pos.clone(), Parallel, Bulk, None);
             assert_eq!(perft_res.nodes, *perft_nodes);
         }
         let fen = "8/4k3/8/8/8/8/8/RK1b4 w A - 0 1";

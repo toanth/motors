@@ -15,35 +15,34 @@
  *  You should have received a copy of the GNU General Public License
  *  along with Gears. If not, see <https://www.gnu.org/licenses/>.
  */
-use crate::PlayerResult::Draw;
-use crate::games::chess::Color::{Black, White};
-use crate::games::chess::bitbase::{PAWN_V_KING_TABLE, query_pawn_v_king};
+use crate::games::chess::bitbase::{query_pawn_v_king, PAWN_V_KING_TABLE};
 use crate::games::chess::pieces::ColoredPieceType::{BlackKing, BlackPawn, WhiteKing, WhitePawn};
 use crate::games::chess::pieces::PieceType::{Bishop, Empty, King, Knight, Pawn, Queen, Rook};
-use crate::games::chess::pieces::{ColoredPieceType, NUM_CHESS_PIECES, PieceType};
+use crate::games::chess::pieces::{ColoredPieceType, PieceType, NUM_CHESS_PIECES};
 use crate::games::chess::squares::{
-    A_FILE_NUM, B_FILE_NUM, C_FILE_NUM, ChessboardSize, D_FILE_NUM, NUM_SQUARES, Square,
+    ChessboardSize, Square, A_FILE_NUM, B_FILE_NUM, C_FILE_NUM, D_FILE_NUM, NUM_SQUARES,
 };
 use crate::games::chess::unverified::UnverifiedBoard;
+use crate::games::chess::Color::{Black, White};
 use crate::games::chess::{Board, ChessBitboardTrait, Color, EDGE_SQUARES, PAWN_CAPTURES};
 use crate::games::{ColorTrait, ColoredPieceTypeTrait, CoordinatesTrait, DimT, NUM_COLORS};
+use crate::general::attacks::ChessSliderGenerator;
 use crate::general::bitboards::chessboard::{Bitboard, KINGS, KNIGHTS};
 use crate::general::bitboards::{BitboardTrait, KnownSizeBitboard, RawBitboardTrait};
 use crate::general::board::Strictness::Strict;
 use crate::general::board::{BitboardBoard, BoardTrait, SelfChecks, Strictness, UnverifiedBoardTrait};
-use crate::general::hq::ChessSliderGenerator;
 use crate::general::squares::RectangularCoordinates;
+use crate::PlayerResult::Draw;
 use itertools::Itertools;
-use rayon::iter::IntoParallelIterator;
-use rayon::iter::ParallelIterator;
-use std::cmp::{Ordering, max};
+use rayon::prelude::*;
+use std::cmp::{max, Ordering};
 use std::collections::HashMap;
 use std::io;
 use std::io::Write;
 use std::mem::swap;
-use std::sync::LazyLock;
 use std::sync::atomic::Ordering::{AcqRel, Relaxed};
-use std::sync::atomic::{AtomicI8, AtomicUsize, fence};
+use std::sync::atomic::{fence, AtomicI8, AtomicUsize};
+use std::sync::LazyLock;
 use std::time::Instant;
 
 type Entry = AtomicI8;
@@ -126,7 +125,7 @@ mod no_pawns {
             let [w, b] = KING_SQUARES[i];
             let w = KING_INDICES_SYMMETRY[w.bb_idx()] as usize;
             res[w][b.bb_idx()] = i as u16;
-            i = i + 1;
+            i += 1;
         }
         res
     });
@@ -676,13 +675,11 @@ impl<const PAWNS: bool> PosIdx<PAWNS> {
             // the inactive king is the primary king
             swap(&mut primary_king, &mut secondary_king);
         }
-        if !PAWNS || compact {
-            if primary_king.file() >= 4 {
-                primary_king = primary_king.flip_left_right(ChessboardSize::default());
-                secondary_king = secondary_king.flip_left_right(ChessboardSize::default());
-                for bb in &mut self.bbs[0..t.num_bbs] {
-                    *bb = bb.flip_left_right();
-                }
+        if (!PAWNS || compact) && primary_king.file() >= 4 {
+            primary_king = primary_king.flip_left_right(ChessboardSize::default());
+            secondary_king = secondary_king.flip_left_right(ChessboardSize::default());
+            for bb in &mut self.bbs[0..t.num_bbs] {
+                *bb = bb.flip_left_right();
             }
         }
         if !PAWNS && primary_king.rank() >= 4 {
@@ -823,12 +820,11 @@ fn base_case_iter<const PAWN: bool>(p: &PosIdx<PAWN>, t: &TableData<PAWN>, activ
     }
     pos.place_piece(kings[0], WhiteKing);
     pos.place_piece(kings[1], BlackKing);
-    if let Some(captured_sq) = captured.to_square() {
-        if let Some(piece) =
+    if let Some(captured_sq) = captured.to_square()
+        && let Some(piece) =
             piece_counts[!active].iter().find_position(|&&cnt| cnt > 0).map(|x| PieceType::from_repr(x.0).unwrap())
-        {
-            pos.place_piece(captured_sq, ColoredPieceType::new(!active, piece));
-        }
+    {
+        pos.place_piece(captured_sq, ColoredPieceType::new(!active, piece));
     }
     let promoted = pos.0.col_piece_bb(!active, Pawn) & Bitboard::rank(7 * (active as DimT));
     if promoted.more_than_one_bit_set() {
@@ -881,8 +877,11 @@ fn value_after<const PAWNS: bool>(
     debug_assert!(p.bbs[i].has(src));
     let mut old_bb = p.bbs[i];
     let unscaled_delta = if t.num_pieces[i] == 1 {
-        let res = dest.bb_idx() as isize - src.bb_idx() as isize;
-        if t.piece_types[i] == WhitePawn { -res } else { res }
+        if t.piece_types[i] != WhitePawn {
+            dest.bb_idx() as isize - src.bb_idx() as isize
+        } else {
+            -8 * (dest.rank() as isize - src.rank() as isize) + (dest.file() as isize - src.file() as isize)
+        }
     } else {
         let mut new_bb = old_bb ^ src.bb() ^ dest.bb();
         if t.piece_types[i] == WhitePawn {
@@ -902,7 +901,7 @@ fn value_after<const PAWNS: bool>(
         debug_assert_eq!(
             new_idx,
             expected,
-            "{delta} {unscaled_delta} {0} {src}{dest} {old_bb} {new_bb} {new_p:?}",
+            "{delta} {unscaled_delta} {0} {i} {src}{dest}\n{p:?}\n{new_p:?} {old_bb} {new_bb}",
             expected - idx
         );
     }
@@ -946,7 +945,7 @@ fn step<const PAWNS: bool>(
     // will not influence the minimum. Therefore, we don't even need to construct a `Chessboard`,
     // we can simply use the attacks of the individual pieces
     let test_nonking_move = |i: usize, src: Square, dest: Square| {
-        let mut res = value_after(&p, t, p_i, i, src, dest, table);
+        let mut res = value_after(p, t, p_i, i, src, dest, table);
         // handle ep, no need to test for legality.
         // fortunately, positions with an ep capture can't be base case positions (because ep being set implies legal moves)
         if i < t.num_pawn_bbs() && dest.rank().abs_diff(src.rank()) == 2 {
@@ -1222,8 +1221,8 @@ fn compact_size(piece_counts: PieceCounts) -> usize {
     num_free += 16; // non-pawn pieces can also be placed on backranks
     // place all other pieces
     for c in Color::iter() {
-        for p_idx in 1..5 {
-            encode_pieces(piece_counts[c][p_idx], &mut num_free);
+        for &pc in &piece_counts[c][1..5] {
+            encode_pieces(pc, &mut num_free);
         }
     }
     // when both sides have the same material, we demand that it's white's turn to move
@@ -1301,8 +1300,8 @@ fn postprocess<const PAWNS: bool>(table: &[Entry], t: &TableData<PAWNS>) -> Vec<
         }
     };
     for (w_iter, b_iter) in PosIdx::<PAWNS>::outer_iter(t) {
-        w_iter.for_each(|iter| handle_batch(iter));
-        b_iter.for_each(|iter| handle_batch(iter));
+        w_iter.for_each(handle_batch);
+        b_iter.for_each(handle_batch);
     }
     // these values are after symmetry reduction, so they are somewhat arbitrary
     let all = compressed.len();
@@ -1416,6 +1415,7 @@ static TB: LazyLock<Tablebase> = LazyLock::new(|| {
 /// Computes them in the right order such that for any table t, all tables required for t have been computed before t is computed.
 /// This ensures all tables can be computed with the maximum parallelism and no thread has to wait for another thread
 /// to finish computing a required table.
+#[allow(unused)]
 fn force_dtz_table(mut pieces: PieceCounts) -> &'static [Entry] {
     if !colors_ordered(pieces) {
         pieces.swap(0, 1);
@@ -1446,6 +1446,7 @@ fn force_dtz_table(mut pieces: PieceCounts) -> &'static [Entry] {
 
 // TODO: Use compact table insteda of the intermediate tables created during construction
 fn probe_dtz(mut pos: Board) -> i8 {
+    // TODO: Testcase for this
     if let Some(sq) = pos.ep_square {
         pos.ep_square = None;
         let pawn = sq.pawn_advance_unchecked(!pos.active);
@@ -1494,15 +1495,15 @@ fn probe_dtz(mut pos: Board) -> i8 {
 #[allow(unused)]
 mod tests {
     use super::*;
-    use crate::games::chess::BitboardRepr;
     use crate::games::chess::pieces::ColoredPieceType::{BlackKing, WhiteKing};
     use crate::games::chess::pieces::Piece;
     use crate::games::chess::squares::sq;
+    use crate::games::chess::BitboardRepr;
     use crate::general::bitboards::chessboard::Bitboard;
     use crate::general::board::BoardHelpers;
-    use rand::SeedableRng;
     use rand::distr::{Distribution, Uniform};
-    use rand::rngs::StdRng;
+    use rand::prelude::SmallRng;
+    use rand::SeedableRng;
     use std::sync::atomic::AtomicBool;
 
     #[test]
@@ -1617,42 +1618,35 @@ mod tests {
 
     #[test]
     fn single_piece_test() {
-        for gen_table in [false, true] {
-            for p in [Knight, Bishop, Rook, Queen, Pawn] {
-                let mut piece_counts = PieceCounts::default();
-                piece_counts[White][p as usize] = 1;
-                if gen_table {
-                    _ = force_dtz_table(piece_counts);
-                }
-                for w_k in Square::iter() {
-                    for b_k in Square::iter() {
-                        for w_p in Square::iter() {
-                            let piece = Piece::new(ColoredPieceType::new(White, p), w_p);
-                            let mut pos = Board::empty();
-                            pos.place_piece(w_k, WhiteKing);
-                            let Ok(()) = pos.try_place_piece(Piece::new(BlackKing, b_k)) else { continue };
-                            let Ok(()) = pos.try_place_piece(piece) else { continue };
-                            let Ok(pos) = pos.verify(Strict) else { continue };
-                            if p == Pawn {
-                                let t = &TableData::<true>::new(piece_counts);
-                                let p_idx = PosIdx::<PAWNS>::from_chessboard(&pos, t);
-                                let idx = p_idx.idx(t);
-                                assert_eq!(p_idx, PosIdx::from_idx(idx, t));
-                            } else {
-                                let t = &TableData::<false>::new(piece_counts);
-                                let p_idx = PosIdx::<NO_PAWNS>::from_chessboard(&pos, t);
-                                let idx = p_idx.idx(t);
-                                assert_eq!(p_idx, PosIdx::from_idx(idx, t));
-                            };
-                            if !gen_table {
-                                continue;
-                            }
-                            let dtz = probe_dtz(pos);
-                            let won = piece_v_king_is_won(p, w_p, w_k, b_k, White);
-                            assert!(dtz >= 0, "{dtz} {p} {pos}");
-                            assert_eq!(dtz > 0, won, "{dtz} {p} {pos}");
-                            assert!(dtz <= 100, "{dtz} {p} {pos}");
-                        }
+        for p in [Knight, Bishop, Rook, Queen, Pawn] {
+            let mut piece_counts = PieceCounts::default();
+            piece_counts[White][p as usize] = 1;
+            _ = force_dtz_table(piece_counts);
+            for w_k in Square::iter() {
+                for b_k in Square::iter() {
+                    for w_p in Square::iter() {
+                        let piece = Piece::new(ColoredPieceType::new(White, p), w_p);
+                        let mut pos = Board::empty();
+                        pos.place_piece(w_k, WhiteKing);
+                        let Ok(()) = pos.try_place_piece(Piece::new(BlackKing, b_k)) else { continue };
+                        let Ok(()) = pos.try_place_piece(piece) else { continue };
+                        let Ok(pos) = pos.verify(Strict) else { continue };
+                        if p == Pawn {
+                            let t = &TableData::<true>::new(piece_counts);
+                            let p_idx = PosIdx::<PAWNS>::from_chessboard(&pos, t);
+                            let idx = p_idx.idx(t);
+                            assert_eq!(p_idx, PosIdx::from_idx(idx, t));
+                        } else {
+                            let t = &TableData::<false>::new(piece_counts);
+                            let p_idx = PosIdx::<NO_PAWNS>::from_chessboard(&pos, t);
+                            let idx = p_idx.idx(t);
+                            assert_eq!(p_idx, PosIdx::from_idx(idx, t));
+                        };
+                        let dtz = probe_dtz(pos);
+                        let won = piece_v_king_is_won(p, w_p, w_k, b_k, White);
+                        assert!(dtz >= 0, "{dtz} {p} {pos}");
+                        assert_eq!(dtz > 0, won, "{dtz} {p} {pos}");
+                        assert!(dtz <= 100, "{dtz} {p} {pos}");
                     }
                 }
             }
@@ -1785,7 +1779,7 @@ mod tests {
 
     fn test_consistency<const PAWNS: bool>(t: &TableData<PAWNS>, table: &[Entry]) {
         let seed = 42;
-        let mut rng = StdRng::seed_from_u64(seed);
+        let mut rng = SmallRng::seed_from_u64(seed);
         let dist = Uniform::new(0, table.len()).unwrap();
         for _ in 0..5_000_000 {
             let idx = dist.sample(&mut rng);
@@ -1851,7 +1845,7 @@ mod tests {
     #[test]
     #[ignore]
     fn piece_vs_2pieces_test() {
-        let t = TableData::<false>::new([[0, 1, 1, 0, 0], [0, 0, 0, 1, 0]]);
+        let t = TableData::<false>::new([[0, 0, 0, 1, 0], [0, 1, 1, 0, 0]]);
         let table = force_dtz_table(t.piece_counts);
         let mut pos = Board::from_fen("8/7r/8/8/8/1KN5/1B6/1k6 b - - 0 1", Strict).unwrap();
         let p = PosIdx::<NO_PAWNS>::from_chessboard(&pos, &t);

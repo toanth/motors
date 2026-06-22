@@ -30,7 +30,7 @@ use gears::general::moves::MoveTrait;
 use gears::output::Message::{Info, Warning};
 use gears::output::OutputOpts;
 use gears::search::TimeControl;
-use gears::ugi::{EngineOption, parse_ugi_position_part};
+use gears::ugi::{EngineOption, ParseUgiPosState, SimpleParseUgiPosState, parse_ugi_position_part};
 use gears::{GameState, output_builder_from_str};
 
 // TODO: Unify with motors `Command`, probably move to gears
@@ -359,7 +359,15 @@ impl<B: BoardTrait> TextInputThread<B> {
     fn handle_position(mut client: MutexGuard<Client<B>>, words: &mut Tokens) -> Res<()> {
         let old_board = client.board().clone();
         // TODO: Use parse_ugi_position
-        client.reset_to_new_start_position(parse_ugi_position_part("position", words, false, &old_board, Relaxed)?);
+        let state = SimpleParseUgiPosState { pos: old_board.clone(), initial_pos: old_board, previous_pos: None };
+        client.reset_to_new_start_position(parse_ugi_position_part(
+            "position",
+            words,
+            false,
+            &state.pos,
+            state.previous(),
+            Relaxed,
+        )?);
         let Some(word) = words.next() else {
             return Ok(());
         };
@@ -480,9 +488,11 @@ impl<B: BoardTrait> TextInputThread<B> {
         match words.next().unwrap_or_default() {
             "" => client.show(),
             x => {
-                output_builder_from_str(x, &client.all_outputs)?
-                    .for_client(&client.state)?
-                    .show(&client.state, OutputOpts::default());
+                output_builder_from_str(x, &client.all_outputs)?.for_client(&client.state)?.show(
+                    &client.state,
+                    OutputOpts::default(),
+                    None,
+                );
             }
         }
         Ok(())

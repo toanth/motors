@@ -36,7 +36,6 @@ use gears::search::{Budget, DepthPly, MpvType, NodeType, NodesLimit, SearchInfo,
 use gears::{GameState, colored, colorgrad};
 use indicatif::{ProgressBar, ProgressStyle};
 use std::fmt::Write;
-use std::io::stdout;
 use std::time::Duration;
 use std::{fmt, mem};
 
@@ -142,7 +141,7 @@ impl TypeErasedUgiOutput {
         )
         .unwrap();
         if let Some(str) = top_moves {
-            write!(message, "{str}").unwrap();
+            message.push_str(str);
         }
         Self::write_boards(&mut message, curr_pos, root_pos, &self.previous_exact_pv_end_pos);
         bar.set_prefix(message);
@@ -262,14 +261,16 @@ pub trait AbstractUgiOutput {
 
 impl<B: BoardTrait> AbstractUgiOutput for UgiOutput<B> {
     fn write_ugi(&mut self, message: &fmt::Arguments) {
-        use std::io::Stdout;
         use std::io::Write;
         // UGI is always done through stdin and stdout, no matter what the UI is.
         // TODO: Keep stdout mutex? Might make printing slightly faster and prevents everyone else from
         // accessing stdout, which is probably a good thing because it prevents sending invalid UCI commands
-        println!("{message}");
-        // Currently, `println` always flushes, but this behaviour should not be relied upon.
-        _ = Stdout::flush(&mut stdout());
+        {
+            let mut lock = std::io::stdout().lock();
+            _ = writeln!(lock, "{message}");
+            // Currently, writing a newline to stdout always flushes, but this behavior should not be relied upon.
+            _ = lock.flush();
+        }
         for output in &mut self.additional_outputs {
             output.write_ugi_output(message, None);
         }
@@ -290,6 +291,7 @@ pub struct UgiOutput<B: BoardTrait> {
     pub(super) additional_outputs: Vec<OutputBox<B>>,
     previous_exact_pv: Option<Vec<B::Move>>,
     top_moves: Vec<(B::Move, Score)>,
+    pub previous_search_res: Option<SearchResult<B>>,
     pub show_refutation: bool,
     pub show_currline: bool,
     pub currline_null_moves: bool,
@@ -309,6 +311,7 @@ impl<B: BoardTrait> Default for UgiOutput<B> {
             top_moves: vec![],
             show_debug_output: false,
             minimal: false,
+            previous_search_res: None,
         }
     }
 }
@@ -402,7 +405,7 @@ impl<B: BoardTrait> UgiOutput<B> {
         for (i, (m, score)) in self.top_moves.iter().enumerate() {
             let score = pretty_score(*score, None, None, &self.type_erased.gradient, false, false);
             if i > 0 {
-                write!(top_moves, ", ").unwrap();
+                top_moves.push_str(", ");
             }
             write!(top_moves, "{0} [{score}]", m.extended_formatter(pos, Standard, None)).unwrap();
         }
@@ -471,9 +474,9 @@ impl<B: BoardTrait> UgiOutput<B> {
         }
     }
 
-    pub fn show(&mut self, m: &dyn GameState<B>, opts: OutputOpts) {
+    pub fn show(&mut self, m: &dyn GameState<B>, opts: OutputOpts, highlight: Option<B::RawBitboard>) {
         for output in &mut self.additional_outputs {
-            output.show(m, opts);
+            output.show(m, opts, highlight);
         }
     }
 }
@@ -526,6 +529,7 @@ fn write_with_suffix(val: u64, dimmed: bool) -> String {
 pub fn score_gradient() -> LinearGradient {
     colorgrad::GradientBuilder::new()
         .html_colors(&["red", "gold", "green"])
+        // .html_colors(&["#ff0000", "#ffd700", "#008000"])
         .domain(&[0.0, 1.0])
         .build::<LinearGradient>()
         .unwrap()

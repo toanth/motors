@@ -191,7 +191,7 @@ mod tests {
         }
         let mut res = 0;
 
-        let file_deltas = if king.file() % 8 == 0 {
+        let file_deltas = if king.file().is_multiple_of(8) {
             res += 1 << 6;
             vec![0, 1]
         } else if king.file() % 8 == 7 {

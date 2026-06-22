@@ -1,10 +1,11 @@
-use crate::games::chess::Color::Black;
 use crate::games::chess::pieces::PieceType::{Bishop, King, Knight, Pawn};
-use crate::games::chess::pieces::{NUM_CHESS_PIECES, PieceType};
-use crate::games::chess::squares::{NUM_COLUMNS, NUM_SQUARES, Square};
+use crate::games::chess::pieces::{PieceType, NUM_CHESS_PIECES};
+use crate::games::chess::squares::{Square, NUM_COLUMNS, NUM_SQUARES};
+use crate::games::chess::Color::Black;
 use crate::games::chess::{Board, Color, Hashes};
-use crate::games::{ColorTrait, NUM_COLORS, PosHash};
+use crate::games::{ColorTrait, PosHash, NUM_COLORS};
 use crate::general::board::BitboardBoard;
+use crate::general::common::PcgXslRr128_64Oneseq;
 use crate::general::squares::RectangularCoordinates;
 
 // also includes the empty piece to avoid special casing that
@@ -22,28 +23,6 @@ impl PrecomputedZobristKeys {
     #[inline]
     pub fn piece_key(&self, piece: PieceType, color: Color, square: Square) -> PosHash {
         self.piece_square_keys[square.bb_idx() + piece as usize * 64 + color as usize * 64 * 7]
-    }
-}
-
-/// A simple `const` random number generator adapted from my C++ algebra implementation,
-/// originally from here: <https://www.pcg-random.org/> (I hate that website)
-struct PcgXslRr128_64Oneseq(u128);
-
-const MUTLIPLIER: u128 = (2_549_297_995_355_413_924 << 64) + 4_865_540_595_714_422_341;
-const INCREMENT: u128 = (6_364_136_223_846_793_005 << 64) + 1_442_695_040_888_963_407;
-
-// the pcg xsl rr 128 64 oneseq generator, aka pcg64_oneseq (most other pcg generators have additional problems)
-impl PcgXslRr128_64Oneseq {
-    const fn new(seed: u128) -> Self {
-        Self(seed.wrapping_add(INCREMENT).wrapping_mul(MUTLIPLIER).wrapping_add(INCREMENT))
-    }
-
-    const fn generate(&mut self) -> PosHash {
-        self.0 = self.0.wrapping_mul(MUTLIPLIER);
-        self.0 = self.0.wrapping_add(INCREMENT);
-        let upper = (self.0 >> 64) as u64;
-        let xored = upper ^ (self.0 as u64);
-        PosHash(xored.rotate_right((upper >> (122 - 64)) as u32))
     }
 }
 
@@ -117,27 +96,14 @@ impl Board {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::games::chess::Color::White;
     use crate::games::chess::moves::{Move, MoveFlags};
     use crate::games::chess::squares::{D_FILE_NUM, E_FILE_NUM};
+    use crate::games::chess::Color::White;
     use crate::general::board::Strictness::Strict;
     use crate::general::board::{BoardHelpers, BoardTrait};
     use crate::general::moves::MoveTrait;
     use std::collections::HashMap;
     use std::str::FromStr;
-
-    #[test]
-    fn pcg_test() {
-        let mut generator = PcgXslRr128_64Oneseq::new(42);
-        assert_eq!(generator.0 >> 64, 1_610_214_578_838_163_691);
-        assert_eq!(generator.0 & ((1 << 64) - 1), 13_841_303_961_814_150_380);
-        let rand = generator.generate();
-        assert_eq!(rand.0, 2_915_081_201_720_324_186);
-        let rand = generator.generate();
-        assert_eq!(rand.0, 13_533_757_442_135_995_717);
-        let rand = generator.generate();
-        assert_eq!(rand.0, 13_172_715_927_431_628_928);
-    }
 
     #[test]
     fn simple_test() {
@@ -150,15 +116,15 @@ mod tests {
         let hash = position.hash_pos();
         let mut hashes = HashMap::new();
         let mut collisions = HashMap::new();
-        for mov in position.legal_moves_slow() {
-            let new_board = position.make_move(mov).unwrap();
+        for mov in position.legal_moves() {
+            let new_board = position.play(mov);
             assert_ne!(new_board.hash_pos(), hash);
             let previous = hashes.insert(new_board.hash_pos().0, new_board);
             assert!(previous.is_none());
             let different_bits = (new_board.hash_pos().0 ^ hash.0).count_ones();
             assert!((16..=48).contains(&different_bits));
             for mov in new_board.legal_moves_slow() {
-                let new_board = new_board.make_move(mov).unwrap();
+                let new_board = new_board.play(mov);
                 let previous = hashes.insert(new_board.hash_pos().0, new_board);
                 if let Some(old_board) = previous {
                     println!(
@@ -185,9 +151,9 @@ mod tests {
         let mov = Move::new(
             Square::from_rank_file(1, E_FILE_NUM),
             Square::from_rank_file(3, E_FILE_NUM),
-            MoveFlags::NormalMove,
+            MoveFlags::DoublePawnPush,
         );
-        let new_pos = position.make_move(mov).unwrap();
+        let new_pos = position.play(mov);
         assert_eq!(new_pos.hashes, new_pos.compute_zobrist());
         assert_eq!(new_pos.ep_square, Some(Square::from_str("e3").unwrap()));
         let ep_move = Move::new(
@@ -195,7 +161,7 @@ mod tests {
             Square::from_rank_file(2, E_FILE_NUM),
             MoveFlags::EnPassant,
         );
-        let after_ep = new_pos.make_move(ep_move).unwrap();
+        let after_ep = new_pos.play(ep_move);
         assert_eq!(after_ep.hashes, after_ep.compute_zobrist());
     }
 
@@ -203,9 +169,7 @@ mod tests {
     fn zobrist_after_move_test() {
         for pos in Board::bench_positions() {
             for m in pos.pseudolegal_moves() {
-                let Some(new_pos) = pos.make_move(m) else {
-                    continue;
-                };
+                let new_pos = pos.play(m);
                 assert!(new_pos.debug_verify_invariants(Strict).is_ok(), "{pos} {}", m.compact_formatter(&pos));
                 if !(m.is_capture(&pos)
                     || m.is_promotion()

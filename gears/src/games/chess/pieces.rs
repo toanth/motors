@@ -141,7 +141,7 @@ impl AbstractPieceType<Board> for PieceType {
         Self::parse_from_char(c)
     }
 
-    fn name(&self, _settings: &Settings) -> impl AsRef<str> {
+    fn name(&self, _settings: &Settings) -> impl AsRef<str> + ToString {
         match self {
             Pawn => "pawn",
             Knight => "knight",
@@ -247,7 +247,7 @@ impl ColoredPieceType {
 
 impl Display for ColoredPieceType {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.name(&Settings::default()).as_ref())
+        write!(f, "{}", self.name(&Settings::default()))
     }
 }
 
@@ -310,7 +310,7 @@ impl AbstractPieceType<Board> for ColoredPieceType {
         Self::parse_from_char(c)
     }
 
-    fn name(&self, _settings: &Settings) -> impl AsRef<str> {
+    fn name(&self, _settings: &Settings) -> &'static str {
         match self {
             ColoredPieceType::WhitePawn => "white pawn",
             ColoredPieceType::WhiteKnight => "white knight",

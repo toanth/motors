@@ -1,8 +1,8 @@
-use std::fmt;
-use std::fmt::Debug;
-
+use colored::{ColoredString, Colorize};
 use dyn_clone::DynClone;
 use itertools::Itertools;
+use std::fmt;
+use std::fmt::Debug;
 use strum::IntoEnumIterator;
 use strum_macros::Display;
 
@@ -34,12 +34,12 @@ pub enum Message {
 }
 
 impl Message {
-    fn message_prefix(self) -> &'static str {
+    fn message_prefix(self) -> ColoredString {
         match self {
-            Message::Info => "",
-            Message::Warning => "Warning:",
-            Message::Error => "Error:",
-            Message::Debug => "Debug:",
+            Message::Info => ColoredString::default(),
+            Message::Warning => "Warning:".red(),
+            Message::Error => "Error:".bold().red(),
+            Message::Debug => "Debug:".bright_yellow(),
         }
     }
 }
@@ -86,16 +86,10 @@ pub struct OutputOpts {
     pub disable_flipping: bool,
 }
 
-impl OutputOpts {
-    pub fn dont_flip() -> Self {
-        Self { disable_flipping: true }
-    }
-}
-
 /// An Output prints the board and shows messages.
 pub trait Output<B: BoardTrait>: AbstractOutput {
-    fn show(&mut self, m: &dyn GameState<B>, opts: OutputOpts) {
-        println!("{}", self.as_string(m, opts));
+    fn show(&mut self, m: &dyn GameState<B>, opts: OutputOpts, highlight: Option<B::RawBitboard>) {
+        println!("{}", self.as_string(m, opts, highlight));
     }
 
     fn inform_game_over(&mut self, m: &dyn GameState<B>) {
@@ -105,7 +99,7 @@ pub trait Output<B: BoardTrait>: AbstractOutput {
         }
     }
 
-    fn as_string(&self, m: &dyn GameState<B>, opts: OutputOpts) -> String;
+    fn as_string(&self, m: &dyn GameState<B>, opts: OutputOpts, highlight: Option<B::RawBitboard>) -> String;
 
     fn display_message_with_state(&mut self, _: &dyn GameState<B>, typ: Message, message: &fmt::Arguments) {
         self.display_message(typ, message);

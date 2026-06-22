@@ -15,18 +15,20 @@
  *  You should have received a copy of the GNU General Public License
  *  along with Gears. If not, see <https://www.gnu.org/licenses/>.
  */
-use crate::games::NoHistory;
+use crate::games::uttt::uttt_square::Square;
 use crate::games::uttt::Color::*;
 use crate::games::uttt::ColoredPieceType::{OStone, XStone};
-use crate::games::uttt::uttt_square::Square;
 use crate::games::uttt::{Board, Move, SubSquare, UnverifiedBoard};
+use crate::games::NoHistory;
+use crate::general::bitboards::RawBitboardTrait;
 use crate::general::board::Strictness::Strict;
 use crate::general::board::{BoardHelpers, BoardTrait, UnverifiedBoardTrait};
-use crate::general::perft::Bulkness::Bulk;
 use crate::general::perft::perft;
+use crate::general::perft::Bulkness::Bulk;
+use crate::general::perft::Parallelize::SingleThreaded;
 use crate::search::DepthPly;
+use rand::prelude::SmallRng;
 use rand::SeedableRng;
-use rand::rngs::StdRng;
 
 #[test]
 fn perft_tests() {
@@ -36,18 +38,17 @@ fn perft_tests() {
         println!("{pos}");
         let n = if cfg!(debug_assertions) { 7 } else { 100 };
         for (depth, nodes) in perft_res.iter().enumerate().take(n) {
-            let res = perft(DepthPly::new(depth), pos, false, Bulk);
+            let res = perft(DepthPly::new(depth), pos, SingleThreaded, Bulk, Some(1024));
             assert_eq!(res.nodes, *nodes, "{fen}, depth {depth}: {0} should be {1}", res.nodes, *nodes);
         }
-        let mut rng = StdRng::seed_from_u64(seed);
+        let mut rng = SmallRng::seed_from_u64(seed);
         if pos.cannot_call_movegen() {
             continue;
         }
-        let mov = pos.random_legal_move(&mut rng);
-        if mov.is_none() {
-            assert_eq!(perft_res[1], 0);
+        if let Some(mov) = pos.random_legal_move(&mut rng) {
+            assert!(pos.is_move_legal(mov), "{pos} {}", mov);
         } else {
-            assert!(pos.is_move_legal(mov.unwrap()), "{pos} {}", mov.unwrap());
+            assert_eq!(perft_res[1], 0);
         }
     }
 }
@@ -88,4 +89,9 @@ fn sub_board_won_test() {
     let pos = pos.remove_piece(Square::new(sub_board, SubSquare::unchecked(3))).unwrap().verify(Strict).unwrap();
     assert!(!pos.is_sub_board_won(X, sub_board));
     assert!(pos.is_sub_board_open(sub_board));
+    for sq in pos.all_empty_squares_bb().one_indices() {
+        let sq = Square::from_bb_idx(sq);
+        let mov = Move(sq);
+        assert_eq!(pos.is_move_pseudolegal(mov), pos.is_sub_board_open(sq.sub_board()));
+    }
 }

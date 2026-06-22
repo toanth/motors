@@ -37,10 +37,12 @@ use crate::general::bitboards::{
 use crate::general::board::SelfChecks::*;
 use crate::general::board::Strictness::Strict;
 use crate::general::board::{
-    BoardHelpers, BoardTrait, NameToPos, SelfChecks, Strictness, Symmetry, UnverifiedBoardTrait,
+    BBSelect, BoardHelpers, BoardTrait, NameToPos, SelfChecks, Strictness, Symmetry, UnverifiedBoardTrait,
     ply_counter_from_fullmove_nr, read_common_fen_part, simple_fen,
 };
-use crate::general::common::{EntityList, Res, StaticallyNamedEntity, Tokens, ith_one_u64, ith_one_u128, parse_int};
+use crate::general::common::{
+    EntityList, GenericSelect, Res, StaticallyNamedEntity, Tokens, ith_one_u64, ith_one_u128, parse_int,
+};
 use crate::general::move_list::InplaceMoveList;
 use crate::general::moves::Legality::Legal;
 use crate::general::moves::{Legality, MoveTrait, UntrustedMove};
@@ -53,7 +55,7 @@ use crate::search::DepthPly;
 use anyhow::bail;
 use arbitrary::Arbitrary;
 use colored::Colorize;
-use rand::Rng;
+use rand::{Rng, RngExt};
 use std::fmt::{Display, Formatter};
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::num::NonZeroUsize;
@@ -62,9 +64,9 @@ use std::str::FromStr;
 use std::{fmt, iter};
 use strum_macros::{EnumIter, FromRepr};
 
-/// `Bitboard`s have the  semantic constraint of storing squares in a row-major fashion.
-/// That's why the public API of this struct only exposes `RawBitboard`s, which don't have this constraint,
-/// and `SubBitboard`s, which adhere to that.
+/// The [`BitboardTrait`] has the  semantic constraint of storing squares in a row-major fashion.
+/// That's why the public API of this struct only exposes [`RawBitboard`]s, which don't have this constraint,
+/// and [`SubBitboard`]s, which adhere to that.
 pub type RawBitboard = ExtendedRawBitboard;
 
 pub type SubSize = SmallGridSize<3, 3>;
@@ -154,7 +156,7 @@ impl AbstractPieceType<Board> for PieceType {
         }
     }
 
-    fn name(&self, _settings: &Settings) -> impl AsRef<str> {
+    fn name(&self, _settings: &Settings) -> &'static str {
         match self {
             Empty => "empty",
             Occupied => "occupied",
@@ -229,7 +231,7 @@ impl AbstractPieceType<Board> for ColoredPieceType {
         }
     }
 
-    fn name(&self, _settings: &Settings) -> impl AsRef<str> {
+    fn name(&self, _settings: &Settings) -> &'static str {
         match self {
             XStone => "x",
             OStone => "o",
@@ -547,6 +549,18 @@ impl Board {
         self.open.is_bit_set_at(square.bb_idx())
     }
 
+    pub fn valid_dests_bb(&self) -> RawBitboard {
+        debug_assert!(!self.last_move_won_game());
+        if self.last_move != Move::NULL {
+            let sub_board = self.last_move.dest_square().sub_square();
+            if self.is_sub_board_open(sub_board) {
+                debug_assert!(!self.is_sub_board_won(X, sub_board) && !self.is_sub_board_won(O, sub_board));
+                return self.open & ((Self::SUB_BOARD_MASK as RawBitboard) << (sub_board.bb_idx() * 9));
+            }
+        }
+        self.open_bb()
+    }
+
     pub fn last_move_won_game(&self) -> bool {
         if self.last_move.is_null() {
             false
@@ -605,6 +619,7 @@ impl Board {
     }
 
     #[must_use]
+    #[allow(unused)]
     pub fn yet_another_fen_format(&self) -> String {
         let mut res = String::new();
         res.push(self.active.to_char(&Settings).to_ascii_uppercase());
@@ -677,6 +692,7 @@ impl Display for Board {
 
 impl BoardTrait for Board {
     type EmptyRes = Board;
+    type RawBitboard = ExtendedRawBitboard;
     type Settings = Settings;
     type SettingsRef = Settings;
     type Coordinates = Square;
@@ -763,6 +779,10 @@ impl BoardTrait for Board {
         0
     }
 
+    fn valid_squares_bb(&self) -> Self::RawBitboard {
+        Self::BOARD_BB
+    }
+
     fn size(&self) -> Size {
         Size::default()
     }
@@ -783,6 +803,10 @@ impl BoardTrait for Board {
         }
     }
 
+    fn attacks_of(&self, _sq: Square) -> ExtendedRawBitboard {
+        0
+    }
+
     fn default_perft_depth(&self) -> DepthPly {
         DepthPly::new(5)
     }
@@ -791,9 +815,7 @@ impl BoardTrait for Board {
         self.last_move_won_game()
     }
 
-    // TODO: Testcase that it's impossible to load a FEN where a player won the game
     fn gen_pseudolegal(&self, mut callback: impl FnMut(Move)) {
-        debug_assert!(!self.last_move_won_game(), "{self}");
         if self.last_move != Move::NULL {
             let sub_board = self.last_move.dest_square().sub_square();
             if self.is_sub_board_open(sub_board) {
@@ -803,6 +825,8 @@ impl BoardTrait for Board {
                     let square = Square::new(sub_board, SubSquare::from_bb_idx(idx));
                     callback(Move::new(square));
                 }
+                return;
+            } else if self.last_move_won_game() {
                 return;
             }
         }
@@ -815,6 +839,10 @@ impl BoardTrait for Board {
     fn gen_tactical_pseudolegal(&self, _callback: impl FnMut(Move)) {
         // TODO: Test considering moves that win a sub-board as tactical
         // currently, no moves are considered tactical
+    }
+
+    fn gen_quiet_pseudolegal(&self, callback: impl FnMut(Move)) {
+        self.gen_pseudolegal(callback)
     }
 
     fn num_pseudolegal_moves(&self) -> usize {
@@ -904,7 +932,7 @@ impl BoardTrait for Board {
         }
     }
 
-    fn player_result_slow<H: BoardHistory>(&self, history: &H) -> Option<PlayerResult> {
+    fn calc_player_result<H: BoardHistory>(&self, history: &H) -> Option<PlayerResult> {
         self.player_result_no_movegen(history)
     }
 
@@ -954,6 +982,11 @@ impl BoardTrait for Board {
         pos.verify_with_level(CheckFen, strictness)
     }
 
+    /// Some games have alternative FEN
+    fn as_alternative_fen(&self) -> Option<String> {
+        Some(self.to_alternative_fen())
+    }
+
     fn as_diagram(&self, typ: CharType, flip: bool, mark_active: bool) -> String {
         board_to_string(self, Piece::to_char, typ, flip, mark_active)
     }
@@ -995,6 +1028,31 @@ impl BoardTrait for Board {
 
     fn background_color(&self, square: Square) -> SquareColor {
         square.sub_square().square_color()
+    }
+
+    fn bitboard_from_name(&self) -> BBSelect<Self> {
+        // TODO: Implement BitboardBoard for UTTT by splitting off a `RectangularBitboard` subtrait off the `BitboardTrait`.)
+        let mut closed_subboards = 0;
+        for sq in self.size().valid_coordinates() {
+            if !self.is_sub_board_open(sq.sub_board()) {
+                closed_subboards |= 1 << sq.bb_idx();
+            }
+        }
+        vec![
+            GenericSelect::full("active", Some("us"), "Our pieces", self.active_player_bb()),
+            GenericSelect::full("inactive", Some("them"), "Their pieces", self.inactive_player_bb()),
+            GenericSelect::full("empty", None, "Empty squares", self.all_empty_squares_bb()),
+            GenericSelect::full("occupied", None, "Squares that aren't empty", self.occupied_bb()),
+            GenericSelect::full("all", None, "All squares", Self::BOARD_BB),
+            GenericSelect::full(
+                "can_move_to",
+                None,
+                "Squares where a stone can be placed right now",
+                self.valid_dests_bb(),
+            ),
+            GenericSelect::full("open", None, "Squares where a stone can still be placed", self.open_bb()),
+            GenericSelect::full("closed", None, "Squares in subboards that are closed", closed_subboards),
+        ]
     }
 }
 

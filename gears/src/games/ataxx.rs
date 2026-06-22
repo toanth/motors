@@ -2,36 +2,39 @@ mod board_impl;
 mod common;
 mod perft_test;
 
-use crate::PlayerResult;
-use crate::PlayerResult::{Draw, Lose, Win};
-use crate::games::ataxx::Color::{O, X};
 use crate::games::ataxx::common::AtaxxPieceType::Occupied;
-use crate::games::ataxx::common::ColoredAtaxxPieceType::{Blocked, Empty, OPiece, XPiece};
-use crate::games::ataxx::common::{ColoredAtaxxPieceType, MAX_ATAXX_MOVES_IN_POS, Move};
+use crate::games::ataxx::common::ColoredPieceType::{Blocked, Empty, OPiece, XPiece};
+use crate::games::ataxx::common::{ColoredPieceType, Move, MAX_MOVES_IN_POS};
+use crate::games::ataxx::Color::{O, X};
 use crate::games::{
     BoardHistory, BoardTrait, CharType, ColorTrait, ColoredPieceTrait, ColoredPieceTypeTrait, CoordinatesTrait,
-    GenericPiece, NUM_COLORS, NoHistory, PosHash, SettingsTrait, SizeTrait,
+    GenericPiece, NoHistory, PosHash, SettingsTrait, SizeTrait, NUM_COLORS,
 };
+use crate::general::bitboards::chessboard::{ATAXX_LEAPERS, KINGS};
 use crate::general::bitboards::{
     BitboardTrait, KnownSizeBitboard, RawBitboardTrait, RawStandardBitboard, SmallGridBitboard,
 };
 use crate::general::board::SelfChecks::{Assertion, CheckFen};
 use crate::general::board::Strictness::Strict;
 use crate::general::board::{
-    BitboardBoard, BoardHelpers, PieceTypeOf, SelfChecks, Strictness, Symmetry, UnverifiedBoardTrait, simple_fen,
+    default_bitboards_from_name, simple_fen, BBSelect, BitboardBoard, BoardHelpers, PieceTypeOf, SelfChecks, Strictness,
+    Symmetry, UnverifiedBoardTrait,
 };
-use crate::general::common::{Res, StaticallyNamedEntity, Tokens, ith_one_u64};
+use crate::general::common::{ith_one_u64, Res, StaticallyNamedEntity, Tokens};
 use crate::general::move_list::InplaceMoveList;
 use crate::general::moves::MoveTrait;
 use crate::general::squares::SquareColor::White;
 use crate::general::squares::{SmallGridSize, SmallGridSquare, SquareColor};
+use crate::output::text_output::{board_to_string, display_board_pretty, BoardFormatter, DefaultBoardFormatter};
 use crate::output::OutputOpts;
-use crate::output::text_output::{BoardFormatter, DefaultBoardFormatter, board_to_string, display_board_pretty};
 use crate::search::DepthPly;
+use crate::PlayerResult;
+use crate::PlayerResult::{Draw, Lose, Win};
 use anyhow::{bail, ensure};
 use arbitrary::Arbitrary;
-use rand::Rng;
 use rand::prelude::IndexedRandom;
+use rand::Rng;
+use rand::RngExt;
 use std::cmp::Ordering;
 use std::fmt::{Display, Formatter};
 use std::ops::Not;
@@ -41,11 +44,11 @@ type Bitboard = SmallGridBitboard<7, 7>;
 #[derive(Debug, Default, Copy, Clone, Eq, PartialEq)]
 pub struct Settings;
 
-const ATAXX_SETTINGS: Settings = Settings {};
+const SETTINGS: Settings = Settings {};
 
 impl SettingsTrait for Settings {}
 
-pub type AtaxxSize = SmallGridSize<7, 7>;
+pub type Size = SmallGridSize<7, 7>;
 
 pub type Square = SmallGridSquare<7, 7, 8>;
 
@@ -134,14 +137,15 @@ impl StaticallyNamedEntity for Board {
     }
 }
 
-type Piece = GenericPiece<Board, ColoredAtaxxPieceType>;
+type Piece = GenericPiece<Board, ColoredPieceType>;
 
 // for some reason, Chessboard::MoveList can be ambiguous? This should fix that
-pub type MoveList = InplaceMoveList<Board, MAX_ATAXX_MOVES_IN_POS>;
+pub type MoveList = InplaceMoveList<Board, MAX_MOVES_IN_POS>;
 
 impl BoardTrait for Board {
     // TODO: This is not a useful board state since neither player can make any moves
     type EmptyRes = Board;
+    type RawBitboard = RawStandardBitboard;
     type Settings = Settings;
     type SettingsRef = Settings;
     type Coordinates = Square;
@@ -248,7 +252,7 @@ impl BoardTrait for Board {
                 let sq = Square::from_bb_idx(sq);
                 let color = Color::iter().nth(rng.random_range(0..2)).unwrap();
                 // doesn't currently generate gaps (doing so would need to ensure the board is connected)
-                let piece = ColoredAtaxxPieceType::new(color, Occupied);
+                let piece = ColoredPieceType::new(color, Occupied);
                 pos.place_piece(sq, piece);
                 if let Some(symmetry) = symmetry {
                     let sq = match symmetry {
@@ -256,13 +260,11 @@ impl BoardTrait for Board {
                             let empty = pos.0.empty_bb().raw();
                             Square::from_bb_idx(ith_one_u64(rng.random_range(0..empty.num_ones()), empty))
                         }
-                        Symmetry::Horizontal => sq.flip_left_right(AtaxxSize::default()),
-                        Symmetry::Vertical => sq.flip_up_down(AtaxxSize::default()),
-                        Symmetry::Rotation180 => {
-                            sq.flip_left_right(AtaxxSize::default()).flip_up_down(AtaxxSize::default())
-                        }
+                        Symmetry::Horizontal => sq.flip_left_right(Size::default()),
+                        Symmetry::Vertical => sq.flip_up_down(Size::default()),
+                        Symmetry::Rotation180 => sq.flip_left_right(Size::default()).flip_up_down(Size::default()),
                     };
-                    let piece = ColoredAtaxxPieceType::new(!color, Occupied);
+                    let piece = ColoredPieceType::new(!color, Occupied);
                     pos.place_piece(sq, piece);
                 }
             }
@@ -279,11 +281,11 @@ impl BoardTrait for Board {
     }
 
     fn settings(&self) -> &Settings {
-        &ATAXX_SETTINGS
+        &SETTINGS
     }
 
     fn settings_ref(&self) -> Self::SettingsRef {
-        ATAXX_SETTINGS
+        SETTINGS
     }
 
     fn active_player(&self) -> Color {
@@ -298,8 +300,12 @@ impl BoardTrait for Board {
         self.ply_100_ctr
     }
 
-    fn size(&self) -> AtaxxSize {
-        AtaxxSize::default()
+    fn valid_squares_bb(&self) -> Self::RawBitboard {
+        !Bitboard::INVALID_EDGE_MASK.raw()
+    }
+
+    fn size(&self) -> Size {
+        Size::default()
     }
 
     fn is_empty(&self, coords: Self::Coordinates) -> bool {
@@ -307,7 +313,7 @@ impl BoardTrait for Board {
         !self.occupied_bb().is_bit_set_at(coords.bb_idx())
     }
 
-    fn is_piece_on(&self, sq: Square, piece: ColoredAtaxxPieceType) -> bool {
+    fn is_piece_on(&self, sq: Square, piece: ColoredPieceType) -> bool {
         match piece {
             Empty => self.empty_bb(),
             Blocked => self.blocked_bb(),
@@ -331,6 +337,13 @@ impl BoardTrait for Board {
         Self::Piece::new(typ, coordinates)
     }
 
+    fn attacks_of(&self, sq: Square) -> RawStandardBitboard {
+        if self.is_empty(sq) {
+            return 0;
+        }
+        (ATAXX_LEAPERS[sq.bb_idx()].raw() | KINGS[sq.bb_idx()].raw()) & self.empty.raw()
+    }
+
     fn default_perft_depth(&self) -> DepthPly {
         DepthPly::new(5)
     }
@@ -341,6 +354,10 @@ impl BoardTrait for Board {
 
     fn gen_tactical_pseudolegal(&self, _callback: impl FnMut(Move)) {
         // currently, no moves are considered tactical
+    }
+
+    fn gen_quiet_pseudolegal(&self, callback: impl FnMut(Self::Move)) {
+        self.gen_pseudolegal(callback)
     }
 
     fn num_pseudolegal_moves(&self) -> usize {
@@ -396,14 +413,14 @@ impl BoardTrait for Board {
         })
     }
 
-    fn player_result_slow<H: BoardHistory>(&self, history: &H) -> Option<PlayerResult> {
+    fn calc_player_result<H: BoardHistory>(&self, history: &H) -> Option<PlayerResult> {
         self.player_result_no_movegen(history)
     }
 
     /// If a player has no legal moves, a null move is generated, so this doesn't require any special handling during search.
     /// But if there are no pieces left, the player loses the game.
     fn no_moves_result(&self) -> Option<PlayerResult> {
-        self.player_result_slow(&NoHistory::default())
+        self.calc_player_result(&NoHistory::default())
     }
 
     fn can_reasonably_win(&self, _player: Color) -> bool {
@@ -439,10 +456,13 @@ impl BoardTrait for Board {
         // Don't paint a checkerboard pattern, just make everything white
         White
     }
+
+    fn bitboard_from_name(&self) -> BBSelect<Self> {
+        default_bitboards_from_name(self)
+    }
 }
 
 impl BitboardBoard for Board {
-    type RawBitboard = RawStandardBitboard;
     type Bitboard = Bitboard;
 
     fn piece_bb(&self, _piece: PieceTypeOf<Self>) -> Self::Bitboard {
@@ -463,6 +483,16 @@ impl BitboardBoard for Board {
 
     fn mask_bb(&self) -> Self::Bitboard {
         !Bitboard::INVALID_EDGE_MASK
+    }
+
+    fn calc_move_dest_bb(&self) -> Self::Bitboard {
+        let pieces = self.active_player_bb();
+        let empty = self.empty_bb();
+        let mut res = pieces.moore_inclusive() & empty;
+        for source in pieces.ones() {
+            res |= Bitboard::new(ATAXX_LEAPERS[source.bb_idx()].raw()) & empty;
+        }
+        res
     }
 }
 
@@ -520,11 +550,11 @@ impl UnverifiedBoardTrait<Board> for UnverifiedAtaxxBoard {
         self.0.settings()
     }
 
-    fn size(&self) -> AtaxxSize {
+    fn size(&self) -> Size {
         self.0.size()
     }
 
-    fn place_piece(&mut self, square: Square, piece: ColoredAtaxxPieceType) {
+    fn place_piece(&mut self, square: Square, piece: ColoredPieceType) {
         let bb = Bitboard::single_piece(square);
         self.0.colors[0] &= !bb;
         self.0.colors[1] &= !bb;
@@ -588,8 +618,9 @@ mod tests {
     use super::*;
     use crate::general::board::Strictness::Relaxed;
     use crate::general::moves::MoveTrait;
-    use crate::general::perft::Bulkness::Bulk;
     use crate::general::perft::perft;
+    use crate::general::perft::Bulkness::Bulk;
+    use crate::general::perft::Parallelize::SingleThreaded;
 
     #[test]
     fn startpos_test() {
@@ -653,7 +684,7 @@ mod tests {
         let pos = Board::from_fen("7/7/7/7/-------/-------/--x3o x 1 2", Strict).unwrap();
         let expected = [1, 2, 3, 3, 4, 5, 5, 3, 3, 3, 2, 3, 3, 2, 3, 3, 2, 3, 3, 2, 3, 3, 2, 3, 3, 2, 3, 3, 2, 3, 3];
         for (i, &nodes) in expected.iter().enumerate() {
-            let res = perft(DepthPly::new(i), pos, false, Bulk);
+            let res = perft(DepthPly::new(i), pos, SingleThreaded, Bulk, None);
             assert_eq!(res.nodes, nodes, "Depth {i}: {pos}");
         }
     }

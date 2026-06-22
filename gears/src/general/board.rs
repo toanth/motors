@@ -15,28 +15,30 @@
  *  You should have received a copy of the GNU General Public License
  *  along with Gears. If not, see <https://www.gnu.org/licenses/>.
  */
-use crate::PlayerResult::{Draw, Lose};
+use crate::games::CharType::Ascii;
 use crate::games::{
-    AbstractPieceType, BoardHistory, CharType, ColorTrait, ColoredPieceTrait, ColoredPieceTypeTrait, CoordinatesTrait,
-    DimT, PosHash, SettingsTrait, SizeTrait, file_to_char,
+    file_to_char, AbstractPieceType, BoardHistory, CharType, ColorTrait, ColoredPieceTrait, ColoredPieceTypeTrait,
+    CoordinatesTrait, DimT, PosHash, SettingsTrait, SizeTrait,
 };
 use crate::general::bitboards::{BitboardTrait, RawBitboardTrait};
 use crate::general::board::SelfChecks::{Assertion, Verify};
 use crate::general::board::Strictness::{Relaxed, Strict};
 use crate::general::common::Description::NoDescription;
 use crate::general::common::{
-    EntityList, NamedEntity, Res, StaticallyNamedEntity, Tokens, TokensToString, select_name_static, tokens,
+    select_name_static, tokens, EntityList, GenericSelect, NamedEntity, Res, StaticallyNamedEntity, Tokens,
+    TokensToString,
 };
 use crate::general::move_list::{MoveIter, MoveListTrait};
 use crate::general::moves::ExtendedFormat::Standard;
 use crate::general::moves::Legality::{Legal, PseudoLegal};
 use crate::general::moves::MoveTrait;
 use crate::general::squares::{RectangularCoordinates, RectangularSize, SquareColor};
-use crate::output::OutputOpts;
 use crate::output::text_output::BoardFormatter;
+use crate::output::OutputOpts;
 use crate::search::DepthPly;
 use crate::ugi::Protocol;
-use crate::{GameOver, GameOverReason, MatchResult, PlayerResult, player_res_to_match_res};
+use crate::PlayerResult::{Draw, Lose};
+use crate::{player_res_to_match_res, GameOver, GameOverReason, MatchResult, PlayerResult};
 use anyhow::{anyhow, bail, ensure};
 use arbitrary::Arbitrary;
 use colored::Colorize;
@@ -157,7 +159,7 @@ where
 
     /// Verifies that the position is legal. This function is meant to be used in `assert!`s,
     /// for validating input, such as FENs, and for allowing a user to programmatically set up custom positions and then
-    /// verify that they are legal, not to be used for filtering positions after a call to `make_move`
+    /// verify that they are legal. It should not be used for filtering positions after a call to `make_move`
     /// (it should already be ensured through other means that the move results in a legal position or `None`).
     /// If `checks` is `Assertion`, this performs internal validity checks, which is useful for asserting that there are no
     /// bugs in the implementation, but unnecessary if this function is only called to check the validity of a FEN.
@@ -308,6 +310,9 @@ pub trait BoardTrait:
 {
     /// Should be either `Self::Unverified` or `Self`
     type EmptyRes: Into<Self::Unverified>;
+    /// Even if the board doesn't use bitboards internally, this type must be able to represent an arbitrary subset of coordinates.
+    /// The [`Self::size()`] of this board can be used to convert between bits and coordinates (i.e. squares for rectangular boards)
+    type RawBitboard: RawBitboardTrait;
     type Settings: SettingsTrait;
     type SettingsRef: Default + Eq;
     type Coordinates: CoordinatesTrait;
@@ -396,6 +401,10 @@ pub trait BoardTrait:
     /// This can be the same as [`Self::halfmove_ctr_since_start`] or always zero if repetitions aren't possible.
     fn ply_draw_clock(&self) -> usize;
 
+    /// A bitboard of all squares. If the board size isn't the same as the number of bits in the bitboard type,
+    /// some bits don't correspond to squares and will be zero in the result of this function.
+    fn valid_squares_bb(&self) -> Self::RawBitboard;
+
     /// The size of the board.
     fn size(&self) -> BoardSize<Self>;
 
@@ -425,6 +434,14 @@ pub trait BoardTrait:
     fn hand(&self, _color: Self::Color) -> impl Iterator<Item = (usize, PieceTypeOf<Self>)> {
         iter::empty()
     }
+
+    /// Returns a bitboard of all attacks of the piece on the given square.
+    /// If there is no piece on that square, return the empty bitboard.
+    /// What constitutes an 'attack' is game-dependent; in particular there does not have to be
+    /// a one-to-one relation between pseudolegal moves of that piece and set bits of the returned bitboard.
+    /// For example, in chess, promotions mean that a bit can correspond to more than one move, and
+    /// because pawn pushed or castling moves can't capture, they don't count as attacks and won't set a bit.
+    fn attacks_of(&self, sq: Self::Coordinates) -> Self::RawBitboard;
 
     /// Returns the default depth that should be used for perft if not otherwise specified.
     /// Takes in a reference to self because some boards have a size determined at runtime,
@@ -460,15 +477,27 @@ pub trait BoardTrait:
         moves
     }
 
+    /// Returns a list of pseudo legal moves that are considered "quiet", i.e. not "tactical".
+    fn quiet_pseudolegal(&self) -> Self::MoveList {
+        let mut moves = Self::MoveList::default();
+        self.gen_quiet_pseudolegal(|m| moves.add_move(m));
+        moves
+    }
+
     /// Generate pseudolegal moves and calls the provided callable for each move.
     /// This doesn't handle a forced passing move in case of no legal moves, unlike
     /// [`Self::pseudolegal_moves`]. It should therefore be considered a very low-level function.
     fn gen_pseudolegal(&self, callback: impl FnMut(Self::Move));
 
-    /// Generate moves that are considered "tactical" into the supplied move list.
-    /// Generic over the move list, like [`Self::gen_pseudolegal`].
+    /// Generate moves that are considered "tactical" and calls the provided callable for each move.
     /// Note that some games don't consider any moves tactical, so this function may have no effect.
     fn gen_tactical_pseudolegal(&self, callback: impl FnMut(Self::Move));
+
+    /// Generate moves that are *not* considered "tactical" into the supplied move list.
+    /// Every move is either tactical or quiet, so calling [`Self::gen_tactical_pseudolegal`] and [`Self::gen_quiet_pseudolegal`]
+    /// must result in the same moves as [`Self::gen_pseudolegal`] (but possibly in a different order).
+    /// Many games don't consider any moves tactical, which means this function is the same as `[Self::gen_pseudolegal]`.
+    fn gen_quiet_pseudolegal(&self, callback: impl FnMut(Self::Move));
 
     /// Returns a list of legal moves, that is, moves that can be played using `make_move`
     /// and will not return `None`.
@@ -584,7 +613,7 @@ pub trait BoardTrait:
     /// Note that many implementations never return [`PlayerResult::Win`] because the active player can't win the game,
     /// which is the case because the current player is flipped after the winning move.
     /// For example, being checkmated in chess is a loss for the current player.
-    fn player_result_slow<H: BoardHistory>(&self, history: &H) -> Option<PlayerResult>;
+    fn calc_player_result<H: BoardHistory>(&self, history: &H) -> Option<PlayerResult>;
 
     /// Only called when there are no legal moves.
     /// In that case, the function returns the game state from the current player's perspective.
@@ -596,13 +625,13 @@ pub trait BoardTrait:
     /// Returns true iff the game is lost for the player who can now move, like being checkmated in chess.
     /// Using [`Self::player_result_no_movegen()`] and [`Self::no_moves_result()`] is often the faster option if movegen is needed anyway
     fn is_game_lost_slow<H: BoardHistory>(&self, history: &H) -> bool {
-        self.player_result_slow(history).is_some_and(|x| x == Lose)
+        self.calc_player_result(history).is_some_and(|x| x == Lose)
     }
 
     /// Returns true iff the game is a draw.
     /// Similarly to [`Self::is_game_lost_slow`], using [`Self::player_result_no_movegen`] and [`Self::no_moves_result`] is often faster.
     fn is_draw_slow<H: BoardHistory>(&self, history: &H) -> bool {
-        self.player_result_slow(history).is_some_and(|x| x == Draw)
+        self.calc_player_result(history).is_some_and(|x| x == Draw)
     }
 
     /// Returns true iff the game is won for the current player after making the given move.
@@ -653,6 +682,11 @@ pub trait BoardTrait:
         AxesFormat::default()
     }
 
+    /// Some games have alternative FEN
+    fn as_alternative_fen(&self) -> Option<String> {
+        None
+    }
+
     /// Returns an ASCII (or unicode) art representation of the board.
     /// This is not meant to return a FEN, but instead a diagram where the pieces
     /// are identified by their letters in algebraic notation.
@@ -679,6 +713,12 @@ pub trait BoardTrait:
     /// but it's also valid to always return `White`.
     // TODO: Maybe each board should be able to define its own square color enum?
     fn background_color(&self, coords: Self::Coordinates) -> SquareColor;
+
+    /// Returns a map from name to bitboard.
+    /// For example, for chess, `"checkers"` returns a bitboard of pieces that give check.
+    /// Game-independent bitboards like `"active"` or the pieces are handled in [`bitboard_from_name`], which is
+    /// called by this default implementation. Board implementations can change this list, usually by adding game-specific names.
+    fn bitboard_from_name(&self) -> BBSelect<Self>;
 }
 
 /// This trait contains associated functions that can be called on `Board` instances but shouldn't be overridden by `Board` implementations.
@@ -700,6 +740,12 @@ pub trait BoardHelpers: BoardTrait {
             Self::Color::first().name(self.settings()).to_string(),
             Self::Color::second().name(self.settings()).to_string(),
         ]
+    }
+
+    /// The bitboard of bits that don't correspond to squares, which happens if the board size isn't the same
+    /// as the number of bits in the bitboard type.
+    fn invalid_square_bb(&self) -> Self::RawBitboard {
+        !self.valid_squares_bb()
     }
 
     /// The player who cannot currently move.
@@ -740,7 +786,7 @@ pub trait BoardHelpers: BoardTrait {
     /// Returns an optional [`MatchResult`]. Unlike a [`PlayerResult`], a [`MatchResult`] doesn't contain `Win` or `Lose` variants,
     /// but instead `P1Win` and `P1Lose`. Also, it contains a [`GameOverReason`].
     fn match_result_slow<H: BoardHistory>(&self, history: &H) -> Option<MatchResult> {
-        let player_res = self.player_result_slow(history)?;
+        let player_res = self.calc_player_result(history)?;
         let game_over = GameOver { result: player_res, reason: GameOverReason::Normal };
         Some(player_res_to_match_res(game_over, self.active_player()))
     }
@@ -761,7 +807,7 @@ pub trait BoardHelpers: BoardTrait {
             .map_err(|err| anyhow!("Failed to parse FEN '{}': {err}", string.bold()))?;
         if let Some(next) = words.next() {
             return Err(anyhow!(
-                "Input `{0}' contained additional characters after FEN, starting with '{1}'",
+                "Input `{0}' contains additional characters after FEN, starting with '{1}'",
                 string.bold(),
                 next.red()
             ));
@@ -865,6 +911,73 @@ where
     fn idx_to_coordinates(&self, idx: DimT) -> Self::Coordinates {
         self.size().idx_to_coordinates(idx)
     }
+}
+
+#[allow(type_alias_bounds)]
+pub type BBSelect<B: BoardTrait> = Vec<GenericSelect<B::RawBitboard>>;
+
+pub fn default_bitboards_from_name<B: BitboardBoard>(pos: &B) -> BBSelect<B> {
+    let dest_squares = pos.calc_move_dest_bb().raw();
+    let mut t: Vec<GenericSelect<B::RawBitboard>> = vec![
+        GenericSelect::full("active", Some("us"), "Pieces of the active player", pos.active_player_bb().raw()),
+        GenericSelect::full("inactive", Some("them"), "Pieces of the inactive player", pos.inactive_player_bb().raw()),
+        GenericSelect::full("empty", None, "All empty squares", pos.empty_bb().raw()),
+        GenericSelect::full("occupied", None, "All non-empty squares", pos.occupied_bb().raw()),
+        GenericSelect::full("all", None, "All squares on the board", pos.mask_bb().raw()),
+        GenericSelect::full(
+            "can_move_to",
+            Some("dest"),
+            "Squares which the active player can pseudolegally move to",
+            dest_squares,
+        ),
+    ];
+    let s = pos.settings();
+    for p in PieceTypeOf::<B>::non_empty(s) {
+        t.push(GenericSelect {
+            name: p.name(s).to_string(),
+            alternative_name: Some(p.to_char(Ascii, s).to_string()),
+            description: Some(format!("Bitboard of squares occupied by a {}", p.name(s).to_string())),
+            val: pos.piece_bb(p).raw(),
+        })
+    }
+    for c in B::Color::iter() {
+        t.push(GenericSelect {
+            name: c.name(s).to_string(),
+            alternative_name: Some(c.to_char(s).to_string()),
+            description: Some(format!("Bitboard of squares occupied by {}", c.name(s))),
+            val: pos.player_bb(c).raw(),
+        });
+    }
+    let size = pos.size();
+    let width = size.width().get();
+    for file in 0..width {
+        let file_name = pos.axes_format().ith_x_axis_entry(file, width, None, false);
+        t.push(GenericSelect {
+            name: format!("file_{file_name}"),
+            alternative_name: None,
+            description: Some(format!("Bitboard of all squares on the {file_name} file")),
+            val: B::Bitboard::file_for(file, size).raw(),
+        })
+    }
+    let height = size.height().get();
+    for rank in 0..height {
+        let rank_name = pos.axes_format().ith_y_axis_entry(rank, height, None, false);
+        t.push(GenericSelect {
+            name: format!("rank_{rank_name}"),
+            alternative_name: None,
+            description: Some(format!("Bitboard of all squares on rank {rank_name}")),
+            val: B::Bitboard::rank_for(rank, size).raw(),
+        })
+    }
+    for sq in size.valid_coordinates() {
+        t.push(GenericSelect {
+            name: format!("square_{sq}"),
+            alternative_name: None,
+            description: Some(format!("Bitboard where the only set bit corresponds to {sq}")),
+            val: B::RawBitboard::single_piece_at(size.internal_key(sq)),
+        })
+    }
+    t
 }
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Hash, Arbitrary)]
@@ -978,13 +1091,12 @@ impl Display for AxisEntry {
 /// A trait for [`BoardTrait`]s that use [`BitboardTrait`]s.
 /// Bitboards are small bitvector representations of sets of squares.
 /// This trait mainly exists to make implementing new games easier, because
-/// implementing it trait provides some default implementations,
-/// but *those might not be optimal* depending on the internal representation,
-/// and *they might even be wrong* because this assumes that each square is either occupied by a piece or empty.
+/// implementing this trait provides some default implementations,
+/// but those *might not be optimal* depending on the internal representation.
+/// Games with neutral pieces should override the [`Self::neutral_bb`] function.
 // There is no actual reason why bitboards would require rectangular coordinates,
 // but currently all boards are rectangular and lifting this restriction would need a bit of restructuring.
 pub trait BitboardBoard: BoardTrait<Coordinates: RectangularCoordinates> {
-    type RawBitboard: RawBitboardTrait;
     type Bitboard: BitboardTrait<Self::RawBitboard, Self::Coordinates>;
 
     /// Bitboard of all pieces of the given [`PieceType`], independent of which player they belong to.
@@ -1014,7 +1126,7 @@ pub trait BitboardBoard: BoardTrait<Coordinates: RectangularCoordinates> {
     /// Bitboard of all squares that contain a "piece" that doesn't belong to any player, like a gap in ataxx.
     /// Empty squares don't count, so this bitboard is always zero for most games.
     fn neutral_bb(&self) -> Self::Bitboard {
-        Self::Bitboard::new(Self::RawBitboard::zero(), self.size())
+        self.zero_bb()
     }
 
     /// Bitboard of all pieces, i.e. all non-empty squares.
@@ -1032,9 +1144,28 @@ pub trait BitboardBoard: BoardTrait<Coordinates: RectangularCoordinates> {
         !self.occupied_bb() & self.mask_bb()
     }
 
+    /// Bitboard (with correct size) where all bits are zero.
+    fn zero_bb(&self) -> Self::Bitboard {
+        Self::Bitboard::new(Self::RawBitboard::zero(), self.size())
+    }
+
     /// On many boards, not all bits of a bitboard correspond to squares.
     /// This bitboard has ones on all squares and zeros otherwise.
     fn mask_bb(&self) -> Self::Bitboard;
+
+    /// Returns a bitboard of all squares that a piece of the active player can move to.
+    /// This isn't the same as threats in games like chess: Threats are pseudolegal captures if there was a captured piece on a square,
+    /// this counts only moves that are actually legal. For example, this considers pawn pushes but not captures unless there is a
+    /// captured piece, and it takes pins into account.
+    /// The default implementation is general but slow and can sometimes be implemented much more efficiently.
+    fn calc_move_dest_bb(&self) -> Self::Bitboard {
+        let mut res = self.zero_bb();
+        let size = self.size();
+        for m in self.pseudolegal_moves().iter_moves() {
+            res |= Self::Bitboard::single_piece_for(m.dest_square_in(self), size);
+        }
+        res
+    }
 }
 
 #[must_use]
@@ -1184,8 +1315,8 @@ fn read_position_fen_impl<B: RectangularBoard>(
                 })?;
                 shogi_promo = false;
             }
-
-            board.place_piece(board.size().idx_to_coordinates(square as DimT).flip_up_down(board.size()), symbol);
+            let sq = board.size().idx_to_coordinates(square as DimT).flip_up_down(board.size());
+            board.try_place_piece(B::Piece::new(symbol, sq))?;
             square += 1;
         }
         handle_skipped(digit_start, line.len(), &mut square)?;

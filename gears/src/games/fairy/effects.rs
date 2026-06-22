@@ -383,6 +383,21 @@ impl Observers {
         Box::new(add_to_hand)
     }
 
+    pub fn shogi_pawn_mate_drop_illegal() -> Box<ObsFn<AfterMove>> {
+        let no_pawn_drop_mate = |event: AfterMove, pos: &mut Board| {
+            let m = event.last_move;
+            if m.piece(pos).uncolor().val() == PAWN_IDX
+                && m.is_drop()
+                && pos.is_in_check()
+                && pos.is_game_lost_slow(&NoHistory::default())
+            {
+                return None;
+            }
+            Some(())
+        };
+        Box::new(no_pawn_drop_mate)
+    }
+
     pub fn n_check() -> Self {
         let mut res = Self::chess();
         let incr_check_ctr = |event: InCheck, pos: &mut Board| {
@@ -453,18 +468,7 @@ impl Observers {
     pub fn shogi() -> Self {
         let mut res = Self::chess();
         res.capture.push(Self::add_captured_to_hand());
-        let no_pawn_drop_mate = |event: AfterMove, pos: &mut Board| {
-            let m = event.last_move;
-            if m.piece(pos).uncolor().val() == PAWN_IDX
-                && m.is_drop()
-                && pos.is_in_check()
-                && pos.is_game_lost_slow(&NoHistory::default())
-            {
-                return None;
-            }
-            Some(())
-        };
-        res.finish_move.push(Box::new(no_pawn_drop_mate));
+        res.finish_move.push(Self::shogi_pawn_mate_drop_illegal());
         res
     }
 

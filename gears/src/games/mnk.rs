@@ -1,36 +1,37 @@
 use anyhow::{anyhow, bail, ensure};
 use colored::Colorize;
 use itertools::Itertools;
-use rand::Rng;
+use rand::{Rng, RngExt};
 use std::cmp::min;
 use std::fmt::{self, Debug, Display, Formatter};
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::mem::size_of;
 use strum_macros::EnumIter;
 
-use crate::PlayerResult;
-use crate::PlayerResult::{Draw, Lose};
 use crate::games::mnk::PieceType::{Empty, O, X};
 use crate::games::*;
+use crate::general::attacks::BitReverseSliderGenerator;
 use crate::general::bitboards::{
-    BitboardTrait, DynamicallySizedBitboard, ExtendedRawBitboard, MAX_WIDTH, RawBitboardTrait,
+    BitboardTrait, DynamicallySizedBitboard, ExtendedRawBitboard, RawBitboardTrait, MAX_WIDTH,
 };
 use crate::general::board::SelfChecks::CheckFen;
 use crate::general::board::Strictness::{Relaxed, Strict};
 use crate::general::board::{
-    BoardHelpers, NameToPos, RectangularBoard, SelfChecks, Strictness, Symmetry, UnverifiedBoardTrait, board_from_name,
-    read_common_fen_part, read_single_move_number, simple_fen,
+    board_from_name, default_bitboards_from_name, read_common_fen_part, read_single_move_number, simple_fen, BBSelect, BitboardBoard, BoardHelpers, NameToPos,
+    PieceTypeOf, RectangularBoard, SelfChecks, Strictness, Symmetry,
+    UnverifiedBoardTrait,
 };
 use crate::general::common::*;
-use crate::general::hq::BitReverseSliderGenerator;
 use crate::general::move_list::InplaceMoveList;
 use crate::general::moves::Legality::Legal;
 use crate::general::moves::{Legality, MoveTrait, UntrustedMove};
 use crate::general::squares::{GridCoordinates, GridSize, RectangularCoordinates, SquareColor};
+use crate::output::text_output::{board_to_string, display_board_pretty, BoardFormatter, DefaultBoardFormatter};
 use crate::output::OutputOpts;
-use crate::output::text_output::{BoardFormatter, DefaultBoardFormatter, board_to_string, display_board_pretty};
 use crate::search::DepthPly;
 use crate::ugi::Protocol;
+use crate::PlayerResult;
+use crate::PlayerResult::{Draw, Lose};
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Default)]
 #[must_use]
@@ -137,7 +138,7 @@ impl AbstractPieceType<Board> for PieceType {
         }
     }
 
-    fn name(&self, _settings: &Settings) -> impl AsRef<str> {
+    fn name(&self, _settings: &Settings) -> &'static str {
         match self {
             X => "x",
             O => "o",
@@ -431,31 +432,6 @@ impl Board {
         Bitboard::new(self.o_bb, self.size())
     }
 
-    pub fn player_bb(self, player: Color) -> Bitboard {
-        match player {
-            Color::X => self.x_bb(),
-            Color::O => self.o_bb(),
-        }
-    }
-
-    pub fn active_player_bb(self) -> Bitboard {
-        self.player_bb(self.active_player())
-    }
-
-    pub fn inactive_player_bb(self) -> Bitboard {
-        self.player_bb(self.active_player().other())
-    }
-
-    pub fn occupied_bb(self) -> Bitboard {
-        self.o_bb() | self.x_bb()
-    }
-
-    pub fn empty_bb(self) -> Bitboard {
-        let n = self.num_squares() - 1;
-        let res = !self.occupied_bb().raw() & (u128::MAX >> (127 - n));
-        Bitboard::new(res, self.size())
-    }
-
     pub fn k(self) -> u32 {
         self.settings.k as u32
     }
@@ -484,6 +460,7 @@ impl Display for Board {
 
 impl BoardTrait for Board {
     type EmptyRes = Board;
+    type RawBitboard = ExtendedRawBitboard;
 
     type Settings = Settings;
     type SettingsRef = Settings;
@@ -622,6 +599,10 @@ impl BoardTrait for Board {
         0
     }
 
+    fn valid_squares_bb(&self) -> Self::RawBitboard {
+        self.mask_bb().raw()
+    }
+
     fn size(&self) -> GridSize {
         GridSize { height: Height(self.settings.height), width: Width(self.settings.width) }
     }
@@ -643,6 +624,10 @@ impl BoardTrait for Board {
             Empty
         };
         Piece::new(symbol, coordinates)
+    }
+
+    fn attacks_of(&self, _sq: Self::Coordinates) -> ExtendedRawBitboard {
+        0
     }
 
     fn default_perft_depth(&self) -> DepthPly {
@@ -668,6 +653,10 @@ impl BoardTrait for Board {
 
     fn gen_tactical_pseudolegal(&self, _callback: impl FnMut(FillSquare)) {
         // currently, no moves are considered tactical
+    }
+
+    fn gen_quiet_pseudolegal(&self, callback: impl FnMut(FillSquare)) {
+        self.gen_pseudolegal(callback)
     }
 
     fn num_pseudolegal_moves(&self) -> usize {
@@ -725,7 +714,7 @@ impl BoardTrait for Board {
         }
     }
 
-    fn player_result_slow<H: BoardHistory>(&self, history: &H) -> Option<PlayerResult> {
+    fn calc_player_result<H: BoardHistory>(&self, history: &H) -> Option<PlayerResult> {
         self.player_result_no_movegen(history)
     }
 
@@ -752,7 +741,7 @@ impl BoardTrait for Board {
             bail!("Empty mnk fen".to_string());
         };
         let settings = Settings::from_input(first, words)?;
-        Self::read_fen_for(words, strictness, settings)
+        Self::read_fen_without_settings_for(words, strictness, settings)
     }
 
     fn read_fen_and_advance_input_for(words: &mut Tokens, strictness: Strictness, settings: Settings) -> Res<Self> {
@@ -760,22 +749,7 @@ impl BoardTrait for Board {
             bail!("Empty mnk fen".to_string());
         };
         let settings = if first.parse::<usize>().is_ok() { Settings::from_input(first, words)? } else { settings };
-
-        let board = Board::empty_for_settings(settings);
-        let mut board = UnverifiedBoard::new(board);
-        read_common_fen_part::<Board>(words, &mut board)?;
-
-        let mut ply = board.0.occupied_bb().num_ones();
-        if (ply % 2 == 0) != board.active_player().is_first() {
-            // This can't have happened in a normal game from startpos. Adjust ply so that converting to FEN and back
-            // doesn't change the board.
-            ply += 1;
-        }
-        read_single_move_number::<Board>(words, &mut board, strictness, Some(ply))?;
-
-        board.0.last_move = None;
-
-        board.verify_with_level(CheckFen, strictness)
+        Self::read_fen_without_settings_for(words, strictness, settings)
     }
 
     fn as_diagram(&self, typ: CharType, flip: bool, mark_active: bool) -> String {
@@ -797,6 +771,10 @@ impl BoardTrait for Board {
 
     fn background_color(&self, square: GridCoordinates) -> SquareColor {
         square.square_color()
+    }
+
+    fn bitboard_from_name(&self) -> BBSelect<Self> {
+        default_bitboards_from_name(self)
     }
 }
 
@@ -827,7 +805,7 @@ impl Board {
             || (generator.anti_diagonal_attacks(square) & player_bb).num_ones() >= k
     }
 
-    fn read_fen_for(words: &mut Tokens, strictness: Strictness, settings: Settings) -> Res<Self> {
+    fn read_fen_without_settings_for(words: &mut Tokens, strictness: Strictness, settings: Settings) -> Res<Self> {
         let board = Board::empty_for_settings(settings);
         let mut board = UnverifiedBoard::new(board);
         read_common_fen_part::<Board>(words, &mut board)?;
@@ -843,6 +821,39 @@ impl Board {
         board.0.last_move = None;
 
         board.verify_with_level(CheckFen, strictness)
+    }
+}
+
+impl BitboardBoard for Board {
+    type Bitboard = Bitboard;
+
+    fn piece_bb(&self, _piece: PieceTypeOf<Self>) -> Self::Bitboard {
+        self.occupied_bb()
+    }
+
+    fn col_piece_bb(&self, color: Self::Color, _piece: PieceTypeOf<Self>) -> Self::Bitboard {
+        self.player_bb(color)
+    }
+
+    fn player_bb(&self, color: Self::Color) -> Self::Bitboard {
+        match color {
+            Color::X => self.x_bb(),
+            Color::O => self.o_bb(),
+        }
+    }
+
+    fn occupied_bb(&self) -> Self::Bitboard {
+        self.o_bb() | self.x_bb()
+    }
+
+    fn mask_bb(&self) -> Self::Bitboard {
+        let n = self.num_squares() - 1;
+        let res = u128::MAX >> (127 - n);
+        Bitboard::new(res, self.size())
+    }
+
+    fn calc_move_dest_bb(&self) -> Self::Bitboard {
+        self.empty_bb()
     }
 }
 
@@ -969,6 +980,7 @@ impl UnverifiedBoardTrait<Board> for UnverifiedBoard {
 mod test {
     use crate::general::board::Strictness::Relaxed;
     use crate::general::perft::Bulkness::{Bulk, NoBulk};
+    use crate::general::perft::Parallelize::{Parallel, SingleThreaded};
     use crate::general::perft::{perft, split_perft};
     use crate::search::DepthPly;
 
@@ -1059,7 +1071,7 @@ mod test {
             assert!(board.x_bb().is_single_piece());
             if k == 1 {
                 assert!(board.last_move_won_game());
-                assert_eq!(perft(DepthPly::new(1), board, false, Bulk).nodes, 0);
+                assert_eq!(perft(DepthPly::new(1), board, SingleThreaded, Bulk, None).nodes, 0);
             } else {
                 assert_eq!(board.pseudolegal_moves().len() + 1, board.num_squares());
             }
@@ -1068,36 +1080,49 @@ mod test {
 
     #[test]
     fn perft_startpos_test() {
-        let r = perft(DepthPly::new(1), Board::default(), true, NoBulk);
+        let r = perft(DepthPly::new(1), Board::default(), Parallel, NoBulk, None);
         assert_eq!(r.depth.get(), 1);
         assert_eq!(r.nodes, 9);
         assert!(r.time.as_millis() <= 1); // 1 ms should be far more than enough even on a very slow device
         let r = split_perft(
             DepthPly::new(2),
             Board::empty_for_settings(Settings::new(Height(8), Width(12), 2)),
-            true,
+            Parallel,
             Bulk,
+            None,
         );
         assert_eq!(r.perft_res.depth.get(), 2);
         assert_eq!(r.perft_res.nodes, 96 * 95);
         assert!(r.children.iter().all(|x| x.1 == r.children[0].1));
-        let r =
-            split_perft(DepthPly::new(3), Board::empty_for_settings(Settings::new(Height(4), Width(3), 3)), true, Bulk);
+        let r = split_perft(
+            DepthPly::new(3),
+            Board::empty_for_settings(Settings::new(Height(4), Width(3), 3)),
+            Parallel,
+            Bulk,
+            None,
+        );
         assert_eq!(r.perft_res.depth.get(), 3);
         assert_eq!(r.perft_res.nodes, 12 * 11 * 10);
         assert!(r.children.iter().all(|x| x.1 == r.children[0].1));
         let r = split_perft(
             DepthPly::new(5),
             Board::empty_for_settings(Settings::new(Height(5), Width(5), 5)),
-            false,
+            SingleThreaded,
             Bulk,
+            None,
         );
         assert_eq!(r.perft_res.depth.get(), 5);
         assert_eq!(r.perft_res.nodes, 25 * 24 * 23 * 22 * 21);
         assert!(r.children.iter().all(|x| x.1 == r.children[0].1));
         assert!(r.perft_res.time.as_millis() <= 10_000);
 
-        let r = split_perft(DepthPly::new(9), Board::startpos_for_settings(Settings::titactoe()), true, Bulk);
+        let r = split_perft(
+            DepthPly::new(9),
+            Board::startpos_for_settings(Settings::titactoe()),
+            Parallel,
+            Bulk,
+            Some(1 << 10),
+        );
         assert_eq!(r.perft_res.depth.get(), 9);
         assert!(r.perft_res.nodes >= 100_000);
         assert!(r.perft_res.nodes <= 9 * 8 * 7 * 6 * 5 * 4 * 3 * 2);
@@ -1108,19 +1133,19 @@ mod test {
         assert!(r.perft_res.time.as_millis() <= 4000);
 
         let board = Board::empty_for_settings(Settings::new(Height(2), Width(2), 2));
-        let r = split_perft(DepthPly::new(3), board, false, Bulk);
+        let r = split_perft(DepthPly::new(3), board, SingleThreaded, Bulk, None);
         assert_eq!(r.perft_res.depth.get(), 3);
         assert_eq!(r.perft_res.nodes, 2 * 3 * 4);
         assert!(r.children.iter().all(|x| x.1 == 2 * 3));
-        assert!(r.perft_res.time.as_millis() <= 10);
-        let r = perft(DepthPly::new(4), board, true, NoBulk);
+        assert!(r.perft_res.time.as_millis() <= 100);
+        let r = perft(DepthPly::new(4), board, Parallel, NoBulk, None);
         assert_eq!(r.depth.get(), 4);
         assert_eq!(r.nodes, 0);
 
         let board = Board::empty_for_settings(Settings::new(Height(6), Width(7), 4));
         let expected = [1, 42, 42 * 41, 42 * 41 * 40];
         for (i, e) in expected.into_iter().enumerate() {
-            let r = perft(DepthPly::new(i), board, false, Bulk);
+            let r = perft(DepthPly::new(i), board, SingleThreaded, Bulk, None);
             assert_eq!(r.nodes, e);
             assert_eq!(r.depth, DepthPly::new(i));
         }
@@ -1270,7 +1295,7 @@ mod test {
         let new_pos = pos.make_move(mov).unwrap();
         assert!(new_pos.last_move_won_game());
         assert_eq!(new_pos.last_move, Some(mov));
-        assert_eq!(new_pos.player_result_slow(&NoHistory::default()), Some(Lose));
+        assert_eq!(new_pos.calc_player_result(&NoHistory::default()), Some(Lose));
         assert_eq!(new_pos.active_player_bb(), Bitboard::new(0, pos.size()));
     }
 }

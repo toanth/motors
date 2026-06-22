@@ -2,8 +2,9 @@ use crate::GameState;
 use crate::MatchStatus::*;
 use crate::games::{
     AbstractPieceType, CharType, ColorTrait, ColoredPieceTrait, ColoredPieceTypeTrait, CoordinatesTrait, DimT,
-    SettingsTrait,
+    SettingsTrait, SizeTrait,
 };
+use crate::general::bitboards::RawBitboardTrait;
 use crate::general::board::{AxesFormat, BoardHelpers, BoardOrientation, BoardTrait, ColPieceTypeOf, RectangularBoard};
 use crate::general::common::{NamedEntity, Res};
 use crate::general::move_list::MoveListTrait;
@@ -17,6 +18,7 @@ use crate::output::text_output::PrintType::Simple;
 use crate::output::{AbstractOutput, Message, Output, OutputBox, OutputBuilder, OutputOpts};
 use anyhow::{anyhow, bail, ensure};
 use colored::Colorize;
+use itertools::Itertools;
 use std::fmt::Write;
 use std::fs::File;
 use std::io::{Stderr, Stdout, stderr, stdout};
@@ -91,7 +93,7 @@ pub struct TextWriter {
 impl TextWriter {
     pub fn display_message(&mut self, typ: Message, message: &fmt::Arguments) {
         if self.accepted.contains(&typ) {
-            self.stream.write(typ.message_prefix(), message);
+            self.stream.write(&typ.message_prefix().to_string(), message);
         }
     }
 
@@ -105,6 +107,7 @@ pub enum DisplayType {
     #[default]
     Pretty,
     PrettyAscii,
+    Bitboard,
     Unicode,
     Ascii,
     Fen,
@@ -121,6 +124,7 @@ impl NamedEntity for DisplayType {
         match self {
             Pretty => "pretty",
             PrettyAscii => "prettyascii",
+            Bitboard => "bb",
             Unicode => "unicode",
             Ascii => "ascii",
             Fen => "fen",
@@ -138,6 +142,7 @@ impl NamedEntity for DisplayType {
         match self {
             Pretty => "Pretty Unicode Text Diagram",
             PrettyAscii => "Pretty Ascii Text Diagram",
+            Bitboard => "Bitboard",
             Unicode => "Unicode Diagram",
             Ascii => "ASCII Diagram",
             Fen => "Fen",
@@ -155,6 +160,7 @@ impl NamedEntity for DisplayType {
         Some(match self {
             Pretty => "A textual 2D representation of the position that's meant to look pretty. ",
             PrettyAscii => "A textual 2D representation of the position that's meant to look pretty, using ASCII characters for pieces. ",
+            Bitboard => "Like 'PrettyAscii', but the squares of a given bitboard are marked.",
             Unicode => "A textual 2D representation of the position using unicode characters. For many games, this is the same as the ASCII representation, but e.g. for chess it uses chess symbols like '♔'",
             Ascii => "A textual 2D representation of the position using \"normal\" english characters. E.g. for chess, this represents the white king as 'K' and a black queen as 'q'",
             Fen => "A compact textual representation of the position. For chess, this is the Forsyth–Edwards Notation, and for other games it's a similar notation based on chess FENs",
@@ -208,7 +214,22 @@ impl BoardToText {
         }
     }
 
-    pub fn as_string<B: BoardTrait>(&self, m: &dyn GameState<B>, opts: OutputOpts) -> String {
+    pub fn as_string<B: BoardTrait>(
+        &self,
+        m: &dyn GameState<B>,
+        opts: OutputOpts,
+        highlight: Option<B::RawBitboard>,
+    ) -> String {
+        self.as_string_impl(self.typ, m, opts, highlight)
+    }
+
+    pub fn as_string_impl<B: BoardTrait>(
+        &self,
+        typ: DisplayType,
+        m: &dyn GameState<B>,
+        opts: OutputOpts,
+        highlight: Option<B::RawBitboard>,
+    ) -> String {
         let mut time_below = String::default();
         let mut time_above = String::default();
         if m.match_status() == Ongoing {
@@ -239,18 +260,33 @@ impl BoardToText {
         if flipped {
             swap(&mut time_below, &mut time_above);
         }
-        match self.typ {
-            Pretty => {
-                let mut formatter = m.get_board().pretty_formatter(Some(CharType::Unicode), m.last_move(), opts);
+        let mut bb_string = String::default();
+        match typ {
+            Pretty | PrettyAscii | Bitboard => {
+                let mut formatter = match typ {
+                    Pretty => m.get_board().pretty_formatter(Some(CharType::Unicode), m.last_move(), opts),
+                    PrettyAscii => m.get_board().pretty_formatter(Some(CharType::Ascii), m.last_move(), opts),
+                    Bitboard => {
+                        let bb = highlight.unwrap_or(0.into());
+                        bb_string = format!("Bitboard: {}\n", format!("{bb:#x}").bold());
+                        let invalid = bb & m.get_board().invalid_square_bb();
+                        if invalid != B::RawBitboard::from(0) {
+                            let fixed = bb & !invalid;
+                            writeln!(
+                                bb_string,
+                                "{0}: Bits '{1}' in this bitboard don't correspond to squares; bitboard without those: '{fixed:#x}'.\n",
+                                "WARNING".red(),
+                                format!("{invalid:#x}").red()
+                            )
+                            .unwrap();
+                        }
+                        let formatter = m.get_board().pretty_formatter(Some(CharType::Ascii), None, opts);
+                        bb_formatter(formatter, bb, m.get_board())
+                    }
+                    _ => unreachable!(),
+                };
                 format!(
-                    "{time_above}{}{time_below}{reps}{game_result}",
-                    m.get_board().display_pretty(formatter.as_mut())
-                )
-            }
-            PrettyAscii => {
-                let mut formatter = m.get_board().pretty_formatter(Some(CharType::Ascii), m.last_move(), opts);
-                format!(
-                    "{time_above}{}{time_below}{reps}{game_result}",
+                    "{time_above}{}{bb_string}{time_below}{reps}{game_result}",
                     m.get_board().display_pretty(formatter.as_mut())
                 )
             }
@@ -318,8 +354,8 @@ impl AbstractOutput for TextOutput {
 }
 
 impl<B: BoardTrait> Output<B> for TextOutput {
-    fn as_string(&self, m: &dyn GameState<B>, opts: OutputOpts) -> String {
-        self.to_text.as_string(m, opts)
+    fn as_string(&self, m: &dyn GameState<B>, opts: OutputOpts, highlight: Option<B::RawBitboard>) -> String {
+        self.to_text.as_string(m, opts, highlight)
     }
 }
 
@@ -407,6 +443,7 @@ trait AbstractPrettyBoardPrinter {
     }
     fn max_piece_width(&self) -> usize;
     fn fen(&self) -> String;
+    fn alternative_fen(&self) -> Option<String>;
     fn side_to_move(&self) -> String;
     fn is_first_active(&self) -> bool;
     fn settings_text(&self) -> Option<String>;
@@ -466,10 +503,37 @@ impl<'a, B: RectangularBoard> AbstractPrettyBoardPrinter for PrettyBoardPrinter<
         self.board.settings().text()
     }
 
+    fn alternative_fen(&self) -> Option<String> {
+        self.board.as_alternative_fen()
+    }
+
     fn formatter(&self) -> &dyn AbstractBoardFormatter {
         let PrintType::Formatter(formatter) = self.print_type else { unreachable!() };
         formatter
     }
+}
+
+fn bb_formatter<B: BoardTrait>(
+    base_formatter: Box<dyn BoardFormatter<B>>,
+    bb: B::RawBitboard,
+    pos: &B,
+) -> Box<dyn BoardFormatter<B>> {
+    let size = pos.size();
+    let color_frame = Box::new(move |sq, col| if bb.is_bit_set_at(size.internal_key(sq)) { Some(GOLD) } else { col });
+    let display_piece =
+        Box::new(
+            move |sq, width, str| {
+                if bb.is_bit_set_at(size.internal_key(sq)) { format!("{:^width$}", '@') } else { str }
+            },
+        );
+    Box::new(AdaptFormatter {
+        underlying: base_formatter,
+        color_frame,
+        display_piece,
+        horizontal_spacer_interval: None,
+        vertical_spacer_interval: None,
+        square_width: None,
+    })
 }
 
 fn board_to_string_impl(
@@ -565,6 +629,11 @@ const LIGHT_UPPER_LEFT_CORNER: &str = "┌";
 const LIGHT_UPPER_RIGHT_CORNER: &str = "┐";
 const LIGHT_LOWER_LEFT_CORNER: &str = "└";
 const LIGHT_LOWER_RIGHT_CORNER: &str = "┘";
+
+const LIGHT_LEFT_BORDER: &str = "├";
+const LIGHT_RIGHT_BORDER: &str = "┤";
+const LIGHT_LOWER_BORDER: &str = "┴";
+const LIGHT_UPPER_BORDER: &str = "┬";
 
 const HEAVY_UPPER_LEFT_CORNER: &str = "┏";
 const HEAVY_UPPER_RIGHT_CORNER: &str = "┓";
@@ -665,6 +734,34 @@ fn write_horizontal_bar(
                 }
             }
         }
+        if cross_color.is_some() {
+            cross = if x > 0
+                && y > 0
+                && [colors[y - 1][x - 1], colors[y][x - 1], colors[y - 1][x], colors[y][x]].iter().all_equal()
+            {
+                CROSS
+            } else if x > 0
+                && y > 0
+                && colors[y - 1][x - 1] == colors[y - 1][x]
+                && colors[y][x - 1] == colors[y][x]
+                && colors[y - 1][x].is_some()
+            {
+                LIGHT_UPPER_BORDER
+            } else if x > 0 && colors[y][x - 1] == colors[y][x] && (y == 0 || colors[y - 1][x] == colors[y - 1][x - 1])
+            {
+                LIGHT_LOWER_BORDER
+            } else if y > 0
+                && colors[y - 1][x] == colors[y][x]
+                && col.is_some()
+                && (x == 0 || colors[y][x - 1] == colors[y - 1][x - 1])
+            {
+                LIGHT_LEFT_BORDER
+            } else if x > 0 && y > 0 && colors[y - 1][x - 1] == colors[y][x - 1] && colors[y - 1][x] == colors[y][x] {
+                LIGHT_RIGHT_BORDER
+            } else {
+                cross
+            };
+        }
         if cross_color.is_none() && ![0, printer.get_width()].contains(&x) && ![0, printer.get_height()].contains(&y) {
             if y_spacer && !x_spacer {
                 cross = HORIZONTAL_BAR;
@@ -737,6 +834,9 @@ fn display_board_pretty_impl(printer: &dyn AbstractPrettyBoardPrinter, flip: boo
     }
     if let Some(text) = printer.settings_text() {
         res.insert(0, text);
+    }
+    if let Some(fen) = printer.alternative_fen() {
+        res.insert(0, format!("(Alternative format: '{fen}')").dimmed().to_string());
     }
     res.insert(
         0,

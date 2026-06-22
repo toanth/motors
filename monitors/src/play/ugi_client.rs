@@ -469,7 +469,7 @@ impl<B: BoardTrait> Client<B> {
 
     pub fn show(&mut self) {
         for output in &mut self.outputs {
-            output.show(&self.state, OutputOpts::default());
+            output.show(&self.state, OutputOpts::default(), None);
         }
     }
 
@@ -522,7 +522,7 @@ impl<B: BoardTrait> Client<B> {
     }
 
     fn send_position(&mut self, color: B::Color) {
-        self.send_ugi_message(color, &self.ugi_output.as_string(&self.state, OutputOpts::default()));
+        self.send_ugi_message(color, &self.ugi_output.as_string(&self.state, OutputOpts::default(), None));
     }
 
     /// This function does no validation at all. This allows for greater flexibility when the user knows that

@@ -411,11 +411,9 @@ impl<'a, B: BoardTrait> PgnParser<'a, B> {
                     self.res.game.pos_before_moves = B::from_fen(fen, strictness)?;
                     self.res.game.board = self.res.game.pos_before_moves.clone();
                 }
-                Result(res) => {
-                    if res.check_finished().is_some() {
-                        self.res.game.status =
-                            Run(MatchStatus::Over(MatchResult { result: *res, reason: GameOverReason::Normal }))
-                    }
+                Result(res) if res.check_finished().is_some() => {
+                    self.res.game.status =
+                        Run(MatchStatus::Over(MatchResult { result: *res, reason: GameOverReason::Normal }))
                 }
                 _ => { /*do nothing*/ }
             }
@@ -519,7 +517,7 @@ mod tests {
         let mut parser: PgnParser<'_, Board> = PgnParser::new(pgn);
         let data = parser.parse(Relaxed).unwrap();
         let pos = Board::default();
-        let pos = pos.make_move(Move::from_text("e4", &pos).unwrap()).unwrap();
+        let pos = pos.play(Move::from_text("e4", &pos).unwrap());
         assert_eq!(data.game.pos_before_moves, Board::default());
         assert_eq!(data.game.mov_hist.len(), 1);
         assert_eq!(data.game.board, pos);
@@ -534,8 +532,8 @@ mod tests {
 
         let data = parser.parse(Relaxed).unwrap();
         let pos = Board::default();
-        let pos = pos.make_move(Move::from_text("e4", &pos).unwrap()).unwrap();
-        let pos = pos.make_move(Move::from_text("d5", &pos).unwrap()).unwrap();
+        let pos = pos.play(Move::from_text("e4", &pos).unwrap());
+        let pos = pos.play(Move::from_text("d5", &pos).unwrap());
         assert_eq!(data.game.mov_hist.len(), 2);
         assert_eq!(data.game.pos_before_moves, Board::default());
         assert_eq!(data.game.board, pos);
@@ -610,7 +608,7 @@ Nf2 42.g4 Bd3 43.Re6 1/2-1/2"#;
         assert_ne!(info.game.pos_before_moves, Board::default());
         assert_eq!(
             info.game.pos_before_moves,
-            Board::default().make_move(Move::from_text("e4", &Board::default()).unwrap()).unwrap()
+            Board::default().play(Move::from_text("e4", &Board::default()).unwrap())
         );
         assert_eq!(info.game.mov_hist.len(), 19 * 2 - 1 - 1);
         assert_eq!(

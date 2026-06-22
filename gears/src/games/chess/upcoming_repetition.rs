@@ -17,15 +17,15 @@
  */
 use crate::games::chess::Board;
 use crate::games::chess::moves::Move;
-use crate::games::chess::moves::MoveFlags::NormalMove;
+use crate::games::chess::moves::MoveFlags::NormalQuiet;
 use crate::games::chess::pieces::ColoredPieceType;
 use crate::games::chess::squares::{ChessboardSize, Square};
 use crate::games::chess::zobrist::ZOBRIST_KEYS;
 use crate::games::{BoardHistDyn, ColoredPieceTrait, ColoredPieceTypeTrait, PosHash, ZobristHistory};
+use crate::general::attacks::ChessSliderGenerator;
 use crate::general::bitboards::chessboard::Bitboard;
 use crate::general::bitboards::{BitboardTrait, RawBitboardTrait};
 use crate::general::board::{BitboardBoard, BoardTrait};
-use crate::general::hq::ChessSliderGenerator;
 use crate::general::moves::MoveTrait;
 use std::mem::swap;
 use std::sync::LazyLock;
@@ -68,7 +68,7 @@ pub(super) fn calc_move_hash_table() -> UpcomingRepetitionTable {
                 if dest.bb_idx() < src.bb_idx() {
                     continue;
                 }
-                let mut mov = Move::new(src, dest, NormalMove);
+                let mut mov = Move::new(src, dest, NormalQuiet);
                 let mut hash = ZOBRIST_KEYS.piece_key(piece, color, src)
                     ^ ZOBRIST_KEYS.piece_key(piece, color, dest)
                     ^ ZOBRIST_KEYS.side_to_move_key;

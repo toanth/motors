@@ -70,7 +70,7 @@ fn parse_depth(args: &mut ArgIter) -> Res<Option<DepthPly>> {
             if args.peek().is_some_and(|a| a != "default") {
                 return Ok(Some(DepthPly::try_new(get_next_int(args, "depth")?)?));
             }
-        } else if let Ok(val) = parse_int_from_str(next, "bench depth") {
+        } else if let Ok(val) = parse_int_from_str(next, "depth") {
             _ = args.next();
             return Ok(Some(DepthPly::try_new(val)?));
         }
@@ -147,23 +147,23 @@ fn print_help() {
     and `random` sets the engine to be a random mover. Obviously, the engine must be valid for the selected game.\
     \n--{position} sets the position. Accepts the same syntax as UGI commands, e.g. 'position kiwipete' or 'p f <fen> m e2e4'. Ignored for 'bench'.\
     Use quotes around the argument.\
-    \n--{command} makes the engine execute a command immediately\
+    \n--{command} makes the engine execute a command immediately. Use `;` to separate multiple commands, e.g. 'perft 6; quit'\
     \n--{debug} turns on debug mode, which makes the engine continue on errors and log all communications.\
     \n--{ni} makes the engine start in non-interactive mode. Try this if the engine can't be used with a GUI. Setting the NO_COLOR environment variable also does this.\
     \n--{add_outputs} can be used to determine how the engine prints extra information; it's mostly useful for development but can also be used to export PGNs, for example.\
     \n--{bench}, --{perft} and --{splitperft} are useful for testing the engine and move generation speed,\
     `bench` is also useful to get a \"hash\" of the search tree explored by the engine.\
     Typing '{help}' while the program is running will also show help messages",
-             game = "game".bold(),
-             engine = "engine".bold(),
-             debug = "debug".bold(),
-             add_outputs = "additional-outputs".bold(),
-             bench = "bench".bold(),
-             perft = "perft".bold(),
-             splitperft = "splitperft".bold(),
-             help = "help".bold(),
-             ni = "non-interactive".bold(),
-             position = "position".bold(),
-             command = "command".bold(),
+             game = "game".underline().bold(),
+             engine = "engine".underline().bold(),
+             debug = "debug".underline().bold(),
+             add_outputs = "additional-outputs".underline().bold(),
+             bench = "bench".underline().bold(),
+             perft = "perft".underline().bold(),
+             splitperft = "splitperft".underline().bold(),
+             help = "help".underline().bold(),
+             ni = "non-interactive".underline().bold(),
+             position = "position".underline().bold(),
+             command = "command".underline().bold(),
     )
 }

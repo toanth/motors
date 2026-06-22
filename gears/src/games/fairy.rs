@@ -17,49 +17,52 @@
  */
 mod algebraic_notation;
 mod attacks;
+mod config;
 mod effects;
 pub mod moves;
 mod perft_tests;
+mod piece_builder;
 pub mod pieces;
 mod rules;
 #[cfg(test)]
 mod tests;
 
-use crate::PlayerResult;
-use crate::games::CharType::Ascii;
 use crate::games::fairy::moves::Move;
 use crate::games::fairy::pieces::{ColoredPieceId, PieceId};
-use crate::games::fairy::rules::{FenHandInfo, MoveNumFmt};
+use crate::games::fairy::rules::{FenHandInfo, MoveNumFmt, RulesBuilder};
 use crate::games::fairy::rules::{GameEndEager, NumRoyals, Rules, RulesRef};
+use crate::games::CharType::Ascii;
 use crate::games::{
     AbstractPieceType, BoardHistory, CharType, ColorTrait, ColoredPieceTrait, ColoredPieceTypeTrait, DimT,
-    GenericPiece, NUM_COLORS, NoHistory, PosHash, SizeTrait,
+    GenericPiece, NoHistory, PosHash, SizeTrait, NUM_COLORS,
 };
 use crate::general::bitboards::{BitboardTrait, DynamicallySizedBitboard, ExtendedRawBitboard, RawBitboardTrait};
 use crate::general::board::SelfChecks::CheckFen;
-use crate::general::board::Strictness::Strict;
+use crate::general::board::Strictness::{Relaxed, Strict};
 use crate::general::board::{
-    AxesFormat, BitboardBoard, BoardHelpers, BoardSize, BoardTrait, ColPieceTypeOf, NameToPos, PieceTypeOf, SelfChecks,
-    Strictness, Symmetry, UnverifiedBoardTrait, position_fen_part, read_common_fen_part, read_halfmove_clock,
-    read_move_number_in_ply, read_single_move_number,
+    default_bitboards_from_name, position_fen_part, read_common_fen_part, read_halfmove_clock, read_move_number_in_ply, read_single_move_number, AxesFormat, BBSelect, BitboardBoard,
+    BoardHelpers, BoardSize, BoardTrait, ColPieceTypeOf, NameToPos, PieceTypeOf,
+    SelfChecks, Strictness, Symmetry, UnverifiedBoardTrait,
 };
 use crate::general::common::Description::NoDescription;
 use crate::general::common::{
-    EntityList, GenericSelect, Res, StaticallyNamedEntity, Tokens, parse_int_from_str, select_name_static, tokens,
+    parse_int_from_str, select_name_static, tokens, EntityList, GenericSelect, Res, SimpleSelect,
+    StaticallyNamedEntity, Tokens,
 };
 use crate::general::move_list::{MoveListTrait, SboMoveList};
 use crate::general::moves::MoveTrait;
 use crate::general::squares::{GridCoordinates, GridSize, RectangularCoordinates, RectangularSize, SquareColor};
+use crate::output::text_output::{board_to_string, display_board_pretty, BoardFormatter, DefaultBoardFormatter};
 use crate::output::OutputOpts;
-use crate::output::text_output::{BoardFormatter, DefaultBoardFormatter, board_to_string, display_board_pretty};
 use crate::search::DepthPly;
 use crate::ugi::Protocol;
+use crate::PlayerResult;
 use anyhow::{anyhow, bail, ensure};
 use arbitrary::Arbitrary;
 use colored::Colorize;
 use itertools::Itertools;
-use rand::Rng;
 use rand::prelude::IndexedRandom;
+use rand::Rng;
 use std::fmt;
 use std::fmt::{Debug, Display, Formatter};
 use std::hash::{DefaultHasher, Hash, Hasher};
@@ -146,6 +149,7 @@ pub enum Side {
     Queenside,
 }
 
+// TODO: Some of this can be moved to Rules
 #[derive(Debug, Copy, Clone, Eq, Arbitrary)]
 #[must_use]
 struct CastlingMoveInfo {
@@ -246,6 +250,18 @@ impl FairyCastleInfo {
             write!(f, "-")?;
         }
         Ok(())
+    }
+    fn king_dest_squares(&self, size: Size) -> Bitboard {
+        let to_bb = |col: Color, side: Side| -> Bitboard {
+            self.players[col]
+                .king_dest_sq(side)
+                .map(|sq| Bitboard::single_piece_for(sq, size))
+                .unwrap_or(Bitboard::new(0, size))
+        };
+        to_bb(Color::first(), Side::Queenside)
+            | to_bb(Color::first(), Side::Kingside)
+            | to_bb(Color::second(), Side::Queenside)
+            | to_bb(Color::second(), Side::Kingside)
     }
 }
 
@@ -506,7 +522,7 @@ impl UnverifiedBoardTrait<Board> for UnverifiedBoard {
     }
 
     fn fen_pos_part_contains_hand(&self) -> bool {
-        self.rules().format_rules.hand == FenHandInfo::InBrackets
+        matches!(self.rules().format_rules.hand, FenHandInfo::InBracketsEmpty | FenHandInfo::InBracketsMinusForEmpty)
     }
 
     fn read_fen_hand_part(&mut self, input: &str) -> Res<()> {
@@ -538,7 +554,7 @@ impl UnverifiedBoardTrait<Board> for UnverifiedBoard {
             let Some(new_val) = val.checked_add(num) else {
                 bail!(
                     "Too many pieces of type '{0}': A player can only have at most 255 pieces in hand, not {1}",
-                    piece.name(self.rules.clone().get()).as_ref().bold(),
+                    piece.name(self.rules.clone().get()).bold(),
                     (*val as usize + num as usize).to_string().red()
                 )
             };
@@ -651,7 +667,7 @@ impl UnverifiedBoard {
                 }
             }
         }
-        if empty && rules.format_rules.hand == FenHandInfo::SeparateToken {
+        if empty && rules.format_rules.hand != FenHandInfo::InBracketsEmpty {
             write!(f, "-")?;
         }
         Ok(())
@@ -702,6 +718,7 @@ type Piece = GenericPiece<Board, ColoredPieceId>;
 
 impl BoardTrait for Board {
     type EmptyRes = Self::Unverified;
+    type RawBitboard = RawBitboard;
     type Settings = Rules;
     type SettingsRef = RulesRef;
     type Coordinates = Square;
@@ -753,7 +770,7 @@ impl BoardTrait for Board {
             "makruk 7r/3k4/1nsm1pp1/n1p5/4RM1N/P1S5/1NK5/3R4 b - - 0 38",
             "ataxx x5o/1x4o/3-3/2---2/3-x2/1o3x1/o5x o - - 0 3",
         ];
-        fens.into_iter()
+        fens.iter()
             .map(|fen| Self::from_fen(fen, Strict).unwrap())
             .chain(Self::name_to_pos_map().into_iter().map(|n| Self::from_name(n.name).unwrap()))
     }
@@ -873,6 +890,13 @@ impl BoardTrait for Board {
         moves
     }
 
+    fn quiet_pseudolegal(&self) -> MoveList {
+        let mut moves = MoveList::new();
+        self.gen_pseudolegal_impl(&mut moves);
+        MoveListTrait::<Board>::filter_moves(&mut moves, |m: &mut Move| !m.is_tactical(self));
+        moves
+    }
+
     fn num_pseudolegal_moves(&self) -> usize {
         let mut ctr = 0;
         self.gen_pseudolegal(|_| ctr += 1);
@@ -901,6 +925,17 @@ impl BoardTrait for Board {
         }
     }
 
+    // Implemented by simply filtering all pseudolegal moves
+    fn gen_quiet_pseudolegal(&self, mut callback: impl FnMut(Move)) {
+        let mut moves = MoveList::new();
+        self.gen_pseudolegal_impl(&mut moves);
+        for m in moves {
+            if !m.is_tactical(self) {
+                callback(m);
+            }
+        }
+    }
+
     fn random_legal_move<R: Rng>(&self, rng: &mut R) -> Option<Self::Move> {
         self.legal_moves_slow().choose(rng).copied()
     }
@@ -923,6 +958,7 @@ impl BoardTrait for Board {
         moves.contains(&mov)
     }
 
+    // TODO: Maybe we can use the fact that some games have an easy way to check for pseudolegal moves
     fn is_pseudolegal_move_legal(&self, mov: Self::Move) -> bool {
         self.clone().make_move(mov).is_some()
     }
@@ -937,8 +973,8 @@ impl BoardTrait for Board {
     }
     /// When loading a position where the side to move has won and there is no legal previous move for the other player,
     /// like a position where the current player has the king in the center in king of the hill,
-    /// [`Self::player_result_slow`] can return a win for an incorrect player, but this can never happen in a real game.
-    fn player_result_slow<H: BoardHistory>(&self, history: &H) -> Option<PlayerResult> {
+    /// [`Self::calc_player_result`] can return a win for an incorrect player, but this can never happen in a real game.
+    fn calc_player_result<H: BoardHistory>(&self, history: &H) -> Option<PlayerResult> {
         if let Some(res) = self.player_result_no_movegen(history) {
             return Some(res);
         }
@@ -1032,10 +1068,56 @@ impl BoardTrait for Board {
         // TODO: Maybe have a member in settings for turning that on
         square.square_color()
     }
+
+    fn as_alternative_fen(&self) -> Option<String> {
+        let alternative = self.settings().fallback.clone()?;
+        let pos = UnverifiedBoard { rules: RulesRef::from_arc(alternative), ..self.0 };
+        Some(pos.verify(Relaxed).ok()?.to_string())
+    }
+
+    fn bitboard_from_name(&self) -> BBSelect<Self> {
+        let mut res = default_bitboards_from_name(self);
+        res.push(GenericSelect::full(
+            "royals",
+            None,
+            "Bitboard of royal pieces, such as kings in chess",
+            self.royal_bb().raw(),
+        ));
+        res.push(GenericSelect::full(
+            "neutral",
+            None,
+            "Bitboard of squares that aren't empty and don't have a piece belonging to either player",
+            self.neutral_bb,
+        ));
+        if self.rules().has_ep {
+            res.push(GenericSelect::full(
+                "e_p_square",
+                None,
+                "Bitboard of squares where an ep capture is possible",
+                self.ep.map(|sq| self.single_piece(sq)).unwrap_or(self.zero_bitboard()).raw(),
+            ));
+        }
+        if self.rules().castling.is_some() {
+            res.push(GenericSelect::full(
+                "castling_dest_squares",
+                None,
+                "Bitboard of squares where the king ends up after castling",
+                self.castling_info.king_dest_squares(self.size()).raw(),
+            ));
+        }
+        res
+    }
+
+    fn valid_squares_bb(&self) -> Self::RawBitboard {
+        self.mask_bb
+    }
+
+    fn attacks_of(&self, sq: Square) -> ExtendedRawBitboard {
+        self.attack_of_impl(sq)
+    }
 }
 
 impl BitboardBoard for Board {
-    type RawBitboard = RawBitboard;
     type Bitboard = Bitboard;
 
     fn piece_bb(&self, piece: PieceTypeOf<Self>) -> Bitboard {
@@ -1055,7 +1137,7 @@ impl BitboardBoard for Board {
     }
 }
 
-type NameToVariant = GenericSelect<Box<dyn Fn() -> RulesRef>>;
+type NameToVariant = SimpleSelect<Box<dyn Fn() -> RulesRef>>;
 
 impl Deref for Board {
     type Target = UnverifiedBoard;
@@ -1067,26 +1149,45 @@ impl Deref for Board {
 impl Board {
     fn variants_for(protocol: Protocol) -> EntityList<NameToVariant> {
         vec![
-            GenericSelect { name: "chess", val: Box::new(|| RulesRef::new(Rules::chess())) },
-            GenericSelect { name: "atomic", val: Box::new(|| RulesRef::new(Rules::atomic())) },
-            GenericSelect { name: "kingofthehill", val: Box::new(|| RulesRef::new(Rules::king_of_the_hill())) },
-            GenericSelect { name: "horde", val: Box::new(|| RulesRef::new(Rules::horde())) },
-            GenericSelect { name: "racingkings", val: Box::new(|| RulesRef::new(Rules::racing_kings(Size::chess()))) },
-            GenericSelect { name: "crazyhouse", val: Box::new(|| RulesRef::new(Rules::crazyhouse())) },
-            GenericSelect { name: "3check", val: Box::new(|| RulesRef::new(Rules::n_check(3))) },
-            GenericSelect { name: "5check", val: Box::new(|| RulesRef::new(Rules::n_check(5))) },
-            GenericSelect { name: "antichess", val: Box::new(|| RulesRef::new(Rules::antichess())) },
-            GenericSelect { name: "shatranj", val: Box::new(|| RulesRef::new(Rules::shatranj())) },
-            GenericSelect { name: "makruk", val: Box::new(|| RulesRef::new(Rules::makruk())) },
-            GenericSelect {
-                name: "shogi",
-                val: Box::new(move || RulesRef::new(Rules::shogi(protocol == Protocol::USI))),
+            SimpleSelect { name: "chess", val: Box::new(|| RulesRef::new(RulesBuilder::chess().build())) },
+            SimpleSelect {
+                name: "cylinder_chess",
+                val: Box::new(|| RulesRef::new(RulesBuilder::cylinder_chess().build())),
             },
-            GenericSelect { name: "ataxx", val: Box::new(|| RulesRef::new(Rules::ataxx())) },
-            GenericSelect { name: "droptaxx", val: Box::new(|| RulesRef::new(Rules::droptaxx(Size::ataxx()))) },
-            GenericSelect { name: "tictactoe", val: Box::new(|| RulesRef::new(Rules::tictactoe())) },
-            GenericSelect { name: "mnk", val: Box::new(|| RulesRef::new(Rules::mnk(GridSize::connect4(), 4))) },
-            GenericSelect { name: "cfour", val: Box::new(|| RulesRef::new(Rules::cfour(GridSize::connect4(), 4))) },
+            SimpleSelect { name: "atomic", val: Box::new(|| RulesRef::new(RulesBuilder::atomic().build())) },
+            SimpleSelect {
+                name: "kingofthehill",
+                val: Box::new(|| RulesRef::new(RulesBuilder::king_of_the_hill().build())),
+            },
+            SimpleSelect { name: "horde", val: Box::new(|| RulesRef::new(RulesBuilder::horde().build())) },
+            SimpleSelect {
+                name: "racingkings",
+                val: Box::new(|| RulesRef::new(RulesBuilder::racing_kings(Size::chess()).build())),
+            },
+            SimpleSelect { name: "crazyhouse", val: Box::new(|| RulesRef::new(RulesBuilder::crazyhouse().build())) },
+            SimpleSelect { name: "3check", val: Box::new(|| RulesRef::new(RulesBuilder::n_check(3).build())) },
+            SimpleSelect { name: "5check", val: Box::new(|| RulesRef::new(RulesBuilder::n_check(5).build())) },
+            SimpleSelect { name: "antichess", val: Box::new(|| RulesRef::new(RulesBuilder::antichess().build())) },
+            SimpleSelect { name: "shatranj", val: Box::new(|| RulesRef::new(RulesBuilder::shatranj().build())) },
+            SimpleSelect { name: "makruk", val: Box::new(|| RulesRef::new(RulesBuilder::makruk().build())) },
+            SimpleSelect {
+                name: "shogi",
+                val: Box::new(move || RulesRef::new(RulesBuilder::shogi(protocol == Protocol::USI).build())),
+            },
+            SimpleSelect { name: "ataxx", val: Box::new(|| RulesRef::new(RulesBuilder::ataxx().build())) },
+            SimpleSelect {
+                name: "droptaxx",
+                val: Box::new(|| RulesRef::new(RulesBuilder::droptaxx(Size::ataxx()).build())),
+            },
+            SimpleSelect { name: "tictactoe", val: Box::new(|| RulesRef::new(RulesBuilder::tictactoe().build())) },
+            SimpleSelect {
+                name: "mnk",
+                val: Box::new(|| RulesRef::new(RulesBuilder::mnk(GridSize::connect4(), 4).build())),
+            },
+            SimpleSelect {
+                name: "cfour",
+                val: Box::new(|| RulesRef::new(RulesBuilder::cfour(GridSize::connect4(), 4).build())),
+            },
         ]
     }
 
@@ -1098,6 +1199,7 @@ impl Board {
         Ok((select_name_static(name, Self::variants_for(proto).iter(), "variant", "fairy", NoDescription)?.val)())
     }
 
+    /// Returns the startpos for the given variant
     pub fn variant_simple(name: &str) -> Res<Self> {
         Self::variant_for(name, &mut tokens(""), Protocol::Interactive)
     }
@@ -1159,7 +1261,7 @@ impl Display for NoRulesFenFormatter<'_> {
             FenHandInfo::None => {
                 write!(f, " {}", pos.active_player().to_char(pos.settings()))?;
             }
-            FenHandInfo::InBrackets => {
+            FenHandInfo::InBracketsEmpty | FenHandInfo::InBracketsMinusForEmpty => {
                 write!(f, "[")?;
                 pos.write_fen_hand_part(f)?;
                 write!(f, "]")?;
@@ -1170,7 +1272,7 @@ impl Display for NoRulesFenFormatter<'_> {
                 pos.write_fen_hand_part(f)?;
             }
         }
-        if pos.rules().has_castling {
+        if pos.rules().castling.is_some() {
             pos.0.castling_info.write_fen_part(f)?;
         }
         if pos.rules().has_ep {

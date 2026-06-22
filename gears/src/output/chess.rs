@@ -51,7 +51,7 @@ impl AbstractOutput for ChessOutput {
 }
 
 impl<B: RectangularBoard> Output<B> for ChessOutput {
-    fn as_string(&self, m: &dyn GameState<B>, opts: OutputOpts) -> String {
+    fn as_string(&self, m: &dyn GameState<B>, opts: OutputOpts, _highlight: Option<B::RawBitboard>) -> String {
         let mut res = String::default();
         let pos = m.get_board();
         let last_move = m.last_move();
@@ -83,6 +83,7 @@ pub fn guess_colorgrad_color(color: colored::Color) -> colorgrad::Color {
         colored::Color::White => "white",
         colored::Color::BrightWhite => "grey",
         colored::Color::TrueColor { r, g, b } => return colorgrad::Color::from([r, g, b]),
+        colored::Color::AnsiColor(_) => return colorgrad::Color::default(), // TODO: Guess
     };
     colorgrad::Color::from_html(name).expect("incorrect color name")
 }

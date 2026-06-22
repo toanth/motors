@@ -16,27 +16,28 @@
  *  along with Gears. If not, see <https://www.gnu.org/licenses/>.
  */
 
-/// The following test cases are adapted from test cases for the [`Board`] implementation
-use crate::PlayerResult;
-use crate::PlayerResult::{Draw, Lose};
 use crate::games::chess::squares::{F_FILE_NUM, G_FILE_NUM};
-use crate::games::fairy::Side::{Kingside, Queenside};
 use crate::games::fairy::attacks::MoveKind;
 use crate::games::fairy::moves::Move;
-use crate::games::fairy::rules::{Rules, RulesRef};
+use crate::games::fairy::rules::{RulesBuilder, RulesRef};
+use crate::games::fairy::Side::{Kingside, Queenside};
 use crate::games::fairy::{Bitboard, Board, Color, Side, Square, UnverifiedBoard};
 use crate::games::{
-    AbstractPieceType, BoardHistDyn, ColorTrait, ColoredPieceTrait, CoordinatesTrait, NoHistory, SizeTrait,
-    ZobristHistory, chess, n_fold_repetition,
+    chess, n_fold_repetition, AbstractPieceType, BoardHistDyn, ColorTrait, ColoredPieceTrait, CoordinatesTrait,
+    NoHistory, SizeTrait, ZobristHistory,
 };
 use crate::general::bitboards::{BitboardTrait, RawBitboardTrait};
 use crate::general::board::Strictness::{Relaxed, Strict};
 use crate::general::board::{BoardHelpers, BoardTrait, UnverifiedBoardTrait};
 use crate::general::moves::MoveTrait;
-use crate::general::perft::Bulkness::{Bulk, NoBulk};
 use crate::general::perft::perft;
+use crate::general::perft::Bulkness::{Bulk, NoBulk};
+use crate::general::perft::Parallelize::*;
 use crate::general::squares::{GridCoordinates, GridSize, RectangularCoordinates};
 use crate::search::DepthPly;
+/// The following test cases are adapted from test cases for the [`Board`] implementation
+use crate::PlayerResult;
+use crate::PlayerResult::{Draw, Lose};
 use itertools::Itertools;
 use rand::rng;
 use std::collections::HashSet;
@@ -58,7 +59,7 @@ fn chess_invariants(board: &UnverifiedBoard) {
 #[test]
 fn empty_test() {
     let board = Board::empty();
-    let b2 = Board::empty_for_settings(RulesRef::new(Rules::chess()));
+    let b2 = Board::empty_for_settings(RulesRef::new(RulesBuilder::chess().build()));
     assert_eq!(board, b2);
     chess_invariants(&board);
     assert_eq!(board.draw_counter, 0);
@@ -209,7 +210,7 @@ fn many_moves_test() {
     let board = Board::from_fen(fen, Relaxed).unwrap();
     let moves = board.pseudolegal_moves();
     assert_eq!(moves.len(), 265);
-    let perft_res = perft(DepthPly::new(1), board, false, Bulk);
+    let perft_res = perft(DepthPly::new(1), board, SingleThreaded, Bulk, None);
     assert_eq!(perft_res.nodes, 265);
 }
 
@@ -217,33 +218,33 @@ fn many_moves_test() {
 fn simple_perft_test() {
     let endgame_fen = "6k1/8/6K1/8/3B1N2/8/8/7R w - - 0 1";
     let board = Board::from_fen(endgame_fen, Relaxed).unwrap();
-    let perft_res = perft(DepthPly::new(1), board, false, NoBulk);
+    let perft_res = perft(DepthPly::new(1), board, SingleThreaded, NoBulk, None);
     assert_eq!(perft_res.depth, DepthPly::new(1));
     assert_eq!(perft_res.nodes, 5 + 7 + 13 + 14);
     let board = Board::default();
-    let perft_res = perft(DepthPly::new(1), board.clone(), true, NoBulk);
+    let perft_res = perft(DepthPly::new(1), board.clone(), Parallel, NoBulk, None);
     assert_eq!(perft_res.depth, DepthPly::new(1));
     assert_eq!(perft_res.nodes, 20);
-    let perft_res = perft(DepthPly::new(2), board, false, NoBulk);
+    let perft_res = perft(DepthPly::new(2), board, SingleThreaded, NoBulk, None);
     assert_eq!(perft_res.depth, DepthPly::new(2));
     assert_eq!(perft_res.nodes, 20 * 20);
 
     let board = Board::from_fen("r1bqkbnr/1pppNppp/p1n5/8/8/8/PPPPPPPP/R1BQKBNR b KQkq - 0 3", Strict).unwrap();
-    let perft_res = perft(DepthPly::new(1), board.clone(), true, NoBulk);
+    let perft_res = perft(DepthPly::new(1), board.clone(), Parallel, NoBulk, None);
     assert_eq!(perft_res.nodes, 26);
-    assert_eq!(perft(DepthPly::new(3), board, true, Bulk).nodes, 16790);
+    assert_eq!(perft(DepthPly::new(3), board, Parallel, Bulk, Some(1 << 10)).nodes, 16790);
 
     let board =
         Board::from_fen("rbbqQ1kr/1p2p1pp/6n1/p1pp1p2/2P4P/P7/BP1PPPP1/R1B1NNKR b KQkq - 0 10", Strict).unwrap();
     assert_eq!(board.num_legal_moves(), 2);
     let board = Board::from_fen("rbbqn1kr/pp2p1pp/6n1/2pp1p2/2P4P/P7/BP1PPPP1/R1BQNNKR w HAha - 0 9", Strict).unwrap();
-    let perft_res = perft(DepthPly::new(4), board, false, Bulk);
+    let perft_res = perft(DepthPly::new(4), board, Parallel, Bulk, Some(1 << 22));
     assert_eq!(perft_res.nodes, 890_435);
 
     // DFRC
     let board =
         Board::from_fen("r1q1k1rn/1p1ppp1p/1npb2b1/p1N3p1/8/1BP4P/PP1PPPP1/1RQ1KRBN w BFag - 0 9", Strict).unwrap();
-    assert_eq!(perft(DepthPly::new(4), board, false, Bulk).nodes, 1_187_103);
+    assert_eq!(perft(DepthPly::new(4), board, Parallel, Bulk, Some(123)).nodes, 1_187_103);
 }
 
 #[test]
@@ -260,7 +261,7 @@ fn mate_test() {
         if !board.is_pseudolegal_move_legal(mov) {
             continue;
         }
-        let checkmates = mov.piece(&board).name(board.settings()).as_ref() == "white rook"
+        let checkmates = mov.piece(&board).name(board.settings()) == "white rook"
             && mov.dest_square_in(&board) == Square::from_rank_file(7, G_FILE_NUM);
         assert_eq!(board.is_game_won_after_slow(mov, NoHistory::default()), checkmates);
         let new_board = board.clone().make_move(mov).unwrap();
@@ -280,7 +281,7 @@ fn capture_only_test() {
     for m in tactical {
         assert!(matches!(m.kind(), MoveKind::Promotion(_)));
         assert!(!m.is_capture());
-        assert_eq!(m.piece(&board).name(board.settings()).as_ref(), "black pawn");
+        assert_eq!(m.piece(&board).name(board.settings()), "black pawn");
     }
 }
 
@@ -300,14 +301,14 @@ fn fifty_mr_test() {
         if resetting.contains(&m) {
             assert_eq!(new_pos.ply_draw_clock(), 0);
             if !["b1b8", "a7b8q", "a7b8r"].contains(&m.compact_formatter(&board).to_string().as_str()) {
-                assert!(new_pos.player_result_slow(&NoHistory::default()).is_none(), "{m:?}");
+                assert!(new_pos.calc_player_result(&NoHistory::default()).is_none(), "{m:?}");
             } else {
                 assert!(new_pos.is_game_lost_slow(&NoHistory::default()));
                 mate_ctr += 1;
             }
         } else {
             assert_eq!(new_pos.ply_draw_clock(), 100);
-            let res = new_pos.player_result_slow(&NoHistory::default());
+            let res = new_pos.calc_player_result(&NoHistory::default());
             if let Some(Lose) = res {
                 mate_ctr += 1;
             } else {
@@ -370,7 +371,7 @@ fn checkmate_test() {
     let moves = pos.legal_moves_slow();
     assert!(moves.is_empty());
     assert!(pos.is_game_lost_slow(&NoHistory::default()));
-    assert_eq!(pos.player_result_slow(&NoHistory::default()), Some(Lose));
+    assert_eq!(pos.calc_player_result(&NoHistory::default()), Some(Lose));
     assert!(!pos.is_draw_slow(&NoHistory::default()));
     assert!(pos.make_nullmove().is_none());
     // this position can be claimed as a draw according to FIDE rules but it's also a mate in 1
@@ -380,7 +381,7 @@ fn checkmate_test() {
     let mut wins = 0;
     for mov in pos.legal_moves_slow() {
         let new_pos = pos.clone().make_move(mov).unwrap();
-        if let Some(res) = new_pos.player_result_slow(&NoHistory::default()) {
+        if let Some(res) = new_pos.calc_player_result(&NoHistory::default()) {
             match res {
                 PlayerResult::Win => {
                     unreachable!("The other player can't win through one of our moves")
@@ -403,7 +404,7 @@ fn weird_position_test() {
     let fen = "q2k2q1/2nqn2b/1n1P1n1b/2rnr2Q/1NQ1QN1Q/3Q3B/2RQR2B/Q2K2Q1 w - - 0 1";
     let board = Board::from_fen(fen, Strict).unwrap();
     assert_eq!(board.active_player(), Color::first());
-    assert_eq!(perft(DepthPly::new(3), board, true, Bulk).nodes, 568_299);
+    assert_eq!(perft(DepthPly::new(3), board, Parallel, Bulk, None).nodes, 568_299);
     // not a legal chess position, but the board should support this
     let fen = "RRRRRRRR/RRRRRRRR/BBBBBBBB/BBBBBBBB/QQQQQQQQ/QQQQQQQQ/QPPPPPPP/K6k b - - 0 1";
     let board = Board::from_fen(fen, Relaxed).unwrap();
@@ -424,7 +425,7 @@ fn weird_position_test() {
     assert!(board.clone().debug_verify_invariants(Strict).is_ok());
     let board = board.make_nullmove().unwrap();
     assert!(board.legal_moves_slow().is_empty());
-    assert_eq!(board.player_result_slow(&NoHistory::default()), Some(Draw));
+    assert_eq!(board.calc_player_result(&NoHistory::default()), Some(Draw));
     // unlike the Chessboard, the Fairyboard currently doesn't support X-FEN, so those tests are missing here
     // An ep capture is pseudolegal but not legal
     let fen = "1nbqkbnr/ppp1pppp/8/r2pP2K/8/8/PPPP1PPP/RNBQ1BNR w k d6 0 2";
@@ -451,8 +452,6 @@ fn chess960_startpos_test() {
         let board = Board::from_fen_for("chess", &chessboard.as_fen(), Strict).unwrap();
         assert!(board.clone().debug_verify_invariants(Strict).is_ok());
         assert!(fens.insert(board.fen_no_rules()));
-        let num_moves = board.num_legal_moves();
-        assert!((18..=21).contains(&num_moves)); // 21 legal moves because castling can be legal
         for c in Color::iter() {
             for s in Side::iter() {
                 assert!(board.castling_info.can_castle(c, s));
@@ -464,12 +463,14 @@ fn chess960_startpos_test() {
         );
         startpos_found |= board == Board::startpos();
         same_fen |= board.fen_no_rules() == chess::START_FEN;
-        let chess_nodes = perft(DepthPly::new(2), chessboard, false, Bulk).nodes;
-        let fairy_nodes = perft(DepthPly::new(2), board, true, Bulk).nodes;
+        let chess_nodes = chessboard.num_legal_moves();
+        let fairy_nodes = board.num_legal_moves();
+        assert!((18..=21).contains(&fairy_nodes)); // 21 legal moves because castling can be legal
         assert_eq!(chess_nodes, fairy_nodes);
     }
-    assert!(!same_fen);
+    assert!(!same_fen); // we should write shredder FENs, which don't match the startpos
     assert!(startpos_found);
+    assert_eq!(fens.len(), 960);
 }
 
 #[test]
@@ -481,7 +482,7 @@ fn ep_test() {
     let new_pos = pos.clone().make_move_from_str("c7c5").unwrap();
     assert_eq!(new_pos.ep, Some(Square::from_str("c6").unwrap()));
     let _ = new_pos.debug_verify_invariants(Strict).unwrap();
-    let perft = perft(DepthPly::new(4), pos, true, Bulk);
+    let perft = perft(DepthPly::new(4), pos, Parallel, Bulk, None);
     assert_eq!(perft.nodes, 5020);
 }
 

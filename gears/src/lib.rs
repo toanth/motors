@@ -3,6 +3,7 @@
 //! and `pliers` crates, which deal with engines, UI, and tuning, respectively.
 
 #![deny(unused_results)]
+#![allow(refining_impl_trait)]
 
 use crate::AdjudicationReason::*;
 use crate::GameResult::Aborted;
@@ -13,7 +14,7 @@ use crate::games::{BoardHistDyn, ZobristHistory};
 use crate::games::{ColorTrait, NoHistory};
 use crate::general::board::{BoardHelpers, BoardTrait, Strictness};
 use crate::general::common::Description::WithDescription;
-use crate::general::common::{Res, Tokens, select_name_dyn};
+use crate::general::common::{Res, Tokens, select_name_dyn, tokens};
 use crate::general::moves::MoveTrait;
 use crate::output::OutputBuilder;
 use crate::search::TimeControl;
@@ -24,7 +25,6 @@ pub use arrayvec;
 pub use colored;
 use colored::Colorize;
 pub use colorgrad;
-pub use crossterm;
 pub use dyn_clone;
 pub use itertools;
 use itertools::Itertools;
@@ -410,7 +410,7 @@ impl<B: BoardTrait> AbstractUgiPosState for UgiPosState<B> {
     }
 
     fn player_result(&self) -> Option<PlayerResult> {
-        self.board.player_result_slow(&self.board_hist)
+        self.board.calc_player_result(&self.board_hist)
     }
 }
 
@@ -496,6 +496,10 @@ impl<B: BoardTrait> MatchState<B> {
         &self.current.board
     }
 
+    pub fn previous_states(&self) -> &[UgiPosState<B>] {
+        &self.state_hist
+    }
+
     pub fn set_status(&mut self, status: ProgramStatus) {
         self.current.status = status;
     }
@@ -575,7 +579,10 @@ struct ParseUgiMatchState<'a, B: BoardTrait> {
 }
 
 impl<B: BoardTrait> ParseUgiPosState<B> for ParseUgiMatchState<'_, B> {
-    fn pos(&mut self) -> &mut B {
+    fn pos(&self) -> &B {
+        &self.match_state.current.board
+    }
+    fn pos_mut(&mut self) -> &mut B {
         &mut self.match_state.current.board
     }
 
@@ -596,4 +603,13 @@ impl<B: BoardTrait> ParseUgiPosState<B> for ParseUgiMatchState<'_, B> {
     fn make_move(&mut self, mov: B::Move) -> Res<()> {
         self.match_state.make_move(mov, self.check_game_over)
     }
+}
+
+pub fn parse_ugi_pos_and_hist<B: BoardTrait>(input: &str, strictness: Strictness) -> Res<MatchState<B>> {
+    let mut res = MatchState::default();
+    let mut tokens = tokens(input);
+    let first = tokens.next().unwrap_or_default();
+    let mut parse_state = ParseUgiMatchState { match_state: &mut res, check_game_over: true, keep_hist: true };
+    parse_ugi_position_and_moves(first, &mut tokens, true, strictness, &mut parse_state)?;
+    Ok(res)
 }
