@@ -38,7 +38,7 @@ mod tests {
             }
             let i = i + 1;
             let depth = DepthPly::new(i);
-            let tt_bytes = if depth < 5 { None } else { Some(1 << 26) };
+            let tt_bytes = if depth.get() < 5 { None } else { Some(1 << 26) };
             let res = perft(depth, pos.clone(), Parallel, Bulk, tt_bytes);
             assert_eq!(res.depth, depth);
             assert_eq!(res.nodes, expected, "depth {i}, fen '{fen}' ({pos})");

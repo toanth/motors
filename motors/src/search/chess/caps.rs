@@ -237,7 +237,7 @@ impl Engine<Board> for Caps {
         limit.fixed_time = min(limit.fixed_time, limit.tc.remaining);
         self.ply_hard_limit = if limit.mate == 0 { PLY_HARD_LIMIT } else { limit.mate.abs() as usize };
         let soft_limit =
-            limit.tc.remaining.saturating_sub(limit.tc.increment) / cc::soft_limit_div() + limit.tc.increment;
+            limit.tc.remaining.saturating_sub(limit.tc.increment) * cc::soft_limit() / 1024 + limit.tc.increment;
         self.params.limit = limit;
 
         // Use 3fold repetition detection for positions before and including the root node and 2fold for positions during search.
@@ -299,7 +299,7 @@ impl NormalEngine<Board> for Caps {
         debug_assert_eq!(self.uci_nodes() % DEFAULT_CHECK_TIME_INTERVAL, 0);
         // TODO: Compute at the start of the search instead of every time:
         // Instead of storing a SearchLimit, store a different struct that contains soft and hard bounds
-        let hard = (tc.remaining.saturating_sub(tc.increment)) * cc::inv_hard_limit_div() as u32 / 1024 + tc.increment;
+        let hard = (tc.remaining.saturating_sub(tc.increment)) * cc::hard_limit() as u32 / 1024 + tc.increment;
         // Because fixed_time has been clamped to at most tc.remaining, this can never lead to timeouts
         // (assuming the move overhead is set correctly)
         elapsed >= byoyomi + fixed_time.min(hard)
@@ -403,7 +403,7 @@ impl Caps {
             chosen_at_iter.push(chosen);
             if iter >= cc::move_stability_min_iters()
                 && !is_duration_infinite(soft_limit)
-                && chosen_at_iter.iter().dropping(iter / cc::move_stability_start_div()).all(|m| *m == chosen)
+                && chosen_at_iter.iter().dropping(iter * cc::move_stability_start() / 1024).all(|m| *m == chosen)
             {
                 soft_limit_scale = cc::move_stability_factor() as f64 / 1000.0;
             } else {
@@ -447,8 +447,7 @@ impl Caps {
             let limit = self.params.limit.tc;
             let soft_limit = soft_limit
                 .min(
-                    (limit.remaining.saturating_sub(limit.increment)) * cc::inv_soft_limit_div_clamp() / 1024
-                        + limit.increment,
+                    (limit.remaining.saturating_sub(limit.increment)) * cc::soft_limit_clamp() / 1024 + limit.increment,
                 )
                 .min(self.params.limit.fixed_time);
             let elapsed = self.start_time().elapsed();
@@ -537,7 +536,7 @@ impl Caps {
             }
 
             if node_type == Exact {
-                window_radius = Score((window_radius.0 + cc::aw_exact_add()) / cc::aw_exact_div());
+                window_radius = Score((window_radius.0 + cc::aw_exact_add()) * cc::aw_exact_inv_div() / 1024);
             } else {
                 let delta = pv_score.0.abs_diff(alpha.0);
                 let delta = delta.min(pv_score.0.abs_diff(beta.0));
@@ -761,7 +760,7 @@ impl Caps {
                 (cc::rfp_base() - (ScoreT::from(they_blundered) * cc::rfp_blunder())) * (depth / 128) as ScoreT;
             if expected_node_type == FailHigh {
                 // TODO: Multiplicative constant (changes bench)
-                margin /= cc::rfp_fail_high_div();
+                margin = margin * cc::rfp_fail_high() / 1024;
             }
             if let Some(entry) = old_entry
                 && entry.score() <= eval
@@ -826,9 +825,9 @@ impl Caps {
                 let new_pos = pos.make_nullmove().unwrap();
                 // necessary to recognize the null move and to make `last_tried_move()` not panic
                 self.search_stack[ply].tried_moves.push(Move::default());
-                // TODO: Change order of multiplication and division (changes bench), use * 1024 instead of * 128 for depth div
+                // TODO: Remove / 128 and * 128
                 let reduction = cc::nmp_base()
-                    + depth / cc::nmp_depth_div() * 128
+                    + depth / 128 * cc::nmp_depth() / 1024 * 128
                     + isize::from(they_blundered) * cc::nmp_blunder()
                     + (eval - nmp_threshold + 1).0.ilog2().saturating_sub(8) as isize * 128;
                 // the child node is expected to fail low, leading to a fail high in this node
@@ -919,7 +918,7 @@ impl Caps {
                 } / 1024;
                 // LMP faster if we expect to fail low anyway
                 if expected_node_type == FailLow {
-                    lmp_threshold -= lmp_threshold / cc::lmp_fail_low_div();
+                    lmp_threshold -= lmp_threshold * cc::lmp_fail_low() / 1024;
                 }
                 if depth <= cc::max_move_loop_pruning_depth()
                     && (num_uninteresting_visited >= lmp_threshold

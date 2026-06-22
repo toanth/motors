@@ -22,11 +22,11 @@ spsa_params![
     start_depth: usize = 128; 0..=512; step=16;
     // min_depth_incremenet: isize = 128; 32..=256; step=2;
     // max_depth_incremenet: isize = 172; 32..=512; step=2;
-    soft_limit_div: u32 = 30; 5..=60; step=1;
-    inv_soft_limit_div_clamp: u32 = 256; 1..=750; step=10;
-    inv_hard_limit_div: usize = 512; 1..=750; step=10;
+    soft_limit: u32 = 34; 8..=256; step=2;
+    soft_limit_clamp: u32 = 256; 1..=750; step=10;
+    hard_limit: usize = 512; 1..=750; step=10;
     move_stability_min_iters: usize=14; 1..=25; step=2;
-    move_stability_start_div: usize = 3; 1..=10; step=1;
+    move_stability_start: usize = 340; 64..=512; step=1;
     move_stability_factor: usize = 806; 250..=1000; step=50;
     soft_limit_fail_low_factor: usize = 1202; 1000..=3000; step=50;
     soft_limit_node_scale_min_budget: isize = 1024; 64..=2048; step=64;
@@ -35,7 +35,7 @@ spsa_params![
     fail_high_reduction: isize = 128; 32..=512; step=32;
     fail_high_max_reduction: isize = 256; 64..=1024; step=32;
     aw_exact_add: ScoreT = 11; 0..=42; step=2;
-    aw_exact_div: ScoreT = 3; 1..=10; step=1;
+    aw_exact_inv_div: ScoreT = 340; 128..=1024; step=32;
     aw_delta_max: u32 = 11; 0..=40; step=4;
     aw_widening_factor: ScoreT = 3; 1..=10; step=1;
     check_extension: isize = 128; 0..=256; step=16;
@@ -50,7 +50,7 @@ spsa_params![
     iir_reduction: isize = 128; 0..=256; step=16;
     rfp_base: ScoreT = 158; 0..=900; step=15;
     rfp_blunder: ScoreT = 48; 0..=512; step=8;
-    rfp_fail_high_div: ScoreT = 3; 1..=10; step=1;
+    rfp_fail_high: ScoreT = 340; 0..=1024; step=64;
     rfp_tt_upper_bound: ScoreT = 256; 0..=1024; step=64;
     rfp_noisy_pos: ScoreT = 1024; 0..=2048; step=128;
     rfp_max_depth: isize = 6 * 128; 128..=1024; step=32;
@@ -59,7 +59,7 @@ spsa_params![
     razor_depth_mult: isize = 4096; 256..32768; step=512;
     nmp_min_depth: isize = 128; 128..=1024; step=32;
     nmp_base: isize = 640; 256..=2048; step=32;
-    nmp_depth_div: isize = 512; 128..=2048; step=64;
+    nmp_depth: isize = 256; 0..=1024; step=32;
     nmp_blunder: isize = 128; 0..=512; step=16;
     nmp_verif_depth: isize = 1024; 128..=4096; step=32;
     fp_blunder_base: isize = 171 * 1024; 0..=512 * 1024; step=32 * 1024;
@@ -70,7 +70,7 @@ spsa_params![
     lmp_blunder_scale: isize = 8; 0..=128; step=4;
     lmp_base: isize = 4096; 0..=64 * 1024; step=512;
     lmp_scale: isize = 40; 0..=128; step=4;
-    lmp_fail_low_div: isize = 2; 2..=16; step=1;
+    lmp_fail_low: isize = 512; 64..=1024; step=32;
     max_move_loop_pruning_depth: isize = 6 * 128; 1..=16_384; step=64;
     hist_pruning_max_depth: isize = 3 * 128; 128..=2048; step=32;
     see_pruning_hist_mult: i32 = 16; 0..=256; step=4;
