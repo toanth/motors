@@ -28,7 +28,6 @@ use gears::score::{Score, ScoreT, MAX_BETA, MIN_ALPHA, NO_SCORE_YET, SCORE_LOST,
 use gears::search::{Budget, DepthPly, NodeType, NodesLimit, SearchInfo, SearchLimit, SearchResult, TimeControl};
 use gears::ugi::{EngineOption, EngineOptionNameForProtocol, EngineOptionType};
 use std::collections::HashMap;
-use std::fmt;
 use std::fmt::{Debug, Display, Formatter};
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::hint::spin_loop;
@@ -39,6 +38,7 @@ use std::sync::atomic::Ordering::{AcqRel, Acquire, Release, SeqCst};
 use std::sync::{Arc, Mutex};
 use std::thread::spawn;
 use std::time::{Duration, Instant};
+use std::{fmt, thread};
 
 #[cfg(feature = "chess")]
 pub mod chess;
@@ -692,23 +692,30 @@ impl<B: BoardTrait> SearchParams<B> {
             self.atomic.currently_searching.store(false, Release);
             return;
         };
+        let mut spin_loop_ctr = 0_usize;
         if [Infinite, Ponder].contains(&data.search_type) {
             while !self.atomic.stop_flag() {
-                spin_loop();
+                spin_loop_ctr += 1;
+                debug_assert!(spin_loop_ctr < 1_000_000_000);
+                thread::yield_now();
             }
         }
         // make sure all auxiliary threads stop as well, no matter which condition made the main thread
         // stop. However, this means that `go nodes n` only applies to the main thread; auxiliary
-        // threads may search fewer nodes. Depending on the stop condition, it's possible that
+        // threads may search fewer (but not more) nodes. Depending on the stop condition, it's possible that
         // auxiliary threads have already stopped.
         for atomic in data.auxiliary_threads() {
             atomic.should_stop.store(true, Release);
         }
         for atomic in data.auxiliary_threads() {
+            spin_loop_ctr = 0;
             while atomic.currently_searching.load(Acquire) {
+                spin_loop_ctr += 1;
+                debug_assert!(spin_loop_ctr < 1_000_000_000);
                 spin_loop();
             }
         }
+        // on a `ponderhit`, we don't want to print a best move
         if self.atomic.suppress_best_move.load(Acquire) {
             self.atomic.currently_searching.store(false, SeqCst);
             return;

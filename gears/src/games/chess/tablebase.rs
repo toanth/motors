@@ -15,24 +15,21 @@
  *  You should have received a copy of the GNU General Public License
  *  along with Gears. If not, see <https://www.gnu.org/licenses/>.
  */
-use crate::games::chess::bitbase::{query_pawn_v_king, PAWN_V_KING_TABLE};
 use crate::games::chess::pieces::ColoredPieceType::{BlackKing, BlackPawn, WhiteKing, WhitePawn};
-use crate::games::chess::pieces::PieceType::{Bishop, Empty, King, Knight, Pawn, Queen, Rook};
+use crate::games::chess::pieces::PieceType::{Bishop, Knight, Pawn, Queen, Rook};
 use crate::games::chess::pieces::{ColoredPieceType, PieceType, NUM_CHESS_PIECES};
 use crate::games::chess::squares::{
     ChessboardSize, Square, A_FILE_NUM, B_FILE_NUM, C_FILE_NUM, D_FILE_NUM, NUM_SQUARES,
 };
 use crate::games::chess::unverified::UnverifiedBoard;
 use crate::games::chess::Color::{Black, White};
-use crate::games::chess::{Board, ChessBitboardTrait, Color, EDGE_SQUARES, PAWN_CAPTURES};
+use crate::games::chess::{Board, ChessBitboardTrait, Color, PAWN_CAPTURES};
 use crate::games::{ColorTrait, ColoredPieceTypeTrait, CoordinatesTrait, DimT, NUM_COLORS};
 use crate::general::attacks::ChessSliderGenerator;
 use crate::general::bitboards::chessboard::{Bitboard, KINGS, KNIGHTS};
 use crate::general::bitboards::{BitboardTrait, KnownSizeBitboard, RawBitboardTrait};
-use crate::general::board::Strictness::Strict;
 use crate::general::board::{BitboardBoard, BoardTrait, SelfChecks, Strictness, UnverifiedBoardTrait};
 use crate::general::squares::RectangularCoordinates;
-use crate::PlayerResult::Draw;
 use itertools::Itertools;
 use rayon::prelude::*;
 use std::cmp::{max, Ordering};
@@ -1491,513 +1488,513 @@ fn probe_dtz(mut pos: Board) -> i8 {
     debug_assert_ne!(res, INVALID, "{idx} {list:?} {flipped} {0:?} -- {1:?}", pos.bbs.colors, pos.bbs.pieces);
     res
 }
-
-#[allow(unused)]
-mod tests {
-    use super::*;
-    use crate::games::chess::pieces::ColoredPieceType::{BlackKing, WhiteKing};
-    use crate::games::chess::pieces::Piece;
-    use crate::games::chess::squares::sq;
-    use crate::games::chess::BitboardRepr;
-    use crate::general::bitboards::chessboard::Bitboard;
-    use crate::general::board::BoardHelpers;
-    use rand::distr::{Distribution, Uniform};
-    use rand::prelude::SmallRng;
-    use rand::SeedableRng;
-    use std::sync::atomic::AtomicBool;
-
-    #[test]
-    fn combinations_test() {
-        assert_eq!(COMBINATIONS[4][3], 4);
-        assert_eq!(COMBINATIONS[5][3], 10);
-        assert_eq!(COMBINATIONS[42][1], 42);
-        assert_eq!(COMBINATIONS[42][0], 1);
-        assert_eq!(COMBINATIONS[5][4], 5);
-        assert_eq!(COMBINATIONS[4][4], 1);
-        assert_eq!(COMBINATIONS[8][4], 70);
-    }
-
-    #[test]
-    fn decode_test() {
-        const MAX: usize = 5;
-        let mut arr = [0; MAX];
-        let bb = decode(100, 2);
-        assert_eq!(bb.raw(), (1 << 9) | (1 << 14));
-        for k in 1..MAX {
-            for n in 0..COMBINATIONS[64][k] {
-                let bb = decode(n, k);
-                let res = encode(bb, bb.num_ones());
-                assert_eq!(res, n, "{k} {arr:?}");
-            }
-        }
-    }
-
-    #[test]
-    fn only_kings_test() {
-        let piece_counts = PieceCounts::default();
-        let t = &TableData::<false>::new(piece_counts);
-        for i in 0..no_pawns::NUM_KING_SQUARES {
-            let p = PosIdx::<NO_PAWNS>::from_idx(i, t);
-            let kings = p.kings();
-            assert!(kings[0].bb_idx() < 32);
-            assert_eq!(kings, no_pawns::KING_SQUARES[i]);
-            assert_eq!(no_pawns::kings_idx(kings), i);
-            let idx = p.idx(t);
-            assert_eq!(i, idx);
-        }
-    }
-
-    fn piece_v_king_is_won(
-        piece: PieceType,
-        our_piece: Square,
-        our_king: Square,
-        their_king: Square,
-        stm: Color,
-    ) -> bool {
-        match piece {
-            Pawn => query_pawn_v_king(&PAWN_V_KING_TABLE, our_piece, our_king, their_king, !stm.is_first()) != Draw,
-            Knight | Bishop => false,
-            Rook | Queen => {
-                if stm == White {
-                    return true;
-                }
-                // piece can be captured
-                if (KINGS[their_king] & !KINGS[our_king] & our_piece.bb()).has_any() {
-                    return false;
-                }
-                // stalemate
-                if EDGE_SQUARES.has(their_king) && KINGS[their_king].intersects(KINGS[our_king]) {
-                    let blockers = our_king.bb() | their_king.bb();
-                    let slider_gen = ChessSliderGenerator::new(blockers);
-                    let attacks = if piece == Rook {
-                        slider_gen.rook_attacks(our_piece)
-                    } else {
-                        slider_gen.queen_attacks(our_piece)
-                    };
-                    return KINGS[their_king].intersects(!(attacks | KINGS[our_king])) || attacks.has(their_king);
-                }
-                true
-            }
-            King | Empty => unreachable!(),
-        }
-    }
-
-    #[test]
-    fn rook_vs_king_test() {
-        let pieces = [[0, 0, 0, 1, 0], [0, 0, 0, 0, 0]];
-        let t = TableData::new(pieces);
-        let table = force_dtz_table(pieces);
-        let pos = Board::from_fen("8/8/8/8/8/K1k5/8/2r5 b - - 0 1", Strict).unwrap();
-        let res = probe_dtz(pos);
-        assert_eq!(res, -MATED - 1);
-        let pos = Board::from_fen("8/8/8/8/8/2k5/K7/2r5 w - - 0 1", Strict).unwrap();
-        let res = probe_dtz(pos);
-        assert_eq!(res, MATED + 2);
-        let pos = Board::from_fen("8/8/8/8/8/2k5/K7/3r4 b - - 0 1", Strict).unwrap();
-        let res = probe_dtz(pos);
-        assert_eq!(res, -MATED - 3);
-
-        let mut j = 0;
-        for c in Color::iter() {
-            let n = table.len() / 2;
-            let current = c as usize * n;
-            let mut iter = PosIdxIter::<false> {
-                pos_idx: PosIdx::<false>::from_idx(current, &t),
-                t: &t,
-                first: true,
-                current,
-                end: current + n,
-            };
-            while let Some((i, p)) = iter.next() {
-                assert_eq!(i, j);
-                assert_eq!(*p, PosIdx::<false>::from_idx(i, &t));
-                j += 1;
-            }
-        }
-    }
-
-    #[test]
-    fn single_piece_test() {
-        for p in [Knight, Bishop, Rook, Queen, Pawn] {
-            let mut piece_counts = PieceCounts::default();
-            piece_counts[White][p as usize] = 1;
-            _ = force_dtz_table(piece_counts);
-            for w_k in Square::iter() {
-                for b_k in Square::iter() {
-                    for w_p in Square::iter() {
-                        let piece = Piece::new(ColoredPieceType::new(White, p), w_p);
-                        let mut pos = Board::empty();
-                        pos.place_piece(w_k, WhiteKing);
-                        let Ok(()) = pos.try_place_piece(Piece::new(BlackKing, b_k)) else { continue };
-                        let Ok(()) = pos.try_place_piece(piece) else { continue };
-                        let Ok(pos) = pos.verify(Strict) else { continue };
-                        if p == Pawn {
-                            let t = &TableData::<true>::new(piece_counts);
-                            let p_idx = PosIdx::<PAWNS>::from_chessboard(&pos, t);
-                            let idx = p_idx.idx(t);
-                            assert_eq!(p_idx, PosIdx::from_idx(idx, t));
-                        } else {
-                            let t = &TableData::<false>::new(piece_counts);
-                            let p_idx = PosIdx::<NO_PAWNS>::from_chessboard(&pos, t);
-                            let idx = p_idx.idx(t);
-                            assert_eq!(p_idx, PosIdx::from_idx(idx, t));
-                        };
-                        let dtz = probe_dtz(pos);
-                        let won = piece_v_king_is_won(p, w_p, w_k, b_k, White);
-                        assert!(dtz >= 0, "{dtz} {p} {pos}");
-                        assert_eq!(dtz > 0, won, "{dtz} {p} {pos}");
-                        assert!(dtz <= 100, "{dtz} {p} {pos}");
-                    }
-                }
-            }
-        }
-    }
-
-    const PAWNS: bool = true;
-    const NO_PAWNS: bool = false;
-
-    #[test]
-    #[ignore]
-    fn immediate_game_over_test() {
-        let pieces = [[0, 1, 0, 0, 0], [0, 1, 0, 0, 0]];
-        let t = &TableData::<NO_PAWNS>::new(pieces);
-        let table = force_dtz_table(pieces);
-
-        let b_king = sq("b3");
-        for w_king in Square::iter() {
-            if (KINGS[b_king] | b_king.bb() | sq("b1").bb() | sq("c2").bb()).has(w_king) {
-                continue;
-            }
-            let mut bbs = BitboardRepr::default();
-            bbs.place_piece(w_king, White, King);
-            bbs.place_piece(b_king, Black, King);
-            bbs.place_piece(sq("b1"), White, Knight);
-            bbs.place_piece(sq("c2"), Black, Knight);
-            let p = PosIdx::<NO_PAWNS>::from_bitboards(bbs.pieces, bbs.colors, White, t, false, true);
-            let i = p.idx(t);
-            let res = table[i].load(Relaxed);
-            if w_king == sq("a1") {
-                assert_eq!(res, MATED);
-                let mut p2 = PosIdx { active: Black, ..p };
-                p2.normalize(t, [w_king, p.kings()[Black]], false);
-                let i = p2.idx(t);
-                assert_eq!(table[i].load(Relaxed), INVALID);
-            } else {
-                assert_eq!(res, DRAW);
-            }
-        }
-        let pieces = [[0, 0, 0, 1, 0], [0, 0, 1, 0, 0]];
-        let t = &TableData::<NO_PAWNS>::new(pieces);
-        let table = force_dtz_table(pieces);
-        let pos = Board::from_fen("5Rbk/8/7K/8/8/8/8/8 b - - 0 1", Strict).unwrap();
-        let i = PosIdx::<NO_PAWNS>::from_chessboard(&pos, t).idx(t);
-        let res = table[i].load(Relaxed);
-        assert_eq!(res, DRAW);
-    }
-
-    #[test]
-    #[ignore]
-    fn idx_test() {
-        let pieces = [[1, 0, 0, 0, 1], [1, 0, 0, 0, 0]];
-        let t = &TableData::<PAWNS>::new(pieces);
-        let mut table = vec![];
-        table.resize_with(t.size(), || AtomicBool::new(false));
-        for (it1, it2) in PosIdx::<PAWNS>::outer_iter(t) {
-            it1.for_each(|mut it| {
-                while let Some((i, _p)) = it.next() {
-                    assert!(!table[i].load(Relaxed));
-                    table[i].store(true, Relaxed);
-                }
-            });
-            it2.for_each(|mut it| {
-                while let Some((i, _p)) = it.next() {
-                    assert!(!table[i].load(Relaxed));
-                    table[i].store(true, Relaxed);
-                }
-            })
-        }
-    }
-
-    #[test]
-    #[ignore]
-    fn game_over_in_one_test() {
-        let pieces = [[0, 1, 0, 0, 0], [0, 1, 0, 0, 0]];
-        let t = &TableData::<NO_PAWNS>::new(pieces);
-        let mut pos = Board::from_fen("8/8/8/2N5/8/8/n1K5/k7 w - - 0 1", Strict).unwrap();
-        let p = PosIdx::<NO_PAWNS>::from_chessboard(&pos, t);
-        assert_eq!(p.kings(), [sq("b3"), sq("a1")]);
-        let i = p.idx(t);
-        let table = force_dtz_table(pieces);
-        assert_eq!(table[i].load(Relaxed), -MATED - 1, "{i}");
-        pos.bbs.move_piece(sq("a1"), sq("h1"), Black, King);
-        let p = PosIdx::<NO_PAWNS>::from_chessboard(&pos, t);
-        let i = p.idx(t);
-        assert_eq!(table[i].load(Relaxed), DRAW, "{i}");
-
-        let pieces = [[0, 0, 0, 0, 1], [0, 0, 0, 1, 0]];
-        let t = &TableData::<NO_PAWNS>::new(pieces);
-        let table = force_dtz_table(pieces);
-        let test_fen = |fen: &str, outcome: i8| {
-            let pos = Board::from_fen(fen, Strict).unwrap();
-            let p = PosIdx::<NO_PAWNS>::from_chessboard(&pos, t);
-            let i = p.idx(t);
-            assert_eq!(table[i].load(Relaxed), outcome, "{i} '{fen}'");
-        };
-        test_fen("8/8/8/8/8/1K6/2Q5/2k3r1 b - - 0 1", MATED);
-        test_fen("8/8/8/8/8/2k5/2r5/K1Q5 b - - 0 1", -MATED - 1);
-        test_fen("6r1/8/8/8/8/5k2/6Q1/6K1 b - - 0 1", -MATED - 1);
-        test_fen("6Q1/8/8/8/8/5K2/6r1/6k1 w - - 0 1", -MATED - 1);
-
-        let mut pos = Board::from_fen("8/8/8/8/8/2K5/k7/2rQ4 w - - 0 1", Strict).unwrap();
-        let p = PosIdx::<NO_PAWNS>::from_chessboard(&pos, t);
-        let res = value_after(&p, t, p.idx(t), 1, p.bbs[1].to_square().unwrap(), p.bbs[0].to_square().unwrap(), table);
-    }
-
-    #[test]
-    #[ignore]
-    fn queen_vs_rook_test() {
-        let pieces = [[0, 0, 0, 0, 1], [0, 0, 0, 1, 0]];
-        let table = force_dtz_table(pieces);
-        let t = &TableData::<NO_PAWNS>::new(pieces);
-
-        let test_fen = |fen: &str, outcome: i8| {
-            let pos = Board::from_fen(fen, Strict).unwrap();
-            let p = PosIdx::<NO_PAWNS>::from_chessboard(&pos, t);
-            let i = p.idx(t);
-            assert_eq!(table[i].load(Relaxed), outcome, "{i} '{fen}'");
-        };
-        test_fen("6Q1/8/8/8/8/5K2/6r1/6k1 w - - 0 1", -MATED - 1);
-        test_fen("6Q1/8/8/8/8/5K2/r7/7k w - - 0 1", -MATED - 1);
-        test_fen("6Q1/8/8/8/8/5K2/r7/5k2 w - - 0 1", -MATED - 1);
-        test_fen("6Q1/8/8/8/8/5K2/r6k/8 w - - 0 1", -MATED - 1);
-        test_fen("6Q1/8/8/8/8/5K2/r7/6k1 b - - 0 1", MATED + 2);
-        test_fen("7Q/8/8/8/8/5K2/r7/6k1 w - - 0 1", -MATED - 3);
-        test_fen("r7/7Q/8/8/8/5K2/8/6k1 w - - 0 1", -MATED - 3);
-        test_fen("8/8/2k5/1r6/8/8/8/2KQ4 b - - 0 1", MATED + 62);
-        test_consistency::<NO_PAWNS>(t, table);
-    }
-
-    fn test_consistency<const PAWNS: bool>(t: &TableData<PAWNS>, table: &[Entry]) {
-        let seed = 42;
-        let mut rng = SmallRng::seed_from_u64(seed);
-        let dist = Uniform::new(0, table.len()).unwrap();
-        for _ in 0..5_000_000 {
-            let idx = dist.sample(&mut rng);
-            let res = table[idx].load(Relaxed);
-            if res == INVALID {
-                continue;
-            }
-            let p = PosIdx::<PAWNS>::from_idx(idx, t);
-            let bbs = p.player_bbs(t);
-            if bbs[White].intersects(bbs[Black]) || p.pawns(t).intersects(Bitboard::backranks()) {
-                continue;
-            }
-            let mut pos = Board::empty();
-            for i in 0..t.num_bbs {
-                for sq in p.bbs[i] {
-                    pos.place_piece(sq, t.piece_types[i]);
-                }
-            }
-            pos.set_active_player(p.active);
-            let pos = pos.verify(Strict).unwrap();
-            // assert_eq!(idx_of(&pos), idx, "{idx} {pos}");
-            assert_eq!(
-                probe_dtz(pos),
-                res,
-                "{res} {idx} {0} {pos} {1:?}",
-                idx_of(&pos, t.piece_counts),
-                PosIdx::<PAWNS>::from_idx(idx_of(&pos, t.piece_counts), t)
-            );
-            let mut max = -120;
-            let mut best = pos;
-            for child in pos.children() {
-                let mut child_res = probe_dtz(child);
-                assert_ne!(child_res, INVALID, "{idx} {0} '{pos}' '{child}'", idx_of(&child, t.piece_counts));
-                let pawn_move = child.piece_bb(Pawn) != pos.piece_bb(Pawn);
-                let capture = child.occupied_bb().num_ones() != pos.occupied_bb().num_ones();
-                if pawn_move || capture {
-                    child_res = match child_res.cmp(&DRAW) {
-                        Ordering::Less => MATED,
-                        Ordering::Equal => DRAW,
-                        Ordering::Greater => -MATED,
-                    };
-                }
-                if -child_res > max {
-                    max = -child_res;
-                    best = child;
-                }
-            }
-            if max == -120 {
-                assert!(res == 0 || res == MATED);
-                continue;
-            }
-            let recomputed = if max == 0 {
-                max
-            } else if max < 0 {
-                max + 1
-            } else {
-                max - 1
-            };
-            assert_eq!(recomputed, res, "{idx}: {max} {res} [{pos}] -- {best}");
-        }
-    }
-
-    #[test]
-    #[ignore]
-    fn piece_vs_2pieces_test() {
-        let t = TableData::<false>::new([[0, 0, 0, 1, 0], [0, 1, 1, 0, 0]]);
-        let table = force_dtz_table(t.piece_counts);
-        let mut pos = Board::from_fen("8/7r/8/8/8/1KN5/1B6/1k6 b - - 0 1", Strict).unwrap();
-        let p = PosIdx::<NO_PAWNS>::from_chessboard(&pos, &t);
-        let i = p.idx(&t);
-        assert_eq!(table[i].load(Relaxed), MATED, "{i}");
-        let pos = Board::from_fen("8/7r/8/8/8/1K6/1B2N3/1k6 w - - 0 1", Strict).unwrap();
-        let p = PosIdx::<NO_PAWNS>::from_chessboard(&pos, &t);
-        let i = p.idx(&t);
-        assert_eq!(table[i].load(Relaxed), -MATED - 1, "{i}");
-        let pos = Board::from_fen("8/8/8/N7/8/r7/B7/k1K5 b - - 0 1", Strict).unwrap();
-        assert_eq!(table[idx_of(&pos, t.piece_counts)].load(Relaxed), -MATED - 1);
-
-        test_consistency::<NO_PAWNS>(&t, table);
-    }
-
-    // todo: Also support querying the compact pawn table
-    #[test]
-    fn pawn_vs_king_test() {
-        let list: PieceCounts = [[1, 0, 0, 0, 0], [0, 0, 0, 0, 0]];
-        let t = &TableData::<PAWNS>::new(list);
-        let table = force_dtz_table(list);
-        let pos = Board::from_fen("8/P7/8/8/8/8/8/K1k5 w - - 0 1", Strict).unwrap();
-        let p = PosIdx::<PAWNS>::from_chessboard(&pos, t);
-        println!("{}", p.idx(t));
-        assert_eq!(table[p.idx(t)].load(Relaxed), -MATED - 1, "{0} {1} {p:?}", p.idx(t), table[p.idx(t)].load(Relaxed));
-        for (i, e) in table.iter().enumerate().rev() {
-            let e = e.load(Relaxed);
-            let p = PosIdx::<PAWNS>::from_idx(i, t);
-            assert_eq!(t.piece_types[0..t.num_bbs], [WhitePawn, WhiteKing, BlackKing]);
-            if p.bbs[2] == p.bbs[0] {
-                assert!([DRAW, INVALID].contains(&e));
-                continue;
-            }
-            let pawn = p.bbs[0].to_square().unwrap();
-            if pawn.rank() == 0 {
-                assert_eq!(e, INVALID);
-            }
-            if e == INVALID || pawn.is_backrank() {
-                continue;
-            }
-            let won = piece_v_king_is_won(Pawn, pawn, p.kings()[White], p.kings()[Black], p.active);
-            assert_eq!(e != 0, won, "{i} {e} {won} {p:?}");
-            if e != 0 {
-                assert_eq!(e > 0, p.active == White, "{i} {e} {won} {p:?}");
-            }
-        }
-    }
-
-    #[test]
-    #[ignore]
-    fn piece_vs_pawn_test() {
-        let list: PieceCounts = [[0, 1, 0, 0, 0], [1, 0, 0, 0, 0]];
-        let t = &TableData::<PAWNS>::new(list);
-        let table = force_dtz_table(list);
-        let pos = Board::from_fen("8/8/8/8/8/1N6/p1K5/k7 b - - 0 1", Strict).unwrap();
-        let res = probe_dtz(pos);
-        assert_eq!(res, MATED);
-        let pos = Board::from_fen("8/8/8/8/8/p7/2K5/k1N5 b - - 0 1", Strict).unwrap();
-        let res = probe_dtz(pos);
-        assert_eq!(res, MATED + 1, "{0} {1:?}", idx_of(&pos, list), PosIdx::<PAWNS>::from_chessboard(&pos, t));
-        let pos = Board::from_fen("k4N2/8/3K4/8/8/8/p7/8 w - - 0 1", Strict).unwrap();
-        let res = probe_dtz(pos);
-        assert_eq!(res, MATED + 2);
-        let pos = Board::from_fen("k4N2/8/3K4/8/8/p7/8/8 b - - 0 1", Strict).unwrap();
-        let res = probe_dtz(pos);
-        assert_eq!(res, -MATED - 1);
-        let pos = Board::from_fen("8/1K6/8/8/5k2/8/6p1/3N4 w - - 0 1", Strict).unwrap();
-        let res = probe_dtz(pos);
-        assert_eq!(res, MATED + 8);
-        let pos = Board::from_fen("8/1K6/8/8/5k2/6p1/8/3N4 b - - 0 1", Strict).unwrap();
-        let res = probe_dtz(pos);
-        assert_eq!(res, -MATED - 1);
-        test_consistency::<PAWNS>(t, table);
-    }
-
-    #[test]
-    #[ignore]
-    fn pawn_vs_pawn_test() {
-        let list: PieceCounts = [[1, 0, 0, 0, 0], [1, 0, 0, 0, 0]];
-        let t = &TableData::<PAWNS>::new(list);
-        let table = force_dtz_table(list);
-        let pos = Board::from_fen("8/8/8/8/5p2/8/6P1/5K1k w - - 0 1", Strict).unwrap();
-        let res = probe_dtz(pos);
-        assert_eq!(res, DRAW); // would be won without ep
-        let pos = Board::from_fen("8/8/8/8/5pP1/8/8/5K1k b - - 0 1", Strict).unwrap();
-        let res = probe_dtz(pos);
-        assert_eq!(res, MATED + 2); // no ep
-        let pos = Board::from_fen("8/8/8/8/5pP1/8/8/5K1k b - g3 0 1", Strict).unwrap();
-        let res = probe_dtz(pos);
-        assert_eq!(res, -MATED - 1); // ep
-        let pos = Board::from_fen("8/8/8/8/K6p/8/6P1/7k w - - 0 1", Strict).unwrap();
-        let res = probe_dtz(pos);
-        assert_eq!(res, MATED + 2, "{0}", idx_of(&pos, list));
-        test_consistency::<PAWNS>(t, table);
-    }
-
-    #[test]
-    #[ignore]
-    fn two_same_pieces_test() {
-        let list: PieceCounts = [[0, 0, 2, 0, 0], [0, 0, 0, 0, 0]];
-        let t = &TableData::<NO_PAWNS>::new(list);
-        let table = force_dtz_table(list);
-        test_consistency::<NO_PAWNS>(t, table);
-        let list: PieceCounts = [[2, 0, 0, 0, 0], [0, 0, 0, 0, 0]];
-        let t = &TableData::<PAWNS>::new(list);
-        let table = force_dtz_table(list);
-        let pos = Board::from_fen("8/1k2P3/8/8/8/8/1P6/1K6 w - - 0 1", Strict).unwrap();
-        let res = probe_dtz(pos);
-        assert_eq!(res, -MATED - 1, "{0}", idx_of(&pos, t.piece_counts));
-        test_consistency::<PAWNS>(t, table);
-    }
-
-    #[test]
-    #[ignore]
-    fn two_knights_vs_pawn_test() {
-        let list = [[0, 2, 0, 0, 0], [1, 0, 0, 0, 0]];
-        let t = &TableData::<PAWNS>::new(list);
-        let table = force_dtz_table(list);
-        let pos = Board::from_fen("8/8/8/8/2N5/4N3/2K4p/k7 w - - 0 1", Strict).unwrap();
-        let i = PosIdx::<PAWNS>::from_chessboard(&pos, t).idx(t);
-        assert_eq!(table[i].load(Relaxed), DRAW);
-        let pos = Board::from_fen("8/8/8/8/2p1K3/2k5/5NN1/8 b - - 0 1", Strict).unwrap();
-        let p = PosIdx::<PAWNS>::from_chessboard(&pos, t);
-        let i = p.idx(t);
-        let res = table[i].load(Relaxed);
-        assert_eq!(res, DRAW);
-        for p in pos.children() {
-            let i = PosIdx::<PAWNS>::from_chessboard(&p, t).idx(t);
-            assert_eq!(table[i].load(Relaxed), DRAW, "{i} {p:?}");
-        }
-        test_consistency::<PAWNS>(t, table);
-    }
-
-    #[test]
-    #[ignore]
-    fn long_mate_test() {
-        let list = [[0, 0, 0, 0, 1], [0, 0, 2, 0, 0]];
-        let table = force_dtz_table(list);
-        let t = &TableData::<NO_PAWNS>::new(list);
-        let test_fen = |fen: &str, outcome: i8| {
-            let pos = Board::from_fen(fen, Strict).unwrap();
-            let p = PosIdx::<NO_PAWNS>::from_chessboard(&pos, t);
-            let i = p.idx(t);
-            assert_eq!(table[i].load(Relaxed), outcome, "{i} {p:?} '{fen}'");
-        };
-        // DTZ 142, the longest DTZ in this table, which is too large
-        test_fen("8/1q6/8/8/2B5/8/3K4/k5B1 w - - 0 1", DRAW);
-        test_fen("8/8/8/5q2/5B2/5K2/2k1B3/8 b - - 0 1", DRAW); // DTZ 101, also too large
-        test_fen("8/8/8/5q2/5B2/2k2K2/4B3/8 w - - 0 1", -1); // DTZ 100
-        test_fen("8/8/8/5q2/5B2/2k3K1/4B3/8 b - - 0 1", 2); // DTZ 99
-        test_fen("8/8/8/5q2/3k1B2/6K1/4B3/8 w - - 0 1", -3); // DTZ 98
-        test_fen("8/8/8/5q2/3k1B2/5BK1/8/8 b - - 0 1", 4); // DTZ 97
-        test_consistency::<NO_PAWNS>(t, table);
-    }
-}
+//
+// #[allow(unused)]
+// mod tests {
+//     use super::*;
+//     use crate::games::chess::pieces::ColoredPieceType::{BlackKing, WhiteKing};
+//     use crate::games::chess::pieces::Piece;
+//     use crate::games::chess::squares::sq;
+//     use crate::games::chess::BitboardRepr;
+//     use crate::general::bitboards::chessboard::Bitboard;
+//     use crate::general::board::BoardHelpers;
+//     use rand::distr::{Distribution, Uniform};
+//     use rand::prelude::SmallRng;
+//     use rand::SeedableRng;
+//     use std::sync::atomic::AtomicBool;
+//
+//     #[test]
+//     fn combinations_test() {
+//         assert_eq!(COMBINATIONS[4][3], 4);
+//         assert_eq!(COMBINATIONS[5][3], 10);
+//         assert_eq!(COMBINATIONS[42][1], 42);
+//         assert_eq!(COMBINATIONS[42][0], 1);
+//         assert_eq!(COMBINATIONS[5][4], 5);
+//         assert_eq!(COMBINATIONS[4][4], 1);
+//         assert_eq!(COMBINATIONS[8][4], 70);
+//     }
+//
+//     #[test]
+//     fn decode_test() {
+//         const MAX: usize = 5;
+//         let mut arr = [0; MAX];
+//         let bb = decode(100, 2);
+//         assert_eq!(bb.raw(), (1 << 9) | (1 << 14));
+//         for k in 1..MAX {
+//             for n in 0..COMBINATIONS[64][k] {
+//                 let bb = decode(n, k);
+//                 let res = encode(bb, bb.num_ones());
+//                 assert_eq!(res, n, "{k} {arr:?}");
+//             }
+//         }
+//     }
+//
+//     #[test]
+//     fn only_kings_test() {
+//         let piece_counts = PieceCounts::default();
+//         let t = &TableData::<false>::new(piece_counts);
+//         for i in 0..no_pawns::NUM_KING_SQUARES {
+//             let p = PosIdx::<NO_PAWNS>::from_idx(i, t);
+//             let kings = p.kings();
+//             assert!(kings[0].bb_idx() < 32);
+//             assert_eq!(kings, no_pawns::KING_SQUARES[i]);
+//             assert_eq!(no_pawns::kings_idx(kings), i);
+//             let idx = p.idx(t);
+//             assert_eq!(i, idx);
+//         }
+//     }
+//
+//     fn piece_v_king_is_won(
+//         piece: PieceType,
+//         our_piece: Square,
+//         our_king: Square,
+//         their_king: Square,
+//         stm: Color,
+//     ) -> bool {
+//         match piece {
+//             Pawn => query_pawn_v_king(&PAWN_V_KING_TABLE, our_piece, our_king, their_king, !stm.is_first()) != Draw,
+//             Knight | Bishop => false,
+//             Rook | Queen => {
+//                 if stm == White {
+//                     return true;
+//                 }
+//                 // piece can be captured
+//                 if (KINGS[their_king] & !KINGS[our_king] & our_piece.bb()).has_any() {
+//                     return false;
+//                 }
+//                 // stalemate
+//                 if EDGE_SQUARES.has(their_king) && KINGS[their_king].intersects(KINGS[our_king]) {
+//                     let blockers = our_king.bb() | their_king.bb();
+//                     let slider_gen = ChessSliderGenerator::new(blockers);
+//                     let attacks = if piece == Rook {
+//                         slider_gen.rook_attacks(our_piece)
+//                     } else {
+//                         slider_gen.queen_attacks(our_piece)
+//                     };
+//                     return KINGS[their_king].intersects(!(attacks | KINGS[our_king])) || attacks.has(their_king);
+//                 }
+//                 true
+//             }
+//             King | Empty => unreachable!(),
+//         }
+//     }
+//
+//     #[test]
+//     fn rook_vs_king_test() {
+//         let pieces = [[0, 0, 0, 1, 0], [0, 0, 0, 0, 0]];
+//         let t = TableData::new(pieces);
+//         let table = force_dtz_table(pieces);
+//         let pos = Board::from_fen("8/8/8/8/8/K1k5/8/2r5 b - - 0 1", Strict).unwrap();
+//         let res = probe_dtz(pos);
+//         assert_eq!(res, -MATED - 1);
+//         let pos = Board::from_fen("8/8/8/8/8/2k5/K7/2r5 w - - 0 1", Strict).unwrap();
+//         let res = probe_dtz(pos);
+//         assert_eq!(res, MATED + 2);
+//         let pos = Board::from_fen("8/8/8/8/8/2k5/K7/3r4 b - - 0 1", Strict).unwrap();
+//         let res = probe_dtz(pos);
+//         assert_eq!(res, -MATED - 3);
+//
+//         let mut j = 0;
+//         for c in Color::iter() {
+//             let n = table.len() / 2;
+//             let current = c as usize * n;
+//             let mut iter = PosIdxIter::<false> {
+//                 pos_idx: PosIdx::<false>::from_idx(current, &t),
+//                 t: &t,
+//                 first: true,
+//                 current,
+//                 end: current + n,
+//             };
+//             while let Some((i, p)) = iter.next() {
+//                 assert_eq!(i, j);
+//                 assert_eq!(*p, PosIdx::<false>::from_idx(i, &t));
+//                 j += 1;
+//             }
+//         }
+//     }
+//
+//     #[test]
+//     fn single_piece_test() {
+//         for p in [Knight, Bishop, Rook, Queen, Pawn] {
+//             let mut piece_counts = PieceCounts::default();
+//             piece_counts[White][p as usize] = 1;
+//             _ = force_dtz_table(piece_counts);
+//             for w_k in Square::iter() {
+//                 for b_k in Square::iter() {
+//                     for w_p in Square::iter() {
+//                         let piece = Piece::new(ColoredPieceType::new(White, p), w_p);
+//                         let mut pos = Board::empty();
+//                         pos.place_piece(w_k, WhiteKing);
+//                         let Ok(()) = pos.try_place_piece(Piece::new(BlackKing, b_k)) else { continue };
+//                         let Ok(()) = pos.try_place_piece(piece) else { continue };
+//                         let Ok(pos) = pos.verify(Strict) else { continue };
+//                         if p == Pawn {
+//                             let t = &TableData::<true>::new(piece_counts);
+//                             let p_idx = PosIdx::<PAWNS>::from_chessboard(&pos, t);
+//                             let idx = p_idx.idx(t);
+//                             assert_eq!(p_idx, PosIdx::from_idx(idx, t));
+//                         } else {
+//                             let t = &TableData::<false>::new(piece_counts);
+//                             let p_idx = PosIdx::<NO_PAWNS>::from_chessboard(&pos, t);
+//                             let idx = p_idx.idx(t);
+//                             assert_eq!(p_idx, PosIdx::from_idx(idx, t));
+//                         };
+//                         let dtz = probe_dtz(pos);
+//                         let won = piece_v_king_is_won(p, w_p, w_k, b_k, White);
+//                         assert!(dtz >= 0, "{dtz} {p} {pos}");
+//                         assert_eq!(dtz > 0, won, "{dtz} {p} {pos}");
+//                         assert!(dtz <= 100, "{dtz} {p} {pos}");
+//                     }
+//                 }
+//             }
+//         }
+//     }
+//
+//     const PAWNS: bool = true;
+//     const NO_PAWNS: bool = false;
+//
+//     #[test]
+//     #[ignore]
+//     fn immediate_game_over_test() {
+//         let pieces = [[0, 1, 0, 0, 0], [0, 1, 0, 0, 0]];
+//         let t = &TableData::<NO_PAWNS>::new(pieces);
+//         let table = force_dtz_table(pieces);
+//
+//         let b_king = sq("b3");
+//         for w_king in Square::iter() {
+//             if (KINGS[b_king] | b_king.bb() | sq("b1").bb() | sq("c2").bb()).has(w_king) {
+//                 continue;
+//             }
+//             let mut bbs = BitboardRepr::default();
+//             bbs.place_piece(w_king, White, King);
+//             bbs.place_piece(b_king, Black, King);
+//             bbs.place_piece(sq("b1"), White, Knight);
+//             bbs.place_piece(sq("c2"), Black, Knight);
+//             let p = PosIdx::<NO_PAWNS>::from_bitboards(bbs.pieces, bbs.colors, White, t, false, true);
+//             let i = p.idx(t);
+//             let res = table[i].load(Relaxed);
+//             if w_king == sq("a1") {
+//                 assert_eq!(res, MATED);
+//                 let mut p2 = PosIdx { active: Black, ..p };
+//                 p2.normalize(t, [w_king, p.kings()[Black]], false);
+//                 let i = p2.idx(t);
+//                 assert_eq!(table[i].load(Relaxed), INVALID);
+//             } else {
+//                 assert_eq!(res, DRAW);
+//             }
+//         }
+//         let pieces = [[0, 0, 0, 1, 0], [0, 0, 1, 0, 0]];
+//         let t = &TableData::<NO_PAWNS>::new(pieces);
+//         let table = force_dtz_table(pieces);
+//         let pos = Board::from_fen("5Rbk/8/7K/8/8/8/8/8 b - - 0 1", Strict).unwrap();
+//         let i = PosIdx::<NO_PAWNS>::from_chessboard(&pos, t).idx(t);
+//         let res = table[i].load(Relaxed);
+//         assert_eq!(res, DRAW);
+//     }
+//
+//     #[test]
+//     #[ignore]
+//     fn idx_test() {
+//         let pieces = [[1, 0, 0, 0, 1], [1, 0, 0, 0, 0]];
+//         let t = &TableData::<PAWNS>::new(pieces);
+//         let mut table = vec![];
+//         table.resize_with(t.size(), || AtomicBool::new(false));
+//         for (it1, it2) in PosIdx::<PAWNS>::outer_iter(t) {
+//             it1.for_each(|mut it| {
+//                 while let Some((i, _p)) = it.next() {
+//                     assert!(!table[i].load(Relaxed));
+//                     table[i].store(true, Relaxed);
+//                 }
+//             });
+//             it2.for_each(|mut it| {
+//                 while let Some((i, _p)) = it.next() {
+//                     assert!(!table[i].load(Relaxed));
+//                     table[i].store(true, Relaxed);
+//                 }
+//             })
+//         }
+//     }
+//
+//     #[test]
+//     #[ignore]
+//     fn game_over_in_one_test() {
+//         let pieces = [[0, 1, 0, 0, 0], [0, 1, 0, 0, 0]];
+//         let t = &TableData::<NO_PAWNS>::new(pieces);
+//         let mut pos = Board::from_fen("8/8/8/2N5/8/8/n1K5/k7 w - - 0 1", Strict).unwrap();
+//         let p = PosIdx::<NO_PAWNS>::from_chessboard(&pos, t);
+//         assert_eq!(p.kings(), [sq("b3"), sq("a1")]);
+//         let i = p.idx(t);
+//         let table = force_dtz_table(pieces);
+//         assert_eq!(table[i].load(Relaxed), -MATED - 1, "{i}");
+//         pos.bbs.move_piece(sq("a1"), sq("h1"), Black, King);
+//         let p = PosIdx::<NO_PAWNS>::from_chessboard(&pos, t);
+//         let i = p.idx(t);
+//         assert_eq!(table[i].load(Relaxed), DRAW, "{i}");
+//
+//         let pieces = [[0, 0, 0, 0, 1], [0, 0, 0, 1, 0]];
+//         let t = &TableData::<NO_PAWNS>::new(pieces);
+//         let table = force_dtz_table(pieces);
+//         let test_fen = |fen: &str, outcome: i8| {
+//             let pos = Board::from_fen(fen, Strict).unwrap();
+//             let p = PosIdx::<NO_PAWNS>::from_chessboard(&pos, t);
+//             let i = p.idx(t);
+//             assert_eq!(table[i].load(Relaxed), outcome, "{i} '{fen}'");
+//         };
+//         test_fen("8/8/8/8/8/1K6/2Q5/2k3r1 b - - 0 1", MATED);
+//         test_fen("8/8/8/8/8/2k5/2r5/K1Q5 b - - 0 1", -MATED - 1);
+//         test_fen("6r1/8/8/8/8/5k2/6Q1/6K1 b - - 0 1", -MATED - 1);
+//         test_fen("6Q1/8/8/8/8/5K2/6r1/6k1 w - - 0 1", -MATED - 1);
+//
+//         let mut pos = Board::from_fen("8/8/8/8/8/2K5/k7/2rQ4 w - - 0 1", Strict).unwrap();
+//         let p = PosIdx::<NO_PAWNS>::from_chessboard(&pos, t);
+//         let res = value_after(&p, t, p.idx(t), 1, p.bbs[1].to_square().unwrap(), p.bbs[0].to_square().unwrap(), table);
+//     }
+//
+//     #[test]
+//     #[ignore]
+//     fn queen_vs_rook_test() {
+//         let pieces = [[0, 0, 0, 0, 1], [0, 0, 0, 1, 0]];
+//         let table = force_dtz_table(pieces);
+//         let t = &TableData::<NO_PAWNS>::new(pieces);
+//
+//         let test_fen = |fen: &str, outcome: i8| {
+//             let pos = Board::from_fen(fen, Strict).unwrap();
+//             let p = PosIdx::<NO_PAWNS>::from_chessboard(&pos, t);
+//             let i = p.idx(t);
+//             assert_eq!(table[i].load(Relaxed), outcome, "{i} '{fen}'");
+//         };
+//         test_fen("6Q1/8/8/8/8/5K2/6r1/6k1 w - - 0 1", -MATED - 1);
+//         test_fen("6Q1/8/8/8/8/5K2/r7/7k w - - 0 1", -MATED - 1);
+//         test_fen("6Q1/8/8/8/8/5K2/r7/5k2 w - - 0 1", -MATED - 1);
+//         test_fen("6Q1/8/8/8/8/5K2/r6k/8 w - - 0 1", -MATED - 1);
+//         test_fen("6Q1/8/8/8/8/5K2/r7/6k1 b - - 0 1", MATED + 2);
+//         test_fen("7Q/8/8/8/8/5K2/r7/6k1 w - - 0 1", -MATED - 3);
+//         test_fen("r7/7Q/8/8/8/5K2/8/6k1 w - - 0 1", -MATED - 3);
+//         test_fen("8/8/2k5/1r6/8/8/8/2KQ4 b - - 0 1", MATED + 62);
+//         test_consistency::<NO_PAWNS>(t, table);
+//     }
+//
+//     fn test_consistency<const PAWNS: bool>(t: &TableData<PAWNS>, table: &[Entry]) {
+//         let seed = 42;
+//         let mut rng = SmallRng::seed_from_u64(seed);
+//         let dist = Uniform::new(0, table.len()).unwrap();
+//         for _ in 0..5_000_000 {
+//             let idx = dist.sample(&mut rng);
+//             let res = table[idx].load(Relaxed);
+//             if res == INVALID {
+//                 continue;
+//             }
+//             let p = PosIdx::<PAWNS>::from_idx(idx, t);
+//             let bbs = p.player_bbs(t);
+//             if bbs[White].intersects(bbs[Black]) || p.pawns(t).intersects(Bitboard::backranks()) {
+//                 continue;
+//             }
+//             let mut pos = Board::empty();
+//             for i in 0..t.num_bbs {
+//                 for sq in p.bbs[i] {
+//                     pos.place_piece(sq, t.piece_types[i]);
+//                 }
+//             }
+//             pos.set_active_player(p.active);
+//             let pos = pos.verify(Strict).unwrap();
+//             // assert_eq!(idx_of(&pos), idx, "{idx} {pos}");
+//             assert_eq!(
+//                 probe_dtz(pos),
+//                 res,
+//                 "{res} {idx} {0} {pos} {1:?}",
+//                 idx_of(&pos, t.piece_counts),
+//                 PosIdx::<PAWNS>::from_idx(idx_of(&pos, t.piece_counts), t)
+//             );
+//             let mut max = -120;
+//             let mut best = pos;
+//             for child in pos.children() {
+//                 let mut child_res = probe_dtz(child);
+//                 assert_ne!(child_res, INVALID, "{idx} {0} '{pos}' '{child}'", idx_of(&child, t.piece_counts));
+//                 let pawn_move = child.piece_bb(Pawn) != pos.piece_bb(Pawn);
+//                 let capture = child.occupied_bb().num_ones() != pos.occupied_bb().num_ones();
+//                 if pawn_move || capture {
+//                     child_res = match child_res.cmp(&DRAW) {
+//                         Ordering::Less => MATED,
+//                         Ordering::Equal => DRAW,
+//                         Ordering::Greater => -MATED,
+//                     };
+//                 }
+//                 if -child_res > max {
+//                     max = -child_res;
+//                     best = child;
+//                 }
+//             }
+//             if max == -120 {
+//                 assert!(res == 0 || res == MATED);
+//                 continue;
+//             }
+//             let recomputed = if max == 0 {
+//                 max
+//             } else if max < 0 {
+//                 max + 1
+//             } else {
+//                 max - 1
+//             };
+//             assert_eq!(recomputed, res, "{idx}: {max} {res} [{pos}] -- {best}");
+//         }
+//     }
+//
+//     #[test]
+//     #[ignore]
+//     fn piece_vs_2pieces_test() {
+//         let t = TableData::<false>::new([[0, 0, 0, 1, 0], [0, 1, 1, 0, 0]]);
+//         let table = force_dtz_table(t.piece_counts);
+//         let mut pos = Board::from_fen("8/7r/8/8/8/1KN5/1B6/1k6 b - - 0 1", Strict).unwrap();
+//         let p = PosIdx::<NO_PAWNS>::from_chessboard(&pos, &t);
+//         let i = p.idx(&t);
+//         assert_eq!(table[i].load(Relaxed), MATED, "{i}");
+//         let pos = Board::from_fen("8/7r/8/8/8/1K6/1B2N3/1k6 w - - 0 1", Strict).unwrap();
+//         let p = PosIdx::<NO_PAWNS>::from_chessboard(&pos, &t);
+//         let i = p.idx(&t);
+//         assert_eq!(table[i].load(Relaxed), -MATED - 1, "{i}");
+//         let pos = Board::from_fen("8/8/8/N7/8/r7/B7/k1K5 b - - 0 1", Strict).unwrap();
+//         assert_eq!(table[idx_of(&pos, t.piece_counts)].load(Relaxed), -MATED - 1);
+//
+//         test_consistency::<NO_PAWNS>(&t, table);
+//     }
+//
+//     // todo: Also support querying the compact pawn table
+//     #[test]
+//     fn pawn_vs_king_test() {
+//         let list: PieceCounts = [[1, 0, 0, 0, 0], [0, 0, 0, 0, 0]];
+//         let t = &TableData::<PAWNS>::new(list);
+//         let table = force_dtz_table(list);
+//         let pos = Board::from_fen("8/P7/8/8/8/8/8/K1k5 w - - 0 1", Strict).unwrap();
+//         let p = PosIdx::<PAWNS>::from_chessboard(&pos, t);
+//         println!("{}", p.idx(t));
+//         assert_eq!(table[p.idx(t)].load(Relaxed), -MATED - 1, "{0} {1} {p:?}", p.idx(t), table[p.idx(t)].load(Relaxed));
+//         for (i, e) in table.iter().enumerate().rev() {
+//             let e = e.load(Relaxed);
+//             let p = PosIdx::<PAWNS>::from_idx(i, t);
+//             assert_eq!(t.piece_types[0..t.num_bbs], [WhitePawn, WhiteKing, BlackKing]);
+//             if p.bbs[2] == p.bbs[0] {
+//                 assert!([DRAW, INVALID].contains(&e));
+//                 continue;
+//             }
+//             let pawn = p.bbs[0].to_square().unwrap();
+//             if pawn.rank() == 0 {
+//                 assert_eq!(e, INVALID);
+//             }
+//             if e == INVALID || pawn.is_backrank() {
+//                 continue;
+//             }
+//             let won = piece_v_king_is_won(Pawn, pawn, p.kings()[White], p.kings()[Black], p.active);
+//             assert_eq!(e != 0, won, "{i} {e} {won} {p:?}");
+//             if e != 0 {
+//                 assert_eq!(e > 0, p.active == White, "{i} {e} {won} {p:?}");
+//             }
+//         }
+//     }
+//
+//     #[test]
+//     #[ignore]
+//     fn piece_vs_pawn_test() {
+//         let list: PieceCounts = [[0, 1, 0, 0, 0], [1, 0, 0, 0, 0]];
+//         let t = &TableData::<PAWNS>::new(list);
+//         let table = force_dtz_table(list);
+//         let pos = Board::from_fen("8/8/8/8/8/1N6/p1K5/k7 b - - 0 1", Strict).unwrap();
+//         let res = probe_dtz(pos);
+//         assert_eq!(res, MATED);
+//         let pos = Board::from_fen("8/8/8/8/8/p7/2K5/k1N5 b - - 0 1", Strict).unwrap();
+//         let res = probe_dtz(pos);
+//         assert_eq!(res, MATED + 1, "{0} {1:?}", idx_of(&pos, list), PosIdx::<PAWNS>::from_chessboard(&pos, t));
+//         let pos = Board::from_fen("k4N2/8/3K4/8/8/8/p7/8 w - - 0 1", Strict).unwrap();
+//         let res = probe_dtz(pos);
+//         assert_eq!(res, MATED + 2);
+//         let pos = Board::from_fen("k4N2/8/3K4/8/8/p7/8/8 b - - 0 1", Strict).unwrap();
+//         let res = probe_dtz(pos);
+//         assert_eq!(res, -MATED - 1);
+//         let pos = Board::from_fen("8/1K6/8/8/5k2/8/6p1/3N4 w - - 0 1", Strict).unwrap();
+//         let res = probe_dtz(pos);
+//         assert_eq!(res, MATED + 8);
+//         let pos = Board::from_fen("8/1K6/8/8/5k2/6p1/8/3N4 b - - 0 1", Strict).unwrap();
+//         let res = probe_dtz(pos);
+//         assert_eq!(res, -MATED - 1);
+//         test_consistency::<PAWNS>(t, table);
+//     }
+//
+//     #[test]
+//     #[ignore]
+//     fn pawn_vs_pawn_test() {
+//         let list: PieceCounts = [[1, 0, 0, 0, 0], [1, 0, 0, 0, 0]];
+//         let t = &TableData::<PAWNS>::new(list);
+//         let table = force_dtz_table(list);
+//         let pos = Board::from_fen("8/8/8/8/5p2/8/6P1/5K1k w - - 0 1", Strict).unwrap();
+//         let res = probe_dtz(pos);
+//         assert_eq!(res, DRAW); // would be won without ep
+//         let pos = Board::from_fen("8/8/8/8/5pP1/8/8/5K1k b - - 0 1", Strict).unwrap();
+//         let res = probe_dtz(pos);
+//         assert_eq!(res, MATED + 2); // no ep
+//         let pos = Board::from_fen("8/8/8/8/5pP1/8/8/5K1k b - g3 0 1", Strict).unwrap();
+//         let res = probe_dtz(pos);
+//         assert_eq!(res, -MATED - 1); // ep
+//         let pos = Board::from_fen("8/8/8/8/K6p/8/6P1/7k w - - 0 1", Strict).unwrap();
+//         let res = probe_dtz(pos);
+//         assert_eq!(res, MATED + 2, "{0}", idx_of(&pos, list));
+//         test_consistency::<PAWNS>(t, table);
+//     }
+//
+//     #[test]
+//     #[ignore]
+//     fn two_same_pieces_test() {
+//         let list: PieceCounts = [[0, 0, 2, 0, 0], [0, 0, 0, 0, 0]];
+//         let t = &TableData::<NO_PAWNS>::new(list);
+//         let table = force_dtz_table(list);
+//         test_consistency::<NO_PAWNS>(t, table);
+//         let list: PieceCounts = [[2, 0, 0, 0, 0], [0, 0, 0, 0, 0]];
+//         let t = &TableData::<PAWNS>::new(list);
+//         let table = force_dtz_table(list);
+//         let pos = Board::from_fen("8/1k2P3/8/8/8/8/1P6/1K6 w - - 0 1", Strict).unwrap();
+//         let res = probe_dtz(pos);
+//         assert_eq!(res, -MATED - 1, "{0}", idx_of(&pos, t.piece_counts));
+//         test_consistency::<PAWNS>(t, table);
+//     }
+//
+//     #[test]
+//     #[ignore]
+//     fn two_knights_vs_pawn_test() {
+//         let list = [[0, 2, 0, 0, 0], [1, 0, 0, 0, 0]];
+//         let t = &TableData::<PAWNS>::new(list);
+//         let table = force_dtz_table(list);
+//         let pos = Board::from_fen("8/8/8/8/2N5/4N3/2K4p/k7 w - - 0 1", Strict).unwrap();
+//         let i = PosIdx::<PAWNS>::from_chessboard(&pos, t).idx(t);
+//         assert_eq!(table[i].load(Relaxed), DRAW);
+//         let pos = Board::from_fen("8/8/8/8/2p1K3/2k5/5NN1/8 b - - 0 1", Strict).unwrap();
+//         let p = PosIdx::<PAWNS>::from_chessboard(&pos, t);
+//         let i = p.idx(t);
+//         let res = table[i].load(Relaxed);
+//         assert_eq!(res, DRAW);
+//         for p in pos.children() {
+//             let i = PosIdx::<PAWNS>::from_chessboard(&p, t).idx(t);
+//             assert_eq!(table[i].load(Relaxed), DRAW, "{i} {p:?}");
+//         }
+//         test_consistency::<PAWNS>(t, table);
+//     }
+//
+//     #[test]
+//     #[ignore]
+//     fn long_mate_test() {
+//         let list = [[0, 0, 0, 0, 1], [0, 0, 2, 0, 0]];
+//         let table = force_dtz_table(list);
+//         let t = &TableData::<NO_PAWNS>::new(list);
+//         let test_fen = |fen: &str, outcome: i8| {
+//             let pos = Board::from_fen(fen, Strict).unwrap();
+//             let p = PosIdx::<NO_PAWNS>::from_chessboard(&pos, t);
+//             let i = p.idx(t);
+//             assert_eq!(table[i].load(Relaxed), outcome, "{i} {p:?} '{fen}'");
+//         };
+//         // DTZ 142, the longest DTZ in this table, which is too large
+//         test_fen("8/1q6/8/8/2B5/8/3K4/k5B1 w - - 0 1", DRAW);
+//         test_fen("8/8/8/5q2/5B2/5K2/2k1B3/8 b - - 0 1", DRAW); // DTZ 101, also too large
+//         test_fen("8/8/8/5q2/5B2/2k2K2/4B3/8 w - - 0 1", -1); // DTZ 100
+//         test_fen("8/8/8/5q2/5B2/2k3K1/4B3/8 b - - 0 1", 2); // DTZ 99
+//         test_fen("8/8/8/5q2/3k1B2/6K1/4B3/8 w - - 0 1", -3); // DTZ 98
+//         test_fen("8/8/8/5q2/3k1B2/5BK1/8/8 b - - 0 1", 4); // DTZ 97
+//         test_consistency::<NO_PAWNS>(t, table);
+//     }
+// }

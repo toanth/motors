@@ -76,7 +76,9 @@ pub enum Parallelize {
 
 #[derive(Debug, Default)]
 pub struct PerftTTEntry {
-    hash: AtomicU64,
+    // The other field is xor-ed to the hash to detect torn reads. Unlike for negamax TTs, we actually care enough to void these here.
+    // This means that baring hash collisions, torn reads always get rejected.
+    hash_xor_data: AtomicU64,
     // The lower 8 bits encode the depth, the uper 56 bits encode the nodes.
     // If either depth or nodes don't fit, we don't store to the TT.
     nodes_and_depth: AtomicU64,
@@ -120,7 +122,8 @@ impl<'a> PerftTTRef<'a> {
         let hash = hash ^ DEPTH_KEYS[depth];
         let idx = self.index_of(hash);
         let entry = &self.array[idx];
-        let (entry_hash, nodes_and_depth) = (entry.hash.load(Relaxed), entry.nodes_and_depth.load(Relaxed));
+        let (entry_hash, nodes_and_depth) = (entry.hash_xor_data.load(Relaxed), entry.nodes_and_depth.load(Relaxed));
+        let entry_hash = entry_hash ^ nodes_and_depth;
         let entry_depth = nodes_and_depth & 0xff;
         let entry_nodes = nodes_and_depth >> 8;
         if entry_hash == hash.0 && entry_depth as usize == depth {
@@ -135,9 +138,9 @@ impl<'a> PerftTTRef<'a> {
         }
         let hash = hash ^ DEPTH_KEYS[depth];
         let idx = self.index_of(hash);
-        let nodes_and_hash = (nodes << 8) | depth as u64;
-        self.array[idx].hash.store(hash.0, Relaxed);
-        self.array[idx].nodes_and_depth.store(nodes_and_hash, Relaxed);
+        let nodes_and_depth = (nodes << 8) | depth as u64;
+        self.array[idx].hash_xor_data.store(hash.0 ^ nodes_and_depth, Relaxed);
+        self.array[idx].nodes_and_depth.store(nodes_and_depth, Relaxed);
     }
 }
 

@@ -2220,6 +2220,8 @@ mod tests {
     use gears::rand::prelude::SliceRandom;
     use gears::rand::rngs::SmallRng;
     use gears::rand::{RngExt, SeedableRng};
+    use gears::search::NodeType;
+    use std::thread::yield_now;
 
     fn create_chess_game() -> Box<EngineUGI<chess::Board>> {
         let outputs = list_chess_outputs();
@@ -2305,6 +2307,30 @@ mod tests {
         sleep(Duration::from_millis(500));
         ugi.quit().unwrap(); // can't use handle_input("quit") because that gets ignored in fuzzing mode
         assert_eq!(ugi.state.status, Quit(QuitProgram));
+    }
+
+    #[test]
+    #[cfg(feature = "chess")]
+    fn chess_multithreading_test() {
+        let mut ugi = create_chess_game();
+        ugi.handle_input("p name lasker-reichhelm").unwrap();
+        ugi.handle_input("so threads 4").unwrap();
+        ugi.handle_input("go nodes 12345").unwrap();
+
+        let res = loop {
+            if let Some(r) = ugi.output().previous_search_res {
+                break r;
+            }
+            yield_now();
+        };
+        assert_eq!(res.pos, chess::Board::from_name("lasker-reichhelm").unwrap());
+        assert!(res.score > Score(0));
+        assert_eq!(res.chosen_move, chess::moves::Move::from_text("Kb1", &res.pos).unwrap());
+        let info = ugi.output().previous_exact_info().unwrap();
+        assert_eq!(info.pv_num, 0);
+        assert_eq!(info.score, res.score);
+        assert_eq!(info.num_threads, 4);
+        assert_eq!(info.bound, Some(NodeType::Exact));
     }
 
     #[test]
