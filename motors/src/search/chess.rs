@@ -1,12 +1,12 @@
 use crate::search::chess::histories::{
-    CaptHist, ContHist, CorrHist, HIST_DIVISOR, HistoryHeuristic, write_single_hist_table,
+    write_single_hist_table, CaptHist, ContHist, CorrHist, HistoryHeuristic, HIST_DIVISOR,
 };
 use crate::search::{CustomInfo, MoveScore, Pv, SearchStackEntry, SearchState};
 use gears::arrayvec::ArrayVec;
-use gears::games::PosHash;
 use gears::games::chess::moves::Move;
 use gears::games::chess::squares::NUM_SQUARES;
 use gears::games::chess::{Board, Color, MAX_CHESS_MOVES_IN_POS};
+use gears::games::PosHash;
 use gears::general::board::BoardTrait;
 use gears::score::Score;
 use gears::search::DepthPly;
@@ -173,14 +173,13 @@ mod tests {
     use crate::search::tt::TT;
     use crate::search::{AbstractSearchState, Engine, SearchParams};
     use crate::{list_chess_evals, list_chess_searchers};
-    use gears::PlayerResult::{Draw, Win};
-    use gears::games::chess::Board;
     use gears::games::chess::moves::{Move, MoveFlags};
     use gears::games::chess::pieces::ColoredPieceType::BlackKnight;
     use gears::games::chess::pieces::Piece;
     use gears::games::chess::pieces::PieceType::{Bishop, Knight};
     use gears::games::chess::squares::Square;
-    use gears::games::{BoardHistDyn, ZobristHistory, n_fold_repetition};
+    use gears::games::chess::Board;
+    use gears::games::{n_fold_repetition, BoardHistDyn, ZobristHistory};
     use gears::general::board::Strictness::{Relaxed, Strict};
     use gears::general::board::{BoardHelpers, BoardTrait, UnverifiedBoardTrait};
     use gears::general::common::NamedEntity;
@@ -188,13 +187,14 @@ mod tests {
     use gears::output::pgn::parse_pgn;
     use gears::parse_ugi_pos_and_hist;
     use gears::rand::prelude::SmallRng;
-    use gears::score::{NO_SCORE_YET, SCORE_LOST, SCORE_WON, Score, game_result_to_score};
+    use gears::score::{game_result_to_score, Score, NO_SCORE_YET, SCORE_LOST, SCORE_WON};
     use gears::search::{DepthPly, NodesLimit, SearchLimit};
     use gears::ugi::load_ugi_pos_simple;
+    use gears::PlayerResult::{Draw, Win};
     use std::str::FromStr;
-    use std::sync::Arc;
-    use std::sync::atomic::Ordering::SeqCst;
     use std::sync::atomic::fence;
+    use std::sync::atomic::Ordering::SeqCst;
+    use std::sync::Arc;
     use std::thread::{sleep, spawn};
     use std::time::Duration;
 
@@ -566,9 +566,9 @@ mod tests {
                 let mut engine = searcher.build(eval.as_ref());
                 println!("searching with {}", engine.engine_info().long_name());
                 let eval = engine.static_eval(&pos, 0);
-                assert!(eval > Score(1000), "{eval}");
+                assert!(!eval.is_won_or_lost(), "{eval}");
                 let res = engine.search_with_tt(pos, SearchLimit::nodes_(5000), tt.clone());
-                assert!(res.score >= Score(1000), "{}", res.score);
+                assert!(!res.score.is_won_or_lost(), "{}", res.score);
                 assert!(pos.is_move_legal(res.chosen_move));
 
                 let fen = "qqqqqqqq/qqqqqqqq/qqqqqqqq/qqqqqqqq/qqqqrbnq/qqqqbKQn/qqqqrb1b/qqqqqrbk b - - 0 1";

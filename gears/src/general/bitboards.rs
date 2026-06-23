@@ -17,8 +17,8 @@ use std::str::FromStr;
 use strum_macros::EnumIter;
 
 use crate::games::{DimT, KnownSize, SizeTrait};
-use crate::general::attacks::{U64AndRev, U128AndRev, WithRev};
-use crate::general::bitboards::chessboard::{Bitboard, RAYS_EXCLUSIVE, RAYS_INCLUSIVE};
+use crate::general::attacks::{U128AndRev, U64AndRev, WithRev};
+use crate::general::bitboards::chessboard::{Bitboard, INFINITE_RAYS, RAYS_EXCLUSIVE, RAYS_INCLUSIVE};
 use crate::general::squares::{RectangularCoordinates, RectangularSize, SmallGridSize, SmallGridSquare};
 
 /// Remove all `1` bits in `bb` strictly above the given `idx`, where `bb` is the type, like `u64`,
@@ -884,6 +884,11 @@ impl SmallGridBitboard<8, 8> {
         self ^= t ^ (t >> 7);
         self
     }
+
+    #[inline(always)]
+    pub fn ray_infinite(a: SmallGridSquare<8, 8, 8>, b: SmallGridSquare<8, 8, 8>) -> Self {
+        Self::new(INFINITE_RAYS[a.bb_idx()][b.bb_idx()])
+    }
 }
 
 // Deriving Eq and Partial Eq means that irrelevant bits are also getting compared.
@@ -1327,11 +1332,11 @@ pub mod chessboard {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::games::{Height, Width, mnk};
-    use crate::general::bitboards::chessboard::{ATAXX_LEAPERS, Bitboard, KINGS};
+    use crate::games::{mnk, Height, Width};
+    use crate::general::bitboards::chessboard::{Bitboard, ATAXX_LEAPERS, KINGS};
     use crate::general::squares::{GridCoordinates, GridSize};
     use rand::prelude::SmallRng;
-    use rand::{RngExt, SeedableRng, random};
+    use rand::{random, RngExt, SeedableRng};
 
     #[test]
     fn precomputed_test() {

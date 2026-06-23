@@ -362,8 +362,6 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
             }
         }
         let mut all_attacks = pawn_attacks;
-        // let pawn_king_attacks = (pawn_attacks & king_zone).num_ones();
-        // score += Tuned::king_zone_attamasterck(Pawn) * pawn_king_attacks;
         for piece in PieceType::pieces() {
             let protected_by_pawns = pawn_attacks & pos.col_piece_bb(us, piece);
             score += Tuned::pawn_protection(piece) * protected_by_pawns.num_ones();
@@ -373,11 +371,34 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
             score += Tuned::pawn_advance_threat(piece) * threatened_by_pawn_advance.num_ones();
         }
         let mut double_attacks = Bitboard::default();
+        // TODO: Maybe it makes sense to ensure the compiler unrolls this loop
         for piece in PieceType::non_pawn_pieces() {
-            for square in pos.col_piece_bb(us, piece) {
-                // TODO: Maybe it makes sense to ensure the compiler unrolls this loop
-                let attacks = Board::threatening_attacks(square, piece, us, &generator);
-                double_attacks |= attacks & all_attacks; // TODO: Doesn't consider batteries or two pawns attacking a square
+            let piece_bb = pos.col_piece_bb(us, piece);
+            for square in piece_bb {
+                let attacks = match piece {
+                    Knight => Board::knight_attacks_from(square),
+                    Bishop => {
+                        let blockers = pos.occupied_bb() ^ piece_bb ^ pos.col_piece_bb(us, Queen);
+                        ChessSliderGenerator::new(blockers).bishop_attacks(square)
+                    }
+                    Rook => {
+                        let blockers = pos.occupied_bb() ^ piece_bb ^ pos.col_piece_bb(us, Queen);
+                        ChessSliderGenerator::new(blockers).rook_attacks(square)
+                    }
+                    Queen => {
+                        let bishop_rays = Bitboard::diag_for_sq(square, ChessboardSize::default())
+                            | Bitboard::anti_diag_for_sq(square, ChessboardSize::default());
+                        let rook_rays = Bitboard::file(square.file()) | Bitboard::rank(square.rank());
+                        let blockers = pos.occupied_bb()
+                            ^ piece_bb
+                            ^ (pos.col_piece_bb(us, Bishop) & bishop_rays)
+                            ^ (pos.col_piece_bb(us, Rook) & rook_rays);
+                        ChessSliderGenerator::new(blockers).queen_attacks(square)
+                    }
+                    King => Board::normal_king_attacks_from(square),
+                    _ => unreachable!(),
+                };
+                double_attacks |= attacks & all_attacks; // TODO: Doesn't consider two pawns attacking a square
                 all_attacks |= attacks;
                 let attacks_no_pawn_recapture = attacks & !attacked_by_pawn;
                 let attacks_no_recapture = attacks & !their_attacks;

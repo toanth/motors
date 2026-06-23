@@ -673,7 +673,7 @@ impl BoardTrait for Board {
         if self.checkers.has_any() {
             return None;
         }
-        // nullmoves count as noisy. This also prevents detecting repetition to before the nullmove
+        // nullmoves count as noisy. This also prevents detecting repetition to before the nullmove. TODO: Don't make them noisy
         self.ply_100_ctr = 0;
         if let Some(sq) = self.ep_square {
             self.hashes.total ^= ZOBRIST_KEYS.ep_file_keys[sq.file() as usize];
@@ -885,6 +885,10 @@ impl BitboardBoard for Board {
 }
 
 impl Board {
+    pub fn pinned(&self) -> Bitboard {
+        self.pinned
+    }
+
     fn remove_piece_impl(&mut self, square: Square, piece: PieceType, color: Color) {
         debug_assert_eq!(self.colored_piece_on(square), Piece::new(ColoredPieceType::new(color, piece), square));
         let bb = square.bb();
