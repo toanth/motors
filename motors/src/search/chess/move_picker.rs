@@ -121,7 +121,7 @@ fn defer_playing_move(pos: &Board, mov: Move, hist_score: MoveScore) -> bool {
     !pos.see_at_least(mov, SeeScore(threshold))
 }
 
-const BAD_SEE_OFFSET: MoveScore = MoveScore(HIST_DIVISOR * -30);
+pub(super) const BAD_SEE_OFFSET: MoveScore = MoveScore(HIST_DIVISOR * -30);
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub enum MovePickerStage {
@@ -199,7 +199,7 @@ impl<'a> MovePicker<'a> {
                     continue;
                 }
                 GoodCaptures => {
-                    if let Some(res) = self.next_good_tactical() {
+                    if let Some(res) = self.next_good_tactical(state) {
                         return Some(res);
                     }
                     if self.tactical_only {
@@ -253,12 +253,13 @@ impl<'a> MovePicker<'a> {
         }
     }
 
-    fn next_good_tactical(&mut self) -> Option<ScoredMove> {
+    fn next_good_tactical(&mut self, state: &CapsState) -> Option<ScoredMove> {
         loop {
             let idx = self.list[self.ignored_prefix..].iter().position_max()? + self.ignored_prefix;
             debug_assert!(self.list[idx].mov().is_tactical(self.pos));
-            let score = self.list[idx].score();
-            if defer_playing_move(self.pos, self.list[idx].mov(), score) {
+            let m = self.list[idx].mov();
+            let hist_score = state.capt_hist.get(m, self.pos);
+            if defer_playing_move(self.pos, self.list[idx].mov(), hist_score) {
                 self.list.swap(self.ignored_prefix, idx);
                 self.ignored_prefix += 1;
                 continue;

@@ -94,7 +94,6 @@ impl<B: BoardTrait, R: SeedRng + Clone + Send + 'static> Engine<B> for RandomMov
     }
 
     fn do_search(&mut self) -> SearchResult<B> {
-        self.state.statistics.next_id_iteration();
         let pos = &self.state.params.pos;
 
         let moves = pos.legal_moves_slow().into_iter().filter(|m| self.state.excluded_moves.contains(m)).collect_vec();

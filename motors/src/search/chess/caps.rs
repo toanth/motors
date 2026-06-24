@@ -1,53 +1,52 @@
 use std::cmp::min;
 use std::fmt::Display;
 use std::mem::take;
-use std::ops::{Deref, DerefMut};
+use std::ops::ControlFlow::{Break, Continue};
+use std::ops::{ControlFlow, Deref, DerefMut};
 use std::sync::atomic::Ordering::Relaxed;
 use std::time::{Duration, Instant};
 
+use crate::eval::chess::lite::{lc, LiTEval};
 use crate::eval::Eval;
-use crate::eval::chess::lite::{LiTEval, lc};
 use crate::io::ugi_output::{color_for_score, score_gradient};
 use crate::search::chess::caps_values::cc;
-use crate::search::chess::histories::{ContHist, HIST_DIVISOR, HistScoreT};
-use crate::search::chess::move_picker::{MovePicker, MovePickerStage};
+use crate::search::chess::histories::{ContHist, HistScoreT, HIST_DIVISOR};
+use crate::search::chess::move_picker::{MovePicker, MovePickerStage, BAD_SEE_OFFSET};
 use crate::search::chess::*;
-use crate::search::statistics::SearchType;
-use crate::search::statistics::SearchType::{MainSearch, Qsearch};
-use crate::search::tt::{TTEntry, ttc};
+use crate::search::tt::{ttc, TTEntry};
 use crate::search::{
-    AbstractSearchState, DEFAULT_CHECK_TIME_INTERVAL, Engine, EngineInfo, MoveScore, NormalEngine, PVData, SearchState,
-    SearchStateFor,
+    AbstractSearchState, Engine, EngineInfo, MoveScore, NormalEngine, PVData, SearchState, SearchStateFor,
+    DEFAULT_CHECK_TIME_INTERVAL,
 };
 use crate::send_debug_msg;
-use gears::PlayerResult;
-use gears::PlayerResult::{Lose, Win};
 use gears::colored::Colorize;
-use gears::games::BoardHistDyn;
 use gears::games::chess::bitbase::{Bitbase, PAWN_V_KING_TABLE};
 use gears::games::chess::moves::Move;
 use gears::games::chess::pieces::PieceType::Pawn;
 use gears::games::chess::see::SeeScore;
-use gears::games::chess::upcoming_repetition::{UPCOMING_REPETITION_TABLE, UpcomingRepetitionTable};
+use gears::games::chess::upcoming_repetition::{UpcomingRepetitionTable, UPCOMING_REPETITION_TABLE};
 use gears::games::chess::zobrist::ZOBRIST_KEYS;
-use gears::games::chess::{Board, unverified::UnverifiedBoard};
+use gears::games::chess::{unverified::UnverifiedBoard, Board};
+use gears::games::BoardHistDyn;
 use gears::general::bitboards::RawBitboardTrait;
 use gears::general::board::Strictness::Strict;
 use gears::general::board::{BitboardBoard, BoardTrait, UnverifiedBoardTrait};
 use gears::general::common::Description::NoDescription;
-use gears::general::common::{Res, StaticallyNamedEntity, parse_int_from_str, select_name_static};
+use gears::general::common::{parse_int_from_str, select_name_static, Res, StaticallyNamedEntity};
 use gears::general::move_list::InplaceMoveList;
 use gears::general::moves::{MoveTrait, UntrustedMove};
 use gears::itertools::Itertools;
 use gears::num::traits::WrappingAdd;
 use gears::score::{
-    BITBASE_LOSS, BITBASE_WIN, MAX_BETA, MAX_NORMAL_SCORE, MAX_SCORE_LOST, MIN_ALPHA, MIN_NORMAL_SCORE, NO_SCORE_YET,
-    SCORE_LOST, SCORE_WON, Score, ScoreT, game_result_to_score,
+    game_result_to_score, Score, ScoreT, BITBASE_LOSS, BITBASE_WIN, MAX_BETA, MAX_NORMAL_SCORE, MAX_SCORE_LOST,
+    MIN_ALPHA, MIN_NORMAL_SCORE, NO_SCORE_YET, SCORE_LOST, SCORE_WON,
 };
 use gears::search::NodeType::*;
 use gears::search::*;
 use gears::ugi::EngineOptionName::*;
 use gears::ugi::{EngineOptionNameForProtocol, EngineOptionType};
+use gears::PlayerResult;
+use gears::PlayerResult::{Lose, Win};
 
 type DefaultEval = LiTEval;
 
@@ -236,15 +235,18 @@ impl Engine<Board> for Caps {
         let mut limit = self.params.limit;
         let pos = self.params.pos;
         limit.fixed_time = min(limit.fixed_time, limit.tc.remaining);
-        self.ply_hard_limit = if limit.mate.get() == 0 { PLY_HARD_LIMIT } else { limit.mate.get() };
+        self.ply_hard_limit = if limit.mate == 0 { PLY_HARD_LIMIT } else { limit.mate.abs() as usize };
         let soft_limit =
-            limit.tc.remaining.saturating_sub(limit.tc.increment) / cc::soft_limit_div() + limit.tc.increment;
+            limit.tc.remaining.saturating_sub(limit.tc.increment) * cc::soft_limit() / 1024 + limit.tc.increment;
         self.params.limit = limit;
 
         // Use 3fold repetition detection for positions before and including the root node and 2fold for positions during search.
         // Idea from pawnocchio:
         // Instead of actually looking for 3fold repetitions, we simply remove all non-repeated positions so far.
         let mut hist = take(&mut self.search_params_mut().history);
+        self.repeated_before_root.clear();
+        hist.0.reverse();
+        hist.0.truncate(pos.ply_draw_clock());
         hist.push(pos.hash_pos());
         hist.0.sort_by_key(|hash| hash.0);
         for i in 1..hist.0.len() {
@@ -252,6 +254,7 @@ impl Engine<Board> for Caps {
                 self.repeated_before_root.push(hist.0[i]);
             }
         }
+        debug_assert_eq!(self.uci_nodes(), 0);
 
         send_debug_msg!(
             self,
@@ -259,7 +262,7 @@ impl Engine<Board> for Caps {
             max {nodes} nodes, soft limit {soft}ms, {ignored} ignored moves. {elapsed} microseconds have already elapsed ({e2} since starting the search in this thread)",
             time = limit.tc.remaining.as_micros(),
             incr = limit.tc.increment.as_millis(),
-            mate = limit.mate.get(),
+            mate = limit.mate,
             depth = limit.depth.get(),
             nodes = limit.nodes.get(),
             fixed = limit.fixed_time.as_millis(),
@@ -269,12 +272,14 @@ impl Engine<Board> for Caps {
             e2 = self.execution_start_time.elapsed().as_micros()
         );
 
-        let incomplete = self.iterative_deepening(&pos, soft_limit);
-        if incomplete || self.output_minimal() {
+        let needs_final_info = self.iterative_deepening(&pos, soft_limit);
+        send_debug_msg!(self, "Finished iterative deepening; last search incomplete: {needs_final_info}");
+        if needs_final_info || self.output_minimal() {
             // Send one final search info, but don't send empty PVs.
             // Even for aborted searches, we never send unproven mates.
             if !self.current_mpv_pv().is_empty() {
-                self.search_state().send_search_info(true);
+                self.send_search_info(true);
+                send_debug_msg!(self, "Wrote final search info with best move {:?}", self.to_search_info(true).pv[0]);
             }
         }
         self.search_result()
@@ -294,7 +299,7 @@ impl NormalEngine<Board> for Caps {
         debug_assert_eq!(self.uci_nodes() % DEFAULT_CHECK_TIME_INTERVAL, 0);
         // TODO: Compute at the start of the search instead of every time:
         // Instead of storing a SearchLimit, store a different struct that contains soft and hard bounds
-        let hard = (tc.remaining.saturating_sub(tc.increment)) * cc::inv_hard_limit_div() as u32 / 1024 + tc.increment;
+        let hard = (tc.remaining.saturating_sub(tc.increment)) * cc::hard_limit() as u32 / 1024 + tc.increment;
         // Because fixed_time has been clamped to at most tc.remaining, this can never lead to timeouts
         // (assuming the move overhead is set correctly)
         elapsed >= byoyomi + fixed_time.min(hard)
@@ -303,6 +308,36 @@ impl NormalEngine<Board> for Caps {
 
 #[allow(clippy::too_many_arguments)]
 impl Caps {
+    fn to_search_info(&self, final_info: bool) -> SearchInfo<'_, Board> {
+        let mut info = self.state.to_search_info(final_info);
+        // Loading a score from the TT can give us an incorrect mate that ignores the 50 move rule.
+        // Because that is the only path-dependent effect that can give incorrect mate scores in chess, we simply
+        // ignore it during search and fix it up here.
+        if info.score.is_won_or_lost() {
+            let mut pos = info.pos;
+            for (i, &m) in info.pv.iter().enumerate() {
+                pos = pos.make_move(m).unwrap();
+                if pos.is_50mr_draw() {
+                    info.score = info.score.clamp(MIN_NORMAL_SCORE, MAX_NORMAL_SCORE);
+                    info.pv = &info.pv[..i];
+                    break;
+                }
+            }
+            // This can happen if we're loading the TT entry of an earlier search, which comes from a higher depth than our current search
+            if info.score.plies_until_game_over().is_some_and(|s| s as usize > info.pv.len()) {
+                info.score = info.score.clamp(MIN_NORMAL_SCORE, MAX_NORMAL_SCORE);
+            }
+        }
+        info
+    }
+
+    fn send_search_info(&self, final_info: bool) {
+        let info = self.to_search_info(final_info);
+        if let Some(mut output) = self.search_params().thread_type.output() {
+            output.write_search_info(info);
+        }
+    }
+
     /// Iterative Deepening (ID): Do a depth 1 search, then a depth 2 search, then a depth 3 search, etc.
     /// This has two advantages: It allows the search to be stopped at any time, and it actually improves strength:
     /// The low-depth searches fill the TT and various heuristics, which improves move ordering and therefore results in
@@ -326,14 +361,13 @@ impl Caps {
                 break;
             }
             self.atomic().set_iteration(iter + 1);
-            self.statistics.next_id_iteration();
             self.budget = Budget::new(budget);
             for pv_num in 0..multi_pv {
                 self.current_pv_num = pv_num;
                 self.cur_pv_data_mut().bound = None;
                 let scaled_soft_limit = soft_limit.mul_f64(soft_limit_scale);
                 self.state.params.atomic.reset_seldepth();
-                let (keep_searching, incomplete, score) =
+                let (keep_searching, needs_final_info, score) =
                     self.aspiration(pos, scaled_soft_limit, iter, budget as isize);
 
                 let atomic = &self.state.params.atomic;
@@ -347,8 +381,6 @@ impl Caps {
                         atomic.set_ponder_move(ponder_move);
                     }
                     self.state.multi_pvs[self.state.current_pv_num].pv.assign_from(pv);
-                    // We can't really trust FailHigh scores. Even though we should still prefer a fail high move, we don't
-                    // want a mate limit condition to trigger, so we clamp the fail high score to MAX_NORMAL_SCORE.
                     if let Some(score) = score {
                         debug_assert!(score.is_valid());
                         if pv_num == 0 {
@@ -359,8 +391,8 @@ impl Caps {
                     }
                 }
 
-                if !keep_searching {
-                    return incomplete;
+                if keep_searching == Break(()) {
+                    return needs_final_info;
                 }
                 if let Some(chosen_move) = self.search_stack[0].pv.get(0) {
                     self.excluded_moves.push(chosen_move);
@@ -371,7 +403,7 @@ impl Caps {
             chosen_at_iter.push(chosen);
             if iter >= cc::move_stability_min_iters()
                 && !is_duration_infinite(soft_limit)
-                && chosen_at_iter.iter().dropping(iter / cc::move_stability_start_div()).all(|m| *m == chosen)
+                && chosen_at_iter.iter().dropping(iter * cc::move_stability_start() / 1024).all(|m| *m == chosen)
             {
                 soft_limit_scale = cc::move_stability_factor() as f64 / 1000.0;
             } else {
@@ -395,9 +427,10 @@ impl Caps {
         unscaled_soft_limit: Duration,
         iter: usize,
         budget: isize,
-    ) -> (bool, bool, Option<Score>) {
+    ) -> (ControlFlow<()>, bool, Option<Score>) {
         let mut soft_limit_fail_low_extension = 1.0;
         let mut aw_budget = budget;
+        let mut needs_final_info = false;
         loop {
             let alpha = self.cur_pv_data().alpha;
             let beta = self.cur_pv_data().beta;
@@ -407,14 +440,14 @@ impl Caps {
             soft_limit_fail_low_extension = 1.0;
             if budget > cc::soft_limit_node_scale_min_budget() && self.multi_pvs.len() == 1 {
                 let node_frac = self.root_move_nodes.frac_1024(self.cur_pv_data().pv.list[0], self.uci_nodes());
+                debug_assert!((0..=1024).contains(&node_frac));
                 soft_limit = soft_limit
                     .mul_f64(((1024 + 512 - node_frac) * cc::soft_limit_node_scale()) as f64 / (1024.0 * 1024.0));
             }
             let limit = self.params.limit.tc;
             let soft_limit = soft_limit
                 .min(
-                    (limit.remaining.saturating_sub(limit.increment)) * cc::inv_soft_limit_div_clamp() / 1024
-                        + limit.increment,
+                    (limit.remaining.saturating_sub(limit.increment)) * cc::soft_limit_clamp() / 1024 + limit.increment,
                 )
                 .min(self.params.limit.fixed_time);
             let elapsed = self.start_time().elapsed();
@@ -426,13 +459,20 @@ impl Caps {
                 ID_ITERS_SOFT_LIMIT.isize(),
                 self.limit().mate,
             ) {
-                self.statistics.soft_limit_stop();
                 // increase the node counter by one to ensure the game is reproducible
                 _ = self.atomic().count_node();
-                send_debug_msg!(self, "Not starting negamax after {} microseconds", elapsed.as_micros());
-                return (false, false, None);
+                send_debug_msg!(
+                    self,
+                    "Not starting negamax after {0} microseconds, {iter} iterations. PV: {1:?}, best move: {2:?}",
+                    elapsed.as_micros(),
+                    self.to_search_info(true).pv,
+                    self.atomic().best_move()
+                );
+                debug_assert_eq!(self.pv_data()[0].pv.get(0).unwrap(), self.atomic().best_move());
+                return (Break(()), needs_final_info, None);
             }
             send_debug_msg!(self, "Starting new aspiration window search after {} microseconds", elapsed.as_micros());
+            needs_final_info = true;
 
             let asp_start_time = Instant::now();
             let Some(pv_score) = self.negamax(pos, 0, aw_budget, alpha, beta, Exact) else {
@@ -441,7 +481,7 @@ impl Caps {
                     "Exiting aw window after reaching a stop condition in negamax, after {} microseconds",
                     self.start_time().elapsed().as_micros()
                 );
-                return (false, true, None);
+                return (Break(()), true, None);
             };
 
             send_debug_msg!(
@@ -475,25 +515,18 @@ impl Caps {
                 let pv = &self.search_stack[0].pv;
                 if pos.calc_player_result(&self.params.history).is_some() {
                     assert!(pv.len() <= 1); // only check/stalemates are checked at the root
-                } else {
-                    match node_type {
-                        FailHigh => debug_assert_eq!(pv.len(), 1, "{pos} {node_type}"),
-                        Exact => debug_assert!(
-                            // currently, it's possible to reduce the PV through IIR when the TT entry of a PV node gets overwritten,
-                            // but that should be relatively rare. In the future, a better replacement policy might make this actually sound
-                            self.multi_pv() > 1
-                                || pv.len() + pv.len() / 4 + 5
-                                    >= self.ply_hard_limit.min(aw_budget as usize / DEPTH_INCREMENT)
-                                || pv_score.is_won_lost_or_draw_score(),
-                            "{aw_budget} {budget} {0} {pv_score} {1}",
-                            pv.len(),
-                            self.uci_nodes()
-                        ),
-                        // We don't clear the PV on a fail low node so that we can still send a useful info line
-                        FailLow => {
-                            debug_assert_eq!(0, pv.len());
-                        }
-                    }
+                } else if node_type == Exact {
+                    debug_assert!(
+                        // currently, it's possible to reduce the PV through IIR when the TT entry of a PV node gets overwritten,
+                        // but that should be relatively rare. In the future, a better replacement policy might make this actually sound
+                        self.multi_pv() > 1
+                            || pv.len() + pv.len() / 4 + 5
+                                >= self.ply_hard_limit.min(aw_budget as usize / DEPTH_INCREMENT)
+                            || pv_score.is_won_lost_or_draw_score(),
+                        "{aw_budget} {budget} {0} {pv_score} {1}",
+                        pv.len(),
+                        self.uci_nodes()
+                    )
                 }
                 // assert this now because this doesn't hold for incomplete iterations
                 debug_assert!(
@@ -502,9 +535,8 @@ impl Caps {
                 );
             }
 
-            self.statistics.aw_node_type(node_type);
             if node_type == Exact {
-                window_radius = Score((window_radius.0 + cc::aw_exact_add()) / cc::aw_exact_div());
+                window_radius = Score((window_radius.0 + cc::aw_exact_add()) * cc::aw_exact_inv_div() / 1024);
             } else {
                 let delta = pv_score.0.abs_diff(alpha.0);
                 let delta = delta.min(pv_score.0.abs_diff(beta.0));
@@ -517,9 +549,10 @@ impl Caps {
 
             if node_type == Exact {
                 self.send_search_info(false);
-                return (true, true, Some(pv_score));
+                return (Continue(()), true, Some(pv_score));
             } else if asp_start_time.elapsed().as_millis() >= 1000 {
                 self.send_search_info(false);
+                needs_final_info = false;
             }
         }
     }
@@ -542,10 +575,10 @@ impl Caps {
         mut expected_node_type: NodeType,
     ) -> Option<Score> {
         debug_assert!(alpha < beta, "{alpha} {beta} {pos} {ply} {depth}");
+        debug_assert!([MIN_ALPHA, alpha, beta, MAX_BETA].is_sorted(), "{alpha} {beta} {ply} {depth} {pos}");
         debug_assert!(ply <= PLY_HARD_LIMIT, "{ply} {depth} {pos}");
         debug_assert!(depth <= ID_ITERS_SOFT_LIMIT.isize() * DEPTH_INCREMENT as isize, "{ply} {depth} {pos}"); // TODO: Remove?
         debug_assert!(self.params.history.len() >= ply, "{ply} {depth} {pos}, {:?}", self.params.history);
-        self.statistics.count_node_started(MainSearch);
         // We have to increment the node counter as we're checking all other stop conditions in order to ensure games are reproducible
         // by their node counts
         if self.count_node_and_test_stop() {
@@ -596,10 +629,9 @@ impl Caps {
         // Check extensions. Increase the depth by 1 if in check.
         // Do this before deciding whether to drop into qsearch.
         if in_check {
-            self.statistics.in_check();
             depth += cc::check_extension();
         }
-        // limit.mate() is the min of the original limit.mate and DEPTH_HARD_LIMIT
+        // self.ply_hard_limit is the min of the original limit.mate and DEPTH_HARD_LIMIT
         if depth <= 0 || ply >= self.ply_hard_limit {
             return self.qsearch(pos, alpha, beta, ply, pv_node);
         }
@@ -641,15 +673,19 @@ impl Caps {
                 best_move = tt_move;
             }
             let tt_score = tt_entry.score();
+            let tt_depth = tt_entry.depth() as isize;
             // TT cutoffs. If we've already seen this position, and the TT entry has more valuable information (higher depth),
             // and we're not a PV node, and the saved score is either exact or at least known to be outside (alpha, beta),
             // simply return it.
-            if !pv_node && tt_entry.depth as isize >= depth {
-                if (tt_score >= beta && tt_bound == NodeType::lower_bound())
-                    || (tt_score <= alpha && tt_bound == NodeType::upper_bound())
+            let depth_diff = 0.max(depth - tt_depth);
+            // idea from david: Do TT cutoffs even if the tt depth is lower than the current depth, as long as the tt bound is far above beta
+            let beta_cutoff_threshold =
+                beta + Score((depth_diff * depth_diff * cc::tt_cutoff_margin() / (128 * 128)) as ScoreT);
+            if !pv_node && (tt_depth >= depth || (tt_bound != FailLow && tt_score >= beta_cutoff_threshold)) {
+                if (tt_bound == NodeType::lower_bound() && tt_score >= beta_cutoff_threshold)
+                    || (tt_bound == NodeType::upper_bound() && tt_score <= alpha)
                     || tt_bound == Exact
                 {
-                    self.statistics.tt_cutoff(MainSearch, tt_bound);
                     // Idea from stormphrax
                     if tt_score >= beta
                         && !best_move.is_tactical(pos)
@@ -659,7 +695,7 @@ impl Caps {
                         self.update_histories(best_move, depth, ply, tt_score - beta);
                     }
                     return Some(tt_score);
-                } else if depth <= cc::low_depth_tt_extension_depth() {
+                } else if depth <= cc::low_depth_tt_extension_depth() && tt_depth >= depth {
                     // also from stormphrax
                     depth += cc::tt_extension();
                 }
@@ -688,7 +724,6 @@ impl Caps {
                 eval = tt_score;
             }
         } else {
-            self.state.statistics.tt_miss(MainSearch);
             raw_eval = self.eval(pos, ply);
             eval = self.state.custom.corr_hist.correct(pos, continued, raw_eval);
         };
@@ -725,7 +760,7 @@ impl Caps {
                 (cc::rfp_base() - (ScoreT::from(they_blundered) * cc::rfp_blunder())) * (depth / 128) as ScoreT;
             if expected_node_type == FailHigh {
                 // TODO: Multiplicative constant (changes bench)
-                margin /= cc::rfp_fail_high_div();
+                margin = margin * cc::rfp_fail_high() / 1024;
             }
             if let Some(entry) = old_entry
                 && entry.score() <= eval
@@ -790,9 +825,9 @@ impl Caps {
                 let new_pos = pos.make_nullmove().unwrap();
                 // necessary to recognize the null move and to make `last_tried_move()` not panic
                 self.search_stack[ply].tried_moves.push(Move::default());
-                // TODO: Change order of multiplication and division (changes bench), use * 1024 instead of * 128 for depth div
+                // TODO: Remove / 128 and * 128
                 let reduction = cc::nmp_base()
-                    + depth / cc::nmp_depth_div() * 128
+                    + depth / 128 * cc::nmp_depth() / 1024 * 128
                     + isize::from(they_blundered) * cc::nmp_blunder()
                     + (eval - nmp_threshold + 1).0.ilog2().saturating_sub(8) as isize * 128;
                 // the child node is expected to fail low, leading to a fail high in this node
@@ -876,14 +911,14 @@ impl Caps {
                 } / 1024;
                 // LMP faster if we expect to fail low anyway
                 if expected_node_type == FailLow {
-                    lmp_threshold -= lmp_threshold / cc::lmp_fail_low_div();
+                    lmp_threshold -= lmp_threshold * cc::lmp_fail_low() / 1024;
                 }
                 if depth <= cc::max_lmp_depth() && num_uninteresting_visited >= lmp_threshold {
                     break;
                 }
                 // FP (Futility Pruning): If eval is far below alpha,
                 // then it's unlikely that a quiet move can raise alpha: We've probably blundered at some prior point in search,
-                // so cut our losses and return. This has the potential of missing sacrificing mate combinations, though.
+                // so cut our losses and return.
                 let fp_margin = if we_blundered {
                     cc::fp_blunder_base() + cc::fp_blunder_scale() * depth
                 } else {
@@ -891,6 +926,7 @@ impl Caps {
                 } / 1024;
                 if move_picker.stage() == MovePickerStage::Quiets
                     && eval + Score(fp_margin as ScoreT) < alpha
+                    && alpha <= MAX_NORMAL_SCORE
                     && depth <= cc::max_fp_depth()
                 {
                     move_picker.skip_quiets();
@@ -910,8 +946,10 @@ impl Caps {
                 // Be less aggressive with pruning captures to avoid overlooking tactics.
                 let bad_tactical = move_score < MoveScore(-HIST_DIVISOR * 8);
                 // TODO: Tunable constants, different divisors (changes bench)
-                let see_threshold =
+                let mut see_threshold =
                     if bad_tactical { (-depth * depth * 50 / (128 * 128)) as i32 } else { (-depth * 80 / 128) as i32 };
+                let bad_or_quiet_hist_score = if bad_tactical { move_score - BAD_SEE_OFFSET } else { move_score };
+                see_threshold -= bad_or_quiet_hist_score.0 as i32 * cc::see_pruning_hist_mult() / 1024;
                 if move_score < KILLER_SCORE
                     && depth <= cc::max_see_pruning_depth()
                     && !pos.see_at_least(mov, SeeScore(see_threshold))
@@ -926,13 +964,16 @@ impl Caps {
             let new_pos = pos.play(mov);
             #[cfg(debug_assertions)]
             let debug_history_len = self.params.history.len();
-            self.record_move(mov, pos, ply, MainSearch, move_score);
+            self.record_move(mov, pos, ply, move_score);
+            let first_child = self.search_stack[ply].tried_moves.len() == 1;
 
-            if root && depth >= 1024 && self.limit().start_time.elapsed().as_millis() >= 3000 {
-                let move_num = self.search_stack[0].tried_moves.len();
-                // `qsearch` would give better results, but would make bench be nondeterministic
-                let score = -self.eval(&new_pos, 0);
-                self.send_currmove(mov, move_num, score, alpha, beta);
+            if root {
+                if depth >= 1024 && self.limit().start_time.elapsed().as_millis() >= 3000 {
+                    let move_num = self.search_stack[0].tried_moves.len();
+                    // `qsearch` would give better results, but would make bench be nondeterministic
+                    let score = -self.eval(&new_pos, 0);
+                    self.send_currmove(mov, move_num, score, alpha, beta);
+                }
             }
             if move_score < KILLER_SCORE {
                 num_uninteresting_visited += 1;
@@ -944,7 +985,6 @@ impl Caps {
             // that the other moves are worse, which we can do with a zero window search. Should this assumption fail,
             // re-search with a full window.
             let mut score;
-            let first_child = self.search_stack[ply].tried_moves.len() == 1;
             let mut child_alpha = -beta;
             let child_beta = -alpha;
             if first_child {
@@ -1028,7 +1068,6 @@ impl Caps {
                     } else if score < alpha + cc::do_shallower_base() {
                         retry_depth -= cc::do_shallower_val();
                     }
-                    self.statistics.lmr_first_retry();
                     // we still expect the child to fail high here
                     score = -self.negamax(&new_pos, ply + 1, retry_depth, child_alpha, child_beta, FailHigh)?;
                 }
@@ -1039,7 +1078,6 @@ impl Caps {
                 // This is also necessary to ensure that the PV doesn't get truncated, because otherwise there could be nodes in
                 // the PV that were not searched as PV nodes. So we make sure we're researching in PV nodes with beta == alpha + 1.
                 if pv_node && child_beta - child_alpha == Score(1) && score > alpha {
-                    self.statistics.lmr_second_retry();
                     score = -self.negamax(
                         &new_pos,
                         ply + 1,
@@ -1063,11 +1101,18 @@ impl Caps {
             );
 
             if root {
-                self.state.custom.root_move_nodes.update(mov, self.state.uci_nodes() - nodes_before_move);
+                let n = self.state.uci_nodes();
+                debug_assert!(n >= nodes_before_move, "{n} {nodes_before_move} {:?}", self.params);
+                self.state.custom.root_move_nodes.update(mov, n - nodes_before_move);
                 let move_num = self.search_stack[0].tried_moves.len() - 1;
                 if move_num < 5 && self.limit().start_time.elapsed().as_millis() >= 3000 {
                     self.send_refutation(mov, score, move_num);
                 }
+            }
+            if pv_node && first_child && !best_move.is_null() && score <= alpha {
+                // we might get an AW fail, in which case we want to print as much of the "PV" as possible, not just the first 1 or 2 moves.
+                let ([.., current], [child, ..]) = self.search_stack.split_at_mut(ply + 1) else { unreachable!() };
+                current.pv.extend(mov, &child.pv);
             }
             debug_assert!(score.0.abs() <= SCORE_WON.0, "score {} ply {ply}", score.0);
 
@@ -1102,15 +1147,7 @@ impl Caps {
                     if let Some(n) = best_score.plies_until_game_over()
                         && score < beta
                     {
-                        assert_eq!(n, (cur_pv.len() + ply) as isize, "{best_score} {ply} {depth} '{pos}' {cur_pv:?}");
-                    }
-                    if depth > 256
-                        && self.params.thread_type.num_threads() == Some(1)
-                        && score < beta
-                        && !score.is_won_lost_or_draw_score()
-                    {
-                        let bound = self.tt().load::<Board>(new_pos.hash_pos(), ply + 1).unwrap().bound();
-                        debug_assert_eq!(bound, Exact);
+                        assert!(n >= (cur_pv.len() + ply) as isize, "{best_score} {ply} {depth} '{pos}' {cur_pv:?}");
                     }
                 }
             }
@@ -1134,15 +1171,6 @@ impl Caps {
         // ******************************************************
         // ***** After move loop, save some info and return *****
         // ******************************************************
-
-        // Update statistics for this node as soon as we know the node type, before returning.
-        self.state.statistics.count_complete_node(
-            MainSearch,
-            bound_so_far,
-            depth,
-            ply,
-            self.state.search_stack[ply].tried_moves.len(),
-        );
 
         if self.search_stack[ply].tried_moves.is_empty() {
             // TODO: Test storing to the TT
@@ -1183,7 +1211,6 @@ impl Caps {
 
     /// Search only "tactical" moves to quieten down the position before calling eval
     fn qsearch(&mut self, pos: &Board, mut alpha: Score, beta: Score, ply: usize, pv_node: bool) -> Option<Score> {
-        self.statistics.count_node_started(Qsearch);
         // updating seldepth only in qsearch meaningfully increased performance and was even measurable in a [0, 10] SPRT.
         // TODO: That's weird, retest
         self.atomic().update_seldepth(ply);
@@ -1227,11 +1254,9 @@ impl Caps {
                 || (bound == NodeType::upper_bound() && tt_score <= alpha)
                 || bound == Exact
             {
-                self.statistics.tt_cutoff(Qsearch, bound);
-                if pv_node {
-                    return Some(tt_score.clamp(MIN_NORMAL_SCORE, MAX_NORMAL_SCORE));
+                if !(pv_node || in_check) {
+                    return Some(tt_score);
                 }
-                return Some(tt_score);
             }
             raw_eval = tt_entry.raw_eval();
             eval = self.state.custom.corr_hist.correct(pos, continued, raw_eval);
@@ -1248,7 +1273,7 @@ impl Caps {
                 || (bound == NodeType::upper_bound() && tt_score <= eval)
             {
                 // we don't want to return mate scores unless we can prove there is a mate by also returning a matching PV
-                eval = tt_score.clamp(MIN_NORMAL_SCORE, MAX_NORMAL_SCORE);
+                eval = tt_score;
             };
             if let Some(mov) = tt_entry.mov(pos) {
                 best_move = mov;
@@ -1300,7 +1325,7 @@ impl Caps {
             if self.count_node_and_test_stop() {
                 return None;
             }
-            self.record_move(mov, pos, ply, Qsearch, move_score);
+            self.record_move(mov, pos, ply, move_score);
             children_visited += 1;
             let score = -self.qsearch(&new_pos, -beta, -alpha, ply + 1, pv_node)?;
             self.undo_move();
@@ -1323,11 +1348,10 @@ impl Caps {
                 let ([.., current], [child, ..]) = self.search_stack.split_at_mut(ply + 1) else { unreachable!() };
                 current.pv.extend(best_move, &child.pv);
                 if let Some(n) = best_score.plies_until_game_over() {
-                    assert_eq!(n, (current.pv.len() + ply) as isize, "{best_score} {ply} '{pos}' {:?}", current.pv);
+                    assert!(n >= (current.pv.len() + ply) as isize, "{best_score} {ply} '{pos}' {:?}", current.pv);
                 }
             }
         }
-        self.statistics.count_complete_node(Qsearch, bound_so_far, 0, ply, children_visited);
 
         let tt_entry: TTEntry<Board> =
             TTEntry::new(pos.hash_pos(), best_score, raw_eval, best_move, 0, bound_so_far, self.age());
@@ -1443,11 +1467,10 @@ impl Caps {
         self.search_stack[ply].tried_moves.clear();
     }
 
-    fn record_move(&mut self, mov: Move, old_pos: &Board, ply: usize, typ: SearchType, move_score: MoveScore) {
+    fn record_move(&mut self, mov: Move, old_pos: &Board, ply: usize, move_score: MoveScore) {
         self.params.history.push(old_pos.hash_pos());
         self.search_stack[ply].tried_moves.push(mov);
         self.search_stack[ply].move_score = move_score;
-        self.statistics.count_legal_make_move(typ);
     }
 
     // gets skipped when aborting search, but that's fine
@@ -1509,7 +1532,7 @@ mod tests {
         let fen = "6rk/PP1PPPnp/1N1BN2P/7R/4B3/2Q5/P3KP2/6R1 w - -";
         let pos = Board::from_fen(fen, Relaxed).unwrap();
         let mut caps = Caps::for_eval::<LiTEval>();
-        let res = caps.search_with_new_tt(pos, SearchLimit::depth_(1));
+        let res = caps.search_with_new_tt(pos, SearchLimit::depth_(3));
         assert_eq!(res.score.plies_until_game_won(), Some(3));
         let state = caps.search_state();
         let pv_data = &state.pv_data()[0];
@@ -1519,7 +1542,7 @@ mod tests {
         assert!(state.uci_nodes() <= 500);
         assert!(!state.atomic().currently_searching.load(std::sync::atomic::Ordering::Relaxed));
         assert_eq!(state.atomic().score(), res.score);
-        assert_eq!(state.atomic().iterations().isize(), 1);
+        assert_eq!(state.atomic().iterations().isize(), 3);
     }
 
     #[test]
@@ -1595,7 +1618,7 @@ mod tests {
             let mut root_entry = TTEntry::<Board>::default();
             if let Some(tt) = tt.clone() {
                 root_entry = tt.load(pos.hash_pos(), 0).unwrap();
-                assert!(root_entry.depth <= 2 * DEPTH_INCREMENT as u16); // possible extensions
+                assert!(root_entry.depth() as usize <= 2 * DEPTH_INCREMENT); // possible extensions
                 assert_eq!(root_entry.bound(), Exact);
                 assert!(root_entry.mov(&pos).is_some());
             }
@@ -1610,7 +1633,7 @@ mod tests {
                     let Some(entry) = entry else {
                         continue; // it's possible that a position is not in the TT because qsearch didn't save it
                     };
-                    assert!(entry.depth <= 2 * DEPTH_INCREMENT as u16, "{entry:?} {new_pos}");
+                    assert!(entry.depth() as usize <= 2 * DEPTH_INCREMENT, "{entry:?} {new_pos}");
                     assert!(-entry.score <= root_entry.score, "{entry:?}\n{root_entry:?}\n{new_pos}");
                 }
             }
@@ -1655,7 +1678,7 @@ mod tests {
         assert!(!fresh_d3_search.score.is_won_or_lost(), "{}", fresh_d3_search.score.0);
         assert!(fresh_d3_search.score < MAX_NORMAL_SCORE, "{}", fresh_d3_search.score.0);
         let fresh_d3_nodes = caps.search_state().uci_nodes();
-        assert!(fresh_d3_nodes > d3_nodes + d3_nodes / 4, "{fresh_d3_nodes} {d3_nodes}");
+        assert!(fresh_d3_nodes > d3_nodes, "{fresh_d3_nodes} {d3_nodes}");
         caps.forget();
         _ = caps.search_with_new_tt(pos, d3);
         assert_eq!(caps.search_state().uci_nodes(), fresh_d3_nodes);

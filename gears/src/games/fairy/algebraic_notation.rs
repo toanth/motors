@@ -15,25 +15,25 @@
  *  You should have received a copy of the GNU General Public License
  *  along with Gears. If not, see <https://www.gnu.org/licenses/>.
  */
-use crate::PlayerResult::{Draw, Lose, Win};
-use crate::games::CharType::{Ascii, Unicode};
-use crate::games::fairy::Side::{Kingside, Queenside};
 use crate::games::fairy::attacks::GenAttackKind::Drop;
 use crate::games::fairy::attacks::MoveKind;
 use crate::games::fairy::moves::Move;
 use crate::games::fairy::pieces::{ColoredPieceId, PieceId};
 use crate::games::fairy::rules::{NoMovesCondition, PromoFenModifier, PromoMoveChar};
+use crate::games::fairy::Side::{Kingside, Queenside};
 use crate::games::fairy::{Bitboard, Board, Color, Square};
+use crate::games::CharType::{Ascii, Unicode};
 use crate::games::{
-    AbstractPieceType, CharType, ColorTrait, ColoredPieceTrait, ColoredPieceTypeTrait, DimT, NoHistory, char_to_file,
-    file_to_char,
+    char_to_file, file_to_char, AbstractPieceType, CharType, ColorTrait, ColoredPieceTrait, ColoredPieceTypeTrait, DimT,
+    NoHistory,
 };
 use crate::general::bitboards::{BitboardTrait, RawBitboardTrait};
 use crate::general::board::{BitboardBoard, BoardTrait, RectangularBoard, UnverifiedBoardTrait};
-use crate::general::common::{Res, parse_int_from_str};
+use crate::general::common::{parse_int_from_str, Res};
 use crate::general::moves::ExtendedFormat::Standard;
 use crate::general::moves::{ExtendedFormat, MoveTrait};
 use crate::general::squares::{CompactSquare, RectangularCoordinates};
+use crate::PlayerResult::{Draw, Lose, Win};
 use anyhow::{anyhow, bail};
 use colored::Colorize;
 use itertools::Itertools;
@@ -921,17 +921,17 @@ impl<'a> MoveParser<'a> {
 
 #[cfg(test)]
 mod tests {
-    use crate::games::BoardTrait;
-    use crate::games::fairy::Board;
     use crate::games::fairy::moves::Move;
+    use crate::games::fairy::Board;
     use crate::games::generic_tests;
+    use crate::games::BoardTrait;
     use crate::general::board::BoardHelpers;
     use crate::general::board::Strictness::Strict;
     use crate::general::moves::ExtendedFormat::{Alternative, Standard};
     use crate::general::moves::MoveTrait;
+    use crate::general::perft::perft;
     use crate::general::perft::Bulkness::Bulk;
     use crate::general::perft::Parallelize::Parallel;
-    use crate::general::perft::perft;
     use crate::output::pgn::parse_pgn;
     use crate::search::DepthPly;
     use crate::ugi::load_ugi_pos_simple;
@@ -1063,7 +1063,7 @@ Na3 ♞a6 2. ♘a3c4 a6c5 3. Na5 Nb3 4. Nc6 Ng8-f6 5. Nf3 Ne4 6. Nh4 Ng5 7. Ng6 
         let data = parse_pgn::<Board>(pgn, Strict, None).unwrap();
         let pos = data.game.board;
         assert_eq!(pos.fen_no_rules(), "rQ1Q1Q2/q6k/3Q3b/q5QK/1Q1Q1B2/6q1/1Q1q4/qqqQq1qR b - - 0 64");
-        let perft_res = perft(DepthPly::new(3), pos, Parallel, Bulk);
+        let perft_res = perft(DepthPly::new(3), pos, Parallel, Bulk, None);
         assert_eq!(perft_res.nodes, 492194);
     }
 }

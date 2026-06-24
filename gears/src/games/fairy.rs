@@ -27,42 +27,42 @@ mod rules;
 #[cfg(test)]
 mod tests;
 
-use crate::PlayerResult;
-use crate::games::CharType::Ascii;
 use crate::games::fairy::moves::Move;
 use crate::games::fairy::pieces::{ColoredPieceId, PieceId};
 use crate::games::fairy::rules::{FenHandInfo, MoveNumFmt, RulesBuilder};
 use crate::games::fairy::rules::{GameEndEager, NumRoyals, Rules, RulesRef};
+use crate::games::CharType::Ascii;
 use crate::games::{
     AbstractPieceType, BoardHistory, CharType, ColorTrait, ColoredPieceTrait, ColoredPieceTypeTrait, DimT,
-    GenericPiece, NUM_COLORS, NoHistory, PosHash, SizeTrait,
+    GenericPiece, NoHistory, PosHash, SizeTrait, NUM_COLORS,
 };
 use crate::general::bitboards::{BitboardTrait, DynamicallySizedBitboard, ExtendedRawBitboard, RawBitboardTrait};
 use crate::general::board::SelfChecks::CheckFen;
 use crate::general::board::Strictness::{Relaxed, Strict};
 use crate::general::board::{
-    AxesFormat, BBSelect, BitboardBoard, BoardHelpers, BoardSize, BoardTrait, ColPieceTypeOf, NameToPos, PieceTypeOf,
-    SelfChecks, Strictness, Symmetry, UnverifiedBoardTrait, default_bitboards_from_name, position_fen_part,
-    read_common_fen_part, read_halfmove_clock, read_move_number_in_ply, read_single_move_number,
+    default_bitboards_from_name, position_fen_part, read_common_fen_part, read_halfmove_clock, read_move_number_in_ply, read_single_move_number, AxesFormat, BBSelect, BitboardBoard,
+    BoardHelpers, BoardSize, BoardTrait, ColPieceTypeOf, NameToPos, PieceTypeOf,
+    SelfChecks, Strictness, Symmetry, UnverifiedBoardTrait,
 };
 use crate::general::common::Description::NoDescription;
 use crate::general::common::{
-    EntityList, GenericSelect, Res, SimpleSelect, StaticallyNamedEntity, Tokens, parse_int_from_str,
-    select_name_static, tokens,
+    parse_int_from_str, select_name_static, tokens, EntityList, GenericSelect, Res, SimpleSelect,
+    StaticallyNamedEntity, Tokens,
 };
 use crate::general::move_list::{MoveListTrait, SboMoveList};
 use crate::general::moves::MoveTrait;
 use crate::general::squares::{GridCoordinates, GridSize, RectangularCoordinates, RectangularSize, SquareColor};
+use crate::output::text_output::{board_to_string, display_board_pretty, BoardFormatter, DefaultBoardFormatter};
 use crate::output::OutputOpts;
-use crate::output::text_output::{BoardFormatter, DefaultBoardFormatter, board_to_string, display_board_pretty};
 use crate::search::DepthPly;
 use crate::ugi::Protocol;
+use crate::PlayerResult;
 use anyhow::{anyhow, bail, ensure};
 use arbitrary::Arbitrary;
 use colored::Colorize;
 use itertools::Itertools;
-use rand::Rng;
 use rand::prelude::IndexedRandom;
+use rand::Rng;
 use std::fmt;
 use std::fmt::{Debug, Display, Formatter};
 use std::hash::{DefaultHasher, Hash, Hasher};

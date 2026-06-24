@@ -32,7 +32,7 @@ use core::fmt;
 use gears::games::ColorTrait;
 use gears::score::PhaseType;
 use motors::eval::ScoreType;
-use std::collections::{HashMap, hash_map};
+use std::collections::{hash_map, HashMap};
 use std::fmt::{Debug, Formatter};
 use std::ops::{Add, AddAssign, Mul, Neg, Sub, SubAssign};
 // TODO: Only a single generic trace type
@@ -128,9 +128,9 @@ impl TraceTrait for SparseTrace {
             let count: FeatureT = feature.try_into().unwrap();
             if count != 0 {
                 let phase = self.phase;
-                let midgame = Entry { weight: count as Float * phase, idx: index };
+                let midgame = Entry { weight: count as Float * phase, idx: index as u32 };
                 res.push(midgame);
-                let endgame = Entry { weight: count as Float * (1.0 - phase), idx: index + 1 };
+                let endgame = Entry { weight: count as Float * (1.0 - phase), idx: index as u32 + 1 };
                 res.push(endgame);
             }
         }
@@ -384,6 +384,7 @@ impl TraceTrait for SimpleTrace {
                 if self.phase.is_some() {
                     idx *= 2;
                 }
+                let idx = idx as u32;
                 assert!(diff >= FeatureT::MIN as isize && diff <= FeatureT::MAX as isize);
                 assert!(res.len() < u16::MAX as usize);
                 assert!(u16::try_from(idx).is_ok());

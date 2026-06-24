@@ -5,7 +5,6 @@ use gears::general::board::BoardTrait;
 
 use crate::eval::Eval;
 use crate::eval::rand_eval::RandEval;
-use crate::search::statistics::SearchType::MainSearch;
 use crate::search::{
     AbstractSearchState, EmptySearchStackEntry, Engine, EngineInfo, NoCustomInfo, NormalEngine, SearchState,
     SearchStateFor,
@@ -104,7 +103,6 @@ impl<B: BoardTrait> Engine<B> for Gaps<B> {
         let pos = self.state.params.pos.clone();
         limit.fixed_time = limit.fixed_time.min(limit.tc.remaining);
 
-        self.state.statistics.next_id_iteration();
         self.state.search_params_mut().limit = limit;
 
         'id: for depth in 1..=max_depth {
@@ -144,7 +142,6 @@ impl<B: BoardTrait> Engine<B> for Gaps<B> {
                 self.state.excluded_moves.push(best_mpv_move);
             }
             self.state.excluded_moves.truncate(self.state.excluded_moves.len() - self.state.multi_pv());
-            self.state.statistics.next_id_iteration();
         }
         if !self.state.stop_flag() {
             // count an additional node to ensure the game remains reproducible
@@ -185,7 +182,6 @@ impl<B: BoardTrait> Gaps<B> {
         debug_assert!(alpha < beta);
         debug_assert!(ply <= MAX_DEPTH.get() * 2);
         debug_assert!(depth <= MAX_DEPTH.isize());
-        self.state.statistics.count_node_started(MainSearch);
 
         if self.count_node_and_test_stop() {
             return SCORE_TIME_UP;
@@ -211,7 +207,6 @@ impl<B: BoardTrait> Gaps<B> {
             if ply == 0 && self.state.excluded_moves.contains(&mov) {
                 continue;
             }
-            self.state.statistics.count_legal_make_move(MainSearch);
 
             self.state.params.history.push(pos.hash_pos());
 
@@ -238,8 +233,6 @@ impl<B: BoardTrait> Gaps<B> {
             }
             break;
         }
-        let node_type = best_score.node_type(alpha, beta);
-        self.state.statistics.count_complete_node(MainSearch, node_type, depth, ply, num_children);
         if num_children == 0 {
             if let Some(res) = pos.no_moves_result() {
                 return game_result_to_score(res, ply);

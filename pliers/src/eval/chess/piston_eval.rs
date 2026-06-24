@@ -2,12 +2,12 @@
 //! There is a weight for each of the 6 * 2 * 64 piece, phase, square combinations.
 
 use crate::eval::chess::{psqt_trace, write_psqts};
-use crate::eval::{Eval, WeightsInterpretation, changed_at_least};
+use crate::eval::{changed_at_least, Eval, WeightsInterpretation};
 use crate::gd::{Weight, Weights};
 use crate::load_data::NoFilter;
 use crate::trace::TraceTrait;
-use gears::games::chess::Board;
 use gears::games::chess::zobrist::NUM_PIECE_SQUARE_ENTRIES;
+use gears::games::chess::Board;
 use std::fmt::Formatter;
 
 ///  `PiSTOn` is a Piece Square Table Only evaluation function.
@@ -39,8 +39,8 @@ impl Eval<Board> for PistonEval {
 mod tests {
     use super::*;
     use crate::load_data::{FenReader, Perspective};
-    use gears::games::CoordinatesTrait;
     use gears::games::chess::squares::{ChessboardSize, Square};
+    use gears::games::CoordinatesTrait;
     use gears::general::board::{BoardHelpers, BoardTrait};
 
     #[test]
@@ -54,7 +54,7 @@ mod tests {
         assert_eq!(entries.len(), 5 * 2);
         let pawn_mg = entries[0];
         let pawn_sq = Square::from_chars('d', '5').unwrap();
-        assert_eq!(pawn_mg.idx, pawn_sq.flip_up_down(ChessboardSize::default()).bb_idx() * 2);
+        assert_eq!(pawn_mg.idx(), pawn_sq.flip_up_down(ChessboardSize::default()).bb_idx() * 2);
         let pawn_eg = entries[1];
         assert_eq!(pawn_mg.idx + 1, pawn_eg.idx);
         let w1 = pawn_mg.weight;

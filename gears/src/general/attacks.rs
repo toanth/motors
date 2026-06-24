@@ -32,9 +32,9 @@ use crate::general::bitboards::{
 use crate::general::squares::RectangularCoordinates;
 use crate::general::squares::RectangularSize;
 use num::traits::WrappingSub;
-use std::arch::x86_64::{_mm_slli_epi64, _mm_sllv_epi64, _mm_srlv_epi64};
 use std::fmt::Debug;
 use std::marker::PhantomData;
+#[cfg(all(feature = "unsafe", target_arch = "x86_64", target_feature = "avx2"))]
 use std::mem::transmute;
 use std::ops::{BitAnd, BitOr, BitXor, Sub};
 
@@ -145,7 +145,7 @@ impl ChessSliderGenerator {
     }
 }
 
-#[cfg(not(all(feature = "unsafe", target_arch = "x86_64", target_feature = "sse2")))]
+#[cfg(not(all(feature = "unsafe", target_arch = "x86_64", target_feature = "avx2")))]
 /// See <https://www.chessprogramming.org/Kogge-Stone_Algorithm>; calculates all slider attacks along a direction and its reverse
 pub fn kogge_stone<const DIR: usize>(
     sliders: Bitboard,
@@ -168,47 +168,6 @@ pub fn kogge_stone<const DIR: usize>(
     forward |= fwd_allowed & (forward << 4 * DIR);
     backward |= bwd_allowed & (backward >> 4 * DIR);
     ((forward << DIR) & fwd_filter) | ((backward >> DIR) & bwd_filter)
-}
-
-#[cfg(all(feature = "unsafe", target_arch = "x86_64", target_feature = "sse2"))]
-/// executes two instances of [`kogge_stone`] in parallel, which means a single call calculates all rook or bishop attacks
-pub fn kogge_stone_pair(
-    sliders: Bitboard,
-    empty: Bitboard,
-    fwd_filters: [Bitboard; 2],
-    bwd_filters: [Bitboard; 2],
-    dir1: usize,
-    dir2: usize,
-) -> Bitboard {
-    use sse2::U64X2;
-    let sliders = U64X2::new(sliders.0, sliders.0);
-    let fwd_filters = U64X2::new(fwd_filters[0].0, fwd_filters[1].0);
-    let bwd_filters = U64X2::new(bwd_filters[0].0, bwd_filters[1].0);
-    let empty = U64X2::new(empty.0, empty.0);
-    let mut forward = sliders;
-    let mut backward = sliders;
-    let mut shift = U64X2::new(dir1 as RawStandardBitboard, dir2 as RawStandardBitboard);
-    let shift_once = shift;
-    let mut fwd_allowed;
-    let mut bwd_allowed;
-    fwd_allowed = empty & fwd_filters;
-    bwd_allowed = empty & bwd_filters;
-    forward |= fwd_allowed & (forward << shift);
-    backward |= bwd_allowed & (backward >> shift);
-    for _ in 0..2 {
-        fwd_allowed &= fwd_allowed << shift;
-        bwd_allowed &= bwd_allowed >> shift;
-        unsafe {
-            shift = U64X2(_mm_slli_epi64::<1>(shift.0));
-        }
-        forward |= fwd_allowed & (forward << shift);
-        backward |= bwd_allowed & (backward >> shift);
-    }
-    let res = ((forward << shift_once) & fwd_filters) | ((backward >> shift_once) & bwd_filters);
-    unsafe {
-        let [a, b]: [RawStandardBitboard; 2] = transmute(res);
-        Bitboard::new(a | b)
-    }
 }
 
 #[cfg(all(feature = "unsafe", target_arch = "x86_64", target_feature = "avx2"))]
@@ -248,7 +207,7 @@ pub fn kogge_stone_sliders(
     }
 }
 
-#[cfg(not(all(feature = "unsafe", target_arch = "x86_64", target_feature = "sse2")))]
+#[cfg(not(all(feature = "unsafe", target_arch = "x86_64", target_feature = "avx2")))]
 #[allow(unused)]
 pub fn all_rook_attacks(sliders: Bitboard, empty: Bitboard) -> Bitboard {
     let all = Bitboard::new(!0);
@@ -257,14 +216,7 @@ pub fn all_rook_attacks(sliders: Bitboard, empty: Bitboard) -> Bitboard {
     horizontal | vertical
 }
 
-#[cfg(all(feature = "unsafe", target_arch = "x86_64", target_feature = "sse2"))]
-#[allow(unused)]
-fn all_rook_attacks(sliders: Bitboard, empty: Bitboard) -> Bitboard {
-    let all = Bitboard::new(!0);
-    kogge_stone_pair(sliders, empty, [all, !Bitboard::file_0()], [all, !Bitboard::file(7)], 8, 1)
-}
-
-#[cfg(not(all(feature = "unsafe", target_arch = "x86_64", target_feature = "sse2")))]
+#[cfg(not(all(feature = "unsafe", target_arch = "x86_64", target_feature = "avx2")))]
 #[allow(unused)]
 pub fn all_bishop_attacks(sliders: Bitboard, empty: Bitboard) -> Bitboard {
     let not_a_file = !Bitboard::file_0();
@@ -272,14 +224,6 @@ pub fn all_bishop_attacks(sliders: Bitboard, empty: Bitboard) -> Bitboard {
     let diagonal = kogge_stone::<9>(sliders, empty, not_a_file, not_h_file);
     let anti_diagonal = kogge_stone::<7>(sliders, empty, not_h_file, not_a_file);
     diagonal | anti_diagonal
-}
-
-#[cfg(all(feature = "unsafe", target_arch = "x86_64", target_feature = "sse2"))]
-#[allow(unused)]
-fn all_bishop_attacks(sliders: Bitboard, empty: Bitboard) -> Bitboard {
-    let not_a_file = !Bitboard::file_0();
-    let not_h_file = !Bitboard::file(7);
-    kogge_stone_pair(sliders, empty, [not_a_file, not_h_file], [not_h_file, not_a_file], 9, 7)
 }
 
 #[cfg(not(all(feature = "unsafe", target_arch = "x86_64", target_feature = "avx2")))]
@@ -538,7 +482,7 @@ mod sse2 {
         _mm_and_si128, _mm_cvtsi128_si64, _mm_or_si128, _mm_set_epi64x, _mm_shuffle_epi8, _mm_sub_epi64, _mm_xor_si128,
     };
     use std::mem::transmute;
-    use std::ops::{BitAndAssign, BitOrAssign, Shl, Shr};
+    use std::ops::{BitAndAssign, BitOrAssign};
 
     #[derive(Debug, Clone, Copy)]
     pub struct U64X2(pub(super) __m128i);
@@ -642,22 +586,6 @@ mod sse2 {
     impl BitOrAssign for U64X2 {
         fn bitor_assign(&mut self, rhs: Self) {
             *self = *self | rhs;
-        }
-    }
-
-    impl Shl for U64X2 {
-        type Output = Self;
-
-        fn shl(self, rhs: Self) -> Self {
-            unsafe { U64X2(_mm_sllv_epi64(self.0, rhs.0)) }
-        }
-    }
-
-    impl Shr for U64X2 {
-        type Output = Self;
-
-        fn shr(self, rhs: Self) -> Self {
-            unsafe { U64X2(_mm_srlv_epi64(self.0, rhs.0)) }
         }
     }
 }
@@ -977,6 +905,7 @@ mod tests {
         assert_eq!(attacks.raw(), (1 << 16) | (1 << 23), "{attacks}");
     }
 
+    #[cfg(not(all(feature = "unsafe", target_arch = "x86_64", target_feature = "avx2")))]
     #[test]
     fn test_all_rook_attacks() {
         let rooks = Bitboard::new(0x8000100000028000);
@@ -985,7 +914,8 @@ mod tests {
         let expected = Bitboard::new(0xff92ef9282bdff82);
         assert_eq!(attacks, expected);
     }
-
+    
+    #[cfg(not(all(feature = "unsafe", target_arch = "x86_64", target_feature = "avx2")))]
     #[test]
     fn test_all_bishop_attacks() {
         let bishops = Bitboard::new(0x8000100000021008);

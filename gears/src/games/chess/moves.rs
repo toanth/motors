@@ -8,18 +8,18 @@ use colored::{ColoredString, Colorize};
 use itertools::Itertools;
 use strum_macros::{EnumIter, FromRepr};
 
-use crate::games::chess::Color::*;
 use crate::games::chess::castling::CastleRight;
 use crate::games::chess::castling::CastleRight::*;
 use crate::games::chess::moves::MoveFlags::*;
 use crate::games::chess::pieces::PieceType::*;
 use crate::games::chess::pieces::{ColoredPieceType, Piece, PieceType};
-use crate::games::chess::squares::{C_FILE_NUM, ChessboardSize, D_FILE_NUM, F_FILE_NUM, G_FILE_NUM, Square};
+use crate::games::chess::squares::{ChessboardSize, Square, C_FILE_NUM, D_FILE_NUM, F_FILE_NUM, G_FILE_NUM};
 use crate::games::chess::zobrist::ZOBRIST_KEYS;
+use crate::games::chess::Color::*;
 use crate::games::chess::{Board, Color, Settings};
 use crate::games::{
-    AbstractPieceType, BoardTrait, CharType, ColorTrait, ColoredPieceTrait, ColoredPieceTypeTrait, DimT, NoHistory,
-    PosHash, char_to_file, file_to_char,
+    char_to_file, file_to_char, AbstractPieceType, BoardTrait, CharType, ColorTrait, ColoredPieceTrait, ColoredPieceTypeTrait,
+    DimT, NoHistory, PosHash,
 };
 use crate::general::attacks::ChessSliderGenerator;
 use crate::general::bitboards::chessboard::{Bitboard, INFINITE_RAYS};
@@ -1179,14 +1179,14 @@ impl<'a> MoveParser<'a> {
 
 #[cfg(test)]
 mod tests {
-    use crate::games::BoardTrait;
-    use crate::games::chess::Color::White;
     use crate::games::chess::castling::CastleRight::Queenside;
     use crate::games::chess::moves::Move;
     use crate::games::chess::pieces::PieceType;
     use crate::games::chess::squares::Square;
+    use crate::games::chess::Color::White;
     use crate::games::chess::{Board, Settings, UCI_CHESS960};
     use crate::games::generic_tests;
+    use crate::games::BoardTrait;
     use crate::general::bitboards::RawBitboardTrait;
     use crate::general::board::BoardHelpers;
     use crate::general::board::Strictness::{Relaxed, Strict};
@@ -1195,7 +1195,7 @@ mod tests {
     use crate::general::moves::MoveTrait;
     use crate::general::perft::Bulkness::Bulk;
     use crate::general::perft::Parallelize::SingleThreaded;
-    use crate::general::perft::{Parallelize, perft};
+    use crate::general::perft::{perft, Parallelize};
     use crate::output::pgn::parse_pgn;
     use crate::search::DepthPly;
     use itertools::Itertools;
@@ -1337,7 +1337,7 @@ mod tests {
                 assert_eq!(i != 0, pos.settings.is_set(Settings::dfrc_flag()));
                 assert_eq!(*pos == p, pos.settings.is_set(Settings::shredder_fen_flag()));
             }
-            let perft_res = perft(DepthPly::new(3), *pos, SingleThreaded, Bulk);
+            let perft_res = perft(DepthPly::new(3), *pos, SingleThreaded, Bulk, None);
             assert_eq!(perft_res.nodes, *perft_nodes);
         }
         let pos = Board::from_fen("5k2/8/8/8/8/8/8/4K2R w K - 0 1", Strict).unwrap();
@@ -1396,7 +1396,7 @@ Na3 ♞a6 2. ♘a3c4 a6c5 3. Na5 Nb3 4. Nc6 Nf6 5. Nf3 Ne4 6. Nh4 Ng5 7. Ng6 Nf3
         let data = parse_pgn::<Board>(pgn, Strict, None).unwrap();
         let pos = data.game.board;
         assert_eq!(pos.as_fen(), "rQ1Q1Q2/q6k/3Q3b/q5QK/1Q1Q1B2/6q1/1Q1q4/qqqQq1qR b - - 0 64");
-        let perft_res = perft(DepthPly::new(3), pos, Parallelize::Parallel, Bulk);
+        let perft_res = perft(DepthPly::new(3), pos, Parallelize::Parallel, Bulk, None);
         assert_eq!(perft_res.nodes, 492194);
     }
 }

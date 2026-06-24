@@ -15,9 +15,7 @@
  *  You should have received a copy of the GNU General Public License
  *  along with Gears. If not, see <https://www.gnu.org/licenses/>.
  */
-use crate::games::CharType::Ascii;
-use crate::games::fairy::Side::{Kingside, Queenside};
-use crate::games::fairy::algebraic_notation::{MoveParser, format_san};
+use crate::games::fairy::algebraic_notation::{format_san, MoveParser};
 use crate::games::fairy::attacks::{EffectRules, MoveKind};
 use crate::games::fairy::effects::{AfterMove, InCheck};
 use crate::games::fairy::moves::MoveEffect::{
@@ -25,14 +23,16 @@ use crate::games::fairy::moves::MoveEffect::{
     SetEp,
 };
 use crate::games::fairy::pieces::{ColoredPieceId, PieceId};
-use crate::games::fairy::rules::{MAX_NUM_IN_HAND, PromoMoveChar, Rules};
-use crate::games::fairy::{Bitboard, Board, Color, RawBitboard, Side, Size, Square, effects};
+use crate::games::fairy::rules::{PromoMoveChar, Rules, MAX_NUM_IN_HAND};
+use crate::games::fairy::Side::{Kingside, Queenside};
+use crate::games::fairy::{effects, Bitboard, Board, Color, RawBitboard, Side, Size, Square};
+use crate::games::CharType::Ascii;
 use crate::games::{AbstractPieceType, ColorTrait, ColoredPieceTypeTrait, DimT, SizeTrait};
 use crate::general::bitboards::{BitboardTrait, RawBitboardTrait};
 use crate::general::board::SelfChecks::Verify;
 use crate::general::board::Strictness::Relaxed;
 use crate::general::board::{BitboardBoard, BoardHelpers, BoardTrait, UnverifiedBoardTrait};
-use crate::general::common::{Res, tokens};
+use crate::general::common::{tokens, Res};
 use crate::general::moves::{ExtendedFormat, Legality, MoveTrait, UntrustedMove};
 use crate::general::squares::{CompactSquare, RectangularCoordinates};
 use anyhow::bail;
@@ -615,16 +615,16 @@ impl Board {
 #[cfg(test)]
 mod tests {
     use crate::games::chess::UCI_CHESS960;
-    use crate::games::fairy::Side::Queenside;
     use crate::games::fairy::moves::Move;
+    use crate::games::fairy::Side::Queenside;
     use crate::games::fairy::{Board, Color, Square};
-    use crate::games::{ColorTrait, chess};
+    use crate::games::{chess, ColorTrait};
     use crate::general::board::Strictness::{Relaxed, Strict};
     use crate::general::board::{BoardHelpers, BoardTrait, UnverifiedBoardTrait};
     use crate::general::moves::MoveTrait;
+    use crate::general::perft::perft;
     use crate::general::perft::Bulkness::Bulk;
     use crate::general::perft::Parallelize::Parallel;
-    use crate::general::perft::perft;
     use crate::search::DepthPly;
     use std::sync::atomic::Ordering;
 
@@ -649,7 +649,7 @@ mod tests {
                 assert!(!mov.is_capture());
                 assert!(pos.clone().make_move(mov).unwrap().debug_verify_invariants(Strict).is_ok());
             }
-            let perft_res = perft(DepthPly::new(3), pos.clone(), Parallel, Bulk);
+            let perft_res = perft(DepthPly::new(3), pos.clone(), Parallel, Bulk, None);
             assert_eq!(perft_res.nodes, *perft_nodes);
         }
         let fen = "8/4k3/8/8/8/8/8/RK1b4 w A - 0 1";

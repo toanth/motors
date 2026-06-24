@@ -1,20 +1,20 @@
 use crate::eval::Eval;
-use crate::io::ugi_output::{UgiOutput, pretty_score, score_gradient};
+use crate::io::ugi_output::{pretty_score, score_gradient, UgiOutput};
 use crate::search::multithreading::EngineReceives::*;
-use crate::search::multithreading::SearchThreadType::{Auxiliary, Main};
+use crate::search::multithreading::SearchThreadType::{Auxiliary, Main, SingleAndNoOutput};
 use crate::search::multithreading::SearchType::{Infinite, Normal, Ponder};
-use crate::search::tt::{TT, TTEntry};
+use crate::search::tt::{TTEntry, TT};
 use crate::search::{AbstractEvalBuilder, AbstractSearcherBuilder, Engine, EngineInfo, SearchParams};
 use gears::colored::Colorize;
 use gears::dyn_clone::clone_box;
 use gears::games::ZobristHistory;
 use gears::general::board::BoardTrait;
 use gears::general::common::anyhow::{anyhow, bail, ensure};
-use gears::general::common::{Name, NamedEntity, Res, parse_int_from_str};
+use gears::general::common::{dbg_print, dbg_reset, parse_int_from_str, Name, NamedEntity, Res};
 use gears::general::moves::ExtendedFormat::Standard;
 use gears::general::moves::MoveTrait;
 use gears::output::Message::*;
-use gears::score::{NO_SCORE_YET, Score};
+use gears::score::{Score, NO_SCORE_YET};
 use gears::search::{DepthPly, SearchLimit};
 use gears::ugi::EngineOptionName::{Hash, Threads};
 use gears::ugi::EngineOptionNameForProtocol;
@@ -86,6 +86,11 @@ impl<B: BoardTrait> MainThreadData<B> {
     pub(super) fn shared_atomic_state(&self) -> &[Arc<AtomicSearchState<B>>] {
         self.atomic_search_data.as_slice()
     }
+
+    pub(super) fn auxiliary_threads(&self) -> &[Arc<AtomicSearchState<B>>] {
+        let slice = self.atomic_search_data.as_slice();
+        &slice[1..]
+    }
 }
 
 fn set_num_threads<B: BoardTrait>(count: usize, max_threads: usize, output: &Arc<Mutex<UgiOutput<B>>>) -> Res<usize> {
@@ -101,10 +106,13 @@ fn set_num_threads<B: BoardTrait>(count: usize, max_threads: usize, output: &Arc
 
 #[derive(Debug, Default)]
 pub enum SearchThreadType<B: BoardTrait> {
-    Main(MainThreadData<B>),
     #[default]
-    /// The simple case of using the engine by itself, without the multithreading adapter, simply to find the best move,
-    /// also uses the `Auxiliary` variant because there's no need to output anything.
+    /// The simple case of using the engine by itself, without the multithreading adapter, simply to find the best move
+    SingleAndNoOutput,
+    /// The engine is called from the UCI interface and runs in a separate thread. There might be auxiliary threads.
+    Main(MainThreadData<B>),
+    /// This is an auxiliary thread, which never needs to output anything and doesn't even have to return a move.
+    /// It's only used to write to shared state like the TT or the atomic search state.
     Auxiliary,
 }
 
@@ -112,7 +120,7 @@ impl<B: BoardTrait> SearchThreadType<B> {
     pub fn output(&self) -> Option<MutexGuard<'_, UgiOutput<B>>> {
         match self {
             Main(MainThreadData { output, .. }) => Some(output.lock().unwrap()),
-            Auxiliary => None,
+            Auxiliary | SingleAndNoOutput => None,
         }
     }
     pub(super) fn new_single_thread(
@@ -128,6 +136,7 @@ impl<B: BoardTrait> SearchThreadType<B> {
         match self {
             Main(data) => Some(data.atomic_search_data.len()),
             Auxiliary => None,
+            SingleAndNoOutput => Some(1),
         }
     }
 }
@@ -146,7 +155,7 @@ pub struct AtomicSearchState<B: BoardTrait> {
     // This flag indicates that the engine should stop searching. It can be set by the UGI thread upon receiving a "stop"
     // command, or it can be set by the engine when a limiting stop condition is reached. It is not set upon exceeding the
     // max depth of an infinite search.
-    should_stop: AtomicBool,
+    pub(super) should_stop: AtomicBool,
     // True if the engine is currently searching. Note that if an infinite search reaches its internal end condition but
     // hasn't yet been stopped, this is set to false; the thread may still spin until it receives a stop.
     pub(super) currently_searching: AtomicBool,
@@ -296,7 +305,9 @@ impl<B: BoardTrait> EngineThread<B> {
     fn handle_input(&mut self, received: EngineReceives<B>) -> Res<bool> {
         match received {
             Search(params) => {
+                dbg_reset();
                 self.search(params);
+                dbg_print();
             }
             Quit => {
                 return Ok(true);
@@ -491,7 +502,8 @@ impl<B: BoardTrait> EngineWrapper<B> {
     fn start_search_with(&mut self, params: SearchParams<B>, threads: usize) -> Res<()> {
         assert_eq!(self.main_thread_data.atomic_search_data.len(), self.auxiliary.len() + 1);
         // Make sure that a `wait` command immediately following this `go` command will block until the search has finished.
-        params.atomic.set_searching(true);
+        debug_assert!(params.atomic.currently_searching());
+        debug_assert_eq!(params.atomic.nodes(), 0);
         for (i, o) in &mut self.auxiliary.iter_mut().enumerate().take(threads - 1) {
             Self::send_start_search(o, params.auxiliary(self.main_thread_data.atomic_search_data[i + 1].clone()))?;
         }
@@ -500,6 +512,7 @@ impl<B: BoardTrait> EngineWrapper<B> {
 
     fn send_start_search(sender: &mut Sender<EngineReceives<B>>, params: SearchParams<B>) -> Res<()> {
         debug_assert!(Arc::strong_count(&params.atomic) >= 2);
+        debug_assert_eq!(params.atomic.nodes(), 0);
         sender.send(Search(params)).map_err(|err| anyhow!(err.to_string()))
     }
 

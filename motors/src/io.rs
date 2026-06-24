@@ -23,53 +23,50 @@ mod input;
 pub mod ugi_output;
 
 use crate::eval::Eval;
-use crate::io::SearchType::*;
 use crate::io::ascii_art::print_as_ascii_art;
 use crate::io::cli::EngineOpts;
 use crate::io::command::Standard::Custom;
 use crate::io::command::{
-    AbstractGoState, CommandList, GoState, accept_depth, go_options, query_options, ugi_commands,
+    accept_depth, go_options, query_options, ugi_commands, AbstractGoState, CommandList, GoState,
 };
 use crate::io::input::Input;
 use crate::io::ugi_output::{
-    AbstractUgiOutput, UgiOutput, color_for_score, pretty_score, pretty_variation_simple, score_gradient, suffix_for,
+    color_for_score, pretty_score, pretty_variation_simple, score_gradient, suffix_for, AbstractUgiOutput, UgiOutput,
 };
+use crate::io::SearchType::*;
 use crate::search::multithreading::EngineWrapper;
-use crate::search::tt::{DEFAULT_HASH_SIZE_MIB, EndTTPvMove, TT, TTEntry};
-use crate::search::{EvalList, SearchParams, SearcherList, run_bench_with};
+use crate::search::tt::{EndTTPvMove, TTEntry, DEFAULT_HASH_SIZE_MIB, TT};
+use crate::search::{run_bench_with, EvalList, SearchParams, SearcherList};
 use crate::{create_engine_box_from_str, create_engine_from_str, create_eval_from_str, create_match};
-use gears::MatchStatus::*;
-use gears::ProgramStatus::{Quit, Run};
-use gears::Quitting::QuitProgram;
 use gears::cli::select_game;
 use gears::colored::Color::Red;
 use gears::colored::Colorize;
-use gears::games::CharType::Ascii;
 use gears::games::chess::UCI_CHESS960;
+use gears::games::CharType::Ascii;
 use gears::games::{
     AbstractPieceType, BoardHistDyn, ColorTrait, ColoredPieceTrait, ColoredPieceTypeTrait, OutputList, SizeTrait,
 };
 use gears::general::bitboards::RawBitboardTrait;
 use gears::general::board::Strictness::{Relaxed, Strict};
 use gears::general::board::{BoardHelpers, BoardTrait, ColPieceTypeOf, Strictness, Symmetry, UnverifiedBoardTrait};
-use gears::general::common::Description::{NoDescription, WithDescription};
 use gears::general::common::anyhow::{anyhow, bail, ensure};
+use gears::general::common::Description::{NoDescription, WithDescription};
 use gears::general::common::{
-    NamedEntity, parse_bool_from_str, parse_duration_ms, parse_int_from_str, select_name_static, tokens,
-    tokens_to_string,
+    parse_bool_from_str, parse_duration_ms, parse_int_from_str, select_name_static, tokens, tokens_to_string,
+    NamedEntity,
 };
 use gears::general::common::{Res, Tokens};
 use gears::general::moves::ExtendedFormat::{Alternative, Standard};
 use gears::general::moves::MoveTrait;
 use gears::general::perft::Bulkness::{Bulk, NoBulk};
 use gears::general::perft::Parallelize::{Parallel, SingleThreaded};
-use gears::general::perft::{SplitPerftRes, num_unique_positions_up_to, perft_for, split_perft};
+use gears::general::perft::{num_unique_positions_up_to, perft_for, split_perft, SplitPerftRes};
 use gears::itertools::Itertools;
 use gears::num::{Num, Zero};
-use gears::output::Message::*;
 use gears::output::logger::LoggerBuilder;
 use gears::output::pgn::parse_pgn;
-use gears::output::text_output::{AdaptFormatter, display_color};
+use gears::output::text_output::{display_color, AdaptFormatter};
+use gears::output::Message::*;
 use gears::output::{Message, OutputBox, OutputBuilder, OutputOpts};
 use gears::rand::rng;
 use gears::score::{Score, ScoreT};
@@ -78,12 +75,15 @@ use gears::ugi::EngineOptionName::*;
 use gears::ugi::EngineOptionType::*;
 use gears::ugi::Protocol::{Interactive, UGI};
 use gears::ugi::{
-    EngineOption, EngineOptionName, EngineOptionNameForProtocol, Protocol, UgiCheck, UgiCombo, UgiSpin, UgiString,
-    load_ugi_pos_simple,
+    load_ugi_pos_simple, EngineOption, EngineOptionName, EngineOptionNameForProtocol, Protocol, UgiCheck, UgiCombo, UgiSpin,
+    UgiString,
 };
+use gears::MatchStatus::*;
+use gears::ProgramStatus::{Quit, Run};
+use gears::Quitting::QuitProgram;
 use gears::{
-    AbstractRun, AbstractUgiPosState, GameState, MatchState, MatchStatus, PlayerResult, ProgramStatus, Quitting,
-    UgiPosState, output_builder_from_str,
+    output_builder_from_str, AbstractRun, AbstractUgiPosState, GameState, MatchState, MatchStatus, PlayerResult, ProgramStatus,
+    Quitting, UgiPosState,
 };
 use std::cell::RefCell;
 use std::collections::HashSet;
@@ -747,7 +747,8 @@ impl<B: BoardTrait> EngineUGI<B> {
                         self.output().write_ugi(&format_args!("# unique positions at depth {i}: {num_unique}",))
                     } else {
                         let parallelize = if threads == 1 { SingleThreaded } else { Parallel };
-                        let perft_res = perft_for(DepthPly::new(i), &positions, parallelize, pseudo_bulk);
+                        let hash = opts.override_hash_size.map(|n| n * (1 << 20));
+                        let perft_res = perft_for(DepthPly::new(i), &positions, parallelize, pseudo_bulk, hash);
                         self.output().write_ugi(&format_args!(
                             "{}{perft_res}",
                             if i == limit.depth.get() { String::new() } else { format!("depth {i}: ") }
@@ -768,7 +769,8 @@ impl<B: BoardTrait> EngineUGI<B> {
                 }
                 let pseudo_bulk = if opts.no_bulk { NoBulk } else { Bulk };
                 let parallelize = if threads == 1 { SingleThreaded } else { Parallel };
-                let res = split_perft(limit.depth, board, parallelize, pseudo_bulk);
+                let hash = opts.override_hash_size.map(|n| n * (1 << 20));
+                let res = split_perft(limit.depth, board, parallelize, pseudo_bulk, hash);
                 self.write_ugi(&format_args!("{res}"));
                 if self.go_state_mut().get_mut().compare {
                     compare_splitperft(self, res)?;
@@ -1313,7 +1315,7 @@ trait AbstractEngineUgiState: Debug {
 
     fn handle_go(&mut self, initial_search_type: SearchType, words: &mut Tokens) -> Res<()>;
 
-    fn handle_stop(&mut self, suppress_best_move: bool) -> Res<()>;
+    fn handle_stop(&mut self) -> Res<()>;
 
     fn handle_ponderhit(&mut self) -> Res<()>;
 
@@ -1450,10 +1452,10 @@ impl<B: BoardTrait> AbstractEngineUgiState for EngineUGI<B> {
         self.handle_go_impl(initial_search_type, words)
     }
 
-    fn handle_stop(&mut self, suppress_best_move: bool) -> Res<()> {
-        self.state.engine.send_stop(suppress_best_move);
+    fn handle_stop(&mut self) -> Res<()> {
+        self.state.engine.send_stop(false);
         if let Some(tmp) = &mut self.state.temp_engine {
-            tmp.send_stop(suppress_best_move);
+            tmp.send_stop(false);
         }
         Ok(())
     }
@@ -1973,7 +1975,7 @@ fn format_tt_entry<B: BoardTrait>(state: MatchState<B>, entry: TTEntry<B>, tt: T
         pretty_score(score, None, None, &score_gradient(), true, false),
         entry.bound(),
         pretty_score(entry.raw_eval(), None, None, &score_gradient(), true, false),
-        entry.depth.to_string().bold(),
+        entry.depth().to_string().bold(),
         entry.age(),
         move_string,
         pos.hash_pos(),
@@ -2218,6 +2220,8 @@ mod tests {
     use gears::rand::prelude::SliceRandom;
     use gears::rand::rngs::SmallRng;
     use gears::rand::{RngExt, SeedableRng};
+    use gears::search::NodeType;
+    use std::thread::yield_now;
 
     fn create_chess_game() -> Box<EngineUGI<chess::Board>> {
         let outputs = list_chess_outputs();
@@ -2303,6 +2307,30 @@ mod tests {
         sleep(Duration::from_millis(500));
         ugi.quit().unwrap(); // can't use handle_input("quit") because that gets ignored in fuzzing mode
         assert_eq!(ugi.state.status, Quit(QuitProgram));
+    }
+
+    #[test]
+    #[cfg(feature = "chess")]
+    fn chess_multithreading_test() {
+        let mut ugi = create_chess_game();
+        ugi.handle_input("p name lasker-reichhelm").unwrap();
+        ugi.handle_input("so threads 4").unwrap();
+        ugi.handle_input("go nodes 12345").unwrap();
+
+        let res = loop {
+            if let Some(r) = ugi.output().previous_search_res {
+                break r;
+            }
+            yield_now();
+        };
+        assert_eq!(res.pos, chess::Board::from_name("lasker-reichhelm").unwrap());
+        assert!(res.score > Score(0));
+        assert_eq!(res.chosen_move, chess::moves::Move::from_text("Kb1", &res.pos).unwrap());
+        let info = ugi.output().previous_exact_info().unwrap();
+        assert_eq!(info.pv_num, 0);
+        assert_eq!(info.score, res.score);
+        assert_eq!(info.num_threads, 4);
+        assert_eq!(info.bound, Some(NodeType::Exact));
     }
 
     #[test]

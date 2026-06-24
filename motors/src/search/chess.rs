@@ -196,7 +196,7 @@ mod tests {
     use std::sync::atomic::Ordering::SeqCst;
     use std::sync::atomic::fence;
     use std::thread::{sleep, spawn};
-    use std::time::{Duration, Instant};
+    use std::time::Duration;
 
     #[test]
     #[cfg(feature = "gaps")]
@@ -250,28 +250,22 @@ mod tests {
     }
 
     fn generic_search_test<E: Engine<Board>>(mut engine: E) {
-        let i = Instant::now();
         let fen = "7r/pBrkqQ1p/3b4/5b2/8/6P1/PP2PP1P/R1BR2K1 w - - 1 17";
         let board = Board::from_fen(fen, Strict).unwrap();
-        let res = engine.search_with_new_tt(board, SearchLimit::mate(DepthPly::new(5)));
+        let res = engine.search_with_new_tt(board, SearchLimit::mate_in_ply(5));
         assert_eq!(
             res.chosen_move,
             Move::new(Square::from_str("d1").unwrap(), Square::from_str("d6").unwrap(), MoveFlags::NormalCapture)
         );
         assert_eq!(res.score, SCORE_WON - 3);
 
-        println!("{}", i.elapsed().as_millis());
         game_over_test(&mut engine);
-        println!("{}", i.elapsed().as_millis());
         avoid_repetition(&mut engine);
-        println!("{}", i.elapsed().as_millis());
         mate_beats_repetition(&mut engine);
-        println!("{}", i.elapsed().as_millis());
         underpromo(&mut engine);
-        println!("{}", i.elapsed().as_millis());
+        go_mated(&mut engine);
 
         two_threads_test::<E>();
-        println!("{}", i.elapsed().as_millis());
     }
 
     fn avoid_repetition<E: Engine<Board>>(engine: &mut E) {
@@ -307,6 +301,15 @@ mod tests {
         let score = res.score;
         assert_eq!(score.plies_until_game_won(), Some(1), "{score}");
         assert_eq!(res.chosen_move, Move::from_text("d2a2", &pos).unwrap());
+    }
+
+    fn go_mated<E: Engine<Board>>(engine: &mut E) {
+        let pos = Board::from_fen("8/8/8/8/2r5/1k6/8/K7 w - - 0 1", Strict).unwrap();
+        let res = engine.search_with_new_tt(pos, SearchLimit::mate_in_moves(-2));
+        let score = res.score;
+        assert_eq!(score, SCORE_LOST + 4);
+        let mov = res.chosen_move;
+        assert_eq!(mov, Move::from_text("Kb1", &pos).unwrap());
     }
 
     fn underpromo<E: Engine<Board>>(engine: &mut E) {
@@ -505,10 +508,7 @@ mod tests {
             assert!(pv_data[1].score <= game_result_to_score(Win, 3));
             assert!(pv_data[1].score >= Score(1000));
             let second_best_move = Move::from_extended_text("e1Q+", &pos).unwrap();
-            assert_eq!(
-                pv_data[1].pv.list.first() == Some(&second_best_move),
-                pv_data[1].score == game_result_to_score(Win, 3)
-            );
+            assert_eq!(pv_data[1].pv.list.first() == Some(&second_best_move), pv_data[1].score.is_game_won_score());
             assert!(pv_data[2].score >= Score(700));
             assert!(!pv_data[2].pv.list.is_empty());
         }

@@ -127,8 +127,9 @@ pub struct ClientEngineCliArgs {
     /// Limit the depth the engine searches to.
     pub depth: Option<DepthPly>,
 
-    /// Try to find a mate in n *moves* (not plies), searches forever if there isn't one (unless another limit is also specified)
-    pub mate: Option<DepthPly>,
+    /// Try to find a mate in n *moves* (not plies), searches forever if there isn't one (unless another limit is also specified).
+    /// A negative values means that we are getting mated.
+    pub mate: Option<isize>,
 
     /// Limit the engine to the given number of nodes
     pub nodes: Option<NonZeroU64>,
@@ -234,7 +235,7 @@ pub fn parse_engine<Iter: Iterator<Item = String>>(args: &mut Peekable<Iter>) ->
             "bookdepth" => todo!(),
             "whitepov" => res.white_pov = true,
             "depth" => res.depth = Some(DepthPly::try_new(parse_int_from_str(value?, "depth")?)?),
-            "mate" => res.mate = Some(DepthPly::try_new(parse_int_from_str(value?, "mate")?)?),
+            "mate" => res.mate = Some(parse_int_from_str(value?, "mate")?),
             "nodes" => res.nodes = Some(nonzero_u64(parse_int_from_str(value?, "nodes")?, "nodes")?),
             "ponder" => todo!("'ponder' isn't yet implemented"),
             "tscale" => todo!("'tscale' isn't yet implemented"),
