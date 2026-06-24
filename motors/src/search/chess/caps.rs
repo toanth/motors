@@ -660,7 +660,6 @@ impl Caps {
         // If we didn't get a move from the TT and there's no best_move to store because the node failed low,
         // store a null move in the TT. This helps IIR.
         let mut best_move = Move::default();
-        let mut tt_bound = None;
         // Don't initialize eval just yet to save work in case we get a TT cutoff
         let raw_eval;
         let mut eval;
@@ -670,7 +669,6 @@ impl Caps {
         if let Some(tt_entry) = old_entry
             && !ignore_tt_entry
         {
-            tt_bound = Some(tt_entry.bound());
             let tt_bound = tt_entry.bound();
             debug_assert!(tt_entry.hash_part().equals(pos.hash_pos()));
 
@@ -1015,11 +1013,12 @@ impl Caps {
                         singular_beta,
                         FailLow,
                         Some(best_move),
-                    )?;
+                    );
                     self.search_stack[ply].tried_moves.clear();
+                    first_child_depth += (singular_score? < singular_beta) as isize * 128;
                     self.record_move(mov, pos, ply, move_score);
-
-                    first_child_depth += (singular_score < singular_beta) as isize * 128;
+                    #[cfg(debug_assertions)]
+                    debug_assert_eq!(self.params.history.len(), debug_history_len + 1);
                 }
 
                 let child_node_type = expected_node_type.inverse();
