@@ -729,7 +729,10 @@ impl Caps {
         } else if in_singular_search {
             eval = self.search_stack[ply].eval;
             debug_assert!(!eval.is_won_or_lost());
-            raw_eval = old_entry.unwrap().raw_eval();
+            raw_eval = match old_entry {
+                Some(e) => e.raw_eval(),
+                None => self.eval(pos, ply), // this can happen if another thread overwrites the TT entry
+            };
         } else {
             raw_eval = self.eval(pos, ply);
             eval = self.state.custom.corr_hist.correct(pos, continued, raw_eval);
