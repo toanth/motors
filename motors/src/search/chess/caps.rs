@@ -175,7 +175,7 @@ impl Engine<Board> for Caps {
             self,
             self.eval.as_ref(),
             "0.1.0",
-            DepthPly::new(15),
+            DepthPly::new(14),
             NodesLimit::new(20_000).unwrap(),
             None,
             options,
@@ -475,7 +475,7 @@ impl Caps {
             needs_final_info = true;
 
             let asp_start_time = Instant::now();
-            let Some(pv_score) = self.negamax(pos, 0, aw_budget, alpha, beta, Exact) else {
+            let Some(pv_score) = self.negamax(pos, 0, aw_budget, alpha, beta, Exact, None) else {
                 send_debug_msg!(
                     self,
                     "Exiting aw window after reaching a stop condition in negamax, after {} microseconds",
@@ -573,6 +573,7 @@ impl Caps {
         mut alpha: Score,
         mut beta: Score,
         mut expected_node_type: NodeType,
+        excluded_move: Option<Move>,
     ) -> Option<Score> {
         debug_assert!(alpha < beta, "{alpha} {beta} {pos} {ply} {depth}");
         debug_assert!([MIN_ALPHA, alpha, beta, MAX_BETA].is_sorted(), "{alpha} {beta} {ply} {depth} {pos}");
@@ -596,6 +597,7 @@ impl Caps {
         }
 
         let mut best_score = NO_SCORE_YET;
+        let in_singular_search = excluded_move.is_some();
 
         // Always search all children at the root, even for draws or if a search limit has been reached
         if !root {
@@ -660,8 +662,8 @@ impl Caps {
         // Don't initialize eval just yet to save work in case we get a TT cutoff
         let raw_eval;
         let mut eval;
-        // the TT entry at the root is useless when doing an actual multipv search
-        let ignore_tt_entry = root && self.multi_pvs.len() > 1;
+        // the TT entry at the root is useless when doing a multipv search with pv num > 1
+        let ignore_tt_entry = (root && self.multi_pvs.len() > 1) || in_singular_search;
         let old_entry = self.tt().load::<Board>(pos.hash_pos(), ply);
         if let Some(tt_entry) = old_entry
             && !ignore_tt_entry
@@ -723,6 +725,13 @@ impl Caps {
             {
                 eval = tt_score;
             }
+        } else if in_singular_search {
+            eval = self.search_stack[ply].eval;
+            debug_assert!(!eval.is_won_or_lost());
+            raw_eval = match old_entry {
+                Some(e) => e.raw_eval(),
+                None => self.eval(pos, ply), // this can happen if another thread overwrites the TT entry
+            };
         } else {
             raw_eval = self.eval(pos, ply);
             eval = self.state.custom.corr_hist.correct(pos, continued, raw_eval);
@@ -747,7 +756,7 @@ impl Caps {
         // *********************************************************
 
         let mut nmp_verif_score = None;
-        if can_prune {
+        if can_prune && !in_singular_search {
             // RFP (Reverse Futility Pruning): If eval is far above beta, it's likely that our opponent
             // blundered in a previous move of the search, so if the depth is low, don't even bother searching further.
             // Use `they_blundered` to better distinguish between blunders by our opponent and a generally good static eval
@@ -831,7 +840,7 @@ impl Caps {
                     + isize::from(they_blundered) * cc::nmp_blunder()
                     + (eval - nmp_threshold + 1).0.ilog2().saturating_sub(8) as isize * 128;
                 // the child node is expected to fail low, leading to a fail high in this node
-                let nmp_res = self.negamax(&new_pos, ply + 1, depth - reduction, -beta, -beta + 1, FailLow);
+                let nmp_res = self.negamax(&new_pos, ply + 1, depth - reduction, -beta, -beta + 1, FailLow, None);
                 _ = self.search_stack[ply].tried_moves.pop();
                 self.params.history.pop();
                 let score = -nmp_res?;
@@ -845,7 +854,7 @@ impl Caps {
                     }
                     *self.nmp_disabled_for(us) = true;
                     // even though we don't do a null move, we still use the same reduction
-                    nmp_verif_score = self.negamax(pos, ply, depth - reduction, beta - 1, beta, FailHigh);
+                    nmp_verif_score = self.negamax(pos, ply, depth - reduction, beta - 1, beta, FailHigh, None);
                     self.search_stack[ply].tried_moves.clear();
                     *self.nmp_disabled_for(us) = false;
                     // The verification score is more trustworthy than the nmp score.
@@ -864,7 +873,7 @@ impl Caps {
             && eval >= beta + Score(32 * (depth / 128) as ScoreT) && !in_check && !root && nmp_verif_score.is_none()
         {
             let reduction = (depth / 128) / 2 * 128; // TODO: Turn into multiplcation with constant (changes bench)
-            let score = self.negamax(pos, ply, depth - 128 - reduction, beta - 1, beta, FailHigh)?;
+            let score = self.negamax(pos, ply, depth - 128 - reduction, beta - 1, beta, FailHigh, None)?;
             if score >= beta {
                 depth -= cc::rfr_reduction();
             }
@@ -958,7 +967,7 @@ impl Caps {
                 }
             }
 
-            if root && self.excluded_moves.contains(&mov) {
+            if (root && self.excluded_moves.contains(&mov)) || excluded_move == Some(mov) {
                 continue;
             }
             let new_pos = pos.play(mov);
@@ -988,14 +997,47 @@ impl Caps {
             let mut child_alpha = -beta;
             let child_beta = -alpha;
             if first_child {
+                // Singular Extensions (SE): If the TT move is far better than all other moves, extend it. To find out whether that is
+                // the case, search all other moves to a low depth.
+                let mut first_child_depth = child_depth - cc::first_child_reduction();
+                if let Some(e) = old_entry
+                    && depth >= 8 * 128
+                    && mov == best_move
+                    && e.bound() != FailLow
+                    && e.depth() as isize >= depth - 3 * 128
+                    && !e.score().is_won_or_lost()
+                    && !root
+                {
+                    debug_assert!(!in_singular_search);
+                    self.search_stack[ply].tried_moves.clear();
+                    self.params.history.pop();
+                    let reduced_depth = (first_child_depth / 128 / 2) * 128;
+                    let singular_beta = (e.score() - Score(3 * depth as ScoreT / 128)).max(MIN_NORMAL_SCORE + 1);
+                    let singular_score = self.negamax(
+                        pos,
+                        ply,
+                        reduced_depth,
+                        singular_beta - 1,
+                        singular_beta,
+                        FailLow,
+                        Some(best_move),
+                    );
+                    self.search_stack[ply].tried_moves.clear();
+                    first_child_depth += (singular_score? < singular_beta) as isize * 128;
+                    self.record_move(mov, pos, ply, move_score);
+                    #[cfg(debug_assertions)]
+                    debug_assert_eq!(self.params.history.len(), debug_history_len + 1);
+                }
+
                 let child_node_type = expected_node_type.inverse();
                 score = -self.negamax(
                     &new_pos,
                     ply + 1,
-                    child_depth - cc::first_child_reduction(),
+                    first_child_depth,
                     child_alpha,
                     child_beta,
                     child_node_type,
+                    None,
                 )?;
             } else {
                 child_alpha = -(alpha + 1);
@@ -1056,7 +1098,15 @@ impl Caps {
                 // this ensures that check extensions prevent going into qsearch while in check
                 reduction = reduction.min(child_depth).max(0);
 
-                score = -self.negamax(&new_pos, ply + 1, child_depth - reduction, child_alpha, child_beta, FailHigh)?;
+                score = -self.negamax(
+                    &new_pos,
+                    ply + 1,
+                    child_depth - reduction,
+                    child_alpha,
+                    child_beta,
+                    FailHigh,
+                    None,
+                )?;
                 // If the score turned out to be better than expected (at least `alpha`), this might just be because
                 // of the reduced depth. So do a full-depth search first, but don't use the full window quite yet.
                 if alpha < score && reduction >= cc::min_reduction_research() {
@@ -1069,7 +1119,7 @@ impl Caps {
                         retry_depth -= cc::do_shallower_val();
                     }
                     // we still expect the child to fail high here
-                    score = -self.negamax(&new_pos, ply + 1, retry_depth, child_alpha, child_beta, FailHigh)?;
+                    score = -self.negamax(&new_pos, ply + 1, retry_depth, child_alpha, child_beta, FailHigh, None)?;
                 }
 
                 // If the full-depth null-window search performed better than expected, do a full-depth search with the
@@ -1085,6 +1135,7 @@ impl Caps {
                         -beta,
                         -alpha,
                         Exact,
+                        None,
                     )?;
                 }
             }
@@ -1173,21 +1224,28 @@ impl Caps {
         // ******************************************************
 
         if self.search_stack[ply].tried_moves.is_empty() {
+            if excluded_move.is_some() {
+                // We didn't look at all the moves, so don't return an incorrect checkmate score.
+                // But we still want to fail low.
+                debug_assert!(alpha >= MIN_NORMAL_SCORE);
+                return Some(alpha);
+            }
             // TODO: Test storing to the TT
             return Some(game_result_to_score(pos.no_moves_result().unwrap(), ply));
         }
 
-        let tt_entry: TTEntry<Board> =
-            TTEntry::new(pos.hash_pos(), best_score, raw_eval, best_move, depth, bound_so_far, self.age());
+        if !(root && self.current_pv_num > 0) && !in_singular_search {
+            // Store the results in the TT, always replacing the previous entry. Note that the TT move is only overwritten
+            // if this node was an exact or fail high node or if there was a collision.
+            let tt_entry: TTEntry<Board> =
+                TTEntry::new(pos.hash_pos(), best_score, raw_eval, best_move, depth, bound_so_far, self.age());
 
-        // Store the results in the TT, always replacing the previous entry. Note that the TT move is only overwritten
-        // if this node was an exact or fail high node or if there was a collision.
-        if !(root && self.current_pv_num > 0) {
             self.tt_mut().store(tt_entry, pos.hash_pos(), ply);
         }
 
         // Corrhist updates
         if !(in_check
+            || in_singular_search
             || (!best_move.is_null() && best_move.is_tactical(pos))
             || (best_score <= eval && bound_so_far == NodeType::lower_bound())
             || (best_score >= eval && bound_so_far == NodeType::upper_bound()))
