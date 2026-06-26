@@ -67,11 +67,6 @@ spsa_params![
     fp_base: isize = 288 * 1024; 0..=800 * 1024; step=32 * 1024;
     fp_scale: isize = 58 * 8; 1..=512 * 8; step=16;
     max_fp_depth: isize = 6 * 128; 1..=16_384; step=64;
-    noisy_fp_blunder_base: isize = 128 * 1024; 0..=512 * 1024; step=32 * 1024;
-    noisy_fp_blunder_scale: isize = 16 * 8; 1..=256 * 8; step=16;
-    noisy_fp_base: isize = 128 * 1024; 0..=800 * 1024; step=32 * 1024;
-    noisy_fp_scale: isize = 32 * 8; 1..=512 * 8; step=16;
-    max_noisy_fp_depth: isize = 5 * 128; 1..=16_384; step=64;
     lmp_blunder_base: isize = 2048; 0..=32 * 1024; step=512;
     lmp_blunder_scale: isize = 8; 0..=128; step=4;
     lmp_base: isize = 4096; 0..=64 * 1024; step=512;
