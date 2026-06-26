@@ -15,21 +15,22 @@
  *  You should have received a copy of the GNU General Public License
  *  along with Motors. If not, see <https://www.gnu.org/licenses/>.
  */
-use crate::eval::Eval;
 use crate::eval::rand_eval::RandEval;
+use crate::eval::Eval;
+use crate::search::multithreading::ThreadData;
 use crate::search::{
-    AbstractSearchState, BenchResult, DEFAULT_CHECK_TIME_INTERVAL, EmptySearchStackEntry, Engine, EngineInfo,
-    NoCustomInfo, PVData, SearchParams,
+    AbstractSearchState, BenchResult, EmptySearchStackEntry, Engine, EngineInfo, NoCustomInfo,
+    PVData, SearchParams, DEFAULT_CHECK_TIME_INTERVAL,
 };
-use gears::PlayerResult;
 use gears::games::{BoardHistDyn, ColorTrait, PosHash, ZobristHistory2Fold};
 use gears::general::board::{BoardHelpers, BoardTrait};
 use gears::general::common::StaticallyNamedEntity;
 use gears::general::move_list::MoveListTrait;
 use gears::itertools::Itertools;
-use gears::score::{SCORE_LOST, SCORE_WON, Score};
+use gears::score::{Score, SCORE_LOST, SCORE_WON};
 use gears::search::NodeType::Exact;
 use gears::search::{Budget, DepthPly, NodesLimit, SearchInfo, SearchResult};
+use gears::PlayerResult;
 use std::cmp::min;
 use std::fmt::Display;
 use std::time::Instant;
@@ -63,16 +64,18 @@ pub struct ProofNumberSearcher<B: BoardTrait> {
     tt: Vec<Node>,
     root_player: B::Color,
     params: SearchParams<B>,
+    thread_data: ThreadData<B>,
     start_time: Instant,
     history: ZobristHistory2Fold,
 }
 
 impl<B: BoardTrait> ProofNumberSearcher<B> {
-    pub fn new(num_tt_entries: usize) -> Self {
+    pub fn new_with_tt_entries(num_tt_entries: usize, thread_data: ThreadData<B>) -> Self {
         Self {
             tt: vec![Node::default(); num_tt_entries],
             root_player: B::Color::first(),
             params: SearchParams::default(),
+            thread_data,
             start_time: Instant::now(),
             // discard positions encountered before starting the search
             history: ZobristHistory2Fold::default(),
@@ -109,10 +112,10 @@ impl<B: BoardTrait> ProofNumberSearcher<B> {
         let mut work = 1;
         let mut move_idx = usize::MAX;
         // TODO: Collect into arrayvec or similar instead, or better use the smallvec crate, also for some movelists
-        let nodes = self.params.atomic.count_node();
+        let nodes = self.thread_data.this_thread().count_node();
         if nodes >= self.limit().nodes.get()
             || (nodes.is_multiple_of(DEFAULT_CHECK_TIME_INTERVAL)
-                && (self.start_time.elapsed() >= self.params.limit.fixed_time || self.params.atomic.stop_flag()))
+                && (self.start_time.elapsed() >= self.params.limit.fixed_time || self.thread_data.shared.stop_flag()))
         {
             return None;
         }
@@ -285,8 +288,12 @@ impl<B: BoardTrait> AbstractSearchState<B> for ProofNumberSearcher<B> {
     fn end_search(&mut self, res: &mut SearchResult<B>) {
         // normal searchers spin until they receive an explicit `stop` when asked to do an infinite search,
         // but this isn't useful for a proof number search.
-        self.params.atomic.set_stop(true);
-        self.params.end_and_send(res);
+        self.thread_data.shared.set_stop();
+        self.thread_data.end_and_send(res, self.start_time);
+    }
+
+    fn thread_data(&self) -> &ThreadData<B> {
+        &self.thread_data
     }
 
     fn search_params(&self) -> &SearchParams<B> {
@@ -318,12 +325,12 @@ impl<B: BoardTrait> Engine<B> for ProofNumberSearcher<B> {
     type SearchStackEntry = EmptySearchStackEntry;
     type CustomInfo = NoCustomInfo;
 
-    fn with_eval(_eval: Box<dyn Eval<B>>) -> Self
+    fn new(thread_data: ThreadData<B>, _eval: Box<dyn Eval<B>>) -> Self
     where
         Self: Sized,
     {
         // TODO: Use eval for leaf proof numbers
-        Self::new(DEFAULT_NUM_TT_ENTRIES)
+        Self::new_with_tt_entries(DEFAULT_NUM_TT_ENTRIES, thread_data)
     }
 
     fn static_eval(&mut self, _pos: &B, _ply: usize) -> Score {
@@ -365,14 +372,14 @@ impl<B: BoardTrait> Engine<B> for ProofNumberSearcher<B> {
 
             let pv = self.reconstruct_pv(&root);
             let mov = pv[0];
-            if let Some(mut o) = self.params.thread_type.output() {
+            if let Some(mut o) = self.thread_data.thread_type.output() {
                 let info = SearchInfo {
                     best_move_of_all_pvs: mov,
                     iterations: DepthPly::new(1),
                     budget: Budget::new(1),
                     seldepth: DepthPly::new(1),
                     time: self.start_time.elapsed(),
-                    nodes: NodesLimit::new(self.params.atomic.nodes()).unwrap(),
+                    nodes: NodesLimit::new(self.uci_nodes()).unwrap(),
                     pv_num: 0,
                     max_num_pvs: 1,
                     pv: &pv,
@@ -398,15 +405,15 @@ impl<B: BoardTrait> Engine<B> for ProofNumberSearcher<B> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use gears::games::chess::Board;
     use gears::games::chess::moves::Move;
+    use gears::games::chess::Board;
     use gears::general::board::Strictness::Strict;
     use gears::general::moves::MoveTrait;
 
     #[test]
     fn simple_dfpn_chess_test() {
         let pos = Board::from_name("mate_in_1").unwrap();
-        let mut searcher = ProofNumberSearcher::new(1024 * 1024);
+        let mut searcher = ProofNumberSearcher::new_with_tt_entries(1024 * 1024, ThreadData::single_and_no_output());
         let res = searcher.try_find_move(pos);
         // Rh6 leads to a variation where every move of the opponent is forced, so it's considered equally expensive as a mate in 1
         // (Rh4 would too, but that would result in a repeated position)
@@ -445,7 +452,7 @@ mod tests {
     #[test]
     fn tt_size_1_test() {
         let pos = Board::from_name("mate_in_1").unwrap();
-        let mut searcher = ProofNumberSearcher::new(1);
+        let mut searcher = ProofNumberSearcher::new_with_tt_entries(1, ThreadData::single_and_no_output());
         let res = searcher.try_find_move(pos);
         let acceptable = [Move::from_text("Ra7#", &pos).unwrap(), Move::from_text("Rh6", &pos).unwrap()];
         assert!(matches!(res, Some((true, _))));
