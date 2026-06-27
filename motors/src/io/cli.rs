@@ -17,12 +17,12 @@
  */
 use crate::Mode;
 use crate::Mode::{Bench, Engine, Perft};
-use gears::OutputArgs;
-use gears::cli::{ArgIter, Game, get_next_arg, get_next_int, parse_output};
+use gears::cli::{get_next_arg, get_next_int, parse_output, ArgIter, Game};
 use gears::colored::Colorize;
 use gears::general::common::anyhow::bail;
-use gears::general::common::{Res, parse_int_from_str};
+use gears::general::common::{parse_int_from_str, Res};
 use gears::search::DepthPly;
+use gears::OutputArgs;
 use std::env;
 use std::process::exit;
 use std::str::FromStr;
@@ -95,7 +95,7 @@ fn parse_pos(args: &mut ArgIter) -> String {
     res
 }
 
-fn parse_option(args: &mut ArgIter, opts: &mut EngineOpts) -> Res<()> {
+fn parse_option(args: &mut ArgIter, opts: &mut EngineOpts, cmd: &mut String) -> Res<()> {
     let mut key = args.next().unwrap_or_default().clone();
     // since we already accept -<long> in monitors for cutechess compatibility,
     // we might as well also accept it in motors.
@@ -118,9 +118,10 @@ fn parse_option(args: &mut ArgIter, opts: &mut EngineOpts) -> Res<()> {
             print_help();
             exit(0);
         }
-        x => bail!(
-            "Unrecognized option '{x}'. Only 'bench', 'bench-simple', 'perft', '--engine', '--game', '--debug' and '--outputs' are valid."
-        ),
+        x => {
+            *cmd += x;
+            cmd.push_str(" ");
+        }
     }
     Ok(())
 }
@@ -130,8 +131,20 @@ pub fn parse_cli(mut args: ArgIter) -> Res<EngineOpts> {
     if env::var("NO_COLOR").is_ok() {
         res.interactive = false;
     }
+    let mut cmd = String::new();
     while args.peek().is_some() {
-        parse_option(&mut args, &mut res)?;
+        parse_option(&mut args, &mut res, &mut cmd)?;
+    }
+    if !cmd.is_empty() {
+        if res.cmd.is_none() {
+            res.cmd = Some(cmd);
+        } else {
+            bail!(
+                "Unrecognized options '{0}', but they are not interpreted as commands because the `{1}` option is present",
+                cmd.red(),
+                "--cmd".bold()
+            )
+        }
     }
     Ok(res)
 }
