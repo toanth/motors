@@ -425,7 +425,7 @@ impl<B: BoardTrait> EngineUGI<B> {
             failed_cmd: None,
         };
         if res.debug_mode() {
-            res.handle_debug_impl(&mut tokens(""), false)?;
+            res.handle_debug_impl(true, false)?;
         }
         if let Some(cmd) = opts.cmd {
             for line in cmd.split(';') {
@@ -630,6 +630,10 @@ impl<B: BoardTrait> EngineUGI<B> {
                     .engine
                     .set_option(name.clone(), value.clone())
                     .or_else(|err| if name.name == Threads && value == "1" { Ok(()) } else { Err(err) })?;
+            }
+            DebugOutput => {
+                let value = parse_bool_from_str(&value, "debug option")?;
+                self.handle_debug_impl(value, true)?;
             }
         }
         Ok(())
@@ -1062,39 +1066,34 @@ impl<B: BoardTrait> EngineUGI<B> {
     }
 
     #[cold]
-    fn handle_debug_impl(&mut self, words: &mut Tokens, show: bool) -> Res<()> {
-        match words.next().unwrap_or("on") {
-            "on" => {
-                self.state.debug_mode = true;
-                // make sure to print all the messages that can be sent (adding an existing output is a no-op)
-                self.handle_output_impl(&mut tokens("error"), false)?;
-                self.handle_output_impl(&mut tokens("debug"), false)?;
-                self.handle_output_impl(&mut tokens("info"), false)?;
-                self.output().set_debug(true);
-                if show {
-                    self.print_board(OutputOpts::default());
-                }
-                self.write_message(Debug, &format_args!("Debug mode enabled"));
-                // don't change the log stream if it's already set
-                if self.output().additional_outputs.iter().any(|o| o.is_logger()) {
-                    Ok(())
-                } else {
-                    // In case of an error here, still keep the debug mode set.
-                    self.handle_log(&mut tokens(""))
-                        .map_err(|err| anyhow!("Couldn't set the debug log file: '{err}'"))?;
-                    Ok(())
-                }
+    fn handle_debug_impl(&mut self, value: bool, show: bool) -> Res<()> {
+        if value {
+            self.state.debug_mode = true;
+            // make sure to print all the messages that can be sent (adding an existing output is a no-op)
+            self.handle_output_impl(&mut tokens("error"), false)?;
+            self.handle_output_impl(&mut tokens("debug"), false)?;
+            self.handle_output_impl(&mut tokens("info"), false)?;
+            self.output().set_debug(true);
+            if show {
+                self.print_board(OutputOpts::default());
             }
-            "off" => {
-                self.state.debug_mode = false;
-                _ = self.handle_output(&mut tokens("remove debug"));
-                _ = self.handle_output(&mut tokens("remove info"));
-                self.write_message(Debug, &format_args!("Debug mode disabled"));
-                self.output().set_debug(false);
-                // don't remove the error output, as there is basically no reason to do so
-                self.handle_log(&mut tokens("none"))
+            self.write_message(Debug, &format_args!("Debug mode enabled"));
+            // don't change the log stream if it's already set
+            if self.output().additional_outputs.iter().any(|o| o.is_logger()) {
+                Ok(())
+            } else {
+                // In case of an error here, still keep the debug mode set.
+                self.handle_log(&mut tokens("")).map_err(|err| anyhow!("Couldn't set the debug log file: '{err}'"))?;
+                Ok(())
             }
-            x => bail!("Invalid debug option '{x}'"),
+        } else {
+            self.state.debug_mode = false;
+            _ = self.handle_output(&mut tokens("remove debug"));
+            _ = self.handle_output(&mut tokens("remove info"));
+            self.write_message(Debug, &format_args!("Debug mode disabled"));
+            self.output().set_debug(false);
+            // don't remove the error output, as there is basically no reason to do so
+            self.handle_log(&mut tokens("none"))
         }
     }
 
@@ -1268,6 +1267,7 @@ impl<B: BoardTrait> EngineUGI<B> {
                     default: Some(eval_name.clone()),
                     options: self.eval_factories.iter().map(|e| e.short_name()).collect_vec(),
                 }),
+                DebugOutput => Check(UgiCheck { val: self.debug_mode(), default: Some(false) }),
                 Other(_) => continue,
             };
             let name = EngineOptionNameForProtocol { name: opt, proto: self.protocol() };
@@ -1483,7 +1483,8 @@ impl<B: BoardTrait> AbstractEngineUgiState for EngineUGI<B> {
     }
 
     fn handle_debug(&mut self, words: &mut Tokens) -> Res<()> {
-        self.handle_debug_impl(words, true)
+        let value = parse_bool_from_str(words.next().unwrap_or("on"), "debug option")?;
+        self.handle_debug_impl(value, true)
     }
 
     fn handle_log(&mut self, words: &mut Tokens) -> Res<()> {

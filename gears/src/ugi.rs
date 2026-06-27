@@ -1,5 +1,5 @@
 use crate::general::board::{BoardHelpers, BoardTrait, Strictness};
-use crate::general::common::{NamedEntity, Res, Tokens, TokensToString, tokens, tokens_to_string};
+use crate::general::common::{tokens, tokens_to_string, NamedEntity, Res, Tokens, TokensToString};
 use crate::general::moves::MoveTrait;
 use crate::output::pgn::parse_pgn_moves_format;
 use crate::ugi::Protocol::Interactive;
@@ -147,6 +147,7 @@ pub enum EngineOptionName {
     Contempt,
     SetEngine,
     SetEval,
+    DebugOutput,
     Other(String),
 }
 
@@ -202,6 +203,9 @@ impl NamedEntity for EngineOptionNameForProtocol {
             EngineOptionName::SetEval => {
                 "Change the current evaluation function without resetting the engine state, such as clearing the TT"
             }
+            EngineOptionName::DebugOutput => {
+                "Make the engine print *a lot* of debug information to stderr. Same as passing `--debug` on the command line."
+            }
             EngineOptionName::Other(name) => return Some(format!("Custom option named '{name}'")),
         };
         Some(res.to_string())
@@ -237,6 +241,7 @@ impl EngineOptionName {
             EngineOptionName::Contempt => "Contempt".to_string(),
             EngineOptionName::SetEngine => "Engine".to_string(),
             EngineOptionName::SetEval => "SetEval".to_string(),
+            EngineOptionName::DebugOutput => "Debug".to_string(),
             EngineOptionName::Other(x) => x.clone(),
         }
     }
