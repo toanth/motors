@@ -13,6 +13,7 @@ use crate::search::chess::caps_values::cc;
 use crate::search::chess::histories::{ContHist, HistScoreT, HIST_DIVISOR};
 use crate::search::chess::move_picker::{MovePicker, MovePickerStage, BAD_SEE_OFFSET};
 use crate::search::chess::*;
+use crate::search::multithreading::ThreadData;
 use crate::search::tt::{ttc, TTEntry};
 use crate::search::{
     AbstractSearchState, Engine, EngineInfo, MoveScore, NormalEngine, PVData, SearchState, SearchStateFor,
@@ -67,7 +68,8 @@ pub struct Caps {
 
 impl Default for Caps {
     fn default() -> Self {
-        Self::with_eval(Box::new(DefaultEval::default()))
+        let thread_data = ThreadData::single_and_no_output();
+        Self::new(thread_data, Box::new(DefaultEval::default()))
     }
 }
 
@@ -114,9 +116,9 @@ impl Engine<Board> for Caps {
     type SearchStackEntry = CapsSearchStackEntry;
     type CustomInfo = CapsCustomInfo;
 
-    fn with_eval(eval: Box<dyn Eval<Board>>) -> Self {
+    fn new(thread_data: ThreadData<Board>, eval: Box<dyn Eval<Board>>) -> Self {
         let precomputed = Precomputed { upcoming_repetition: &UPCOMING_REPETITION_TABLE, bitbase: &PAWN_V_KING_TABLE };
-        Self { state: SearchState::new(DepthPly::new(SEARCH_STACK_LEN)), eval, precomputed }
+        Self { state: SearchState::new(thread_data, DepthPly::new(SEARCH_STACK_LEN)), eval, precomputed }
     }
 
     fn static_eval(&mut self, pos: &Board, ply: usize) -> Score {
@@ -167,8 +169,6 @@ impl Engine<Board> for Caps {
 
     fn engine_info(&self) -> EngineInfo {
         let mut options = cc::ugi_options();
-        options.append(&mut lc::ugi_options());
-        options.append(&mut ttc::ugi_options());
         options.append(&mut lc::ugi_options());
         options.append(&mut ttc::ugi_options());
         EngineInfo::new(
@@ -332,8 +332,8 @@ impl Caps {
     }
 
     fn send_search_info(&self, final_info: bool) {
-        let info = self.to_search_info(final_info);
-        if let Some(mut output) = self.search_params().thread_type.output() {
+        if let Some(mut output) = self.thread_data.thread_type.output() {
+            let info = self.to_search_info(final_info);
             output.write_search_info(info);
         }
     }
@@ -366,27 +366,26 @@ impl Caps {
                 self.current_pv_num = pv_num;
                 self.cur_pv_data_mut().bound = None;
                 let scaled_soft_limit = soft_limit.mul_f64(soft_limit_scale);
-                self.state.params.atomic.reset_seldepth();
+                self.atomic().reset_seldepth();
                 let (keep_searching, needs_final_info, score) =
                     self.aspiration(pos, scaled_soft_limit, iter, budget as isize);
 
-                let atomic = &self.state.params.atomic;
                 let pv = &self.state.search_stack[0].pv;
 
                 if !pv.is_empty() {
                     if self.current_pv_num == 0 {
                         let chosen_move = pv.get(0).unwrap();
                         let ponder_move = pv.get(1);
-                        atomic.set_best_move(chosen_move);
-                        atomic.set_ponder_move(ponder_move);
+                        self.atomic().set_best_move(chosen_move);
+                        self.atomic().set_ponder_move(ponder_move);
                     }
                     self.state.multi_pvs[self.state.current_pv_num].pv.assign_from(pv);
                     if let Some(score) = score {
                         debug_assert!(score.is_valid());
                         if pv_num == 0 {
-                            atomic.set_score(score);
+                            self.atomic().set_score(score);
                         } else {
-                            _ = atomic.get_score().fetch_max(score.0, Relaxed);
+                            _ = self.atomic().get_score().fetch_max(score.0, Relaxed);
                         }
                     }
                 }
@@ -399,7 +398,7 @@ impl Caps {
                 }
             }
             self.state.excluded_moves.truncate(self.excluded_moves.len() - multi_pv);
-            let chosen = self.best_move();
+            let chosen = self.atomic().best_move();
             chosen_at_iter.push(chosen);
             if iter >= cc::move_stability_min_iters()
                 && !is_duration_infinite(soft_limit)
@@ -1606,7 +1605,7 @@ mod tests {
         assert_eq!(pv_data.pv.len(), 3);
         assert_eq!(res.chosen_move, pv_data.pv.list[0]);
         assert!(state.uci_nodes() <= 500);
-        assert!(!state.atomic().currently_searching.load(std::sync::atomic::Ordering::Relaxed));
+        assert!(!state.thread_data.shared.currently_searching.load(std::sync::atomic::Ordering::Relaxed));
         assert_eq!(state.atomic().score(), res.score);
         assert_eq!(state.atomic().iterations().isize(), 3);
     }
@@ -1715,7 +1714,7 @@ mod tests {
         let limit = SearchLimit::per_move(Duration::from_millis(999_999_999));
         let res = caps.search_with_new_tt(pos, limit);
         assert_eq!(res.chosen_move, Move::from_compact_text("f3g3", &pos).unwrap());
-        assert_eq!(caps.iterations().get(), 1);
+        assert_eq!(caps.atomic().iterations().get(), 1);
         assert!(caps.uci_nodes() <= 1000); // might be a bit more than 1 because of check extensions
     }
 

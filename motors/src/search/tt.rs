@@ -455,7 +455,6 @@ pub enum EndTTPvMove<B: BoardTrait> {
 mod test {
     use super::*;
     use crate::search::chess::caps::Caps;
-    use crate::search::multithreading::AtomicSearchState;
     use crate::search::{AbstractSearchState, Engine, NormalEngine, SearchParams};
     use gears::games::chess::moves::Move;
     use gears::games::ZobristHistory;
@@ -623,6 +622,7 @@ mod test {
         let mut tt = TT::new_with_bytes(32_000_000);
         let pos = Board::default();
         let mut engine = Caps::default();
+        let atomic = engine.thread_data().shared.clone();
         let bad_move = Move::from_compact_text("a2a3", &pos).unwrap();
         let age = Age(42);
         let hash = pos.hash_pos();
@@ -649,19 +649,12 @@ mod test {
         assert!(new_nodes <= nodes);
         tt.forget();
         tt.age.increment();
-        let atomic = Arc::new(AtomicSearchState::default());
-        let params = SearchParams::with_atomic_state(
-            pos,
-            SearchLimit::infinite(),
-            ZobristHistory::default(),
-            tt.clone(),
-            atomic.clone(),
-        )
-        .set_tt(tt.clone());
+        let params = SearchParams::new_unshared(pos, SearchLimit::infinite(), ZobristHistory::default(), tt.clone())
+            .set_tt(tt.clone());
         assert_eq!(params.tt.tt.as_ptr(), tt.tt.as_ptr());
         assert_eq!(tt.estimate_hashfull::<Board>(Age(0)), 0);
-        let atomic2 = Arc::new(AtomicSearchState::default());
-        let mut params2 = params.auxiliary(atomic2.clone());
+        let atomic2 = engine2.thread_data().shared.clone();
+        let mut params2 = params.clone();
         let pos2 = Board::from_name("kiwipete").unwrap();
         params2.pos = pos2;
         let mut age = engine.age();
@@ -672,8 +665,8 @@ mod test {
         let handle2 =
             spawn(move || engine2.search(params2) /*SearchResult::<Chessboard>::move_only(ChessMove::NULL)*/);
         sleep(Duration::from_millis(1000));
-        atomic.set_stop(true);
-        atomic2.set_stop(true);
+        atomic.set_stop();
+        atomic2.set_stop();
         let res1 = handle.join().unwrap();
         let res2 = handle2.join().unwrap();
         assert_ne!(

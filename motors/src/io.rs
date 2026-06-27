@@ -158,8 +158,8 @@ struct EngineGameState<B: BoardTrait> {
 
 impl<B: BoardTrait> EngineGameState<B> {
     fn is_currently_searching(&self) -> bool {
-        self.engine.main_atomic_search_data().currently_searching()
-            || self.temp_engine.as_ref().is_some_and(|e| e.main_atomic_search_data().currently_searching())
+        self.engine.shared_state.currently_searching()
+            || self.temp_engine.as_ref().is_some_and(|e| e.shared_state.currently_searching())
     }
 }
 
@@ -712,15 +712,11 @@ impl<B: BoardTrait> EngineUGI<B> {
         let board = self.state.go_state.pos.clone();
         match opts.search_type {
             Auto => {
-                let params = SearchParams::with_output(
+                let params = SearchParams::new_unshared(
                     board.clone(),
                     limit,
                     self.state.board_hist.clone(),
                     self.state.engine.next_tt(),
-                    self.state.go_state.search_moves.take(),
-                    opts.multi_pv.saturating_sub(1),
-                    self.output.clone(),
-                    self.state.engine.get_engine_info_arc(),
                 );
                 return self.play_engine_move(Some(params));
             }
@@ -2343,7 +2339,7 @@ mod tests {
         let mut ugi = create_chess_game();
         ugi.handle_input("p name lasker-reichhelm").unwrap();
         ugi.handle_input("so threads 4").unwrap();
-        ugi.handle_input("go nodes 12345").unwrap();
+        ugi.handle_input("go nodes 54321").unwrap();
 
         let res = loop {
             if let Some(r) = ugi.output().previous_search_res {

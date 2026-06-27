@@ -3,10 +3,11 @@ use std::fmt::{Debug, Display, Formatter};
 use std::time::Duration;
 
 use gears::general::board::BoardTrait;
-use gears::rand::{Rng, RngExt, SeedableRng, rng};
+use gears::rand::{rng, Rng, RngExt, SeedableRng};
 
-use crate::eval::Eval;
 use crate::eval::rand_eval::RandEval;
+use crate::eval::Eval;
+use crate::search::multithreading::ThreadData;
 use crate::search::{AbstractSearchState, EmptySearchStackEntry, Engine, EngineInfo, NoCustomInfo, SearchState};
 use gears::general::common::StaticallyNamedEntity;
 use gears::score::Score;
@@ -30,19 +31,16 @@ impl<B: BoardTrait, R: SeedRng> Debug for RandomMover<B, R> {
 
 impl<B: BoardTrait, R: SeedRng> Default for RandomMover<B, R> {
     fn default() -> Self {
-        Self { rng: R::seed_from_u64(rng().next_u64()), state: SearchState::new(DepthPly::new(1)) }
+        let rng = R::seed_from_u64(rng().next_u64());
+        Self::new(ThreadData::single_and_no_output(), rng)
     }
 }
 
-// impl<B: Board, R: SeedableRng + Rng + Clone + Send + 'static> RandomMover<B, R> {
-//     pub fn with_rng(rng: R) -> EngineOwner<B> {
-//         EngineOwner::new_with(|| Self {
-//             rng: rng.clone(),
-//             chosen_move: B::Move::default(),
-//             _state: SimpleSearchState::default(),
-//         })
-//     }
-// }
+impl<B: BoardTrait, R: SeedRng> RandomMover<B, R> {
+    fn new(thread_data: ThreadData<B>, rng: R) -> Self {
+        Self { rng, state: SearchState::new(thread_data, DepthPly::new(1)) }
+    }
+}
 
 impl<B: BoardTrait, R: SeedRng + 'static> StaticallyNamedEntity for RandomMover<B, R> {
     fn static_short_name() -> impl Display
@@ -114,7 +112,7 @@ impl<B: BoardTrait, R: SeedRng + Clone + Send + 'static> Engine<B> for RandomMov
 
     fn search_info(&self, _final_info: bool) -> SearchInfo<'_, B> {
         SearchInfo {
-            best_move_of_all_pvs: self.state.best_move(),
+            best_move_of_all_pvs: self.state.atomic().best_move(),
             iterations: DepthPly::new(0),
             budget: Budget::new(0),
             seldepth: DepthPly::new(0),
@@ -133,8 +131,8 @@ impl<B: BoardTrait, R: SeedRng + Clone + Send + 'static> Engine<B> for RandomMov
         }
     }
 
-    fn with_eval(_eval: Box<dyn Eval<B>>) -> Self {
-        Self::default()
+    fn new(thread_data: ThreadData<B>, _eval: Box<dyn Eval<B>>) -> Self {
+        Self::new(thread_data, R::seed_from_u64(rng().next_u64()))
     }
 
     fn search_state_dyn(&self) -> &dyn AbstractSearchState<B> {

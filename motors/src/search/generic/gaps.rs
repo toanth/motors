@@ -3,8 +3,9 @@ use std::fmt::Display;
 use gears::games::BoardHistDyn;
 use gears::general::board::BoardTrait;
 
-use crate::eval::Eval;
 use crate::eval::rand_eval::RandEval;
+use crate::eval::Eval;
+use crate::search::multithreading::ThreadData;
 use crate::search::{
     AbstractSearchState, EmptySearchStackEntry, Engine, EngineInfo, NoCustomInfo, NormalEngine, SearchState,
     SearchStateFor,
@@ -12,7 +13,7 @@ use crate::search::{
 use gears::general::common::StaticallyNamedEntity;
 use gears::num::traits::WrappingAdd;
 use gears::score::{
-    MAX_NORMAL_SCORE, MIN_NORMAL_SCORE, SCORE_LOST, SCORE_TIME_UP, SCORE_WON, Score, game_result_to_score,
+    game_result_to_score, Score, MAX_NORMAL_SCORE, MIN_NORMAL_SCORE, SCORE_LOST, SCORE_TIME_UP, SCORE_WON,
 };
 use gears::search::NodeType::*;
 use gears::search::{Budget, DepthPly, NodesLimit, SearchResult};
@@ -29,7 +30,7 @@ pub struct Gaps<B: BoardTrait> {
 
 impl<B: BoardTrait> Default for Gaps<B> {
     fn default() -> Self {
-        Self::with_eval(Box::new(DefaultEval::default()))
+        Self::new(ThreadData::single_and_no_output(), Box::new(DefaultEval::default()))
     }
 }
 
@@ -57,8 +58,8 @@ impl<B: BoardTrait> Engine<B> for Gaps<B> {
     type SearchStackEntry = EmptySearchStackEntry;
     type CustomInfo = NoCustomInfo;
 
-    fn with_eval(eval: Box<dyn Eval<B>>) -> Self {
-        Self { state: SearchState::new(MAX_DEPTH), eval }
+    fn new(thread_data: ThreadData<B>, eval: Box<dyn Eval<B>>) -> Self {
+        Self { state: SearchState::new(thread_data, MAX_DEPTH), eval }
     }
 
     fn static_eval(&mut self, pos: &B, ply: usize) -> Score {

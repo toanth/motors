@@ -99,7 +99,7 @@ pub fn create_engine_box_from_str<B: BoardTrait>(
 
     let searcher_builder = create_searcher_from_str(searcher, searchers)?;
     let eval_builder = create_eval_from_str(eval, evals)?;
-    Ok(searcher_builder.build(eval_builder.as_ref()))
+    Ok(searcher_builder.build_in_this_thread(eval_builder.as_ref()))
 }
 
 pub fn create_match_for_game<B: BoardTrait>(

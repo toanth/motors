@@ -1,21 +1,12 @@
 use std::time::Duration;
 
-use criterion::{Criterion, criterion_group, criterion_main};
+use criterion::{criterion_group, criterion_main, Criterion};
 use gears::games::chess::Board;
 use gears::general::board::BoardTrait;
 use gears::search::SearchLimit;
 use motors::eval::chess::lite::LiTEval;
 use motors::search::chess::caps::Caps;
-use motors::search::{Engine, run_bench_with};
-
-pub fn caps_startpos_bench(c: &mut Criterion) {
-    c.bench_function("bench 12 startpos", |b| {
-        let pos = Board::default();
-
-        let mut engine = Caps::for_eval::<LiTEval>();
-        b.iter(|| engine.clean_bench(pos, SearchLimit::depth_(12)));
-    });
-}
+use motors::search::{run_bench_with, Engine};
 
 fn caps_normal_bench_depth_7(c: &mut Criterion) {
     c.bench_function("normal bench", |b| {
