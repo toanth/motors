@@ -1001,18 +1001,19 @@ impl Caps {
                 // the case, search all other moves to a low depth.
                 let mut first_child_depth = child_depth - cc::first_child_reduction();
                 if let Some(e) = old_entry
-                    && depth >= 8 * 128
+                    && depth >= cc::se_depth()
                     && mov == best_move
                     && e.bound() != FailLow
-                    && e.depth() as isize >= depth - 3 * 128
+                    && e.depth() as isize >= depth - cc::se_depth_margin()
                     && !e.score().is_won_or_lost()
                     && !root
                 {
                     debug_assert!(!in_singular_search);
                     self.search_stack[ply].tried_moves.clear();
                     self.params.history.pop();
-                    let reduced_depth = (first_child_depth / 128 / 2) * 128;
-                    let singular_beta = (e.score() - Score(3 * depth as ScoreT / 128)).max(MIN_NORMAL_SCORE + 1);
+                    let reduced_depth = (first_child_depth / 128 * cc::se_reduced_factor() / 1024) * 128;
+                    let singular_beta =
+                        (e.score() - Score(cc::se_beta_scale() * depth as ScoreT / 1024)).max(MIN_NORMAL_SCORE + 1);
                     let singular_score = self.negamax(
                         pos,
                         ply,
@@ -1025,7 +1026,7 @@ impl Caps {
                     self.search_stack[ply].tried_moves.clear();
                     let singular_score = singular_score?;
                     if singular_score < singular_beta {
-                        first_child_depth += 128;
+                        first_child_depth += cc::se_extension();
                     } else if singular_score >= beta && !pv_node {
                         // Multi-Cut Pruning: If we fail high at low depth even without the TT move (which also failed high previously),
                         // chances are we'll fail high in a proper search. So don't bother searching and just fail high now.

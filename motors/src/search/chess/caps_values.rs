@@ -77,6 +77,11 @@ spsa_params![
     see_pruning_hist_mult: i32 = 16; 0..=256; step=4;
     max_see_pruning_depth: isize = 1024; 128..=2048; step=64;
     first_child_reduction: isize = 0; -64..=128; step=8;
+    se_depth: isize = 128 * 8; 0..=2048; step=64;
+    se_depth_margin: isize = 128 * 3; 0..=1024; step=64;
+    se_reduced_factor: isize = 512; 128..=1024; step=16;
+    se_beta_scale: ScoreT = 24; 0..=128; step=2;
+    se_extension: isize = 128; 0..=256; step=2;
     lmr_min_uninteresting: isize = 3; 0..=16; step=1;
     lmr_depth_div: isize = 8; 2..=16; step=1;
     lmr_moves_mult: isize = 128; 32..=256; step=4;
