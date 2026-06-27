@@ -1,12 +1,12 @@
 use crate::games::chess::moves::Move;
 use crate::games::chess::pieces::PieceType::*;
 use crate::games::chess::pieces::{PieceType, NUM_CHESS_PIECES};
-use crate::games::chess::squares::{ChessboardSize, Square};
+use crate::games::chess::squares::Square;
 use crate::games::chess::Color::{Black, White};
 use crate::games::chess::{Board, Color, PAWN_CAPTURES};
 use crate::games::{AbstractPieceType, BoardTrait};
 use crate::general::attacks::ChessSliderGenerator;
-use crate::general::bitboards::chessboard::Bitboard;
+use crate::general::bitboards::chessboard::{Bitboard, INFINITE_RAYS};
 use crate::general::bitboards::{BitboardTrait, KnownSizeBitboard, RawBitboardTrait};
 use crate::general::board::BitboardBoard;
 use derive_more::{Add, AddAssign, Neg, Sub, SubAssign};
@@ -54,11 +54,10 @@ impl Board {
         {
             return beta;
         }
-        let size = ChessboardSize {};
         let generator = self.slider_generator();
         let king_rays = [
-            Bitboard::ray_exclusive(square, self.king_sq(White), size),
-            Bitboard::ray_exclusive(square, self.king_sq(Black), size),
+            Bitboard::new(INFINITE_RAYS[self.king_sq(White)][square]),
+            Bitboard::new(INFINITE_RAYS[self.king_sq(Black)][square]),
         ];
         let mut attackers = self.all_attacking(square, generator);
         // don't consider pinned pieces unless they're moving along the pin ray. Idea from pawnocchio.
