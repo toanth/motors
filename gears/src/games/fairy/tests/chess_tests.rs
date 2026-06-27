@@ -102,7 +102,7 @@ fn startpos_test() {
     let white_king_bb = board.royal_bb_for(Color::first());
     let king_bb = board.piece_bb(board.rules().pieces().find(|(_, p)| p.royal).unwrap().0);
     assert_eq!(white_king_bb, board.player_bb(Color::first()) & king_bb);
-    assert!(white_king_bb.is_single_piece());
+    assert!(white_king_bb.is_single_square());
     assert_eq!(white_king_bb.to_square().unwrap(), GridCoordinates::algebraic('e', 1).unwrap());
     let black_king_bb = board.royal_bb_for(Color::second());
     assert_eq!(black_king_bb.to_square().unwrap(), GridCoordinates::algebraic('e', 8).unwrap());

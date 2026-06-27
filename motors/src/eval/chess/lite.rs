@@ -303,7 +303,7 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
         for slider in rook_sliders {
             let ray = Bitboard::ray_exclusive(slider, their_king, ChessboardSize::default());
             let blockers = ray & blockers;
-            if blockers.is_single_piece() && (slider.rank() == their_king.rank() || slider.file() == their_king.file())
+            if blockers.is_single_square() && (slider.rank() == their_king.rank() || slider.file() == their_king.file())
             {
                 let piece = pos.piece_type_on(blockers.ones().next().unwrap());
                 if blockers.intersects(pos.player_bb(color)) {
@@ -320,7 +320,7 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
         for slider in bishop_sliders {
             let ray = Bitboard::ray_exclusive(slider, their_king, ChessboardSize::default());
             let blockers = ray & blockers;
-            if blockers.is_single_piece() && (slider.rank() != their_king.rank() && slider.file() != their_king.file())
+            if blockers.is_single_square() && (slider.rank() != their_king.rank() && slider.file() != their_king.file())
             {
                 let piece = pos.piece_type_on(blockers.ones().next().unwrap());
                 if blockers.intersects(pos.player_bb(color)) {

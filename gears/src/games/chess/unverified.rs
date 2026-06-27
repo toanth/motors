@@ -15,12 +15,12 @@
  *  You should have received a copy of the GNU General Public License
  *  along with Gears. If not, see <https://www.gnu.org/licenses/>.
  */
-use crate::games::chess::Color::{Black, White};
 use crate::games::chess::castling::{CastleRight, CastlingFlags};
 use crate::games::chess::pieces::ColoredPieceType::{BlackKing, WhiteKing};
 use crate::games::chess::pieces::PieceType::{Empty, King, Pawn, Rook};
 use crate::games::chess::pieces::{ColoredPieceType, Piece, PieceType};
 use crate::games::chess::squares::{ChessboardSize, Square};
+use crate::games::chess::Color::{Black, White};
 use crate::games::chess::{Board, Color, Settings};
 use crate::games::{ColorTrait, ColoredPieceTrait, ColoredPieceTypeTrait, CoordinatesTrait, DimT, PosHash};
 use crate::general::attacks::ChessSliderGenerator;
@@ -31,7 +31,7 @@ use crate::general::board::Strictness::Strict;
 use crate::general::board::{
     BitboardBoard, BoardHelpers, BoardTrait, SelfChecks, Strictness, Symmetry, UnverifiedBoardTrait,
 };
-use crate::general::common::{Res, ith_one_u64};
+use crate::general::common::{ith_one_u64, Res};
 use crate::general::squares::RectangularCoordinates;
 use anyhow::{bail, ensure};
 use rand::{Rng, RngExt};
@@ -50,7 +50,7 @@ impl From<Board> for UnverifiedBoard {
 
 fn fen_selfchecks(this: &Board, checks: SelfChecks, strictness: Strictness) -> Res<()> {
     for color in Color::iter() {
-        ensure!(this.col_piece_bb(color, King).is_single_piece(), "The {color} player does not have exactly one king");
+        ensure!(this.col_piece_bb(color, King).is_single_square(), "The {color} player does not have exactly one king");
         if this.col_piece_bb(color, Pawn).intersects(Bitboard::backranks()) {
             bail!("The {color} player has a pawn on the first or eight rank")
         }
@@ -413,8 +413,8 @@ mod tests {
     use super::*;
     use crate::general::board::Strictness::Relaxed;
     use proptest::proptest;
-    use rand::SeedableRng;
     use rand::prelude::SmallRng;
+    use rand::SeedableRng;
 
     proptest! {
         #[test]

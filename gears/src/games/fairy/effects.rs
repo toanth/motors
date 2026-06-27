@@ -16,7 +16,7 @@
  *  along with Gears. If not, see <https://www.gnu.org/licenses/>.
  */
 use crate::games::fairy::moves::Move;
-use crate::games::fairy::pieces::{ColoredPieceId, PAWN_IDX, PieceId};
+use crate::games::fairy::pieces::{ColoredPieceId, PieceId, PAWN_IDX};
 use crate::games::fairy::rules::{GameEndEager, MAX_NUM_IN_HAND};
 use crate::games::fairy::{AdditionalCtrT, Bitboard, Board, Color, RawBitboard, Side, Square};
 use crate::games::{ColoredPieceTypeTrait, NoHistory};
@@ -428,7 +428,7 @@ impl Observers {
                 pos.0.additional_ctrs[LIMIT] = 0;
                 return Some(());
             }
-            if !(pos.0.color_bitboards[0].is_single_piece() && pos.0.color_bitboards[1].is_single_piece()) {
+            if !(pos.0.color_bitboards[0].is_single_square() && pos.0.color_bitboards[1].is_single_square()) {
                 assert_ne!(pos.0.additional_ctrs[1], BARE_KING_CTR);
                 if pos.0.additional_ctrs[STAGE] == 0 {
                     pos.0.draw_counter = 0;

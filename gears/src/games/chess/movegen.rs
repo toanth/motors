@@ -520,18 +520,18 @@ impl Board {
             & their_bb;
         self.pinned = Bitboard::default();
         for slider in their_bb & ((rook_sliders & ROOKS[our_king]) | (bishop_sliders & BISHOPS[our_king])) {
-            let ray = Bitboard::ray_exclusive(slider, our_king, ChessboardSize::default());
+            let ray = Bitboard::ray_exclusive(our_king, slider, ChessboardSize::default());
             if !ray.intersects(occupied) {
                 self.checkers |= slider.bb();
-            } else if !ray.intersects(their_bb) && (ray & our_bb).is_single_piece() {
+            } else if !ray.intersects(their_bb) && (ray & our_bb).is_single_square() {
                 self.pinned |= ray & our_bb;
             }
         }
         let their_king = self.king_sq(!us);
         for slider in our_bb & ((rook_sliders & ROOKS[their_king]) | (bishop_sliders & BISHOPS[their_king])) {
-            let ray = Bitboard::ray_exclusive(slider, their_king, ChessboardSize::default());
+            let ray = Bitboard::ray_exclusive(their_king, slider, ChessboardSize::default());
             debug_assert!(ray.intersects(occupied));
-            if !ray.intersects(our_bb) && (ray & their_bb).is_single_piece() {
+            if !ray.intersects(our_bb) && (ray & their_bb).is_single_square() {
                 self.pinned |= ray & their_bb;
             }
         }

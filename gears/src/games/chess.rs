@@ -720,7 +720,7 @@ impl BoardTrait for Board {
     /// Doesn't quite conform to FIDE rules, but probably mostly agrees with USCF rules (in that it should almost never
     /// return `false` if there is a realistic way to win).
     fn can_reasonably_win(&self, player: Color) -> bool {
-        if self.player_bb(player).is_single_piece() {
+        if self.player_bb(player).is_single_square() {
             return false; // we only have our king left
         }
         if (self.piece_bb(Pawn) | self.col_piece_bb(player, Rook) | self.col_piece_bb(player, Queen)).has_any()
@@ -1141,8 +1141,10 @@ pub trait ChessBitboardTrait: KnownSizeBitboard<RawStandardBitboard, Square> {
     // Only considers potential captures, not pushes.
     // For attacks of a single pawn, there's a precomputed table.
     fn pawn_attacks(self, color: Color) -> Self {
-        let advanced = self.pawn_advance(color);
-        advanced.east() | advanced.west()
+        match color {
+            White => ((self & !Self::file(H_FILE_NUM)) << 9) | ((self & !Self::file(A_FILE_NUM)) << 7),
+            Black => ((self & !Self::file(H_FILE_NUM)) >> 7) | ((self & !Self::file(A_FILE_NUM)) >> 9),
+        }
     }
 }
 

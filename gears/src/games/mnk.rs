@@ -1068,7 +1068,7 @@ mod test {
             assert_eq!(k == 1, board.last_move_won_game());
             assert_ne!(board.x_bb().raw(), 0);
             assert_eq!(board.o_bb().raw(), 0);
-            assert!(board.x_bb().is_single_piece());
+            assert!(board.x_bb().is_single_square());
             if k == 1 {
                 assert!(board.last_move_won_game());
                 assert_eq!(perft(DepthPly::new(1), board, SingleThreaded, Bulk, None).nodes, 0);
