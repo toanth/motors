@@ -1023,7 +1023,14 @@ impl Caps {
                         Some(best_move),
                     );
                     self.search_stack[ply].tried_moves.clear();
-                    first_child_depth += (singular_score? < singular_beta) as isize * 128;
+                    let singular_score = singular_score?;
+                    if singular_score < singular_beta {
+                        first_child_depth += 128;
+                    } else if singular_score >= beta && !pv_node {
+                        // Multi-Cut Pruning: If we fail high at low depth even without the TT move (which also failed high previously),
+                        // chances are we'll fail high in a proper search. So don't bother searching and just fail high now.
+                        return Some(singular_score);
+                    }
                     self.record_move(mov, pos, ply, move_score);
                     #[cfg(debug_assertions)]
                     debug_assert_eq!(self.params.history.len(), debug_history_len + 1);
