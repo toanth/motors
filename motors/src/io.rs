@@ -37,7 +37,7 @@ use crate::io::SearchType::*;
 use crate::search::multithreading::EngineWrapper;
 use crate::search::tt::{EndTTPvMove, TTEntry, DEFAULT_HASH_SIZE_MIB, TT};
 use crate::search::{run_bench_with, EvalList, SearchParams, SearcherList};
-use crate::{create_engine_box_from_str, create_engine_from_str, create_eval_from_str, create_match};
+use crate::{create_engine_box_from_str, create_engine_from_str, create_eval_from_str, run_match};
 use gears::cli::select_game;
 use gears::colored::Color::Red;
 use gears::colored::Colorize;
@@ -303,7 +303,10 @@ impl<B: BoardTrait> AbstractRun for EngineUGI<B> {
     }
 
     fn handle_input(&mut self, input: &str) -> Res<()> {
-        handle_ugi_input(self, tokens(input), &B::game_name())
+        for cmd in input.split(';') {
+            handle_ugi_input(self, tokens(cmd), &B::game_name())?
+        }
+        Ok(())
     }
 
     fn quit(&mut self) -> Res<()> {
@@ -427,10 +430,8 @@ impl<B: BoardTrait> EngineUGI<B> {
         if res.debug_mode() {
             res.handle_debug_impl(true, false)?;
         }
-        if let Some(cmd) = opts.cmd {
-            for line in cmd.split(';') {
-                res.handle_input(line)?;
-            }
+        for line in opts.cmds {
+            res.handle_input(&line)?;
         }
         Ok(res)
     }
@@ -693,22 +694,10 @@ impl<B: BoardTrait> EngineUGI<B> {
 
         if cfg!(feature = "fuzzing") {
             limit.fixed_time = limit.fixed_time.max(Duration::from_secs(1));
-            if opts.generic.complete {
-                limit.fixed_time = Duration::from_millis(10);
-            }
             if matches!(opts.generic.search_type, Perft | SplitPerft) {
-                let depth = if opts.generic.complete { 2 } else { 3 };
+                let depth = 3;
                 limit.depth = limit.depth.min(DepthPly::new(depth));
             }
-        }
-
-        if opts.generic.complete && !matches!(opts.generic.search_type, Bench | Perft) {
-            bail!(
-                "The '{0}' options can only be used for '{1}' and '{2}' searches",
-                "complete".bold(),
-                "bench".bold(),
-                "perft".bold()
-            )
         }
 
         let opts = &self.state.go_state.generic;
@@ -729,13 +718,11 @@ impl<B: BoardTrait> EngineUGI<B> {
                 return self.play_engine_move(Some(params));
             }
             Bench => {
-                let bench_positions: Vec<B> =
-                    if opts.complete { B::bench_positions().into_iter().collect() } else { vec![board] };
+                let bench_positions: Vec<B> = B::bench_positions().into_iter().collect();
                 return self.bench(limit, &bench_positions);
             }
             Perft => {
-                let positions =
-                    if opts.complete { B::bench_positions().into_iter().collect() } else { vec![board.clone()] };
+                let positions = vec![board.clone()];
                 let threads = opts.threads.unwrap_or(0);
                 if threads > 1 {
                     bail!("For 'perft' runs, the 'Threads' options can only be used to set threads to 1")
@@ -2082,12 +2069,12 @@ fn handle_play_impl(ugi: &mut dyn AbstractEngineUgi, words: &mut Tokens) -> Res<
     if words.peek().is_some() {
         opts.pos_name = Some(words.join(" "));
     }
-    let mut nested_match = create_match(opts)?;
-    if nested_match.run() == QuitProgram {
-        ugi.handle_quit(QuitProgram)?;
-    } else {
-        // print the current board again, now that the match is over
-        ugi.print_board(OutputOpts::default());
+    match run_match(opts)? {
+        QuitProgram => ugi.handle_quit(QuitProgram)?,
+        Quitting::QuitMatch => {
+            // print the current board again, now that the match is over
+            ugi.print_board(OutputOpts::default());
+        }
     }
     Ok(())
 }

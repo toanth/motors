@@ -15,13 +15,9 @@
  *  You should have received a copy of the GNU General Public License
  *  along with Motors. If not, see <https://www.gnu.org/licenses/>.
  */
-use crate::Mode;
-use crate::Mode::{Bench, Engine, Perft};
-use gears::cli::{get_next_arg, get_next_int, parse_output, ArgIter, Game};
+use gears::cli::{get_next_arg, parse_output, ArgIter, Game};
 use gears::colored::Colorize;
-use gears::general::common::anyhow::bail;
-use gears::general::common::{parse_int_from_str, Res};
-use gears::search::DepthPly;
+use gears::general::common::Res;
 use gears::OutputArgs;
 use std::env;
 use std::process::exit;
@@ -43,9 +39,7 @@ pub struct EngineOpts {
 
     pub pos_name: Option<String>,
 
-    pub cmd: Option<String>,
-
-    pub mode: Mode,
+    pub cmds: Vec<String>,
 }
 
 impl EngineOpts {
@@ -57,45 +51,12 @@ impl EngineOpts {
             debug,
             interactive: true,
             pos_name: None,
-            cmd: None,
-            mode: Engine,
+            cmds: vec![],
         }
     }
 }
 
-fn parse_depth(args: &mut ArgIter) -> Res<Option<DepthPly>> {
-    if let Some(next) = args.peek() {
-        if next == "-d" || next == "--depth" {
-            _ = args.next();
-            if args.peek().is_some_and(|a| a != "default") {
-                return Ok(Some(DepthPly::try_new(get_next_int(args, "depth")?)?));
-            }
-        } else if let Ok(val) = parse_int_from_str(next, "depth") {
-            _ = args.next();
-            return Ok(Some(DepthPly::try_new(val)?));
-        }
-    }
-    Ok(None)
-}
-
-fn parse_bench(args: &mut ArgIter) -> Res<Option<DepthPly>> {
-    parse_depth(args)
-}
-
-fn parse_perft(args: &mut ArgIter) -> Res<Option<DepthPly>> {
-    parse_depth(args)
-}
-
-fn parse_pos(args: &mut ArgIter) -> String {
-    let mut res = String::default();
-    while args.peek().is_some_and(|token| token.strip_prefix("-").is_none_or(|r| r.is_empty())) {
-        res += &args.next().unwrap();
-        res += " ";
-    }
-    res
-}
-
-fn parse_option(args: &mut ArgIter, opts: &mut EngineOpts, cmd: &mut String) -> Res<()> {
+fn parse_option(args: &mut ArgIter, opts: &mut EngineOpts) -> Res<()> {
     let mut key = args.next().unwrap_or_default().clone();
     // since we already accept -<long> in monitors for cutechess compatibility,
     // we might as well also accept it in motors.
@@ -103,14 +64,8 @@ fn parse_option(args: &mut ArgIter, opts: &mut EngineOpts, cmd: &mut String) -> 
         _ = key.remove(0);
     }
     match key.as_str() {
-        "bench" | "-bench" | "-b" | "b" => opts.mode = Bench(parse_bench(args)?, true),
-        "bench-simple" | "-bench-simple" | "-bs" | "bs" => opts.mode = Bench(parse_bench(args)?, false),
-        "perft" | "-perft" | "-p" => opts.mode = Perft(parse_perft(args)?, false),
-        "splitperft" | "-splitperft" | "-sp" => opts.mode = Perft(parse_perft(args)?, true),
         "-engine" | "-e" => opts.engine = get_next_arg(args, "engine")?,
         "-game" | "-g" => opts.game = Game::from_str(&get_next_arg(args, "engine")?.to_lowercase())?,
-        "pos" | "-pos" | "position" | "-position" => opts.pos_name = Some(parse_pos(args)),
-        "command" | "-command" | "cmd" | "-cmd" => opts.cmd = Some(get_next_arg(args, "command")?),
         "-debug" | "-d" => opts.debug = true,
         "-non-interactive" => opts.interactive = false,
         "-additional-output" | "-output" | "-o" => parse_output(args, &mut opts.outputs)?,
@@ -118,9 +73,9 @@ fn parse_option(args: &mut ArgIter, opts: &mut EngineOpts, cmd: &mut String) -> 
             print_help();
             exit(0);
         }
-        x => {
-            *cmd += x;
-            cmd.push_str(" ");
+        _ => {
+            opts.cmds.push(key);
+            opts.cmds.push("wait".to_string());
         }
     }
     Ok(())
@@ -131,20 +86,11 @@ pub fn parse_cli(mut args: ArgIter) -> Res<EngineOpts> {
     if env::var("NO_COLOR").is_ok() {
         res.interactive = false;
     }
-    let mut cmd = String::new();
     while args.peek().is_some() {
-        parse_option(&mut args, &mut res, &mut cmd)?;
+        parse_option(&mut args, &mut res)?;
     }
-    if !cmd.is_empty() {
-        if res.cmd.is_none() {
-            res.cmd = Some(cmd);
-        } else {
-            bail!(
-                "Unrecognized options '{0}', but they are not interpreted as commands because the `{1}` option is present",
-                cmd.red(),
-                "--cmd".bold()
-            )
-        }
+    if !res.cmds.is_empty() {
+        res.cmds.push("quit".to_string());
     }
     Ok(res)
 }
@@ -160,23 +106,24 @@ fn print_help() {
     and `random` sets the engine to be a random mover. Obviously, the engine must be valid for the selected game.\
     \n--{position} sets the position. Accepts the same syntax as UGI commands, e.g. 'position kiwipete' or 'p f <fen> m e2e4'. Ignored for 'bench'.\
     Use quotes around the argument.\
-    \n--{command} makes the engine execute a command immediately. Use `;` to separate multiple commands, e.g. 'perft 6; quit'\
     \n--{debug} turns on debug mode, which makes the engine continue on errors and log all communications.\
     \n--{ni} makes the engine start in non-interactive mode. Try this if the engine can't be used with a GUI. Setting the NO_COLOR environment variable also does this.\
     \n--{add_outputs} can be used to determine how the engine prints extra information; it's mostly useful for development but can also be used to export PGNs, for example.\
     \n--{bench}, --{perft} and --{splitperft} are useful for testing the engine and move generation speed,\
     `bench` is also useful to get a \"hash\" of the search tree explored by the engine.\
+    \n{other} arguments are interpreted as UGI commands followed by a `{wait}` command.\
     Typing '{help}' while the program is running will also show help messages",
-             game = "game".underline().bold(),
-             engine = "engine".underline().bold(),
-             debug = "debug".underline().bold(),
-             add_outputs = "additional-outputs".underline().bold(),
-             bench = "bench".underline().bold(),
-             perft = "perft".underline().bold(),
-             splitperft = "splitperft".underline().bold(),
-             help = "help".underline().bold(),
-             ni = "non-interactive".underline().bold(),
-             position = "position".underline().bold(),
-             command = "command".underline().bold(),
+        game = "game".underline().bold(),
+        engine = "engine".underline().bold(),
+        debug = "debug".underline().bold(),
+        add_outputs = "additional-outputs".underline().bold(),
+        bench = "bench".underline().bold(),
+        perft = "perft".underline().bold(),
+        splitperft = "splitperft".underline().bold(),
+        help = "help".underline().bold(),
+        ni = "non-interactive".underline().bold(),
+        position = "position".underline().bold(),
+        other = "All other".bold(),
+        wait = "wait".bold(),
     )
 }

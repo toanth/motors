@@ -638,8 +638,8 @@ impl<B: BoardTrait> EngineWrapper<B> {
 
 #[cfg(test)]
 mod tests {
-    use crate::create_match;
     use crate::io::cli::EngineOpts;
+    use crate::create_match;
     use gears::cli::Game;
     use gears::cli::Game::Chess;
     use std::thread;

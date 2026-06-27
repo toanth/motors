@@ -589,7 +589,6 @@ pub struct GenericGoState {
     pub threads: Option<usize>,
     pub search_type: SearchType,
     pub upto: bool,
-    pub complete: bool,
     pub unique: bool,
     pub compare: bool,
     pub no_bulk: bool,
@@ -643,7 +642,6 @@ impl<B: BoardTrait> GoState<B> {
                 threads: None,
                 search_type,
                 upto: false,
-                complete: false,
                 unique: false,
                 compare: false,
                 no_bulk: false,
@@ -922,15 +920,6 @@ pub(super) fn go_options_impl(
     }
     // this checks only the mode that `go_options` is called for, but it can be changed through args (eg `go perft`),
     // which is why there's another check when actually handling it. Still, the first check prevents it from showing up in completion suggestion.
-    if mode.is_none_or(|m| [Bench, Perft].iter().contains(&m)) {
-        res.push(command!(complete | all, Custom, "Run bench / perft on all bench positions", |state, _, _| {
-            if ![Bench, Perft].contains(&state.go_state_mut().get_mut().search_type) {
-                bail!("The 'all' option can only be used with 'bench' or 'perft' searches")
-            }
-            state.go_state_mut().get_mut().complete = true;
-            Ok(())
-        }));
-    }
     if mode.is_none_or(|m| m == Perft) {
         res.push(command!(unique, Custom, "Only count unique positions in perft", |state, _, _| {
             if state.go_state_mut().get_mut().search_type != Perft {
