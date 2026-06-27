@@ -82,6 +82,7 @@ spsa_params![
     se_reduced_factor: isize = 512; 128..=1024; step=16;
     se_beta_scale: ScoreT = 24; 0..=128; step=2;
     se_extension: isize = 128; 0..=256; step=2;
+    multicut_pv_reduction: isize = 256; 0..=512; step=32;
     lmr_min_uninteresting: isize = 3; 0..=16; step=1;
     lmr_depth_div: isize = 8; 2..=16; step=1;
     lmr_moves_mult: isize = 128; 32..=256; step=4;
