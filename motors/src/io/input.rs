@@ -21,11 +21,11 @@ use crate::io::{AbstractEngineUgi, AbstractEngineUgiState, EngineUGI};
 use gears::colored::Colorize;
 use gears::games::ColorTrait;
 use gears::general::board::BoardTrait;
-use gears::general::common::Res;
 use gears::general::common::anyhow::{anyhow, bail};
+use gears::general::common::Res;
 use gears::output::OutputOpts;
 use inquire::Text;
-use std::io::{IsTerminal, stdin, stdout};
+use std::io::{stdin, stdout, IsTerminal};
 use std::rc::Rc;
 
 trait GetLine<B: BoardTrait> {
@@ -54,7 +54,7 @@ impl<B: BoardTrait> GetLine<B> for InteractiveInput<B> {
                     "\nIter    Depth/Seldepth    Score        Time       Nodes   (New)     NPS  Branch     TT     {pv_spacer}PV"
                 ).bold(),
             ));
-            NonInteractiveInput::default().get_line(ugi)
+            get_line_impl()
         } else {
             // not very efficient, but that doesn't really matter here
             let options = ugi.get_options();
@@ -83,17 +83,21 @@ impl<B: BoardTrait> InteractiveInput<B> {
     }
 }
 
+fn get_line_impl() -> Res<String> {
+    let mut input = String::new();
+    let count = stdin().read_line(&mut input)?;
+    if count == 0 {
+        bail!("Read 0 bytes. Terminating the program.")
+    }
+    Ok(input)
+}
+
 #[derive(Debug, Default)]
 struct NonInteractiveInput {}
 
 impl<B: BoardTrait> GetLine<B> for NonInteractiveInput {
     fn get_line(&mut self, _ugi: &mut EngineUGI<B>) -> Res<String> {
-        let mut input = String::new();
-        let count = stdin().read_line(&mut input)?;
-        if count == 0 {
-            bail!("Read 0 bytes. Terminating the program.")
-        }
-        Ok(input)
+        get_line_impl()
     }
 }
 

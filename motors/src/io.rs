@@ -111,6 +111,8 @@ enum SearchType {
     Normal,
     Ponder,
     Bench,
+    // Only a single search per position, without an additional nodes limit
+    SimpleBench,
     Perft,
     SplitPerft,
     Auto, // Like `Normal`, but done in this thread (i.e., blocks) and plays the chosen move instantly
@@ -126,6 +128,7 @@ impl Display for SearchType {
                 SearchType::Ponder => "ponder",
                 Perft => "perft",
                 SplitPerft => "split perft",
+                SimpleBench => "simple bench",
                 Bench => "bench",
                 Auto => "auto",
             }
@@ -717,9 +720,14 @@ impl<B: BoardTrait> EngineUGI<B> {
                 );
                 return self.play_engine_move(Some(params));
             }
+            SimpleBench => {
+                let bench_positions: Vec<B> = B::bench_positions().into_iter().collect();
+                return self.bench(limit, &bench_positions, None);
+            }
             Bench => {
                 let bench_positions: Vec<B> = B::bench_positions().into_iter().collect();
-                return self.bench(limit, &bench_positions);
+                let second_limit = SearchLimit::nodes(self.state.engine.get_engine_info().default_bench_nodes());
+                return self.bench(limit, &bench_positions, Some(second_limit));
             }
             Perft => {
                 let positions = vec![board.clone()];
@@ -844,25 +852,17 @@ impl<B: BoardTrait> EngineUGI<B> {
                     self.contempt,
                 )?;
             }
-            _ => unreachable!("Bench and (Split)Perft should have already been handled"),
+            _ => unreachable!("(Simple) Bench and (Split)Perft should have already been handled"),
         };
         Ok(())
     }
 
-    fn bench(&mut self, limit: SearchLimit, positions: &[B]) -> Res<()> {
+    fn bench(&mut self, limit: SearchLimit, positions: &[B], second_limit: Option<SearchLimit>) -> Res<()> {
         let mut engine = create_engine_box_from_str(
             &self.state.engine.get_engine_info().short_name(),
             &self.searcher_factories,
             &self.eval_factories,
         )?;
-        let second_limit = if positions.len() == 1 {
-            None
-        } else {
-            let mut limit = limit;
-            limit.depth = DepthPly::MAX;
-            limit.nodes = self.state.engine.get_engine_info().default_bench_nodes();
-            Some(limit)
-        };
         let tt = self.state.go_state.generic.override_hash_size.map(TT::new_with_mib);
         let res = run_bench_with(engine.as_mut(), limit, second_limit, positions, tt);
         self.output().write_ugi(&format_args!("{res}"));

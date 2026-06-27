@@ -17,7 +17,7 @@
  */
 use crate::io::autocomplete::AutoCompleteState;
 use crate::io::command::Standard::*;
-use crate::io::SearchType::{Auto, Bench, Normal, Perft, Ponder, SplitPerft};
+use crate::io::SearchType::*;
 use crate::io::{AbstractEngineUgiState, EngineUGI, SearchType};
 use gears::arrayvec::ArrayVec;
 use gears::cli::Game;
@@ -446,6 +446,14 @@ pub fn ugi_commands() -> CommandList {
             recurse = true
         ),
         command!(
+            simplebench | simple_bench | sb,
+            Custom,
+            "Like bench, but only one search per position, no additional nodes-based search",
+            |ugi, words, _| ugi.handle_go(SimpleBench, words),
+            --> |state| state.go_subcmds(SimpleBench),
+            recurse = true
+        ),
+        command!(
             bench,
             Custom,
             "Internal search test on current / bench positions. Same arguments as `go`",
@@ -549,7 +557,7 @@ impl<B: BoardTrait> AbstractGoState for GoState<B> {
 
     fn set_search_type(&mut self, search_type: SearchType, depth_words: Option<&mut Tokens>) -> Res<()> {
         self.generic.search_type = search_type;
-        if search_type == Bench {
+        if search_type == Bench || search_type == SimpleBench {
             self.generic.limit.depth = self.generic.default_bench_depth;
         } else if search_type == Perft || search_type == SplitPerft {
             self.generic.limit.depth = self.generic.default_perft_depth;
@@ -603,7 +611,7 @@ pub struct GenericGoState {
 impl<B: BoardTrait> GoState<B> {
     pub fn default_depth_limit(ugi: &EngineUGI<B>, search_type: SearchType) -> DepthPly {
         match search_type {
-            Bench => ugi.state.engine.get_engine_info().default_bench_depth(),
+            Bench | SimpleBench => ugi.state.engine.get_engine_info().default_bench_depth(),
             Perft | SplitPerft => ugi.state.pos().default_perft_depth(),
             // "infinite" is the identity element of the bounded semilattice of `go` options
             _ => SearchLimit::infinite().depth,
@@ -896,6 +904,12 @@ pub(super) fn go_options_impl(
                 Custom,
                 "Movegen test: Print perft number for each legal move",
                 |state, words, _| state.go_state_mut().set_search_type(SplitPerft, Some(words))
+            ),
+            command!(
+                simplebench | simple_bench | sb,
+                Custom,
+                "Like bench, but only one search per position, no additional nodes-based search",
+                |state, words, _| state.go_state_mut().set_search_type(SimpleBench, Some(words))
             ),
             command!(
                 bench | b,
