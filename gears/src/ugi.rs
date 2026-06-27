@@ -137,6 +137,7 @@ pub enum EngineOptionName {
     UciElo,
     UCIOpponent,
     UCIEngineAbout,
+    UCISetPositionValue,
     UCIShowRefutations,
     UCIShowCurrLine,
     CurrlineNullmove,
@@ -179,6 +180,9 @@ impl NamedEntity for EngineOptionNameForProtocol {
             EngineOptionName::UciElo => "Limit strength to this elo. Currently not supported",
             EngineOptionName::UCIOpponent => "The opponent. Currently only used to output the name in PGNs",
             EngineOptionName::UCIEngineAbout => "Information about the engine. Can't be changed, only queried",
+            EngineOptionName::UCISetPositionValue => {
+                "Hardcode a position value in centipawns from White's POV for a given position"
+            }
             EngineOptionName::UCIShowRefutations => "Print the top alternative moves using the UCI Refutation command",
             EngineOptionName::UCIShowCurrLine => "Every now and then, print the line currently being searched",
             EngineOptionName::CurrlineNullmove => {
@@ -231,6 +235,7 @@ impl EngineOptionName {
             EngineOptionName::UciElo => Self::with_proto(proto, "Elo"),
             EngineOptionName::UCIOpponent => Self::with_proto(proto, "Opponent"),
             EngineOptionName::UCIEngineAbout => Self::with_proto(proto, "EngineAbout"),
+            EngineOptionName::UCISetPositionValue => Self::with_proto(proto, "SetPositionValue"),
             EngineOptionName::UCIShowRefutations => Self::with_proto(proto, "ShowRefutations"),
             EngineOptionName::UCIShowCurrLine => Self::with_proto(proto, "ShowCurrLine"),
             EngineOptionName::CurrlineNullmove => "CurrlineNullmove".to_string(),

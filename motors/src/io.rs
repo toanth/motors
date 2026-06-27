@@ -69,14 +69,15 @@ use gears::output::text_output::{display_color, AdaptFormatter};
 use gears::output::Message::*;
 use gears::output::{Message, OutputBox, OutputBuilder, OutputOpts};
 use gears::rand::rng;
-use gears::score::{Score, ScoreT};
+use gears::score::{Score, ScoreT, MAX_NORMAL_SCORE, MIN_NORMAL_SCORE};
+use gears::search::NodeType::Exact;
 use gears::search::{DepthPly, SearchLimit, TimeControl};
 use gears::ugi::EngineOptionName::*;
 use gears::ugi::EngineOptionType::*;
 use gears::ugi::Protocol::{Interactive, UGI};
 use gears::ugi::{
-    load_ugi_pos_simple, EngineOption, EngineOptionName, EngineOptionNameForProtocol, Protocol, UgiCheck, UgiCombo, UgiSpin,
-    UgiString,
+    load_ugi_pos_simple, parse_ugi_position_part, EngineOption, EngineOptionName, EngineOptionNameForProtocol, Protocol, UgiCheck, UgiCombo,
+    UgiSpin, UgiString,
 };
 use gears::MatchStatus::*;
 use gears::ProgramStatus::{Quit, Run};
@@ -606,6 +607,9 @@ impl<B: BoardTrait> EngineUGI<B> {
                     }
                 }
             }
+            UCISetPositionValue => {
+                self.set_position_value(&value)?;
+            }
             UCIShowRefutations => self.output().show_refutation = parse_bool_from_str(&value, "show refutations")?,
             UCIShowCurrLine => {
                 self.output().show_currline = parse_bool_from_str(&value, "show current line")?;
@@ -777,6 +781,41 @@ impl<B: BoardTrait> EngineUGI<B> {
             }
             _ => return self.start_search(),
         }
+        Ok(())
+    }
+
+    fn set_position_value(&self, value: &str) -> Res<()> {
+        let mut value = tokens(value);
+        let Some(score) = value.next() else {
+            bail!("Missing a score, '{0}' or '{1}' after 'SetPositionValue", "clear".bold(), "clearall".bold());
+        };
+        let mut tt = self.state.engine.next_tt();
+        let score = match score.to_ascii_lowercase().as_str() {
+            "clearall" => {
+                tt.forget();
+                return Ok(());
+            }
+            "clear" => None,
+            score => Some(Score(parse_int_from_str(score, "score in cp")?)),
+        };
+        let pos = parse_ugi_position_part(
+            value.next().unwrap_or_default(),
+            &mut value,
+            false,
+            self.state.pos(),
+            None,
+            self.strictness,
+        )?;
+        let entry = if let Some(mut score) = score {
+            if !pos.active_player().is_first() {
+                score = -score;
+            }
+            score = score.clamp(MIN_NORMAL_SCORE, MAX_NORMAL_SCORE);
+            TTEntry::<B>::new(pos.hash_pos(), score, score, B::Move::default(), isize::MAX, Exact, tt.age)
+        } else {
+            TTEntry::default()
+        };
+        tt.store(entry, pos.hash_pos(), 0);
         Ok(())
     }
 
@@ -1222,6 +1261,7 @@ impl<B: BoardTrait> EngineUGI<B> {
                         self.state.game_name()
                     )),
                 }),
+                UCISetPositionValue => UString(UgiString { val: String::new(), default: None }),
                 UCIShowRefutations => Check(UgiCheck { val: self.output().show_refutation, default: Some(false) }),
                 UCIShowCurrLine => Check(UgiCheck { val: self.output().show_currline, default: Some(false) }),
                 CurrlineNullmove => Check(UgiCheck { val: self.output().show_currline, default: Some(true) }),

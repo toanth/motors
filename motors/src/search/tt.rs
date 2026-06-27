@@ -335,7 +335,8 @@ impl TT {
 
     // The lowest score is getting replaced
     fn entry_replacement_score<B: BoardTrait>(candidate: &TTEntry<B>, to_insert: &TTEntry<B>) -> isize {
-        if to_insert.hash_part() == candidate.hash_part() || candidate.is_empty() {
+        // a depth of u16::MAX is used for irreplaceable entries
+        if (to_insert.hash_part() == candidate.hash_part() && candidate.depth() != u16::MAX) || candidate.is_empty() {
             isize::MIN
         } else {
             let age_diff = (to_insert.age().0.wrapping_sub(candidate.age().0).wrapping_add(1 << 6)) & 0b11_1111;
