@@ -4,7 +4,7 @@ use std::mem::take;
 use std::ops::ControlFlow::{Break, Continue};
 use std::ops::{ControlFlow, Deref, DerefMut};
 use std::sync::atomic::Ordering::Relaxed;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use crate::eval::chess::lite::{lc, LiTEval};
 use crate::eval::Eval;
@@ -433,7 +433,7 @@ impl Caps {
         loop {
             let alpha = self.cur_pv_data().alpha;
             let beta = self.cur_pv_data().beta;
-            let mut window_radius = self.cur_pv_data().radius;
+            let aw_delta = self.cur_pv_data().delta;
             // limit.fixed time is the min of the fixed time and the remaining time
             let mut soft_limit = unscaled_soft_limit.mul_f64(soft_limit_fail_low_extension);
             soft_limit_fail_low_extension = 1.0;
@@ -473,7 +473,6 @@ impl Caps {
             send_debug_msg!(self, "Starting new aspiration window search after {} microseconds", elapsed.as_micros());
             needs_final_info = true;
 
-            let asp_start_time = Instant::now();
             let Some(pv_score) = self.negamax(pos, 0, aw_budget, alpha, beta, Exact, None) else {
                 send_debug_msg!(
                     self,
@@ -482,33 +481,19 @@ impl Caps {
                 );
                 return (Break(()), true, None);
             };
-
+            let elapsed = self.start_time().elapsed();
             send_debug_msg!(
                 self,
-                "depth {budget}, score {0}, radius {1}, interval ({2}, {3}) nodes {4}, elapsed microseconds: {5}",
+                "depth {budget}, score {0}, aw delta {1}, interval ({2}, {3}) nodes {4}, elapsed microseconds: {5}",
                 pv_score.0,
-                window_radius.0,
+                aw_delta.0,
                 alpha.0,
                 beta.0,
                 self.uci_nodes(),
-                self.start_time().elapsed().as_micros()
+                elapsed.as_micros()
             );
 
             let node_type = pv_score.node_type(alpha, beta);
-
-            // we don't trust the best move in fail low nodes, but we still want to display an updated score
-            self.cur_pv_data_mut().score = pv_score;
-            self.cur_pv_data_mut().bound = Some(node_type);
-            if node_type == FailLow {
-                // In a fail low node, we didn't get any new information, and it's possible that we just discovered
-                // a problem with our chosen move. So increase the soft limit such that we can gather more information.
-                soft_limit_fail_low_extension = cc::soft_limit_fail_low_factor() as f64 / 1000.0;
-                aw_budget = budget;
-            } else if node_type == FailHigh && budget >= cc::fail_high_reduction_min_depth() {
-                // If the search discovers an unexpectedly good move, it can take a long while to search it because the TT isn't filled
-                // and because even with fail soft, scores tend to fall close to the aspiration window. So reduce the depth to speed this up.
-                aw_budget = (aw_budget - cc::fail_high_reduction()).max(budget - cc::fail_high_max_reduction());
-            }
 
             if cfg!(debug_assertions) {
                 let pv = &self.search_stack[0].pv;
@@ -534,25 +519,38 @@ impl Caps {
                 );
             }
 
-            if node_type == Exact {
-                window_radius = Score((window_radius.0 + cc::aw_exact_add()) * cc::aw_exact_inv_div() / 1024);
-            } else {
-                let delta = pv_score.0.abs_diff(alpha.0);
-                let delta = delta.min(pv_score.0.abs_diff(beta.0));
-                let delta = delta.min(cc::aw_delta_max()) as i32;
-                window_radius.0 = SCORE_WON.0.min(window_radius.0 * cc::aw_widening_factor() + delta);
+            // we don't trust the best move in fail low nodes, but we still want to display an updated score
+            self.cur_pv_data_mut().score = pv_score;
+            self.cur_pv_data_mut().bound = Some(node_type);
+            match node_type {
+                FailLow => {
+                    aw_budget = budget;
+                    // In a fail low node, we didn't get any new information, and it's possible that we just discovered
+                    // a problem with our chosen move. So increase the soft limit such that we can gather more information.
+                    soft_limit_fail_low_extension = cc::soft_limit_fail_low_factor() as f64 / 1000.0;
+                    self.cur_pv_data_mut().beta = (alpha + beta) / 2;
+                    self.cur_pv_data_mut().alpha = (alpha - aw_delta).max(MIN_ALPHA);
+                }
+                FailHigh => {
+                    if budget >= cc::fail_high_reduction_min_depth() {
+                        // If the search discovers an unexpectedly good move, it can take a long while to search it because the TT isn't filled
+                        // and because even with fail soft, scores tend to fall close to the aspiration window. So reduce the depth to speed this up.
+                        aw_budget = (aw_budget - cc::fail_high_reduction()).max(budget - cc::fail_high_max_reduction());
+                    }
+                    self.cur_pv_data_mut().beta = (beta + aw_delta).min(MAX_BETA);
+                }
+                Exact => {
+                    self.cur_pv_data_mut().delta =
+                        Score((aw_delta.0 + cc::aw_exact_add()) * cc::aw_exact_inv_div() / 1024);
+                    self.send_search_info(false);
+                    return (Continue(()), true, Some(pv_score));
+                }
             }
-            self.cur_pv_data_mut().radius = window_radius;
-            self.cur_pv_data_mut().alpha = (pv_score - window_radius).max(MIN_ALPHA);
-            self.cur_pv_data_mut().beta = (pv_score + window_radius).min(MAX_BETA);
-
-            if node_type == Exact {
-                self.send_search_info(false);
-                return (Continue(()), true, Some(pv_score));
-            } else if asp_start_time.elapsed().as_millis() >= 1000 {
+            if elapsed.as_millis() >= 5000 {
                 self.send_search_info(false);
                 needs_final_info = false;
             }
+            self.cur_pv_data_mut().delta.0 = SCORE_WON.0.min(aw_delta.0 * cc::aw_widening_factor() / 1024 + aw_delta.0);
         }
     }
 

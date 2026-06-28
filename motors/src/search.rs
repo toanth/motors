@@ -696,7 +696,7 @@ impl<B: BoardTrait> CustomInfo<B> for NoCustomInfo {
 pub struct PVData<B: BoardTrait> {
     alpha: Score,
     beta: Score,
-    radius: Score,
+    delta: Score,
     pub pv: Pv<B, 200>, // A PV of 200 plies should be more than enough for anybody (tm)
     pub score: Score,
     pub bound: Option<NodeType>,
@@ -704,14 +704,7 @@ pub struct PVData<B: BoardTrait> {
 
 impl<B: BoardTrait> Default for PVData<B> {
     fn default() -> Self {
-        Self {
-            alpha: MIN_ALPHA,
-            beta: MAX_BETA,
-            radius: Score(20),
-            pv: Pv::default(),
-            score: NO_SCORE_YET,
-            bound: None,
-        }
+        Self { alpha: MIN_ALPHA, beta: MAX_BETA, delta: Score(20), pv: Pv::default(), score: NO_SCORE_YET, bound: None }
     }
 }
 
@@ -719,7 +712,7 @@ impl<B: BoardTrait> PVData<B> {
     pub fn reset(&mut self) {
         self.alpha = MIN_ALPHA;
         self.beta = MAX_BETA;
-        self.radius = Score(20);
+        self.delta = Score(20);
         self.pv.clear();
         self.score = NO_SCORE_YET;
         self.bound = None;

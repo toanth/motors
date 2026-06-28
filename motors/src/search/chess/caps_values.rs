@@ -36,8 +36,7 @@ spsa_params![
     fail_high_max_reduction: isize = 256; 64..=1024; step=32;
     aw_exact_add: ScoreT = 11; 0..=42; step=2;
     aw_exact_inv_div: ScoreT = 340; 128..=1024; step=32;
-    aw_delta_max: u32 = 11; 0..=40; step=4;
-    aw_widening_factor: ScoreT = 3; 1..=10; step=1;
+    aw_widening_factor: ScoreT = 2500; 1..=4096; step=128;
     check_extension: isize = 128; 0..=256; step=16;
     tt_cutoff_margin: isize = 32; 0..=512; step=4;
     low_depth_tt_extension_depth: isize = 6*128; 128..=10*128; step=32;

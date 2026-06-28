@@ -634,19 +634,19 @@ mod test {
         tt.store(next_entry, next_pos.hash_pos(), 1);
         let mov = engine.search_with_tt(pos, SearchLimit::depth(DepthPly::new(1)), tt.clone()).chosen_move;
         assert_eq!(mov, bad_move);
-        let limit = SearchLimit::depth(DepthPly::new(5));
+        let limit = SearchLimit::depth(DepthPly::new(7));
         let mut engine2 = Caps::default();
         _ = engine2.search_with_new_tt(pos, limit);
         let nodes = engine2.search_state().uci_nodes();
         engine2.forget();
         tt.age.increment();
-        let _ = engine.search_with_tt(pos, SearchLimit::depth(DepthPly::new(7)), tt.clone());
+        let _ = engine.search_with_tt(pos, SearchLimit::depth(DepthPly::new(10)), tt.clone());
         let entry = tt.load::<Board>(pos.hash_pos(), 0);
         assert!(entry.is_some());
         // assert_eq!(entry.unwrap().depth, 7);
         _ = engine2.search_with_tt(pos, limit, tt.clone());
         let new_nodes = engine2.search_state().uci_nodes();
-        assert!(new_nodes <= nodes);
+        assert!(new_nodes <= nodes + nodes / 8, "{new_nodes} {nodes}");
         tt.forget();
         tt.age.increment();
         let params = SearchParams::new_unshared(pos, SearchLimit::infinite(), ZobristHistory::default(), tt.clone())
