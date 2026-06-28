@@ -1480,21 +1480,34 @@ impl Caps {
     fn update_histories(&mut self, mov: Move, depth: isize, ply: usize, score_diff: Score) {
         debug_assert!(score_diff >= Score(0));
         let (before, [entry, ..]) = self.state.search_stack.split_at_mut(ply) else { unreachable!() };
-        let bonus = (depth * cc::hist_depth_bonus() / 1024 + cc::hist_bonus_offset()) as HistScoreT
-            + ((score_diff.0 + 1).ilog2() * cc::hist_bonus_eval_diff()) as HistScoreT;
-        let malus = (-depth * cc::hist_depth_malus() / 1024 - cc::hist_malus_offset()) as HistScoreT
-            - ((score_diff.0 + 1).ilog2() * cc::hist_malus_eval_diff()) as HistScoreT;
         let pos = &entry.pos;
         let threats = pos.threats();
         if mov.is_tactical(pos) {
+            let noisy_bonus = (depth * cc::noisy_hist_depth_bonus() / 1024 + cc::noisy_hist_bonus_offset())
+                as HistScoreT
+                + ((score_diff.0 + 1).ilog2() * cc::noisy_hist_bonus_eval_diff()) as HistScoreT;
+            let noisy_penalty = (-depth * cc::noisy_hist_depth_penalty() / 1024 - cc::noisy_hist_penalty_offset())
+                as HistScoreT
+                - ((score_diff.0 + 1).ilog2() * cc::noisy_hist_penalty_eval_diff()) as HistScoreT;
             for disappointing in entry.tried_moves.iter().dropping_back(1).filter(|m| m.is_tactical(pos)) {
-                self.state.custom.capt_hist.update(*disappointing, pos, malus);
+                self.state.custom.capt_hist.update(*disappointing, pos, noisy_penalty);
             }
-            self.state.custom.capt_hist.update(mov, pos, bonus);
+            self.state.custom.capt_hist.update(mov, pos, noisy_bonus);
             return;
         }
-        for disappointing in entry.tried_moves.iter().dropping_back(1).filter(|m| !m.is_tactical(pos)) {
-            self.state.custom.history.update(*disappointing, threats, malus);
+        let bonus = (depth * cc::hist_depth_bonus() / 1024 + cc::hist_bonus_offset()) as HistScoreT
+            + ((score_diff.0 + 1).ilog2() * cc::hist_bonus_eval_diff()) as HistScoreT;
+        let penalty = (-depth * cc::hist_depth_penalty() / 1024 - cc::hist_penalty_offset()) as HistScoreT
+            - ((score_diff.0 + 1).ilog2() * cc::hist_penalty_eval_diff()) as HistScoreT;
+        let noisy_penalty = (-depth * cc::noisy_hist_depth_penalty_bm_quiet() / 1024
+            - cc::noisy_hist_penalty_offset_bm_quiet()) as HistScoreT
+            - ((score_diff.0 + 1).ilog2() * cc::noisy_hist_penalty_eval_diff_bm_quiet()) as HistScoreT;
+        for disappointing in entry.tried_moves.iter().dropping_back(1) {
+            if disappointing.is_tactical(&pos) {
+                self.state.custom.capt_hist.update(*disappointing, pos, noisy_penalty);
+            } else {
+                self.state.custom.history.update(*disappointing, threats, penalty);
+            }
         }
         self.state.custom.history.update(mov, threats, bonus);
         if ply > 0 {
@@ -1503,7 +1516,7 @@ impl Caps {
                 mov,
                 parent.last_tried_move(),
                 bonus,
-                malus,
+                penalty,
                 pos,
                 &parent.pos,
                 &mut self.state.custom.countermove_hist,
@@ -1516,7 +1529,7 @@ impl Caps {
                     mov,
                     grandparent.last_tried_move(),
                     bonus,
-                    malus,
+                    penalty,
                     pos,
                     &grandparent.pos,
                     fmh,
