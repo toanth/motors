@@ -57,10 +57,10 @@ fn update_history_score(entry: &mut HistScoreT, bonus: HistScoreT) {
 pub(super) struct HistoryHeuristic(Box<[[HistScoreT; 64 * 64]; 4]>);
 
 impl HistoryHeuristic {
-    pub(super) fn update(&mut self, mov: Move, threats: Bitboard, bonus: HistScoreT) {
+    pub(super) fn update(&mut self, mov: Move, threats: Bitboard, bonus: isize) {
         let mut threats_idx = threats.has(mov.src_square()) as usize;
         threats_idx = threats_idx * 2 + threats.has(mov.dest_square()) as usize;
-        update_history_score(&mut self[threats_idx][mov.from_to_square()], bonus);
+        update_history_score(&mut self[threats_idx][mov.from_to_square()], bonus as HistScoreT);
     }
 
     pub(super) fn score(&self, mov: Move, threats: Bitboard) -> isize {
@@ -81,11 +81,11 @@ impl Default for HistoryHeuristic {
 pub(super) struct CaptHist(Box<[[[[HistScoreT; 64]; 6]; 2]; NUM_COLORS]>);
 
 impl CaptHist {
-    pub(super) fn update(&mut self, mov: Move, pos: &Board, bonus: HistScoreT) {
+    pub(super) fn update(&mut self, mov: Move, pos: &Board, bonus: isize) {
         let us = pos.active_player();
         let defended = pos.threats().is_bit_set_at(mov.dest_square().bb_idx()) as usize;
         let entry = &mut self.0[us][defended][mov.piece_type(pos) as usize][mov.dest_square().bb_idx()];
-        update_history_score(entry, bonus);
+        update_history_score(entry, bonus as HistScoreT);
     }
 
     pub(super) fn get(&self, mov: Move, pos: &Board) -> MoveScore {

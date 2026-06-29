@@ -1468,15 +1468,15 @@ impl Caps {
         subtable_idx: Option<usize>,
         mov: Move,
         pos: &Board,
-        bonus: HistScoreT,
-        penalty: HistScoreT,
+        bonus: isize,
+        penalty: isize,
         failed: &[Move],
     ) {
         let Some(idx) = subtable_idx else { return };
         let sub_table = &mut cont_hist[idx];
-        ContHist::update(sub_table, mov, pos, bonus);
+        ContHist::update(sub_table, mov, pos, bonus as HistScoreT);
         for &disappointing in failed.iter().dropping_back(1).filter(|m| !m.is_tactical(pos)) {
-            ContHist::update(sub_table, disappointing, pos, penalty);
+            ContHist::update(sub_table, disappointing, pos, penalty as HistScoreT);
         }
     }
     //
@@ -1506,24 +1506,22 @@ impl Caps {
         let threats = pos.threats();
         if mov.is_tactical(pos) {
             let noisy_bonus = (depth * cc::noisy_hist_depth_bonus() / 1024 + cc::noisy_hist_bonus_offset())
-                as HistScoreT
-                + ((score_diff.0 + 1).ilog2() * cc::noisy_hist_bonus_eval_diff()) as HistScoreT;
+                + ((score_diff.0 + 1).ilog2() as isize * cc::noisy_hist_bonus_eval_diff());
             let noisy_penalty = (-depth * cc::noisy_hist_depth_penalty() / 1024 - cc::noisy_hist_penalty_offset())
-                as HistScoreT
-                - ((score_diff.0 + 1).ilog2() * cc::noisy_hist_penalty_eval_diff()) as HistScoreT;
+                - ((score_diff.0 + 1).ilog2() as isize * cc::noisy_hist_penalty_eval_diff());
             for disappointing in entry.tried_moves.iter().dropping_back(1).filter(|m| m.is_tactical(pos)) {
                 self.state.custom.capt_hist.update(*disappointing, pos, noisy_penalty);
             }
             self.state.custom.capt_hist.update(mov, pos, noisy_bonus);
             return;
         }
-        let bonus = (depth * cc::hist_depth_bonus() / 1024 + cc::hist_bonus_offset()) as HistScoreT
-            + ((score_diff.0 + 1).ilog2() * cc::hist_bonus_eval_diff()) as HistScoreT;
-        let penalty = (-depth * cc::hist_depth_penalty() / 1024 - cc::hist_penalty_offset()) as HistScoreT
-            - ((score_diff.0 + 1).ilog2() * cc::hist_penalty_eval_diff()) as HistScoreT;
+        let bonus = (depth * cc::hist_depth_bonus() / 1024 + cc::hist_bonus_offset())
+            + ((score_diff.0 + 1).ilog2() as isize * cc::hist_bonus_eval_diff());
+        let penalty = (-depth * cc::hist_depth_penalty() / 1024 - cc::hist_penalty_offset())
+            - ((score_diff.0 + 1).ilog2() as isize * cc::hist_penalty_eval_diff());
         let noisy_penalty = (-depth * cc::noisy_hist_depth_penalty_bm_quiet() / 1024
-            - cc::noisy_hist_penalty_offset_bm_quiet()) as HistScoreT
-            - ((score_diff.0 + 1).ilog2() * cc::noisy_hist_penalty_eval_diff_bm_quiet()) as HistScoreT;
+            - cc::noisy_hist_penalty_offset_bm_quiet())
+            - ((score_diff.0 + 1).ilog2() as isize * cc::noisy_hist_penalty_eval_diff_bm_quiet());
         for disappointing in entry.tried_moves.iter().dropping_back(1) {
             if disappointing.is_tactical(&pos) {
                 self.state.custom.capt_hist.update(*disappointing, pos, noisy_penalty);
@@ -1532,26 +1530,22 @@ impl Caps {
             }
         }
         self.state.custom.history.update(mov, threats, bonus);
-        if ply > 0 {
-            let parent = &self.state.search_stack[ply - 1];
-            Self::update_cont_hist(
-                &mut self.state.custom.cont_hist,
-                parent.cont_hist_idx,
-                mov,
-                pos,
-                bonus,
-                penalty,
-                &entry.tried_moves,
-            );
-            if ply > 1 {
-                let grandparent = &self.state.search_stack[ply - 2];
+        for n in [1, 2, 4] {
+            let factor = match n {
+                1 => 1024,
+                2 => cc::conthist_2_ply_update(),
+                4 => cc::conthist_4_ply_update(),
+                _ => unreachable!(),
+            };
+            if ply >= n {
+                let parent = &self.state.search_stack[ply - n];
                 Self::update_cont_hist(
                     &mut self.state.custom.cont_hist,
-                    grandparent.cont_hist_idx,
+                    parent.cont_hist_idx,
                     mov,
                     pos,
-                    bonus,
-                    penalty,
+                    bonus * factor / 1024,
+                    penalty * factor / 1024,
                     &entry.tried_moves,
                 );
             }

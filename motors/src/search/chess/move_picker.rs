@@ -68,19 +68,21 @@ impl<'a> MoveScorer<'a> {
     pub fn score_quiet_nonkiller(&self, mov: Move, state: &CapsState) -> MoveScore {
         debug_assert!(!mov.is_tactical(self.pos), "{mov:?} {}", self.pos);
         let main_hist_score = state.history.score(mov, self.pos.threats());
-        // TODO: Only divide by 1024 at the end (changes bench)
-        let mut score = main_hist_score * cc::main_hist_weight() / 1024;
-        if self.ply > 0
-            && let Some(idx) = state.search_stack[self.ply - 1].cont_hist_idx
-        {
-            score += ContHist::score(&state.cont_hist[idx], mov, self.pos) * cc::countermove_weight() / 1024;
+        let mut score = main_hist_score * cc::main_hist_weight();
+        for n in [1, 2, 4] {
+            if self.ply >= n
+                && let Some(idx) = state.search_stack[self.ply - n].cont_hist_idx
+            {
+                let factor = match n {
+                    1 => cc::conthist_1_ply_weight(),
+                    2 => cc::conthist_2_ply_weight(),
+                    4 => cc::conthist_4_ply_weight(),
+                    _ => unreachable!(),
+                };
+                score += ContHist::score(&state.cont_hist[idx], mov, self.pos) * factor;
+            }
         }
-        if self.ply > 1
-            && let Some(idx) = state.search_stack[self.ply - 2].cont_hist_idx
-        {
-            score += ContHist::score(&state.cont_hist[idx], mov, self.pos) * cc::follow_up_weight() / 1024;
-        }
-        MoveScore(score as HistScoreT)
+        MoveScore((score / 1024) as HistScoreT)
     }
 
     /// Order moves so that the most promising moves are searched first.
