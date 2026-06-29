@@ -15,14 +15,14 @@
  *  You should have received a copy of the GNU General Public License
  *  along with Motors. If not, see <https://www.gnu.org/licenses/>.
  */
-use crate::search::MoveScore;
 use crate::search::chess::caps_values::cc;
-use crate::search::chess::histories::{HIST_DIVISOR, HistScoreT};
+use crate::search::chess::histories::{HistScoreT, HIST_DIVISOR};
 use crate::search::chess::move_picker::MovePickerStage::*;
 use crate::search::chess::*;
-use gears::games::chess::Board;
+use crate::search::MoveScore;
 use gears::games::chess::moves::Move;
 use gears::games::chess::see::SeeScore;
+use gears::games::chess::Board;
 use gears::general::moves::MoveTrait;
 use gears::itertools::Itertools;
 
@@ -67,23 +67,19 @@ impl<'a> MoveScorer<'a> {
 
     pub fn score_quiet_nonkiller(&self, mov: Move, state: &CapsState) -> MoveScore {
         debug_assert!(!mov.is_tactical(self.pos), "{mov:?} {}", self.pos);
-        let countermove_score = if self.ply > 0 {
-            let prev_move = state.search_stack[self.ply - 1].last_tried_move();
-            state.countermove_hist.score(mov, self.pos, prev_move, &state.search_stack[self.ply - 1].pos)
-        } else {
-            0
-        };
-        let follow_up_score = if self.ply > 1 {
-            let prev_move = state.search_stack[self.ply - 2].last_tried_move();
-            state.follow_up_move_hist.score(mov, self.pos, prev_move, &state.search_stack[self.ply - 2].pos)
-        } else {
-            0
-        };
         let main_hist_score = state.history.score(mov, self.pos.threats());
-        // TODO: Divide at the end (changes bench)
-        let score = main_hist_score * cc::main_hist_weight() / 1024
-            + countermove_score * cc::countermove_weight() / 1024
-            + follow_up_score * cc::follow_up_weight() / 1024;
+        // TODO: Only divide by 1024 at the end (changes bench)
+        let mut score = main_hist_score * cc::main_hist_weight() / 1024;
+        if self.ply > 0
+            && let Some(idx) = state.search_stack[self.ply - 1].cont_hist_idx
+        {
+            score += ContHist::score(&state.cont_hist[idx], mov, self.pos) * cc::countermove_weight() / 1024;
+        }
+        if self.ply > 1
+            && let Some(idx) = state.search_stack[self.ply - 2].cont_hist_idx
+        {
+            score += ContHist::score(&state.cont_hist[idx], mov, self.pos) * cc::follow_up_weight() / 1024;
+        }
         MoveScore(score as HistScoreT)
     }
 

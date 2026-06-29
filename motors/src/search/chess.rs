@@ -41,6 +41,7 @@ pub struct CapsSearchStackEntry {
     move_score: MoveScore,
     pos: Board,
     eval: Score,
+    cont_hist_idx: Option<usize>,
 }
 
 impl SearchStackEntry<Board> for CapsSearchStackEntry {
@@ -80,14 +81,9 @@ impl CapsSearchStackEntry {
 #[derive(Debug, Clone, Default)]
 pub struct CapsCustomInfo {
     history: HistoryHeuristic,
-    /// Many moves have a "natural" response, so use that for move ordering:
-    /// Instead of only learning which quiet moves are good, learn which quiet moves are good after our
-    /// opponent played a given move.
-    countermove_hist: ContHist,
-    /// Often, a move works because it is immediately followed by some other move, which completes the tactic.
-    /// Keep track of such quiet follow-up moves. This is exactly the same as the countermove history, but considers
-    /// our previous move instead of the opponent's previous move, i.e. the move 2 plies ago instead of 1 ply ago.
-    follow_up_move_hist: ContHist,
+    /// Instead of only learning which quiet moves are good, learn which quiet moves are good given the move `n` plies earlier.
+    /// Ths uses a single table for different values of `n`.
+    cont_hist: ContHist,
     capt_hist: CaptHist,
     corr_hist: CorrHist,
     repeated_before_root: Vec<PosHash>,
@@ -115,11 +111,8 @@ impl CustomInfo<Board> for CapsCustomInfo {
             *value = 0;
         }
         self.capt_hist.reset();
-        for value in self.countermove_hist.iter_mut() {
-            *value = 0;
-        }
-        for value in self.follow_up_move_hist.iter_mut() {
-            *value = 0;
+        for value in self.cont_hist.iter_mut() {
+            *value = [[0; 64]; 6];
         }
         self.corr_hist.reset();
         self.root_move_nodes.clear();

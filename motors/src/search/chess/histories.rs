@@ -16,25 +16,24 @@
  *  along with Motors. If not, see <https://www.gnu.org/licenses/>.
  */
 use crate::io::ugi_output::{color_for_score, score_gradient};
-use crate::search::MoveScore;
 use crate::search::chess::caps_values::cc;
 use crate::search::chess::caps_values::cc::corrhist_max;
+use crate::search::MoveScore;
 use derive_more::{Deref, DerefMut, Index, IndexMut};
 use gears::colored::Colorize;
 use gears::games::chess::moves::Move;
 use gears::games::chess::moves::MoveFlags::NormalQuiet;
-use gears::games::chess::pieces::{NUM_CHESS_PIECES, PieceType};
-use gears::games::chess::squares::{NUM_SQUARES, Square};
+use gears::games::chess::pieces::{PieceType, NUM_CHESS_PIECES};
+use gears::games::chess::squares::{Square, NUM_SQUARES};
 use gears::games::chess::{Board, Color};
 use gears::games::{ColorTrait, NUM_COLORS};
 use gears::general::bitboards::chessboard::Bitboard;
 use gears::general::bitboards::{BitboardTrait, RawBitboardTrait};
 use gears::general::board::BoardTrait;
-use gears::general::moves::MoveTrait;
 use gears::itertools::Itertools;
-use gears::output::OutputOpts;
 use gears::output::text_output::AdaptFormatter;
-use gears::score::{MAX_NORMAL_SCORE, MIN_NORMAL_SCORE, Score, ScoreT};
+use gears::output::OutputOpts;
+use gears::score::{Score, ScoreT, MAX_NORMAL_SCORE, MIN_NORMAL_SCORE};
 
 pub(super) type HistScoreT = i16;
 
@@ -108,40 +107,41 @@ impl Default for CaptHist {
     }
 }
 
+pub(super) type PieceToHist = [[HistScoreT; NUM_SQUARES]; NUM_CHESS_PIECES];
+
 /// Continuation history.
-/// Used for Countermove History (CMH, 1 ply ago) and Follow-up Move History (FMH, 2 plies ago).
-/// Unlike the main quiet history heuristic, this in indexed by the previous piece, previous target square,
-/// current piece, current target square, and color.
+/// Indexed by the previous color, previous piece, previous target square,
+/// current piece, current target square.
 #[derive(Debug, Clone, Deref, DerefMut, Index, IndexMut)]
-pub(super) struct ContHist(Vec<HistScoreT>); // Can't store this on the stack because it's too large.
+pub(super) struct ContHist(Vec<PieceToHist>); // Can't store this on the stack because it's too large.
 
 impl ContHist {
-    fn idx(mov: Move, pos: &Board, prev_move: Move, prev_pos: &Board) -> usize {
-        let color = pos.active_player();
-        debug_assert!(mov.dest_square().bb_idx() < 64);
-        debug_assert!((mov.piece_type(pos) as usize) < 6);
+    pub(super) fn subtable_idx(prev_move: Move, prev_pos: &Board) -> usize {
         debug_assert!(prev_move.dest_square().bb_idx() < 64);
         debug_assert!((prev_move.piece_type(prev_pos) as usize) < 6);
-        (mov.piece_type(pos) as usize * 64 + mov.dest_square().bb_idx())
-            + (prev_move.piece_type(prev_pos) as usize * 64 + prev_move.dest_square().bb_idx()) * 64 * 6
-            + color as usize * 64 * 6 * 64 * 6
+        let prev_piece = prev_move.piece_type(prev_pos);
+        prev_move.dest_square().bb_idx()
+            + prev_piece as usize * NUM_SQUARES
+            + prev_pos.active_player() as usize * NUM_SQUARES * NUM_CHESS_PIECES
     }
-    pub(super) fn update(&mut self, mov: Move, pos: &Board, prev_mov: Move, prev_pos: &Board, bonus: HistScoreT) {
-        let entry = &mut self[Self::idx(mov, pos, prev_mov, prev_pos)];
+
+    pub(super) fn update(sub_table: &mut PieceToHist, mov: Move, pos: &Board, bonus: HistScoreT) {
+        let piece = mov.piece_type(&pos);
+        let dest = mov.dest_square();
+        let entry = &mut sub_table[piece][dest];
         update_history_score(entry, bonus);
     }
 
-    pub(super) fn score(&self, mov: Move, pos: &Board, prev_move: Move, prev_pos: &Board) -> isize {
-        if prev_move.is_null() {
-            return 0;
-        }
-        self[Self::idx(mov, pos, prev_move, prev_pos)] as isize
+    pub(super) fn score(sub_table: &PieceToHist, mov: Move, pos: &Board) -> isize {
+        let piece = mov.piece_type(&pos);
+        let dest = mov.dest_square();
+        sub_table[piece][dest] as isize
     }
 }
 
 impl Default for ContHist {
     fn default() -> Self {
-        ContHist(vec![0; 2 * 6 * 64 * 6 * 64])
+        ContHist(vec![[[HistScoreT::default(); 64]; 6]; 2 * 6 * 64])
     }
 }
 

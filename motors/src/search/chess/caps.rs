@@ -804,6 +804,7 @@ impl Caps {
                     return Some(qsearch_score);
                 }
                 self.search_stack[ply].tried_moves.clear();
+                self.search_stack[ply].cont_hist_idx = None;
 
                 // Since we're in a non-pv node, qsearch must have failed high. So assume that a normal search also fails high.
                 expected_node_type = FailHigh;
@@ -833,6 +834,7 @@ impl Caps {
                 let new_pos = pos.make_nullmove().unwrap();
                 // necessary to recognize the null move and to make `last_tried_move()` not panic
                 self.search_stack[ply].tried_moves.push(Move::default());
+                self.search_stack[ply].cont_hist_idx = None;
                 // TODO: Remove / 128 and * 128
                 let reduction = cc::nmp_base()
                     + depth / 128 * cc::nmp_depth() / 1024 * 128
@@ -877,6 +879,7 @@ impl Caps {
                 depth -= cc::rfr_reduction();
             }
             self.search_stack[ply].tried_moves.clear();
+            self.search_stack[ply].cont_hist_idx = None;
         }
 
         // IIR (Internal Iterative Reductions): If we don't have a TT move, this node will likely take a long time
@@ -1009,6 +1012,7 @@ impl Caps {
                 {
                     debug_assert!(!in_singular_search);
                     self.search_stack[ply].tried_moves.clear();
+                    self.search_stack[ply].cont_hist_idx = None;
                     self.params.history.pop();
                     let reduced_depth = (first_child_depth / 128 * cc::se_reduced_factor() / 1024) * 128;
                     let singular_beta =
@@ -1023,6 +1027,7 @@ impl Caps {
                         Some(best_move),
                     );
                     self.search_stack[ply].tried_moves.clear();
+                    self.search_stack[ply].cont_hist_idx = None;
                     let singular_score = singular_score?;
                     if singular_score < singular_beta {
                         first_child_depth += cc::se_extension();
@@ -1458,28 +1463,45 @@ impl Caps {
         score.clamp(MIN_NORMAL_SCORE, MAX_NORMAL_SCORE)
     }
 
-    fn update_continuation_hist(
+    fn update_cont_hist(
+        cont_hist: &mut ContHist,
+        subtable_idx: Option<usize>,
         mov: Move,
-        prev_move: Move,
-        bonus: HistScoreT,
-        malus: HistScoreT,
         pos: &Board,
-        prev_pos: &Board,
-        hist: &mut ContHist,
+        bonus: HistScoreT,
+        penalty: HistScoreT,
         failed: &[Move],
     ) {
-        if prev_move == Move::default() {
-            return; // Ignore NMP null moves
-        }
-        hist.update(mov, pos, prev_move, prev_pos, bonus);
-        for disappointing in failed.iter().dropping_back(1).filter(|m| !m.is_tactical(pos)) {
-            hist.update(*disappointing, pos, prev_move, prev_pos, malus);
+        let Some(idx) = subtable_idx else { return };
+        let sub_table = &mut cont_hist[idx];
+        ContHist::update(sub_table, mov, pos, bonus);
+        for &disappointing in failed.iter().dropping_back(1).filter(|m| !m.is_tactical(pos)) {
+            ContHist::update(sub_table, disappointing, pos, penalty);
         }
     }
+    //
+    // fn update_continuation_hist(
+    //     mov: Move,
+    //     prev_move: Move,
+    //     bonus: HistScoreT,
+    //     malus: HistScoreT,
+    //     pos: &Board,
+    //     prev_pos: &Board,
+    //     hist: &mut ContHist,
+    //     failed: &[Move],
+    // ) {
+    //     if prev_move == Move::default() {
+    //         return; // Ignore NMP null moves
+    //     }
+    //     hist.update(mov, pos, prev_move, prev_pos, bonus);
+    //     for disappointing in failed.iter().dropping_back(1).filter(|m| !m.is_tactical(pos)) {
+    //         hist.update(*disappointing, pos, prev_move, prev_pos, malus);
+    //     }
+    // }
 
     fn update_histories(&mut self, mov: Move, depth: isize, ply: usize, score_diff: Score) {
         debug_assert!(score_diff >= Score(0));
-        let (before, [entry, ..]) = self.state.search_stack.split_at_mut(ply) else { unreachable!() };
+        let entry = &self.state.search_stack[ply];
         let pos = &entry.pos;
         let threats = pos.threats();
         if mov.is_tactical(pos) {
@@ -1511,28 +1533,25 @@ impl Caps {
         }
         self.state.custom.history.update(mov, threats, bonus);
         if ply > 0 {
-            let parent = before.last_mut().unwrap();
-            Self::update_continuation_hist(
+            let parent = &self.state.search_stack[ply - 1];
+            Self::update_cont_hist(
+                &mut self.state.custom.cont_hist,
+                parent.cont_hist_idx,
                 mov,
-                parent.last_tried_move(),
+                pos,
                 bonus,
                 penalty,
-                pos,
-                &parent.pos,
-                &mut self.state.custom.countermove_hist,
                 &entry.tried_moves,
             );
             if ply > 1 {
-                let grandparent = &mut before[before.len() - 2];
-                let fmh = &mut self.state.custom.follow_up_move_hist;
-                Self::update_continuation_hist(
+                let grandparent = &self.state.search_stack[ply - 2];
+                Self::update_cont_hist(
+                    &mut self.state.custom.cont_hist,
+                    grandparent.cont_hist_idx,
                     mov,
-                    grandparent.last_tried_move(),
+                    pos,
                     bonus,
                     penalty,
-                    pos,
-                    &grandparent.pos,
-                    fmh,
                     &entry.tried_moves,
                 );
             }
@@ -1543,12 +1562,14 @@ impl Caps {
         self.search_stack[ply].pos = *pos;
         self.search_stack[ply].eval = eval;
         self.search_stack[ply].tried_moves.clear();
+        self.search_stack[ply].cont_hist_idx = None;
     }
 
     fn record_move(&mut self, mov: Move, old_pos: &Board, ply: usize, move_score: MoveScore) {
         self.params.history.push(old_pos.hash_pos());
         self.search_stack[ply].tried_moves.push(mov);
         self.search_stack[ply].move_score = move_score;
+        self.search_stack[ply].cont_hist_idx = Some(ContHist::subtable_idx(mov, old_pos));
     }
 
     // gets skipped when aborting search, but that's fine
