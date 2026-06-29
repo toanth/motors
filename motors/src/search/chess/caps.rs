@@ -1374,15 +1374,17 @@ impl Caps {
             let move_score = sm.score();
             debug_assert!(mov.is_tactical(pos) || pos.is_in_check(), "{mov:?} {pos}");
             self.tt().prefetch(pos.approx_hash_after(mov));
-            if !eval.is_game_lost_score() && move_score < MoveScore(0) || children_visited >= 3 {
-                // qsearch see pruning and qsearch late move  pruning (lmp):
-                // If the move has a negative SEE score or if we've already looked at enough moves, don't even bother playing it in qsearch.
-                break;
-            }
-            let hist_score = self.capt_hist.get(mov, pos);
-            // qsearch history pruning
-            if hist_score < MoveScore(-500) {
-                break;
+            if !best_score.is_game_lost_score() {
+                if move_score < MoveScore(0) || children_visited >= cc::qsearch_lmp() {
+                    // qsearch see pruning and qsearch late move  pruning (lmp):
+                    // If the move has a negative SEE score or if we've already looked at enough moves, don't even bother playing it in qsearch.
+                    break;
+                }
+                let hist_score = self.capt_hist.get(mov, pos);
+                // qsearch history pruning
+                if hist_score < MoveScore(-500) {
+                    break;
+                }
             }
             let new_pos = pos.play(mov);
             // check nodes in qsearch to allow `go nodes n` to go exactly `n` nodes. Do this check here to avoid counting
