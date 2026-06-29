@@ -83,6 +83,7 @@ spsa_params![
     se_beta_scale: ScoreT = 24; 0..=128; step=2;
     se_extension: isize = 128; 0..=256; step=2;
     lmr_min_uninteresting: isize = 3; 0..=16; step=1;
+    min_lmr_depth: isize = 3 * 128; 0..= 1024; step=32;
     lmr_depth_div: isize = 8; 2..=16; step=1;
     lmr_moves_mult: isize = 128; 32..=256; step=4;
     lmr_const: isize = -128; -512..=1024; step=32;
