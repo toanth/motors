@@ -15,14 +15,14 @@
  *  You should have received a copy of the GNU General Public License
  *  along with Motors. If not, see <https://www.gnu.org/licenses/>.
  */
-use crate::search::MoveScore;
 use crate::search::chess::caps_values::cc;
-use crate::search::chess::histories::{HIST_DIVISOR, HistScoreT};
+use crate::search::chess::histories::{HistScoreT, HIST_DIVISOR};
 use crate::search::chess::move_picker::MovePickerStage::*;
 use crate::search::chess::*;
-use gears::games::chess::Board;
+use crate::search::MoveScore;
 use gears::games::chess::moves::Move;
 use gears::games::chess::see::SeeScore;
+use gears::games::chess::Board;
 use gears::general::moves::MoveTrait;
 use gears::itertools::Itertools;
 
@@ -187,6 +187,7 @@ impl<'a> MovePicker<'a> {
                     Some(ScoredMove::new(self.tt_move, MoveScore::MAX))
                 }
                 GenCaptures => {
+                    debug_assert!(self.list.is_empty());
                     let scorer = MoveScorer::new(self.pos, self.ply);
                     let add_move = |mov: Move| {
                         if self.tt_move != mov {
@@ -215,7 +216,10 @@ impl<'a> MovePicker<'a> {
                     debug_assert!(!self.tactical_only);
                     debug_assert_eq!(self.ignored_prefix, self.list.len());
                     self.stage = GenQuiets;
-                    if !self.pos.is_generated_move_pseudolegal(killer) || killer.is_tactical(self.pos) {
+                    if killer == self.tt_move
+                        || !self.pos.is_generated_move_pseudolegal(killer)
+                        || killer.is_tactical(self.pos)
+                    {
                         continue;
                     }
                     Some(ScoredMove::new(killer, KILLER_SCORE))

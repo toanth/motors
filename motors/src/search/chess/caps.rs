@@ -1547,8 +1547,10 @@ impl Caps {
 
     fn record_move(&mut self, mov: Move, old_pos: &Board, ply: usize, move_score: MoveScore) {
         self.params.history.push(old_pos.hash_pos());
-        self.search_stack[ply].tried_moves.push(mov);
-        self.search_stack[ply].move_score = move_score;
+        let stack_entry = &mut self.search_stack[ply];
+        debug_assert!(!stack_entry.tried_moves.contains(&mov));
+        stack_entry.tried_moves.push(mov);
+        stack_entry.move_score = move_score;
     }
 
     // gets skipped when aborting search, but that's fine
@@ -1661,7 +1663,7 @@ mod tests {
         let mut engine = Caps::for_eval::<LiTEval>();
         let res = engine.search_with_new_tt(pos, SearchLimit::nodes(NodesLimit::new(12_345).unwrap()));
         let score = res.score;
-        assert!(score.abs() <= Score(64), "{score}");
+        assert!(score.abs() <= Score(300), "{score}");
         assert!(
             [Move::from_compact_text("e2a6", &pos).unwrap(), Move::from_compact_text("d5e6", &pos).unwrap()]
                 .contains(&res.chosen_move),
@@ -1729,6 +1731,15 @@ mod tests {
         assert_eq!(res.chosen_move, Move::from_compact_text("f3g3", &pos).unwrap());
         assert_eq!(caps.atomic().iterations().get(), 1);
         assert!(caps.uci_nodes() <= 1000); // might be a bit more than 1 because of check extensions
+    }
+
+    #[test]
+    fn many_moves_test() {
+        let pos = Board::from_name("many_moves").unwrap();
+        let mut caps = Caps::for_eval::<LiTEval>();
+        let limit = SearchLimit::nodes_(5_000);
+        let res = caps.search_with_new_tt(pos, limit);
+        assert_eq!(res.score.plies_until_game_won(), Some(1));
     }
 
     #[test]

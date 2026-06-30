@@ -1351,6 +1351,13 @@ mod tests {
         assert_eq!(moves.len(), 265);
         let perft_res = perft(DepthPly::new(1), board, SingleThreaded, NoBulk, None);
         assert_eq!(perft_res.nodes, 265);
+        let board = Board::from_name("many_moves").unwrap();
+        let moves = board.pseudolegal_moves();
+        assert_eq!(moves.len(), 271);
+        let tactical = board.tactical_pseudolegal();
+        assert_eq!(tactical.len(), 0);
+        let quiet = board.quiet_pseudolegal();
+        assert_eq!(quiet.len(), 271);
     }
 
     #[test]
