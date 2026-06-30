@@ -366,7 +366,7 @@ impl TT {
             .position_min_by_key(|e| Self::entry_replacement_score(e, &entry))
             .unwrap();
         debug_assert!(
-            entry.score().0.abs() <= SCORE_WON.0,
+            entry.score().abs() <= SCORE_WON,
             "score {}, ply {ply}, won in {won}",
             entry.score,
             won = entry.score().plies_until_game_won().unwrap_or(-1),

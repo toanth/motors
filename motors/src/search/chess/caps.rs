@@ -528,10 +528,7 @@ impl Caps {
                     )
                 }
                 // assert this now because this doesn't hold for incomplete iterations
-                debug_assert!(
-                    !pv_score.is_won_or_lost() || pv_score.plies_until_game_over().unwrap() <= 500,
-                    "{pv_score}"
-                );
+                debug_assert!(pv_score.plies_until_game_over().is_none_or(|p| p <= 500), "{pv_score}");
             }
 
             if node_type == Exact {
@@ -1343,12 +1340,13 @@ impl Caps {
             if let Some(mov) = tt_entry.mov(pos) {
                 best_move = mov;
             }
-        } else if in_check {
-            raw_eval = MIN_NORMAL_SCORE;
-            eval = SCORE_LOST + ply as ScoreT;
         } else {
             raw_eval = self.eval(pos, ply);
-            eval = self.state.custom.corr_hist.correct(pos, continued, raw_eval);
+            eval = if in_check {
+                SCORE_LOST + ply as ScoreT
+            } else {
+                self.state.custom.corr_hist.correct(pos, continued, raw_eval)
+            };
         }
         let mut best_score = eval;
         // Saving to the TT is probably unnecessary since the score is either from the TT or just the static eval,
