@@ -461,7 +461,7 @@ mod tests {
             println!("{}", engine.engine_info().short_name());
             limit.nodes = NodesLimit::new(nodes).unwrap();
             let res = engine.search_with_new_tt(pos, limit);
-            assert!(res.score.is_proven_win(), "{}", res.score);
+            assert!(res.score.is_game_won_score(), "{}", res.score);
             assert_eq!(res.score.plies_until_game_won(), Some(5));
             assert_eq!(res.chosen_move, Move::from_text("f3", &pos).unwrap());
         }
@@ -497,7 +497,7 @@ mod tests {
             assert!(pv_data[1].score <= game_result_to_score(Win, 3));
             assert!(pv_data[1].score >= Score(1000));
             let second_best_move = Move::from_extended_text("e1Q+", &pos).unwrap();
-            assert_eq!(pv_data[1].pv.list.first() == Some(&second_best_move), pv_data[1].score.is_proven_win());
+            assert_eq!(pv_data[1].pv.list.first() == Some(&second_best_move), pv_data[1].score.is_game_won_score());
             assert!(pv_data[2].score >= Score(700));
             assert!(!pv_data[2].pv.list.is_empty());
         }
@@ -533,7 +533,7 @@ mod tests {
         let mut engine = Caps::for_eval::<PistonEval>();
         let res = engine.search_with_new_tt(pos, SearchLimit::nodes_(200));
         assert_eq!(pos.ep_square(), Some(Square::from_str("c6").unwrap()));
-        assert!(res.score.is_proven_win());
+        assert!(res.score.is_game_won_score());
         assert_eq!(res.score.plies_until_game_won(), Some(1));
         assert_eq!(res.chosen_move, Move::from_text(":c ep", &pos).unwrap());
     }

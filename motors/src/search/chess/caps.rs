@@ -793,7 +793,7 @@ impl Caps {
             // difference between the static eval and alpha is really large, and also not when we could miss a mate from the TT.
             if depth <= cc::razor_max_depth()
                 && eval + Score((cc::razor_depth_mult() * depth / 1024) as ScoreT) < alpha
-                && !eval.is_proven_loss()
+                && !eval.is_game_lost_score()
             {
                 let qsearch_score = self.qsearch(pos, alpha, beta, ply, false)?;
                 if qsearch_score <= alpha {
@@ -1212,7 +1212,7 @@ impl Caps {
                 // PVS PV nodes are rare
                 bound_so_far = Exact;
                 // idea from calvin: We don't expect another move to raise alpha, so we reduce
-                if child_depth >= cc::alpha_raise_reduction_min_depth() && !score.is_proven_loss() {
+                if child_depth >= cc::alpha_raise_reduction_min_depth() && !score.is_game_lost_score() {
                     child_depth -= cc::alpha_raise_reduction();
                 }
                 continue;
@@ -1373,7 +1373,7 @@ impl Caps {
             let move_score = sm.score();
             debug_assert!(mov.is_tactical(pos) || pos.is_in_check(), "{mov:?} {pos}");
             self.tt().prefetch(pos.approx_hash_after(mov));
-            if !best_score.is_proven_loss() {
+            if !best_score.is_game_lost_score() {
                 if move_score < MoveScore(0) || children_visited >= cc::qsearch_lmp() {
                     // qsearch see pruning and qsearch late move  pruning (lmp):
                     // If the move has a negative SEE score or if we've already looked at enough moves, don't even bother playing it in qsearch.
@@ -1600,7 +1600,7 @@ mod tests {
             for _ in 0..42 {
                 let mut engine = Caps::for_eval::<RandEval>();
                 let res = engine.search_with_new_tt(board, SearchLimit::depth(DepthPly::new(depth)));
-                assert!(res.score.is_proven_win());
+                assert!(res.score.is_game_won_score());
                 assert_eq!(res.score.plies_until_game_won(), Some(1));
             }
         }
@@ -1741,18 +1741,18 @@ mod tests {
         let mut caps = Caps::for_eval::<LiTEval>();
         let limit = SearchLimit::mate_in_moves(5);
         let res = caps.search_with_new_tt(pos, limit);
-        assert!(res.score.is_proven_win());
+        assert!(res.score.is_game_won_score());
         let nodes = caps.search_state().uci_nodes();
         let tt = caps.search_state().tt().clone();
         // Don't clear the internal state
         let second_search = caps.search_with_tt(pos, limit, tt.clone());
-        assert!(second_search.score.is_proven_win());
+        assert!(second_search.score.is_game_won_score());
         let second_search_nodes = caps.search_state().uci_nodes();
         assert!(second_search_nodes < nodes, "{second_search_nodes} {nodes}");
         let d3 = SearchLimit::depth(DepthPly::new(3));
         let d3_search = caps.search_with_tt(pos, d3, tt.clone());
         // at depth 3, we can't print a pv that ends in a mate, so we don't return a mate score
-        assert!(!d3_search.score.is_proven_win(), "{}", d3_search.score.0);
+        assert!(!d3_search.score.is_game_won_score(), "{}", d3_search.score.0);
         let d3_nodes = caps.search_state().uci_nodes();
         caps.forget();
         assert_eq!(caps.search_state().uci_nodes(), 0);
@@ -1842,7 +1842,7 @@ mod tests {
                 engine.seldepth(),
                 engine.start_time().elapsed().as_millis()
             );
-            assert!(score.is_proven_win());
+            assert!(score.is_game_won_score());
             assert_eq!(res.chosen_move.compact_formatter(&pos).to_string(), best_move);
         }
     }

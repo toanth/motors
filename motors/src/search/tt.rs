@@ -404,13 +404,13 @@ impl TT {
         if let Some(tt_plies) = entry.score().plies_until_game_won() {
             if tt_plies <= 0 {
                 if -tt_plies > pos.plies_until_draw() {
-                    entry.score = UNPROVEN_WIN.compact();
+                    entry.score = UNPROVEN_LOSS.compact();
                 } else {
                     entry.score += ply as CompactScoreT;
                 }
             } else {
                 if tt_plies > pos.plies_until_draw() {
-                    entry.score = UNPROVEN_LOSS.compact();
+                    entry.score = UNPROVEN_WIN.compact();
                 } else {
                     entry.score -= ply as CompactScoreT;
                 }
