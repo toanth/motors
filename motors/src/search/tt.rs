@@ -6,7 +6,7 @@ use gears::games::PosHash;
 use gears::general::board::BoardTrait;
 use gears::general::moves::{MoveTrait, UntrustedMove};
 use gears::itertools::Itertools;
-use gears::score::{CompactScoreT, Score, ScoreT, SCORE_WON};
+use gears::score::{CompactScoreT, Score, ScoreT, SCORE_WON, UNPROVEN_LOSS, UNPROVEN_WIN};
 use gears::search::NodeType;
 use rayon::prelude::*;
 #[cfg(all(feature = "unsafe", target_arch = "x86_64", target_feature = "sse"))]
@@ -70,13 +70,28 @@ struct TTBucket([AtomicTTEntry; NUM_ENTRIES_IN_BUCKET]);
 
 const _: () = assert!(size_of::<TTBucket>() == 64);
 
-#[derive(Debug, Copy, Clone, Default, Eq, PartialEq)]
+#[derive(Copy, Clone, Default, Eq, PartialEq)]
 #[repr(C)]
 pub struct TTEntry<B: BoardTrait> {
     pub rest: [u32; 2], // 8 bytes: age/bound (1) + depth (2) + move (2 for chess) + hash (rest, so 3 for chess)
     pub score: CompactScoreT, // 2 bytes
     pub eval: CompactScoreT, // 2 bytes
     _phantom: PhantomData<B>, // 0 bytes
+}
+
+impl<B: BoardTrait> Debug for TTEntry<B> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "move {0:?} score {1} bound {2} age {3} depth {4} (rest: {5:?})",
+            self.move_untrusted(),
+            self.score,
+            self.bound(),
+            self.age(),
+            self.depth(),
+            self.rest,
+        )
+    }
 }
 
 impl<B: BoardTrait> Display for TTEntry<B>
@@ -374,7 +389,12 @@ impl TT {
         entry.pack_into(&bucket[idx_in_bucket]);
     }
 
-    pub fn load<B: BoardTrait>(&self, hash: PosHash, ply: usize) -> Option<TTEntry<B>> {
+    /// If the score is a win or loss in more than `plies_to_horizon` plies, it gets converted to an [`UNPROVEN_WIN`] or [`UNPROVEN_LOSS`]
+    /// score. In chess, `plies_to_horizon` is `100 - ply counter`. While this is a somewhat hacky kludge for path-dependent TT scores,
+    /// it does mean that most score-related invariants are being upheld; we can miss mates but not invent mate scores that are far too long.
+    /// This mitigation still allows returning incorrect mate scores that aren't too large, so PV nodes still need to be extra careful.
+    pub fn load<B: BoardTrait>(&self, pos: &B, ply: usize) -> Option<TTEntry<B>> {
+        let hash = pos.hash_pos();
         let bucket = &self.tt[self.bucket_index_of(hash)];
         let mut entry = bucket.0.iter().map(|e| TTEntry::<B>::unpack(e)).find(|e| e.hash_part().equals(hash))?;
         if entry.is_empty() {
@@ -383,9 +403,17 @@ impl TT {
         // Mate score adjustments, see `store`
         if let Some(tt_plies) = entry.score().plies_until_game_won() {
             if tt_plies <= 0 {
-                entry.score += ply as CompactScoreT;
+                if -tt_plies > pos.plies_until_draw() {
+                    entry.score = UNPROVEN_WIN.compact();
+                } else {
+                    entry.score += ply as CompactScoreT;
+                }
             } else {
-                entry.score -= ply as CompactScoreT;
+                if tt_plies > pos.plies_until_draw() {
+                    entry.score = UNPROVEN_LOSS.compact();
+                } else {
+                    entry.score -= ply as CompactScoreT;
+                }
             }
         }
         debug_assert!(entry.score().0.abs() <= SCORE_WON.0, "{} {ply} {entry:?}", entry.score().0);
@@ -409,9 +437,9 @@ impl TT {
         let mut legals = vec![];
         let mut seen = vec![pos.hash_pos()];
         let mut ply = 0;
-        let mut final_entry = self.load(pos.hash_pos(), ply).unwrap_or_default();
+        let mut final_entry = self.load(&pos, ply).unwrap_or_default();
         loop {
-            let Some(entry) = self.load(pos.hash_pos(), ply) else {
+            let Some(entry) = self.load(&pos, ply) else {
                 return TTPv { legals, end: EndTTPvMove::NoEntry, final_entry };
             };
             final_entry = entry.clone();
@@ -524,7 +552,7 @@ mod test {
                 // assert_eq!(val, val2);
                 let ply = rng().sample(Uniform::new(0, 100).unwrap());
                 tt.store(entry, hash, ply);
-                let loaded = tt.load(hash, ply).unwrap();
+                let loaded = tt.load(&pos, ply).unwrap();
                 assert_eq!(entry, loaded);
             }
         }
@@ -641,7 +669,7 @@ mod test {
         engine2.forget();
         tt.age.increment();
         let _ = engine.search_with_tt(pos, SearchLimit::depth(DepthPly::new(7)), tt.clone());
-        let entry = tt.load::<Board>(pos.hash_pos(), 0);
+        let entry = tt.load::<Board>(&pos, 0);
         assert!(entry.is_some());
         // assert_eq!(entry.unwrap().depth, 7);
         _ = engine2.search_with_tt(pos, limit, tt.clone());
@@ -680,8 +708,8 @@ mod test {
         assert!(hashfull > 0, "{hashfull}");
         let hashfull = tt.estimate_hashfull::<Board>(Age(0));
         assert_eq!(hashfull, 0, "{hashfull}");
-        let entry = tt.load::<Board>(pos.hash_pos(), 0).unwrap();
-        let entry2 = tt.load::<Board>(pos2.hash_pos(), 0).unwrap();
+        let entry = tt.load::<Board>(&pos, 0).unwrap();
+        let entry2 = tt.load::<Board>(&pos2, 0).unwrap();
         assert!(entry.hash_part().equals(pos.hash_pos()));
         assert!(entry2.hash_part().equals(pos2.hash_pos()));
         assert_ne!(entry.age(), Age(0));

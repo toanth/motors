@@ -40,7 +40,7 @@ use gears::itertools::Itertools;
 use gears::num::traits::WrappingAdd;
 use gears::score::{
     game_result_to_score, Score, ScoreT, BITBASE_LOSS, BITBASE_WIN, MAX_BETA, MAX_NORMAL_SCORE, MAX_SCORE_LOST,
-    MIN_ALPHA, MIN_NORMAL_SCORE, NO_SCORE_YET, SCORE_LOST, SCORE_WON,
+    MIN_ALPHA, MIN_NORMAL_SCORE, NO_SCORE_YET, SCORE_LOST, SCORE_WON, UNPROVEN_LOSS, UNPROVEN_WIN,
 };
 use gears::search::NodeType::*;
 use gears::search::*;
@@ -139,7 +139,7 @@ impl Engine<Board> for Caps {
 
     fn eval_move(&self, pos: &Board, mov: Move) -> Option<String> {
         debug_assert!(pos.is_move_pseudolegal(mov));
-        let tt_move = self.tt().load::<Board>(pos.hash_pos(), 0).and_then(|e| e.mov(pos));
+        let tt_move = self.tt().load::<Board>(pos, 0).and_then(|e| e.mov(pos));
         let move_picker = MovePicker::new(pos, 0, tt_move.unwrap_or_default(), false);
         let (descr, hist_score) = if mov.is_tactical(pos) {
             ("Capture History Score", self.capt_hist.get(mov, pos).0 as isize)
@@ -149,19 +149,16 @@ impl Engine<Board> for Caps {
         let color = color_for_score(Score(hist_score as ScoreT), &score_gradient());
         let hist_score = hist_score.to_string().color(color);
         let move_score = move_picker.complete_move_score(mov, &self.state);
-        let move_type = if self
-            .tt()
-            .load::<Board>(pos.hash_pos(), 0)
-            .is_some_and(|e| e.move_untrusted() == UntrustedMove::from_move(mov))
-        {
-            "TT move"
-        } else if move_score == KILLER_SCORE {
-            "Killer move"
-        } else if mov.is_tactical(pos) {
-            if move_score < MoveScore(0) { "Losing Tactical Move" } else { "Winning Tactical Move" }
-        } else {
-            "Quiet Move"
-        };
+        let move_type =
+            if self.tt().load::<Board>(pos, 0).is_some_and(|e| e.move_untrusted() == UntrustedMove::from_move(mov)) {
+                "TT move"
+            } else if move_score == KILLER_SCORE {
+                "Killer move"
+            } else if mov.is_tactical(pos) {
+                if move_score < MoveScore(0) { "Losing Tactical Move" } else { "Winning Tactical Move" }
+            } else {
+                "Quiet Move"
+            };
         let color = color_for_score(Score(move_score.0 as ScoreT), &score_gradient());
         let move_score = format!("{}", move_score.0).color(color);
         Some(format!("{move_type}\nTotal Move Score: {move_score}\n{descr}: {hist_score}"))
@@ -318,14 +315,14 @@ impl Caps {
             for (i, &m) in info.pv.iter().enumerate() {
                 pos = pos.make_move(m).unwrap();
                 if pos.is_50mr_draw() {
-                    info.score = info.score.clamp(MIN_NORMAL_SCORE, MAX_NORMAL_SCORE);
+                    info.score = info.score.clamp(UNPROVEN_LOSS, UNPROVEN_WIN);
                     info.pv = &info.pv[..i];
                     break;
                 }
             }
             // This can happen if we're loading the TT entry of an earlier search, which comes from a higher depth than our current search
             if info.score.plies_until_game_over().is_some_and(|s| s as usize > info.pv.len()) {
-                info.score = info.score.clamp(MIN_NORMAL_SCORE, MAX_NORMAL_SCORE);
+                info.score = info.score.clamp(UNPROVEN_LOSS, UNPROVEN_WIN);
             }
         }
         info
@@ -433,7 +430,7 @@ impl Caps {
         loop {
             let alpha = self.cur_pv_data().alpha;
             let beta = self.cur_pv_data().beta;
-            let mut window_radius = self.cur_pv_data().radius;
+            let mut window_radius = self.cur_pv_data().radius.0;
             // limit.fixed time is the min of the fixed time and the remaining time
             let mut soft_limit = unscaled_soft_limit.mul_f64(soft_limit_fail_low_extension);
             soft_limit_fail_low_extension = 1.0;
@@ -485,9 +482,8 @@ impl Caps {
 
             send_debug_msg!(
                 self,
-                "depth {budget}, score {0}, radius {1}, interval ({2}, {3}) nodes {4}, elapsed microseconds: {5}",
+                "depth {budget}, score {0}, radius {window_radius}, interval ({1}, {2}) nodes {3}, elapsed microseconds: {4}",
                 pv_score.0,
-                window_radius.0,
                 alpha.0,
                 beta.0,
                 self.uci_nodes(),
@@ -532,14 +528,14 @@ impl Caps {
             }
 
             if node_type == Exact {
-                window_radius = Score((window_radius.0 + cc::aw_exact_add()) * cc::aw_exact_inv_div() / 1024);
+                window_radius = (window_radius + cc::aw_exact_add()) * cc::aw_exact_inv_div() / 1024;
             } else {
                 let delta = pv_score.0.abs_diff(alpha.0);
                 let delta = delta.min(pv_score.0.abs_diff(beta.0));
                 let delta = delta.min(cc::aw_delta_max()) as i32;
-                window_radius.0 = SCORE_WON.0.min(window_radius.0 * cc::aw_widening_factor() + delta);
+                window_radius = SCORE_WON.0.min(window_radius * cc::aw_widening_factor() + delta);
             }
-            self.cur_pv_data_mut().radius = window_radius;
+            self.cur_pv_data_mut().radius.0 = window_radius;
             self.cur_pv_data_mut().alpha = (pv_score - window_radius).max(MIN_ALPHA);
             self.cur_pv_data_mut().beta = (pv_score + window_radius).min(MAX_BETA);
 
@@ -660,7 +656,7 @@ impl Caps {
         let mut eval;
         // the TT entry at the root is useless when doing a multipv search with pv num > 1
         let ignore_tt_entry = (root && self.multi_pvs.len() > 1) || in_singular_search;
-        let old_entry = self.tt().load::<Board>(pos.hash_pos(), ply);
+        let old_entry = self.tt().load::<Board>(&pos, ply);
         if let Some(tt_entry) = old_entry
             && !ignore_tt_entry
         {
@@ -678,7 +674,7 @@ impl Caps {
             let depth_diff = 0.max(depth - tt_depth);
             // idea from david: Do TT cutoffs even if the tt depth is lower than the current depth, as long as the tt bound is far above beta
             let beta_cutoff_threshold =
-                beta + Score((depth_diff * depth_diff * cc::tt_cutoff_margin() / (128 * 128)) as ScoreT);
+                beta + (depth_diff * depth_diff * cc::tt_cutoff_margin() / (128 * 128)) as ScoreT;
             if !pv_node && (tt_depth >= depth || (tt_bound != FailLow && tt_score >= beta_cutoff_threshold)) {
                 if (tt_bound == NodeType::lower_bound() && tt_score >= beta_cutoff_threshold)
                     || (tt_bound == NodeType::upper_bound() && tt_score <= alpha)
@@ -785,8 +781,11 @@ impl Caps {
             if depth <= cc::rfp_max_depth() && eval >= beta + Score(margin) {
                 // Fail firm: Static eval isn't super trustworthy, and we can assume that scores are close to (alpha, beta).
                 // So interpolate between eval and beta, which should lead to more stable scores.
-                let s = (eval * cc::rf_fail_firm_factor() + beta * (1024 - cc::rf_fail_firm_factor())) / 1024;
-                return Some(if s.is_won_or_lost() { eval } else { s });
+                return Some(if eval.is_normal_score() && beta.is_normal_score() {
+                    (eval * cc::rf_fail_firm_factor() + beta * (1024 - cc::rf_fail_firm_factor())) / 1024
+                } else {
+                    eval
+                });
             }
 
             // Razoring. If the position appears hopeless, drop into qsearch immediately.
@@ -794,7 +793,7 @@ impl Caps {
             // difference between the static eval and alpha is really large, and also not when we could miss a mate from the TT.
             if depth <= cc::razor_max_depth()
                 && eval + Score((cc::razor_depth_mult() * depth / 1024) as ScoreT) < alpha
-                && !eval.is_game_lost_score()
+                && !eval.is_proven_loss()
             {
                 let qsearch_score = self.qsearch(pos, alpha, beta, ply, false)?;
                 if qsearch_score <= alpha {
@@ -842,9 +841,9 @@ impl Caps {
                 let score = -nmp_res?;
                 if score >= beta {
                     // For shallow depths, don't bother with doing a verification search to avoid useless re-searches,
-                    // unless we'd be storing a mate score -- we really want to avoid storing unproved mates in the TT.
+                    // unless we'd be storing a mate score -- we really want to avoid storing unproven mates in the TT.
                     // It's possible to beat beta with a score of getting mated, so use `is_won_or_lost`
-                    // instead of `is_game_won_score`
+                    // instead of `is_proven_win`
                     if depth < cc::nmp_verif_depth() && !score.is_won_or_lost() {
                         return Some(score);
                     }
@@ -1026,6 +1025,7 @@ impl Caps {
                     } else if singular_score >= beta && !pv_node {
                         // Multi-Cut Pruning: If we fail high at low depth even without the TT move (which also failed high previously),
                         // chances are we'll fail high in a proper search. So don't bother searching and just fail high now.
+
                         return Some(singular_score);
                     }
                     self.record_move(mov, pos, ply, move_score);
@@ -1212,7 +1212,7 @@ impl Caps {
                 // PVS PV nodes are rare
                 bound_so_far = Exact;
                 // idea from calvin: We don't expect another move to raise alpha, so we reduce
-                if child_depth >= cc::alpha_raise_reduction_min_depth() && !score.is_game_lost_score() {
+                if child_depth >= cc::alpha_raise_reduction_min_depth() && !score.is_proven_loss() {
                     child_depth -= cc::alpha_raise_reduction();
                 }
                 continue;
@@ -1303,7 +1303,7 @@ impl Caps {
 
         // Don't do TT cutoffs with alpha already raised by the stand pat check, because that relies on the null move observation.
         // But if there's a TT entry from normal search that's worse than the stand pat score, we should trust that more.
-        let old_entry = self.tt().load::<Board>(pos.hash_pos(), ply);
+        let old_entry = self.tt().load::<Board>(pos, ply);
         if let Some(tt_entry) = old_entry {
             debug_assert!(tt_entry.hash_part().equals(pos.hash_pos()));
             let bound = tt_entry.bound();
@@ -1349,6 +1349,7 @@ impl Caps {
             };
         }
         let mut best_score = eval;
+
         // Saving to the TT is probably unnecessary since the score is either from the TT or just the static eval,
         // which is not very valuable. Also, the fact that there's no best move might have unfortunate interactions with
         // IIR, because it will make this fail-high node appear like a fail-low node. TODO: Test regardless, but probably
@@ -1372,7 +1373,7 @@ impl Caps {
             let move_score = sm.score();
             debug_assert!(mov.is_tactical(pos) || pos.is_in_check(), "{mov:?} {pos}");
             self.tt().prefetch(pos.approx_hash_after(mov));
-            if !best_score.is_game_lost_score() {
+            if !best_score.is_proven_loss() {
                 if move_score < MoveScore(0) || children_visited >= cc::qsearch_lmp() {
                     // qsearch see pruning and qsearch late move  pruning (lmp):
                     // If the move has a negative SEE score or if we've already looked at enough moves, don't even bother playing it in qsearch.
@@ -1599,7 +1600,7 @@ mod tests {
             for _ in 0..42 {
                 let mut engine = Caps::for_eval::<RandEval>();
                 let res = engine.search_with_new_tt(board, SearchLimit::depth(DepthPly::new(depth)));
-                assert!(res.score.is_game_won_score());
+                assert!(res.score.is_proven_win());
                 assert_eq!(res.score.plies_until_game_won(), Some(1));
             }
         }
@@ -1695,7 +1696,7 @@ mod tests {
             }
             let mut root_entry = TTEntry::<Board>::default();
             if let Some(tt) = tt.clone() {
-                root_entry = tt.load(pos.hash_pos(), 0).unwrap();
+                root_entry = tt.load(&pos, 0).unwrap();
                 assert!(root_entry.depth() as usize <= 2 * DEPTH_INCREMENT); // possible extensions
                 assert_eq!(root_entry.bound(), Exact);
                 assert!(root_entry.mov(&pos).is_some());
@@ -1707,12 +1708,15 @@ mod tests {
             if let Some(tt) = tt.clone() {
                 for m in moves {
                     let new_pos = pos.play(m);
-                    let entry = tt.load::<Board>(new_pos.hash_pos(), 1);
+                    let entry = tt.load::<Board>(&new_pos, 1);
                     let Some(entry) = entry else {
                         continue; // it's possible that a position is not in the TT because qsearch didn't save it
                     };
                     assert!(entry.depth() as usize <= 2 * DEPTH_INCREMENT, "{entry:?} {new_pos}");
-                    assert!(-entry.score <= root_entry.score, "{entry:?}\n{root_entry:?}\n{new_pos}");
+                    assert!(
+                        new_pos.has_no_legal_moves() || -entry.score <= root_entry.score,
+                        "root: {root_entry:?}\nchild: {entry:?}\nroot: {pos}\nchild: {new_pos}"
+                    );
                 }
             }
         }
@@ -1737,18 +1741,18 @@ mod tests {
         let mut caps = Caps::for_eval::<LiTEval>();
         let limit = SearchLimit::mate_in_moves(5);
         let res = caps.search_with_new_tt(pos, limit);
-        assert!(res.score.is_game_won_score());
+        assert!(res.score.is_proven_win());
         let nodes = caps.search_state().uci_nodes();
         let tt = caps.search_state().tt().clone();
         // Don't clear the internal state
         let second_search = caps.search_with_tt(pos, limit, tt.clone());
-        assert!(second_search.score.is_game_won_score());
+        assert!(second_search.score.is_proven_win());
         let second_search_nodes = caps.search_state().uci_nodes();
         assert!(second_search_nodes < nodes, "{second_search_nodes} {nodes}");
         let d3 = SearchLimit::depth(DepthPly::new(3));
         let d3_search = caps.search_with_tt(pos, d3, tt.clone());
         // at depth 3, we can't print a pv that ends in a mate, so we don't return a mate score
-        assert!(!d3_search.score.is_game_won_score(), "{}", d3_search.score.0);
+        assert!(!d3_search.score.is_proven_win(), "{}", d3_search.score.0);
         let d3_nodes = caps.search_state().uci_nodes();
         caps.forget();
         assert_eq!(caps.search_state().uci_nodes(), 0);
@@ -1801,7 +1805,7 @@ mod tests {
         let search_res = caps.search_with_tt(pos, SearchLimit::depth_(1), tt.clone());
         assert_eq!(search_res.chosen_move, good_capture);
         assert!(search_res.score > Score(0));
-        let tt_entry = tt.load::<Board>(pos.hash_pos(), 0).unwrap();
+        let tt_entry = tt.load::<Board>(&pos, 0).unwrap();
         assert_eq!(tt_entry.score, search_res.score.compact());
         assert_eq!(tt_entry.move_untrusted(), UntrustedMove::from_move(good_capture));
     }
@@ -1838,7 +1842,7 @@ mod tests {
                 engine.seldepth(),
                 engine.start_time().elapsed().as_millis()
             );
-            assert!(score.is_game_won_score());
+            assert!(score.is_proven_win());
             assert_eq!(res.chosen_move.compact_formatter(&pos).to_string(), best_move);
         }
     }

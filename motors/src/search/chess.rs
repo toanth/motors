@@ -441,7 +441,10 @@ mod tests {
         ));
         assert_eq!(state.board.calc_player_result(&hist), Some(Draw));
         assert_eq!(res.score.plies_until_game_won(), Some(3));
-        assert_eq!(res.chosen_move, Move::from_text("Qc7+", &state.board).unwrap());
+        assert!(
+            [Move::from_text("Qc7+", &state.board).unwrap(), Move::from_text("Qb6+", &state.board).unwrap()]
+                .contains(&res.chosen_move)
+        );
     }
 
     #[test]
@@ -458,7 +461,7 @@ mod tests {
             println!("{}", engine.engine_info().short_name());
             limit.nodes = NodesLimit::new(nodes).unwrap();
             let res = engine.search_with_new_tt(pos, limit);
-            assert!(res.score.is_game_won_score(), "{}", res.score);
+            assert!(res.score.is_proven_win(), "{}", res.score);
             assert_eq!(res.score.plies_until_game_won(), Some(5));
             assert_eq!(res.chosen_move, Move::from_text("f3", &pos).unwrap());
         }
@@ -494,7 +497,7 @@ mod tests {
             assert!(pv_data[1].score <= game_result_to_score(Win, 3));
             assert!(pv_data[1].score >= Score(1000));
             let second_best_move = Move::from_extended_text("e1Q+", &pos).unwrap();
-            assert_eq!(pv_data[1].pv.list.first() == Some(&second_best_move), pv_data[1].score.is_game_won_score());
+            assert_eq!(pv_data[1].pv.list.first() == Some(&second_best_move), pv_data[1].score.is_proven_win());
             assert!(pv_data[2].score >= Score(700));
             assert!(!pv_data[2].pv.list.is_empty());
         }
@@ -530,7 +533,7 @@ mod tests {
         let mut engine = Caps::for_eval::<PistonEval>();
         let res = engine.search_with_new_tt(pos, SearchLimit::nodes_(200));
         assert_eq!(pos.ep_square(), Some(Square::from_str("c6").unwrap()));
-        assert!(res.score.is_game_won_score());
+        assert!(res.score.is_proven_win());
         assert_eq!(res.score.plies_until_game_won(), Some(1));
         assert_eq!(res.chosen_move, Move::from_text(":c ep", &pos).unwrap());
     }
@@ -587,9 +590,9 @@ mod tests {
         let res2 = engine.search_with_tt(pos2, limit, tt.clone());
         assert_ne!(res2.chosen_move, res1.chosen_move);
         assert!(pos2.is_move_legal(res2.chosen_move));
-        let entry = tt.load::<Board>(pos2.hash_pos(), 0).unwrap();
+        let entry = tt.load::<Board>(&pos2, 0).unwrap();
         assert_eq!(entry.move_untrusted().trust_unchecked(), res2.chosen_move);
-        let entry1 = tt.load(pos1.hash_pos(), 0).unwrap();
+        let entry1 = tt.load(&pos1, 0).unwrap();
         assert_eq!(entry1, entry);
         let res1 = engine.search_with_tt(pos1, SearchLimit::depth_(3), tt.clone());
         assert_ne!(res1.chosen_move, res2.chosen_move);

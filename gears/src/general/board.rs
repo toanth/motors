@@ -401,6 +401,12 @@ pub trait BoardTrait:
     /// This can be the same as [`Self::halfmove_ctr_since_start`] or always zero if repetitions aren't possible.
     fn ply_draw_clock(&self) -> usize;
 
+    /// Returns the number of plies until the [`Self::ply_draw_clock`] gets large enough to cause a draw.
+    /// Can return a value that's too large, but not too small.
+    fn plies_until_draw(&self) -> isize {
+        isize::MAX
+    }
+
     /// A bitboard of all squares. If the board size isn't the same as the number of bits in the bitboard type,
     /// some bits don't correspond to squares and will be zero in the result of this function.
     fn valid_squares_bb(&self) -> Self::RawBitboard;

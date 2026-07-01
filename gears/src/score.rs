@@ -18,10 +18,10 @@
 
 //! Anything related to search that is also used by `monitors`, and therefore doesn't belong in `motors`.
 
-use crate::PlayerResult;
 use crate::general::common::Res;
 use crate::search::NodeType;
 use crate::search::NodeType::{Exact, FailHigh, FailLow};
+use crate::PlayerResult;
 use anyhow::anyhow;
 use derive_more::{Add, AddAssign, Neg, Sub, SubAssign};
 use num::traits::WrappingAdd;
@@ -102,14 +102,17 @@ impl Score {
     pub fn from_compact(compact: CompactScoreT) -> Self {
         Self(compact as ScoreT)
     }
-    pub fn is_game_won_score(self) -> bool {
+    pub fn is_proven_win(self) -> bool {
         self >= MIN_SCORE_WON
     }
-    pub fn is_game_lost_score(self) -> bool {
+    pub fn is_proven_loss(self) -> bool {
         self <= MAX_SCORE_LOST
     }
     pub fn is_won_or_lost(self) -> bool {
-        self.is_game_won_score() || self.is_game_lost_score()
+        self.is_proven_win() || self.is_proven_loss()
+    }
+    pub fn is_normal_score(self) -> bool {
+        self >= MIN_NORMAL_SCORE && self <= MAX_NORMAL_SCORE
     }
     // a draw implies score == 0, but score == 0 does not imply a draw
     pub fn is_won_lost_or_draw_score(self) -> bool {
@@ -117,9 +120,9 @@ impl Score {
     }
     /// Returns a negative number of plies if the game is lost
     pub fn plies_until_game_won(self) -> Option<isize> {
-        if self.is_game_won_score() {
+        if self.is_proven_win() {
             Some((SCORE_WON - self).0 as isize)
-        } else if self.is_game_lost_score() {
+        } else if self.is_proven_loss() {
             Some((SCORE_LOST - self).0 as isize)
         } else {
             None
@@ -181,8 +184,10 @@ pub const MIN_SCORE_WON: Score = Score(SCORE_WON.0 - 1000 + 1);
 pub const MAX_SCORE_LOST: Score = Score(SCORE_LOST.0 + 1000 - 1);
 pub const BITBASE_WIN: Score = Score(MIN_SCORE_WON.0 - 1);
 pub const BITBASE_LOSS: Score = Score(MAX_SCORE_LOST.0 + 1);
-pub const MAX_NORMAL_SCORE: Score = Score(BITBASE_WIN.0 - 1);
-pub const MIN_NORMAL_SCORE: Score = Score(BITBASE_LOSS.0 + 1);
+pub const UNPROVEN_WIN: Score = Score(BITBASE_WIN.0 - 1);
+pub const UNPROVEN_LOSS: Score = Score(BITBASE_LOSS.0 + 1);
+pub const MAX_NORMAL_SCORE: Score = Score(UNPROVEN_WIN.0 - 1);
+pub const MIN_NORMAL_SCORE: Score = Score(UNPROVEN_LOSS.0 + 1);
 pub const NO_SCORE_YET: Score = Score(SCORE_LOST.0 - 100);
 
 pub fn game_result_to_score(res: PlayerResult, ply: usize) -> Score {

@@ -575,6 +575,10 @@ impl BoardTrait for Board {
         self.ply_100_ctr as usize
     }
 
+    fn plies_until_draw(&self) -> isize {
+        100 - self.ply_100_ctr as isize
+    }
+
     fn valid_squares_bb(&self) -> Self::RawBitboard {
         !0
     }

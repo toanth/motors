@@ -2003,15 +2003,15 @@ fn format_tt_entry<B: BoardTrait>(state: MatchState<B>, entry: TTEntry<B>, tt: T
         entry.age(),
         move_string,
         pos.hash_pos(),
-        format_tt_pv(tt, state.board.clone())
+        format_tt_pv(tt, &state.board)
     )
     .unwrap();
     res
 }
 
-fn format_tt_pv<B: BoardTrait>(tt: TT, pos: B) -> String {
+fn format_tt_pv<B: BoardTrait>(tt: TT, pos: &B) -> String {
     let pv = tt.extract_pv(pos.clone());
-    let (mut res, pos) = pretty_variation_simple(&pv.legals, pos);
+    let (mut res, pos) = pretty_variation_simple(&pv.legals, pos.clone());
     let end = match pv.end {
         EndTTPvMove::Repeating(mov) => format!(
             "{} '{}' {} '{}' repeats a position",

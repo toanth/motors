@@ -671,7 +671,7 @@ impl<B: BoardTrait> EngineWrapper<B> {
     }
 
     pub fn tt_entry(&mut self, pos: &B) -> Option<TTEntry<B>> {
-        self.tt_for_next_search.load(pos.hash_pos(), 0)
+        self.tt_for_next_search.load(pos, 0)
     }
 
     pub fn tt(&mut self) -> TT {
@@ -749,8 +749,8 @@ impl<B: BoardTrait> EngineWrapper<B> {
 
 #[cfg(test)]
 mod tests {
-    use crate::io::cli::EngineOpts;
     use crate::create_match;
+    use crate::io::cli::EngineOpts;
     use gears::cli::Game;
     use gears::cli::Game::Chess;
     use std::thread;

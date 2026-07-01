@@ -16,15 +16,15 @@
  *  along with Motors. If not, see <https://www.gnu.org/licenses/>.
  */
 use crate::io::ugi_output::{color_for_score, score_gradient};
-use crate::search::MoveScore;
 use crate::search::chess::caps_values::cc;
 use crate::search::chess::caps_values::cc::corrhist_max;
+use crate::search::MoveScore;
 use derive_more::{Deref, DerefMut, Index, IndexMut};
 use gears::colored::Colorize;
 use gears::games::chess::moves::Move;
 use gears::games::chess::moves::MoveFlags::NormalQuiet;
-use gears::games::chess::pieces::{NUM_CHESS_PIECES, PieceType};
-use gears::games::chess::squares::{NUM_SQUARES, Square};
+use gears::games::chess::pieces::{PieceType, NUM_CHESS_PIECES};
+use gears::games::chess::squares::{Square, NUM_SQUARES};
 use gears::games::chess::{Board, Color};
 use gears::games::{ColorTrait, NUM_COLORS};
 use gears::general::bitboards::chessboard::Bitboard;
@@ -32,9 +32,9 @@ use gears::general::bitboards::{BitboardTrait, RawBitboardTrait};
 use gears::general::board::BoardTrait;
 use gears::general::moves::MoveTrait;
 use gears::itertools::Itertools;
-use gears::output::OutputOpts;
 use gears::output::text_output::AdaptFormatter;
-use gears::score::{MAX_NORMAL_SCORE, MIN_NORMAL_SCORE, Score, ScoreT};
+use gears::output::OutputOpts;
+use gears::score::{Score, ScoreT, MAX_NORMAL_SCORE, MIN_NORMAL_SCORE};
 
 pub(super) type HistScoreT = i16;
 
@@ -227,7 +227,7 @@ impl CorrHist {
     }
 
     pub(super) fn correct(&mut self, pos: &Board, continued: Option<(Move, PieceType)>, raw: Score) -> Score {
-        if raw.is_won_or_lost() {
+        if raw.is_normal_score() {
             return raw;
         }
         let color = pos.active_player();
