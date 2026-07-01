@@ -1048,9 +1048,8 @@ impl Caps {
                 // LMR (Late Move Reductions): Trust the move ordering (quiet history, continuation history and capture history heuristics)
                 // and assume that moves ordered later are worse. Therefore, we can do a reduced-depth search with a null window
                 // to verify our belief.
-                // I think it's common to have a minimum depth for doing LMR, but not having that gained elo.
                 let mut reduction = 0;
-                if num_uninteresting_visited >= cc::lmr_min_uninteresting() {
+                if num_uninteresting_visited >= cc::lmr_min_uninteresting() && depth >= cc::min_lmr_depth() {
                     // TODO: Constants (changes bench)
                     reduction = (depth / 128) / cc::lmr_depth_div() * 128
                         + (num_uninteresting_visited + 1).ilog2() as isize * cc::lmr_moves_mult()
