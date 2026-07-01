@@ -315,7 +315,7 @@ impl Caps {
             for (i, &m) in info.pv.iter().enumerate() {
                 pos = pos.make_move(m).unwrap();
                 if pos.is_50mr_draw() {
-                    info.score = info.score.clamp(UNPROVEN_LOSS, UNPROVEN_WIN);
+                    info.score = info.score.clamp(MIN_NORMAL_SCORE, MAX_NORMAL_SCORE);
                     info.pv = &info.pv[..i];
                     break;
                 }
