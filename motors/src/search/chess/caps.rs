@@ -1339,13 +1339,12 @@ impl Caps {
             if let Some(mov) = tt_entry.mov(pos) {
                 best_move = mov;
             }
+        } else if in_check {
+            raw_eval = MIN_NORMAL_SCORE;
+            eval = SCORE_LOST + ply as ScoreT;
         } else {
             raw_eval = self.eval(pos, ply);
-            eval = if in_check {
-                SCORE_LOST + ply as ScoreT
-            } else {
-                self.state.custom.corr_hist.correct(pos, continued, raw_eval)
-            };
+            eval = self.state.custom.corr_hist.correct(pos, continued, raw_eval);
         }
         let mut best_score = eval;
 
