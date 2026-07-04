@@ -227,7 +227,7 @@ impl CorrHist {
     }
 
     pub(super) fn correct(&mut self, pos: &Board, continued: Option<(Move, PieceType)>, raw: Score) -> Score {
-        if raw.is_normal_score() {
+        if !raw.is_normal_score() {
             return raw;
         }
         let color = pos.active_player();
