@@ -40,7 +40,7 @@ use gears::itertools::Itertools;
 use gears::num::traits::WrappingAdd;
 use gears::score::{
     game_result_to_score, Score, ScoreT, BITBASE_LOSS, BITBASE_WIN, MAX_BETA, MAX_NORMAL_SCORE, MAX_SCORE_LOST,
-    MIN_ALPHA, MIN_NORMAL_SCORE, NO_SCORE_YET, SCORE_LOST, SCORE_WON, UNPROVEN_LOSS, UNPROVEN_WIN,
+    MIN_ALPHA, MIN_NORMAL_SCORE, NO_SCORE_YET, SCORE_LOST, SCORE_WON,
 };
 use gears::search::NodeType::*;
 use gears::search::*;

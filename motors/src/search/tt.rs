@@ -390,9 +390,8 @@ impl TT {
     }
 
     /// If the score is a win or loss in more than `plies_to_horizon` plies, it gets converted to an [`UNPROVEN_WIN`] or [`UNPROVEN_LOSS`]
-    /// score. In chess, `plies_to_horizon` is `100 - ply counter`. While this is a somewhat hacky kludge for path-dependent TT scores,
-    /// it does mean that most score-related invariants are being upheld; we can miss mates but not invent mate scores that are far too long.
-    /// This mitigation still allows returning incorrect mate scores that aren't too large, so PV nodes still need to be extra careful.
+    /// score. In chess, `plies_to_horizon` is `100 - ply counter`. This means that most score-related invariants are being upheld;
+    /// we can miss mates but not invent mate scores that are far too long.
     pub fn load<B: BoardTrait>(&self, pos: &B, ply: usize) -> Option<TTEntry<B>> {
         let hash = pos.hash_pos();
         let bucket = &self.tt[self.bucket_index_of(hash)];
@@ -403,17 +402,19 @@ impl TT {
         // Mate score adjustments, see `store`
         if let Some(tt_plies) = entry.score().plies_until_game_won() {
             if tt_plies <= 0 {
-                if -tt_plies > pos.plies_until_draw() {
-                    entry.score = UNPROVEN_LOSS.compact();
-                } else {
-                    entry.score += ply as CompactScoreT;
-                }
+                // if -tt_plies > pos.plies_until_draw() {
+                //     entry.score = UNPROVEN_LOSS.compact();
+                // } else {
+                //     entry.score += ply as CompactScoreT;
+                // }
+                entry.score += ply as CompactScoreT;
             } else {
-                if tt_plies > pos.plies_until_draw() {
-                    entry.score = UNPROVEN_WIN.compact();
-                } else {
-                    entry.score -= ply as CompactScoreT;
-                }
+                // if tt_plies > pos.plies_until_draw() {
+                //     entry.score = UNPROVEN_WIN.compact();
+                // } else {
+                //     entry.score -= ply as CompactScoreT;
+                // }
+                entry.score -= ply as CompactScoreT;
             }
         }
         debug_assert!(entry.score().0.abs() <= SCORE_WON.0, "{} {ply} {entry:?}", entry.score().0);
