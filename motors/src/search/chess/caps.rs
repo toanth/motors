@@ -322,7 +322,7 @@ impl Caps {
             }
             // This can happen if we're loading the TT entry of an earlier search, which comes from a higher depth than our current search
             if info.score.plies_until_game_over().is_some_and(|s| s as usize > info.pv.len()) {
-                info.score = info.score.clamp(UNPROVEN_LOSS, UNPROVEN_WIN);
+                info.score = info.score.clamp(MIN_NORMAL_SCORE, MAX_NORMAL_SCORE);
             }
         }
         info
@@ -430,7 +430,7 @@ impl Caps {
         loop {
             let alpha = self.cur_pv_data().alpha;
             let beta = self.cur_pv_data().beta;
-            let mut window_radius = self.cur_pv_data().radius.0;
+            let mut window_radius = self.cur_pv_data().radius;
             // limit.fixed time is the min of the fixed time and the remaining time
             let mut soft_limit = unscaled_soft_limit.mul_f64(soft_limit_fail_low_extension);
             soft_limit_fail_low_extension = 1.0;
@@ -482,8 +482,9 @@ impl Caps {
 
             send_debug_msg!(
                 self,
-                "depth {budget}, score {0}, radius {window_radius}, interval ({1}, {2}) nodes {3}, elapsed microseconds: {4}",
+                "depth {budget}, score {0}, radius {1}, interval ({2}, {3}) nodes {4}, elapsed microseconds: {5}",
                 pv_score.0,
+                window_radius.0,
                 alpha.0,
                 beta.0,
                 self.uci_nodes(),
@@ -524,18 +525,21 @@ impl Caps {
                     )
                 }
                 // assert this now because this doesn't hold for incomplete iterations
-                debug_assert!(pv_score.plies_until_game_over().is_none_or(|p| p <= 500), "{pv_score}");
+                debug_assert!(
+                    !pv_score.is_won_or_lost() || pv_score.plies_until_game_over().unwrap() <= 500,
+                    "{pv_score}"
+                );
             }
 
             if node_type == Exact {
-                window_radius = (window_radius + cc::aw_exact_add()) * cc::aw_exact_inv_div() / 1024;
+                window_radius = Score((window_radius.0 + cc::aw_exact_add()) * cc::aw_exact_inv_div() / 1024);
             } else {
                 let delta = pv_score.0.abs_diff(alpha.0);
                 let delta = delta.min(pv_score.0.abs_diff(beta.0));
                 let delta = delta.min(cc::aw_delta_max()) as i32;
-                window_radius = SCORE_WON.0.min(window_radius * cc::aw_widening_factor() + delta);
+                window_radius.0 = SCORE_WON.0.min(window_radius.0 * cc::aw_widening_factor() + delta);
             }
-            self.cur_pv_data_mut().radius.0 = window_radius;
+            self.cur_pv_data_mut().radius = window_radius;
             self.cur_pv_data_mut().alpha = (pv_score - window_radius).max(MIN_ALPHA);
             self.cur_pv_data_mut().beta = (pv_score + window_radius).min(MAX_BETA);
 
@@ -674,7 +678,7 @@ impl Caps {
             let depth_diff = 0.max(depth - tt_depth);
             // idea from david: Do TT cutoffs even if the tt depth is lower than the current depth, as long as the tt bound is far above beta
             let beta_cutoff_threshold =
-                beta + (depth_diff * depth_diff * cc::tt_cutoff_margin() / (128 * 128)) as ScoreT;
+                beta + Score((depth_diff * depth_diff * cc::tt_cutoff_margin() / (128 * 128)) as ScoreT);
             if !pv_node && (tt_depth >= depth || (tt_bound != FailLow && tt_score >= beta_cutoff_threshold)) {
                 if (tt_bound == NodeType::lower_bound() && tt_score >= beta_cutoff_threshold)
                     || (tt_bound == NodeType::upper_bound() && tt_score <= alpha)
@@ -790,7 +794,7 @@ impl Caps {
             // difference between the static eval and alpha is really large, and also not when we could miss a mate from the TT.
             if depth <= cc::razor_max_depth()
                 && eval + Score((cc::razor_depth_mult() * depth / 1024) as ScoreT) < alpha
-                && !eval.is_proven_loss()
+                && !eval.is_game_lost_score()
             {
                 let qsearch_score = self.qsearch(pos, alpha, beta, ply, false)?;
                 if qsearch_score <= alpha {
@@ -838,9 +842,9 @@ impl Caps {
                 let score = -nmp_res?;
                 if score >= beta {
                     // For shallow depths, don't bother with doing a verification search to avoid useless re-searches,
-                    // unless we'd be storing a mate score -- we really want to avoid storing unproven mates in the TT.
+                    // unless we'd be storing a mate score -- we really want to avoid storing unproved mates in the TT.
                     // It's possible to beat beta with a score of getting mated, so use `is_won_or_lost`
-                    // instead of `is_proven_win`
+                    // instead of `is_game_won_score`
                     if depth < cc::nmp_verif_depth() && !score.is_won_or_lost() {
                         return Some(score);
                     }
@@ -1208,7 +1212,7 @@ impl Caps {
                 // PVS PV nodes are rare
                 bound_so_far = Exact;
                 // idea from calvin: We don't expect another move to raise alpha, so we reduce
-                if child_depth >= cc::alpha_raise_reduction_min_depth() && !score.is_proven_loss() {
+                if child_depth >= cc::alpha_raise_reduction_min_depth() && !score.is_game_lost_score() {
                     child_depth -= cc::alpha_raise_reduction();
                 }
                 continue;
@@ -1368,7 +1372,7 @@ impl Caps {
             let move_score = sm.score();
             debug_assert!(mov.is_tactical(pos) || pos.is_in_check(), "{mov:?} {pos}");
             self.tt().prefetch(pos.approx_hash_after(mov));
-            if !best_score.is_proven_loss() {
+            if !best_score.is_game_lost_score() {
                 if move_score < MoveScore(0) || children_visited >= cc::qsearch_lmp() {
                     // qsearch see pruning and qsearch late move  pruning (lmp):
                     // If the move has a negative SEE score or if we've already looked at enough moves, don't even bother playing it in qsearch.
@@ -1595,7 +1599,7 @@ mod tests {
             for _ in 0..42 {
                 let mut engine = Caps::for_eval::<RandEval>();
                 let res = engine.search_with_new_tt(board, SearchLimit::depth(DepthPly::new(depth)));
-                assert!(res.score.is_proven_win());
+                assert!(res.score.is_game_won_score());
                 assert_eq!(res.score.plies_until_game_won(), Some(1));
             }
         }
@@ -1736,18 +1740,18 @@ mod tests {
         let mut caps = Caps::for_eval::<LiTEval>();
         let limit = SearchLimit::mate_in_moves(5);
         let res = caps.search_with_new_tt(pos, limit);
-        assert!(res.score.is_proven_win());
+        assert!(res.score.is_game_won_score());
         let nodes = caps.search_state().uci_nodes();
         let tt = caps.search_state().tt().clone();
         // Don't clear the internal state
         let second_search = caps.search_with_tt(pos, limit, tt.clone());
-        assert!(second_search.score.is_proven_win());
+        assert!(second_search.score.is_game_won_score());
         let second_search_nodes = caps.search_state().uci_nodes();
         assert!(second_search_nodes < nodes, "{second_search_nodes} {nodes}");
         let d3 = SearchLimit::depth(DepthPly::new(3));
         let d3_search = caps.search_with_tt(pos, d3, tt.clone());
         // at depth 3, we can't print a pv that ends in a mate, so we don't return a mate score
-        assert!(!d3_search.score.is_proven_win(), "{}", d3_search.score.0);
+        assert!(!d3_search.score.is_game_won_score(), "{}", d3_search.score.0);
         let d3_nodes = caps.search_state().uci_nodes();
         caps.forget();
         assert_eq!(caps.search_state().uci_nodes(), 0);
@@ -1837,7 +1841,7 @@ mod tests {
                 engine.seldepth(),
                 engine.start_time().elapsed().as_millis()
             );
-            assert!(score.is_proven_win());
+            assert!(score.is_game_won_score());
             assert_eq!(res.chosen_move.compact_formatter(&pos).to_string(), best_move);
         }
     }

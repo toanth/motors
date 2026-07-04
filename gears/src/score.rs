@@ -102,14 +102,14 @@ impl Score {
     pub fn from_compact(compact: CompactScoreT) -> Self {
         Self(compact as ScoreT)
     }
-    pub fn is_proven_win(self) -> bool {
+    pub fn is_game_won_score(self) -> bool {
         self >= MIN_SCORE_WON
     }
-    pub fn is_proven_loss(self) -> bool {
+    pub fn is_game_lost_score(self) -> bool {
         self <= MAX_SCORE_LOST
     }
     pub fn is_won_or_lost(self) -> bool {
-        self.is_proven_win() || self.is_proven_loss()
+        self.is_game_won_score() || self.is_game_lost_score()
     }
     pub fn is_normal_score(self) -> bool {
         self >= MIN_NORMAL_SCORE && self <= MAX_NORMAL_SCORE
@@ -120,9 +120,9 @@ impl Score {
     }
     /// Returns a negative number of plies if the game is lost
     pub fn plies_until_game_won(self) -> Option<isize> {
-        if self.is_proven_win() {
+        if self.is_game_won_score() {
             Some((SCORE_WON - self).0 as isize)
-        } else if self.is_proven_loss() {
+        } else if self.is_game_lost_score() {
             Some((SCORE_LOST - self).0 as isize)
         } else {
             None
