@@ -1027,9 +1027,11 @@ impl Caps {
                     if singular_score < singular_beta {
                         first_child_depth += cc::se_extension();
                     } else if singular_score >= beta && !pv_node {
-                        // Multi-Cut Pruning: If we fail high at low depth even without the TT move (which also failed high previously),
+                        // Multi-Cut Pruning: If we fail high at low depth even without the TT move (which also beat its alpha previously),
                         // chances are we'll fail high in a proper search. So don't bother searching and just fail high now.
                         return Some(singular_score);
+                    } else if e.score() >= beta {
+                        first_child_depth -= cc::se_reduction();
                     }
                     self.record_move(mov, pos, ply, move_score);
                     #[cfg(debug_assertions)]
