@@ -132,7 +132,7 @@ spsa_params![
     conthist_2_ply_update: isize = 1024; 0..=2048; step=32;
     conthist_4_ply_update: isize = 512; 0..=2048; step=32;
     main_hist_weight: isize = 1024; 256..=2048; step=16;
-    conthist_1_ply_weight: isize = 1024; 256..=2048; step=16;
+    conthist_1_ply_weight: isize = 768; 256..=2048; step=16;
     conthist_2_ply_weight: isize = 512; 256..=2048; step=16;
     conthist_4_ply_weight: isize = 256; 64..=2048; step=16;
     corrhist_offset: isize = 128; 0..=512; step=32;
