@@ -673,8 +673,6 @@ impl BoardTrait for Board {
         if self.checkers.has_any() {
             return None;
         }
-        // nullmoves count as noisy. This also prevents detecting repetition to before the nullmove
-        self.ply_100_ctr = 0;
         if let Some(sq) = self.ep_square {
             self.hashes.total ^= ZOBRIST_KEYS.ep_file_keys[sq.file() as usize];
             self.ep_square = None;

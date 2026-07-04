@@ -742,7 +742,7 @@ impl Caps {
         // However, captures and promos are generally good moves, so if our eval is the static eval instead of adjusted from the TT,
         // a noisy condition would mean we're doing even better than expected. // TODO: Apply noisy for RFP etc only if eval is TT eval?
         // If it's from the TT, however, and the first move didn't produce a beta cutoff, we're probably worse than expected
-        let pos_noisy = in_check || (best_move != Move::default() && best_move.is_tactical(pos));
+        let pos_noisy = in_check || best_move.is_tactical(pos);
 
         // Like the commonly used `improving` and `regressing`, these variables compare the current static eval with
         // the static eval 2 plies ago to recognize blunders. Conceptually, `improving` and `regressing` can be seen as
@@ -1056,9 +1056,8 @@ impl Caps {
                 // LMR (Late Move Reductions): Trust the move ordering (quiet history, continuation history and capture history heuristics)
                 // and assume that moves ordered later are worse. Therefore, we can do a reduced-depth search with a null window
                 // to verify our belief.
-                // I think it's common to have a minimum depth for doing LMR, but not having that gained elo.
                 let mut reduction = 0;
-                if num_uninteresting_visited >= cc::lmr_min_uninteresting() {
+                if num_uninteresting_visited >= cc::lmr_min_uninteresting() && depth >= cc::min_lmr_depth() {
                     // TODO: Constants (changes bench)
                     reduction = (depth / 128) / cc::lmr_depth_div() * 128
                         + (num_uninteresting_visited + 1).ilog2() as isize * cc::lmr_moves_mult()
@@ -1379,15 +1378,17 @@ impl Caps {
             let move_score = sm.score();
             debug_assert!(mov.is_tactical(pos) || pos.is_in_check(), "{mov:?} {pos}");
             self.tt().prefetch(pos.approx_hash_after(mov));
-            if !eval.is_game_lost_score() && move_score < MoveScore(0) || children_visited >= 3 {
-                // qsearch see pruning and qsearch late move  pruning (lmp):
-                // If the move has a negative SEE score or if we've already looked at enough moves, don't even bother playing it in qsearch.
-                break;
-            }
-            let hist_score = self.capt_hist.get(mov, pos);
-            // qsearch history pruning
-            if hist_score < MoveScore(-500) {
-                break;
+            if !best_score.is_game_lost_score() {
+                if move_score < MoveScore(0) || children_visited >= cc::qsearch_lmp() {
+                    // qsearch see pruning and qsearch late move  pruning (lmp):
+                    // If the move has a negative SEE score or if we've already looked at enough moves, don't even bother playing it in qsearch.
+                    break;
+                }
+                let hist_score = self.capt_hist.get(mov, pos);
+                // qsearch history pruning
+                if hist_score < MoveScore(-500) {
+                    break;
+                }
             }
             let new_pos = pos.play(mov);
             // check nodes in qsearch to allow `go nodes n` to go exactly `n` nodes. Do this check here to avoid counting

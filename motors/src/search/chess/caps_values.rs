@@ -83,6 +83,7 @@ spsa_params![
     se_beta_scale: ScoreT = 24; 0..=128; step=2;
     se_extension: isize = 128; 0..=256; step=2;
     lmr_min_uninteresting: isize = 3; 0..=16; step=1;
+    min_lmr_depth: isize = 3 * 128; 0..= 1024; step=32;
     lmr_depth_div: isize = 8; 2..=16; step=1;
     lmr_moves_mult: isize = 128; 32..=256; step=4;
     lmr_const: isize = -128; -512..=1024; step=32;
@@ -112,6 +113,7 @@ spsa_params![
     third_search_reduction: isize = 0; -64..=128; step=8;
     alpha_raise_reduction_min_depth: isize = 256; 128..=1024; step=16;
     alpha_raise_reduction: isize = 128; 32..=512; step=8;
+    qsearch_lmp: isize = 3; 1..=8; step=1;
     noisy_hist_depth_bonus: isize = 128; 4..=512; step=32;
     noisy_hist_bonus_offset: isize = 0; -256..=256; step=8;
     noisy_hist_bonus_eval_diff: isize = 8; 0..=16; step=1;
