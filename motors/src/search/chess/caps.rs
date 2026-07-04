@@ -474,7 +474,7 @@ impl Caps {
             needs_final_info = true;
 
             let asp_start_time = Instant::now();
-            let Some(pv_score) = self.negamax(pos, 0, aw_budget, alpha, beta, Exact, None) else {
+            let Some(pv_score) = self.negamax::<true>(pos, 0, aw_budget, alpha, beta, Exact, None) else {
                 send_debug_msg!(
                     self,
                     "Exiting aw window after reaching a stop condition in negamax, after {} microseconds",
@@ -564,7 +564,7 @@ impl Caps {
     /// all nodes, and most nodes either get cut off before reaching the move loop or produce a beta cutoff after
     /// the first move.
     #[allow(clippy::too_many_lines)]
-    fn negamax(
+    fn negamax<const PV: bool>(
         &mut self,
         pos: &Board,
         ply: usize,
@@ -574,6 +574,7 @@ impl Caps {
         mut expected_node_type: NodeType,
         excluded_move: Option<Move>,
     ) -> Option<Score> {
+        debug_assert_eq!(PV, expected_node_type == Exact);
         debug_assert!(alpha < beta, "{alpha} {beta} {pos} {ply} {depth}");
         debug_assert!([MIN_ALPHA, alpha, beta, MAX_BETA].is_sorted(), "{alpha} {beta} {ply} {depth} {pos}");
         debug_assert!(ply <= PLY_HARD_LIMIT, "{ply} {depth} {pos}");
@@ -586,12 +587,10 @@ impl Caps {
         }
 
         assert_eq!(depth % 128, 0); // TODO: Remove
-
-        let root = ply == 0;
-        let pv_node = expected_node_type == Exact; // TODO: Make this a generic argument of search?
-        debug_assert!(!root || pv_node); // root implies pv node
-        debug_assert!(alpha + 1 == beta || pv_node); // alpha + 1 < beta implies Exact node
-        if pv_node {
+        debug_assert!(ply != 0 || PV); // root implies pv node
+        debug_assert!(alpha + 1 == beta || PV); // alpha + 1 < beta implies Exact node
+        let root = if !PV { false } else { ply == 0 };
+        if PV {
             self.search_stack[ply].pv.clear();
         }
 
@@ -634,10 +633,10 @@ impl Caps {
         }
         // self.ply_hard_limit is the min of the original limit.mate and DEPTH_HARD_LIMIT
         if depth <= 0 || ply >= self.ply_hard_limit {
-            return self.qsearch(pos, alpha, beta, ply, pv_node);
+            return self.qsearch(pos, alpha, beta, ply, PV);
         }
 
-        let can_prune = !pv_node && !in_check;
+        let can_prune = !PV && !in_check;
 
         let mut bound_so_far = FailLow;
 
@@ -682,7 +681,7 @@ impl Caps {
             // idea from david: Do TT cutoffs even if the tt depth is lower than the current depth, as long as the tt bound is far above beta
             let beta_cutoff_threshold =
                 beta + Score((depth_diff * depth_diff * cc::tt_cutoff_margin() / (128 * 128)) as ScoreT);
-            if !pv_node && (tt_depth >= depth || (tt_bound != FailLow && tt_score >= beta_cutoff_threshold)) {
+            if !PV && (tt_depth >= depth || (tt_bound != FailLow && tt_score >= beta_cutoff_threshold)) {
                 if (tt_bound == NodeType::lower_bound() && tt_score >= beta_cutoff_threshold)
                     || (tt_bound == NodeType::upper_bound() && tt_score <= alpha)
                     || tt_bound == Exact
@@ -703,7 +702,7 @@ impl Caps {
             }
             // Even though we didn't get a cutoff from the TT, we can still use the score and bound to update our guess
             // at what the type of this node is going to be.
-            if !pv_node {
+            if !PV {
                 expected_node_type = if tt_bound != Exact {
                     tt_bound
                 } else if tt_score <= alpha {
@@ -839,7 +838,8 @@ impl Caps {
                     + isize::from(they_blundered) * cc::nmp_blunder()
                     + (eval - nmp_threshold + 1).0.ilog2().saturating_sub(8) as isize * 128;
                 // the child node is expected to fail low, leading to a fail high in this node
-                let nmp_res = self.negamax(&new_pos, ply + 1, depth - reduction, -beta, -beta + 1, FailLow, None);
+                let nmp_res =
+                    self.negamax::<false>(&new_pos, ply + 1, depth - reduction, -beta, -beta + 1, FailLow, None);
                 _ = self.search_stack[ply].tried_moves.pop();
                 self.params.history.pop();
                 let score = -nmp_res?;
@@ -853,7 +853,8 @@ impl Caps {
                     }
                     *self.nmp_disabled_for(us) = true;
                     // even though we don't do a null move, we still use the same reduction
-                    nmp_verif_score = self.negamax(pos, ply, depth - reduction, beta - 1, beta, FailHigh, None);
+                    nmp_verif_score =
+                        self.negamax::<false>(pos, ply, depth - reduction, beta - 1, beta, FailHigh, None);
                     self.search_stack[ply].tried_moves.clear();
                     *self.nmp_disabled_for(us) = false;
                     // The verification score is more trustworthy than the nmp score.
@@ -872,7 +873,7 @@ impl Caps {
             && eval >= beta + Score(32 * (depth / 128) as ScoreT) && !in_check && !root && nmp_verif_score.is_none()
         {
             let reduction = (depth / 128) / 2 * 128; // TODO: Turn into multiplcation with constant (changes bench)
-            let score = self.negamax(pos, ply, depth - 128 - reduction, beta - 1, beta, FailHigh, None)?;
+            let score = self.negamax::<false>(pos, ply, depth - 128 - reduction, beta - 1, beta, FailHigh, None)?;
             if score >= beta {
                 depth -= cc::rfr_reduction();
             }
@@ -1013,7 +1014,7 @@ impl Caps {
                     let reduced_depth = (first_child_depth / 128 * cc::se_reduced_factor() / 1024) * 128;
                     let singular_beta =
                         (e.score() - Score(cc::se_beta_scale() * depth as ScoreT / 1024)).max(MIN_NORMAL_SCORE + 1);
-                    let singular_score = self.negamax(
+                    let singular_score = self.negamax::<false>(
                         pos,
                         ply,
                         reduced_depth,
@@ -1026,7 +1027,7 @@ impl Caps {
                     let singular_score = singular_score?;
                     if singular_score < singular_beta {
                         first_child_depth += cc::se_extension();
-                    } else if singular_score >= beta && !pv_node {
+                    } else if singular_score >= beta && !PV {
                         // Multi-Cut Pruning: If we fail high at low depth even without the TT move (which also failed high previously),
                         // chances are we'll fail high in a proper search. So don't bother searching and just fail high now.
                         return Some(singular_score);
@@ -1037,7 +1038,7 @@ impl Caps {
                 }
 
                 let child_node_type = expected_node_type.inverse();
-                score = -self.negamax(
+                score = -self.negamax::<PV>(
                     &new_pos,
                     ply + 1,
                     first_child_depth,
@@ -1066,7 +1067,7 @@ impl Caps {
                         // this only applies to quiet moves with a good combined history score.
                         reduction -= cc::lmr_good_hist_reduction();
                     }
-                    if !pv_node {
+                    if !PV {
                         reduction += cc::lmr_no_pv_reduction();
                     }
                     if we_blundered {
@@ -1104,7 +1105,7 @@ impl Caps {
                 // this ensures that check extensions prevent going into qsearch while in check
                 reduction = reduction.min(child_depth).max(0);
 
-                score = -self.negamax(
+                score = -self.negamax::<false>(
                     &new_pos,
                     ply + 1,
                     child_depth - reduction,
@@ -1125,7 +1126,15 @@ impl Caps {
                         retry_depth -= cc::do_shallower_val();
                     }
                     // we still expect the child to fail high here
-                    score = -self.negamax(&new_pos, ply + 1, retry_depth, child_alpha, child_beta, FailHigh, None)?;
+                    score = -self.negamax::<false>(
+                        &new_pos,
+                        ply + 1,
+                        retry_depth,
+                        child_alpha,
+                        child_beta,
+                        FailHigh,
+                        None,
+                    )?;
                 }
 
                 // If the full-depth null-window search performed better than expected, do a full-depth search with the
@@ -1133,8 +1142,8 @@ impl Caps {
                 // This is only relevant for PV nodes, because all other nodes are searched with a null window anyway.
                 // This is also necessary to ensure that the PV doesn't get truncated, because otherwise there could be nodes in
                 // the PV that were not searched as PV nodes. So we make sure we're researching in PV nodes with beta == alpha + 1.
-                if pv_node && child_beta - child_alpha == Score(1) && score > alpha {
-                    score = -self.negamax(
+                if PV && child_beta - child_alpha == Score(1) && score > alpha {
+                    score = -self.negamax::<true>(
                         &new_pos,
                         ply + 1,
                         child_depth - cc::third_search_reduction(),
@@ -1166,7 +1175,7 @@ impl Caps {
                     self.send_refutation(mov, score, move_num);
                 }
             }
-            if pv_node && first_child && !best_move.is_null() && score <= alpha {
+            if PV && first_child && !best_move.is_null() && score <= alpha {
                 // we might get an AW fail, in which case we want to print as much of the "PV" as possible, not just the first 1 or 2 moves.
                 let ([.., current], [child, ..]) = self.search_stack.split_at_mut(ply + 1) else { unreachable!() };
                 current.pv.extend(mov, &child.pv);
@@ -1192,7 +1201,7 @@ impl Caps {
             // if we didn't have to worry about aw fail high). At the root, we also update the best score so that
             // an aborted search will print an up-to-date score -- this ensures we never print a mating PV without
             // a matching mate score.
-            if pv_node {
+            if PV {
                 if root {
                     self.cur_pv_data_mut().score = score;
                 }
