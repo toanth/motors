@@ -781,11 +781,8 @@ impl Caps {
             if depth <= cc::rfp_max_depth() && eval >= beta + Score(margin) {
                 // Fail firm: Static eval isn't super trustworthy, and we can assume that scores are close to (alpha, beta).
                 // So interpolate between eval and beta, which should lead to more stable scores.
-                return Some(if eval.is_normal_score() && beta.is_normal_score() {
-                    (eval * cc::rf_fail_firm_factor() + beta * (1024 - cc::rf_fail_firm_factor())) / 1024
-                } else {
-                    eval
-                });
+                let s = (eval * cc::rf_fail_firm_factor() + beta * (1024 - cc::rf_fail_firm_factor())) / 1024;
+                return Some(if s.is_won_or_lost() { eval } else { s });
             }
 
             // Razoring. If the position appears hopeless, drop into qsearch immediately.
