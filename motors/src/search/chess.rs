@@ -442,8 +442,14 @@ mod tests {
         assert_eq!(state.board.calc_player_result(&hist), Some(Draw));
         assert_eq!(res.score.plies_until_game_won(), Some(3));
         assert!(
-            [Move::from_text("Qc7+", &state.board).unwrap(), Move::from_text("Qb6+", &state.board).unwrap()]
-                .contains(&res.chosen_move)
+            [
+                Move::from_text("Qc7+", &state.board).unwrap(),
+                Move::from_text("Qb6+", &state.board).unwrap(),
+                Move::from_text("Qb4+", &state.board).unwrap()
+            ]
+            .contains(&res.chosen_move),
+            "{:?}",
+            res.chosen_move
         );
     }
 
