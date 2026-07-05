@@ -1157,6 +1157,24 @@ fn single_bench<B: BoardTrait>(
     tt.hash_first_1k_entries(hasher);
 }
 
+/// The higher the value, the more we predict this node to be a cut node.
+/// Large negative values mean we predict this node to be an all node.
+// Idea from <https://github.com/all-c-a-p-s/Panda/pull/53>
+#[derive(Default, Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Neg)]
+pub struct Temperature(pub i32);
+
+pub const MAX_TEMP: i32 = 1 << 16;
+
+impl Temperature {
+    // Same gravity formula as histories. This maybe isn't ideal because it means the order in which bonuses get applied can affect
+    // the result, but it ensures values are clamped
+    pub fn update(&mut self, bonus: i32) {
+        let bonus = bonus.clamp(-MAX_TEMP, MAX_TEMP);
+        let bonus = bonus - self.0 * bonus.abs() / MAX_TEMP;
+        self.0 += bonus;
+    }
+}
+
 /// Runs bench with the given limit, then clears the engine state and runs everything again,
 /// this time with the nodes of the first run as limit. Panics if anything doesn't match.
 pub fn test_reproducible<B: BoardTrait>(

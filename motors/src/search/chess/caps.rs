@@ -17,7 +17,7 @@ use crate::search::multithreading::ThreadData;
 use crate::search::tt::{ttc, TTEntry};
 use crate::search::{
     AbstractSearchState, Engine, EngineInfo, MoveScore, NormalEngine, PVData, SearchState, SearchStateFor,
-    DEFAULT_CHECK_TIME_INTERVAL,
+    Temperature, DEFAULT_CHECK_TIME_INTERVAL,
 };
 use crate::send_debug_msg;
 use gears::colored::Colorize;
@@ -474,7 +474,7 @@ impl Caps {
             needs_final_info = true;
 
             let asp_start_time = Instant::now();
-            let Some(pv_score) = self.negamax::<true>(pos, 0, aw_budget, alpha, beta, Exact, None) else {
+            let Some(pv_score) = self.negamax::<true>(pos, 0, aw_budget, alpha, beta, Temperature(0), None) else {
                 send_debug_msg!(
                     self,
                     "Exiting aw window after reaching a stop condition in negamax, after {} microseconds",
@@ -571,10 +571,9 @@ impl Caps {
         mut depth: isize,
         mut alpha: Score,
         mut beta: Score,
-        mut expected_node_type: NodeType,
+        mut temperature: Temperature,
         excluded_move: Option<Move>,
     ) -> Option<Score> {
-        debug_assert_eq!(PV, expected_node_type == Exact);
         debug_assert!(alpha < beta, "{alpha} {beta} {pos} {ply} {depth}");
         debug_assert!([MIN_ALPHA, alpha, beta, MAX_BETA].is_sorted(), "{alpha} {beta} {ply} {depth} {pos}");
         debug_assert!(ply <= PLY_HARD_LIMIT, "{ply} {depth} {pos}");
@@ -702,16 +701,15 @@ impl Caps {
             }
             // Even though we didn't get a cutoff from the TT, we can still use the score and bound to update our guess
             // at what the type of this node is going to be.
-            if !PV {
-                expected_node_type = if tt_bound != Exact {
-                    tt_bound
-                } else if tt_score <= alpha {
-                    FailLow
-                } else {
-                    debug_assert!(tt_score >= beta); // we're using a null window
-                    FailHigh
-                }
-            }
+            temperature.update(if tt_bound != Exact {
+                if tt_bound == FailLow { cc::temp_tt_fail_low() } else { cc::temp_tt_fail_high() }
+            } else if tt_score <= alpha {
+                cc::temp_tt_less_alpha()
+            } else if tt_score >= beta {
+                cc::temp_tt_greater_beta()
+            } else {
+                0
+            });
             raw_eval = tt_entry.raw_eval();
             eval = self.state.custom.corr_hist.correct(pos, continued, raw_eval);
             // The TT score is backed by a search, so it should be more trustworthy than a simple call to static eval.
@@ -749,6 +747,12 @@ impl Caps {
         let they_blundered = ply >= 2 && eval - self.search_stack[ply - 2].eval > Score(cc::they_blundered_threshold());
         let we_blundered = ply >= 2 && eval - self.search_stack[ply - 2].eval < Score(cc::we_blundered_threshold());
 
+        if they_blundered {
+            temperature.update(cc::temp_they_blundered())
+        }
+        if we_blundered {
+            temperature.update(cc::temp_we_blundered())
+        }
         // *********************************************************
         // ***** Pre-move loop pruning (other than TT cutoffs) *****
         // *********************************************************
@@ -765,7 +769,7 @@ impl Caps {
             // TODO: introduce tunable constant without `()` (changes bench)
             let mut margin =
                 (cc::rfp_base() - (ScoreT::from(they_blundered) * cc::rfp_blunder())) * (depth / 128) as ScoreT;
-            if expected_node_type == FailHigh {
+            if temperature.0 >= cc::temp_rfp_fail_high() {
                 // TODO: Multiplicative constant (changes bench)
                 margin = margin * cc::rfp_fail_high() / 1024;
             }
@@ -805,7 +809,7 @@ impl Caps {
                 self.search_stack[ply].tried_moves.clear();
 
                 // Since we're in a non-pv node, qsearch must have failed high. So assume that a normal search also fails high.
-                expected_node_type = FailHigh;
+                temperature.update(cc::temp_razoring_failed_high());
                 // Now that we have a qsearch score, use that instead of static eval if the eval isn't from the TT
                 if old_entry.is_none() {
                     eval = qsearch_score;
@@ -821,7 +825,7 @@ impl Caps {
             let nmp_threshold = beta;
             if depth >= cc::nmp_min_depth()
                 && eval >= nmp_threshold
-                && expected_node_type == FailHigh
+                && temperature.0 >= cc::temp_nmp_threshold()
                 && !*self.nmp_disabled_for(us)
                 && has_nonpawns
             {
@@ -838,8 +842,15 @@ impl Caps {
                     + isize::from(they_blundered) * cc::nmp_blunder()
                     + (eval - nmp_threshold + 1).0.ilog2().saturating_sub(8) as isize * 128;
                 // the child node is expected to fail low, leading to a fail high in this node
-                let nmp_res =
-                    self.negamax::<false>(&new_pos, ply + 1, depth - reduction, -beta, -beta + 1, FailLow, None);
+                let nmp_res = self.negamax::<false>(
+                    &new_pos,
+                    ply + 1,
+                    depth - reduction,
+                    -beta,
+                    -beta + 1,
+                    Temperature(cc::temp_nmp()),
+                    None,
+                );
                 _ = self.search_stack[ply].tried_moves.pop();
                 self.params.history.pop();
                 let score = -nmp_res?;
@@ -853,8 +864,15 @@ impl Caps {
                     }
                     *self.nmp_disabled_for(us) = true;
                     // even though we don't do a null move, we still use the same reduction
-                    nmp_verif_score =
-                        self.negamax::<false>(pos, ply, depth - reduction, beta - 1, beta, FailHigh, None);
+                    nmp_verif_score = self.negamax::<false>(
+                        pos,
+                        ply,
+                        depth - reduction,
+                        beta - 1,
+                        beta,
+                        Temperature(cc::temp_nmp_verif()),
+                        None,
+                    );
                     self.search_stack[ply].tried_moves.clear();
                     *self.nmp_disabled_for(us) = false;
                     // The verification score is more trustworthy than the nmp score.
@@ -873,7 +891,15 @@ impl Caps {
             && eval >= beta + Score(32 * (depth / 128) as ScoreT) && !in_check && !root && nmp_verif_score.is_none()
         {
             let reduction = (depth / 128) / 2 * 128; // TODO: Turn into multiplcation with constant (changes bench)
-            let score = self.negamax::<false>(pos, ply, depth - 128 - reduction, beta - 1, beta, FailHigh, None)?;
+            let score = self.negamax::<false>(
+                pos,
+                ply,
+                depth - 128 - reduction,
+                beta - 1,
+                beta,
+                Temperature(cc::temp_rfr()),
+                None,
+            )?;
             if score >= beta {
                 depth -= cc::rfr_reduction();
             }
@@ -919,7 +945,7 @@ impl Caps {
                     cc::lmp_base() + cc::lmp_scale() * depth
                 } / 1024;
                 // LMP faster if we expect to fail low anyway
-                if expected_node_type == FailLow {
+                if temperature.0 <= cc::temp_lmp_threshold() {
                     lmp_threshold -= lmp_threshold * cc::lmp_fail_low() / 1024;
                 }
                 if depth <= cc::max_lmp_depth() && num_uninteresting_visited >= lmp_threshold {
@@ -974,11 +1000,11 @@ impl Caps {
             #[cfg(debug_assertions)]
             let debug_history_len = self.params.history.len();
             self.record_move(mov, pos, ply, move_score);
-            let first_child = self.search_stack[ply].tried_moves.len() == 1;
+            let move_num = self.search_stack[ply].tried_moves.len();
+            let first_child = move_num == 1;
 
             if root {
                 if depth >= 1024 && self.limit().start_time.elapsed().as_millis() >= 3000 {
-                    let move_num = self.search_stack[0].tried_moves.len();
                     // `qsearch` would give better results, but would make bench be nondeterministic
                     let score = -self.eval(&new_pos, 0);
                     self.send_currmove(mov, move_num, score, alpha, beta);
@@ -1020,7 +1046,7 @@ impl Caps {
                         reduced_depth,
                         singular_beta - 1,
                         singular_beta,
-                        FailLow,
+                        Temperature(cc::temp_se_scout_search()),
                         Some(best_move),
                     );
                     self.search_stack[ply].tried_moves.clear();
@@ -1037,18 +1063,21 @@ impl Caps {
                     debug_assert_eq!(self.params.history.len(), debug_history_len + 1);
                 }
 
-                let child_node_type = expected_node_type.inverse();
+                let mut child_temperature = -temperature;
+                child_temperature.update(cc::temp_first_child());
                 score = -self.negamax::<PV>(
                     &new_pos,
                     ply + 1,
                     first_child_depth,
                     child_alpha,
                     child_beta,
-                    child_node_type,
+                    child_temperature,
                     None,
                 )?;
             } else {
                 child_alpha = -(alpha + 1);
+                let mut child_temperature =
+                    Temperature(cc::temp_later_child() + cc::temp_late_multiplier() * move_num as i32);
                 // LMR (Late Move Reductions): Trust the move ordering (quiet history, continuation history and capture history heuristics)
                 // and assume that moves ordered later are worse. Therefore, we can do a reduced-depth search with a null window
                 // to verify our belief.
@@ -1111,7 +1140,7 @@ impl Caps {
                     child_depth - reduction,
                     child_alpha,
                     child_beta,
-                    FailHigh,
+                    child_temperature,
                     None,
                 )?;
                 // If the score turned out to be better than expected (at least `alpha`), this might just be because
@@ -1121,10 +1150,12 @@ impl Caps {
                     let mut retry_depth = child_depth - cc::retry_base_reduction();
                     // TODO: Constants (changes bench)
                     if score > alpha + cc::do_deeper_base() + (depth * 4 / 128) as ScoreT {
+                        child_temperature.update(cc::temp_do_deeper());
                         retry_depth += cc::do_deeper_val();
                     } else if score < alpha + cc::do_shallower_base() {
                         retry_depth -= cc::do_shallower_val();
                     }
+                    child_temperature.update(cc::temp_pvs_research());
                     // we still expect the child to fail high here
                     score = -self.negamax::<false>(
                         &new_pos,
@@ -1132,7 +1163,7 @@ impl Caps {
                         retry_depth,
                         child_alpha,
                         child_beta,
-                        FailHigh,
+                        child_temperature,
                         None,
                     )?;
                 }
@@ -1149,7 +1180,7 @@ impl Caps {
                         child_depth - cc::third_search_reduction(),
                         -beta,
                         -alpha,
-                        Exact,
+                        Temperature(cc::temp_second_research()),
                         None,
                     )?;
                 }
@@ -1170,9 +1201,8 @@ impl Caps {
                 let n = self.state.uci_nodes();
                 debug_assert!(n >= nodes_before_move, "{n} {nodes_before_move} {:?}", self.params);
                 self.state.custom.root_move_nodes.update(mov, n - nodes_before_move);
-                let move_num = self.search_stack[0].tried_moves.len() - 1;
-                if move_num < 5 && self.limit().start_time.elapsed().as_millis() >= 3000 {
-                    self.send_refutation(mov, score, move_num);
+                if move_num < 6 && self.limit().start_time.elapsed().as_millis() >= 3000 {
+                    self.send_refutation(mov, score, move_num - 1);
                 }
             }
             if PV && first_child && !best_move.is_null() && score <= alpha {
