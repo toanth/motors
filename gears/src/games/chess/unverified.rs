@@ -261,8 +261,8 @@ impl Board {
             1 => {
                 let blockers_before = (self.occupied_bb() & !remove_pawn_sq.bb()) | pawn_origin_sq.bb();
                 let sliders = ChessSliderGenerator::new(blockers_before);
-                let attacks_before = self.all_attacking(self.king_sq(active), sliders);
-                if !(attacks_before & self.player_bb(inactive) & !remove_pawn_sq.bb()).is_zero() {
+                let attacks_before = self.all_attacking_for(inactive, self.king_sq(active), sliders);
+                if !(attacks_before & !remove_pawn_sq.bb()).is_zero() {
                     bail!(
                         "The en passant square is set, but the {active} king was in check before the double pawn push"
                     )

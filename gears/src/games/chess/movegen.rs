@@ -168,7 +168,7 @@ impl Board {
     /// Pretend there is a king of color `us` at `square` and test if it is in check.
     pub fn is_in_check_on_square(&self, us: Color, square: Square) -> bool {
         let slider_gen = self.slider_generator();
-        self.all_attacking(square, slider_gen).intersects(self.player_bb(us.other()))
+        self.all_attacking_for(!us, square, slider_gen).has_any()
     }
 
     fn is_castling_legal(&self, side: CastleRight) -> bool {
@@ -252,8 +252,16 @@ impl Board {
         match self.checkers.num_ones() {
             0 => {}
             1 => {
+                let king_sq = self.king_sq(self.active);
                 let checker = Square::from_bb_idx(self.checkers().pop_lsb());
-                check_ray = Bitboard::ray_inclusive(self.king_sq(self.active), checker, ChessboardSize::default());
+                if !ONLY_QUIET
+                    && self.checkers.intersects(KINGS[king_sq] | KNIGHTS[king_sq])
+                    && self.ep_square.is_none()
+                {
+                    self.forced_checker_capture(callback, slider_generator, checker);
+                    return;
+                }
+                check_ray = Bitboard::ray_inclusive(king_sq, checker, ChessboardSize::default());
                 filter &= check_ray;
             }
             // in a double check, only generate king moves. We support loading FENs with more than 2 checkers.
@@ -268,6 +276,32 @@ impl Board {
         } else {
             self.gen_pawn_moves::<ONLY_TACTICAL, ONLY_QUIET, false>(callback, check_ray);
         }
+    }
+
+    // If the checker is right next to the king or a knight, the only legal moves are capturing the checker.
+    // So use the superpiece method.
+    fn forced_checker_capture(
+        &self,
+        callback: &mut impl GenMoveCallback,
+        slider_gen: ChessSliderGenerator,
+        checker: Square,
+    ) {
+        let pieces = self.all_attacking_for(self.active, checker, slider_gen) & !(self.pinned | self.piece_bb(King));
+        for from in pieces & !self.piece_bb(Pawn) {
+            let mov = Move::new(from, checker, NormalCapture);
+            callback.gen_move(mov);
+        }
+        for pawn in pieces & self.piece_bb(Pawn) {
+            if checker.is_backrank() {
+                callback.gen_move(Move::new(pawn, checker, CaptPromoKnight));
+                callback.gen_move(Move::new(pawn, checker, CaptPromoBishop));
+                callback.gen_move(Move::new(pawn, checker, CaptPromoRook));
+                callback.gen_move(Move::new(pawn, checker, CaptPromoQueen));
+            } else {
+                callback.gen_move(Move::new(pawn, checker, NormalCapture))
+            }
+        }
+        return;
     }
 
     fn gen_pawn_moves<const ONLY_TACTICAL: bool, const ONLY_QUIET: bool, const IS_WHITE: bool>(
@@ -478,6 +512,17 @@ impl Board {
             | (Self::normal_king_attacks_from(square) & self.piece_bb(King))
             | Self::single_pawn_captures(Black, square) & self.col_piece_bb(White, Pawn)
             | Self::single_pawn_captures(White, square) & self.col_piece_bb(Black, Pawn)
+    }
+
+    pub fn all_attacking_for(&self, color: Color, square: Square, slider_gen: ChessSliderGenerator) -> Bitboard {
+        let rook_sliders = self.piece_bb(Rook) | self.piece_bb(Queen);
+        let bishop_sliders = self.piece_bb(Bishop) | self.piece_bb(Queen);
+        let bb = rook_sliders & slider_gen.rook_attacks(square)
+            | bishop_sliders & slider_gen.bishop_attacks(square)
+            | (Self::knight_attacks_from(square) & self.piece_bb(Knight))
+            | (Self::normal_king_attacks_from(square) & self.piece_bb(King))
+            | Self::single_pawn_captures(!color, square) & self.col_piece_bb(color, Pawn);
+        bb & self.player_bb(color)
     }
 
     pub fn checkers(&self) -> Bitboard {
