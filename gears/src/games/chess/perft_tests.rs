@@ -1,18 +1,18 @@
 #[cfg(test)]
 mod tests {
-    use crate::games::BoardTrait;
-    use crate::games::chess::Board;
     use crate::games::chess::moves::Move;
+    use crate::games::chess::Board;
+    use crate::games::BoardTrait;
     use crate::general::board::Strictness::{Relaxed, Strict};
     use crate::general::board::{BoardHelpers, Strictness};
     use crate::general::common::parse_int_from_str;
     use crate::general::moves::MoveTrait;
+    use crate::general::perft::perft;
     use crate::general::perft::Bulkness::{Bulk, NoBulk};
     use crate::general::perft::Parallelize::*;
-    use crate::general::perft::perft;
     use crate::search::DepthPly;
     use rayon::prelude::*;
-    use std::io::{Write, stdout};
+    use std::io::{stdout, Write};
     use std::sync::atomic::{AtomicU64, Ordering};
     use std::time::Instant;
 
@@ -159,7 +159,7 @@ mod tests {
             "4k3/8/K6q/3pP3/8/8/8/8 w - d6 0 1",
         ];
         for fen in fens {
-            let parsed = Board::from_fen(fen, Relaxed);
+            let parsed = Board::from_fen(fen, Strict);
             assert!(parsed.is_err());
         }
     }
