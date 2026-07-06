@@ -566,6 +566,12 @@ mod tests {
                 let res = engine.search_with_tt(pos, SearchLimit::nodes_(500), tt.clone());
                 assert_eq!(res.score.plies_until_game_won(), Some(1));
                 assert_eq!(res.chosen_move, Move::from_text("Qg2", &pos).unwrap());
+
+                let fen = "8/8/2n1n3/1nprpn2/Q1rKr1Q1/Qnb1bnQ1/Q1n1n1Q1/3k4 w - - 0 1";
+                let pos = Board::from_fen(fen, Relaxed).unwrap();
+                assert_eq!(pos.num_legal_moves(), 1);
+                let res = engine.search_with_tt(pos, SearchLimit::nodes_(500), tt.clone());
+                assert_eq!(res.chosen_move, Move::from_text("Kxd5", &pos).unwrap());
             }
         }
     }
