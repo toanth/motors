@@ -256,22 +256,22 @@ impl Board {
         }
         let active = self.active_player();
         // Not handling this here would cause us to not emit ep moves even though we think that the ep square is set
-        match self.checkers.num_ones() {
-            0 => {}
-            1 => {
-                let blockers_before = (self.occupied_bb() & !remove_pawn_sq.bb()) | pawn_origin_sq.bb();
-                let sliders = ChessSliderGenerator::new(blockers_before);
-                let attacks_before = self.all_attacking(self.king_sq(active), sliders);
-                if !(attacks_before & self.player_bb(inactive) & !remove_pawn_sq.bb()).is_zero() {
-                    bail!(
-                        "The en passant square is set, but the {active} king was in check before the double pawn push"
-                    )
-                }
+        let blockers_before = (self.occupied_bb() & !remove_pawn_sq.bb()) | pawn_origin_sq.bb();
+        let sliders = ChessSliderGenerator::new(blockers_before);
+        let attacks_before = self.all_attacking(self.king_sq(active), sliders);
+        if !(attacks_before & self.player_bb(inactive) & !remove_pawn_sq.bb()).is_zero() {
+            bail!("The en passant square is set, but the {active} king was in check before the double pawn push")
+        }
+        if self.checkers.more_than_one_bit_set() {
+            if strictness == Strict {
+                bail!(
+                    "The en passant square is set, but there is more than one checker.\
+                This means the {active} king has been in check before the double pawn push. \
+                In relaxed mode, the e.p. square is silently removed and the FEN is accepted."
+                )
+            } else {
+                self.ep_square = None;
             }
-            _ => bail!(
-                "The en passant square is set, but there is more than one checker.\
-                This means the {active} king has been in check before the double pawn push."
-            ),
         }
 
         // In the current version of the FEN standard, the ep square should only be set if a pawn can legally capture.
