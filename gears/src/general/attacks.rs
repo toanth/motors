@@ -15,19 +15,19 @@
  *  You should have received a copy of the GNU General Public License
  *  along with Gears. If not, see <https://www.gnu.org/licenses/>.
  */
-use crate::games::SizeTrait;
 #[cfg(feature = "chess")]
 use crate::games::chess::squares::Square;
+use crate::games::SizeTrait;
 #[cfg(all(feature = "unsafe", target_arch = "x86_64", target_feature = "avx2"))]
 use crate::general::attacks::avx2::U64x4;
-use crate::general::bitboards::RayDirections::{AntiDiagonal, Diagonal, Horizontal, Vertical};
 #[cfg(feature = "chess")]
 use crate::general::bitboards::chessboard::Bitboard;
 #[allow(unused)]
 use crate::general::bitboards::chessboard::KNIGHTS;
+use crate::general::bitboards::RayDirections::{AntiDiagonal, Diagonal, Horizontal, Vertical};
 use crate::general::bitboards::{
-    ANTI_DIAGONALS_U64, ANTI_DIAGONALS_U128, BitboardTrait, DIAGONALS_U64, DIAGONALS_U128, ExtendedRawBitboard,
-    KnownSizeBitboard, MAX_WIDTH, RawBitboardTrait, RawStandardBitboard, RayDirections, STEPS_U64, STEPS_U128,
+    BitboardTrait, ExtendedRawBitboard, KnownSizeBitboard, RawBitboardTrait, RawStandardBitboard, RayDirections,
+    ANTI_DIAGONALS_U128, ANTI_DIAGONALS_U64, DIAGONALS_U128, DIAGONALS_U64, MAX_WIDTH, STEPS_U128, STEPS_U64,
 };
 use crate::general::squares::RectangularCoordinates;
 use crate::general::squares::RectangularSize;
@@ -807,7 +807,7 @@ pub fn hq_right_horizontal_cylinder(
     let piece = ExtendedRawBitboard::single_piece_at(file);
     let mut start = piece;
     loop {
-        debug_assert!(start.is_single_piece());
+        debug_assert!(start.is_single_square());
         let ray = STEPS_U128[step] << (start.trailing_zeros() as usize + step);
         let blockers = all_blockers & ray;
         let forward = (blockers.wrapping_sub(start) ^ blockers) & ray;
@@ -914,7 +914,7 @@ mod tests {
         let expected = Bitboard::new(0xff92ef9282bdff82);
         assert_eq!(attacks, expected);
     }
-    
+
     #[cfg(not(all(feature = "unsafe", target_arch = "x86_64", target_feature = "avx2")))]
     #[test]
     fn test_all_bishop_attacks() {

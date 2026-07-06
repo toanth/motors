@@ -1,46 +1,46 @@
-use crate::PlayerResult;
-use crate::PlayerResult::{Draw, Lose};
-use crate::games::chess::Color::{Black, White};
 use crate::games::chess::castling::CastleRight::*;
 use crate::games::chess::castling::{CastleRight, CastlingFlags};
 use crate::games::chess::movegen::CountMoves;
 use crate::games::chess::moves::Move;
 use crate::games::chess::pieces::PieceType::*;
-use crate::games::chess::pieces::{ColoredPieceType, NUM_CHESS_PIECES, Piece, PieceType};
+use crate::games::chess::pieces::{ColoredPieceType, Piece, PieceType, NUM_CHESS_PIECES};
 use crate::games::chess::squares::{
-    A_FILE_NUM, B_FILE_NUM, C_FILE_NUM, ChessboardSize, D_FILE_NUM, E_FILE_NUM, F_FILE_NUM, G_FILE_NUM, H_FILE_NUM,
-    NUM_SQUARES, Square,
+    ChessboardSize, Square, A_FILE_NUM, B_FILE_NUM, C_FILE_NUM, D_FILE_NUM, E_FILE_NUM, F_FILE_NUM, G_FILE_NUM,
+    H_FILE_NUM, NUM_SQUARES,
 };
 use crate::games::chess::unverified::UnverifiedBoard;
 use crate::games::chess::zobrist::ZOBRIST_KEYS;
+use crate::games::chess::Color::{Black, White};
 use crate::games::{
-    AbstractPieceType, BoardHistory, BoardTrait, CharType, ColorTrait, ColoredPieceTrait, ColoredPieceTypeTrait, DimT,
-    NUM_COLORS, PosHash, SettingsTrait, n_fold_repetition,
+    n_fold_repetition, AbstractPieceType, BoardHistory, BoardTrait, CharType, ColorTrait, ColoredPieceTrait, ColoredPieceTypeTrait,
+    DimT, PosHash, SettingsTrait, NUM_COLORS,
 };
-use crate::general::bitboards::chessboard::{Bitboard, KINGS, dark_squares, light_squares};
+use crate::general::bitboards::chessboard::{dark_squares, light_squares, Bitboard, KINGS};
 use crate::general::bitboards::{BitboardTrait, KnownSizeBitboard, RawBitboardTrait, RawStandardBitboard};
 use crate::general::board::SelfChecks::CheckFen;
 use crate::general::board::Strictness::{Relaxed, Strict};
 use crate::general::board::{
-    AxesFormat, BBSelect, BitboardBoard, BoardHelpers, NameToPos, PieceTypeOf, Strictness, Symmetry,
-    UnverifiedBoardTrait, board_from_name, default_bitboards_from_name, position_fen_part, read_common_fen_part,
-    read_two_move_numbers,
+    board_from_name, default_bitboards_from_name, position_fen_part, read_common_fen_part, read_two_move_numbers, AxesFormat, BBSelect, BitboardBoard,
+    BoardHelpers, NameToPos, PieceTypeOf, Strictness, Symmetry,
+    UnverifiedBoardTrait,
 };
-use crate::general::common::{EntityList, GenericSelect, Res, StaticallyNamedEntity, Tokens, parse_int_from_str};
+use crate::general::common::{parse_int_from_str, EntityList, GenericSelect, Res, StaticallyNamedEntity, Tokens};
 use crate::general::move_list::InplaceMoveList;
 use crate::general::squares::{RectangularCoordinates, SquareColor};
-use crate::output::OutputOpts;
 use crate::output::text_output::{
-    AdaptFormatter, BoardFormatter, DefaultBoardFormatter, board_to_string, display_board_pretty, display_color,
+    board_to_string, display_board_pretty, display_color, AdaptFormatter, BoardFormatter, DefaultBoardFormatter,
 };
+use crate::output::OutputOpts;
 use crate::score::PhaseType;
 use crate::search::DepthPly;
+use crate::PlayerResult;
+use crate::PlayerResult::{Draw, Lose};
 use anyhow::{anyhow, bail, ensure};
 use arbitrary::Arbitrary;
 use colored::Color::Red;
 use colored::Colorize;
-use rand::Rng;
 use rand::prelude::IteratorRandom;
+use rand::Rng;
 use std::fmt;
 use std::fmt::{Display, Formatter};
 use std::ops::{Index, IndexMut, Not};
@@ -673,8 +673,6 @@ impl BoardTrait for Board {
         if self.checkers.has_any() {
             return None;
         }
-        // nullmoves count as noisy. This also prevents detecting repetition to before the nullmove
-        self.ply_100_ctr = 0;
         if let Some(sq) = self.ep_square {
             self.hashes.total ^= ZOBRIST_KEYS.ep_file_keys[sq.file() as usize];
             self.ep_square = None;
@@ -720,7 +718,7 @@ impl BoardTrait for Board {
     /// Doesn't quite conform to FIDE rules, but probably mostly agrees with USCF rules (in that it should almost never
     /// return `false` if there is a realistic way to win).
     fn can_reasonably_win(&self, player: Color) -> bool {
-        if self.player_bb(player).is_single_piece() {
+        if self.player_bb(player).is_single_square() {
             return false; // we only have our king left
         }
         if (self.piece_bb(Pawn) | self.col_piece_bb(player, Rook) | self.col_piece_bb(player, Queen)).has_any()
@@ -881,11 +879,6 @@ impl BitboardBoard for Board {
 
     fn mask_bb(&self) -> Self::Bitboard {
         Bitboard::new(!0)
-    }
-
-    fn calc_move_dest_bb(&self) -> Self::Bitboard {
-        let us = self.active;
-        self.calc_threats_of(us) | self.pawn_advance_dests()
     }
 }
 
@@ -1146,8 +1139,10 @@ pub trait ChessBitboardTrait: KnownSizeBitboard<RawStandardBitboard, Square> {
     // Only considers potential captures, not pushes.
     // For attacks of a single pawn, there's a precomputed table.
     fn pawn_attacks(self, color: Color) -> Self {
-        let advanced = self.pawn_advance(color);
-        advanced.east() | advanced.west()
+        match color {
+            White => ((self & !Self::file(H_FILE_NUM)) << 9) | ((self & !Self::file(A_FILE_NUM)) << 7),
+            Black => ((self & !Self::file(H_FILE_NUM)) >> 7) | ((self & !Self::file(A_FILE_NUM)) >> 9),
+        }
     }
 }
 
@@ -1187,14 +1182,14 @@ mod tests {
     use strum::IntoEnumIterator;
 
     use crate::games::chess::pieces::ColoredPieceType::WhiteBishop;
-    use crate::games::chess::squares::{B_FILE_NUM, E_FILE_NUM, F_FILE_NUM, G_FILE_NUM, H_FILE_NUM, sq};
-    use crate::games::{BoardHistDyn, CoordinatesTrait, NoHistory, ZobristHistory, char_to_file};
+    use crate::games::chess::squares::{sq, B_FILE_NUM, E_FILE_NUM, F_FILE_NUM, G_FILE_NUM, H_FILE_NUM};
+    use crate::games::{char_to_file, BoardHistDyn, CoordinatesTrait, NoHistory, ZobristHistory};
     use crate::general::board::RectangularBoard;
     use crate::general::board::Strictness::Relaxed;
     use crate::general::moves::MoveTrait;
+    use crate::general::perft::perft;
     use crate::general::perft::Bulkness::{Bulk, NoBulk};
     use crate::general::perft::Parallelize::*;
-    use crate::general::perft::perft;
     use crate::search::DepthPly;
 
     use super::*;
@@ -1352,7 +1347,7 @@ mod tests {
         let board = Board::from_fen(fen, Relaxed).unwrap();
         let moves = board.pseudolegal_moves();
         assert_eq!(moves.len(), 265);
-        let perft_res = perft(DepthPly::new(1), board, SingleThreaded, NoBulk);
+        let perft_res = perft(DepthPly::new(1), board, SingleThreaded, NoBulk, None);
         assert_eq!(perft_res.nodes, 265);
     }
 
@@ -1360,38 +1355,38 @@ mod tests {
     fn simple_perft_test() {
         let endgame_fen = "6k1/8/6K1/8/3B1N2/8/8/7R w - - 0 1";
         let board = Board::from_fen(endgame_fen, Relaxed).unwrap();
-        let perft_res = perft(DepthPly::new(1), board, SingleThreaded, NoBulk);
+        let perft_res = perft(DepthPly::new(1), board, SingleThreaded, NoBulk, None);
         assert_eq!(perft_res.depth, DepthPly::new(1));
         assert_eq!(perft_res.nodes, 5 + 7 + 13 + 14);
         assert!(perft_res.time.as_millis() <= 10);
         let board = Board::default();
-        let perft_res = perft(DepthPly::new(1), board, Parallel, Bulk);
+        let perft_res = perft(DepthPly::new(1), board, Parallel, Bulk, None);
         assert_eq!(perft_res.depth, DepthPly::new(1));
         assert_eq!(perft_res.nodes, 20);
         assert!(perft_res.time.as_millis() <= 2);
-        let perft_res = perft(DepthPly::new(2), board, SingleThreaded, NoBulk);
+        let perft_res = perft(DepthPly::new(2), board, SingleThreaded, NoBulk, None);
         assert_eq!(perft_res.depth, DepthPly::new(2));
         assert_eq!(perft_res.nodes, 20 * 20);
         assert!(perft_res.time.as_millis() <= 200);
 
         let board = Board::from_fen("r1bqkbnr/1pppNppp/p1n5/8/8/8/PPPPPPPP/R1BQKBNR b KQkq - 0 3", Strict).unwrap();
-        let perft_res = perft(DepthPly::new(1), board, Parallel, Bulk);
+        let perft_res = perft(DepthPly::new(1), board, Parallel, Bulk, Some(42));
         assert_eq!(perft_res.nodes, 26);
-        assert_eq!(perft(DepthPly::new(3), board, Parallel, NoBulk).nodes, 16790);
+        assert_eq!(perft(DepthPly::new(3), board, Parallel, NoBulk, Some(42)).nodes, 16790);
 
         let board =
             Board::from_fen("rbbqn1kr/pp2p1pp/6n1/2pp1p2/2P4P/P7/BP1PPPP1/R1BQNNKR w HAha - 0 9", Strict).unwrap();
-        let perft_res = perft(DepthPly::new(4), board, SingleThreaded, Bulk);
+        let perft_res = perft(DepthPly::new(4), board, SingleThreaded, Bulk, Some(1 << 10));
         assert_eq!(perft_res.nodes, 890_435);
 
         let board = Board::from_fen("1nbqkbnr/p1p1pppp/8/rP1pP2K/8/8/1PPP1PPP/RNBQ1BNR b k - 0 3", Strict).unwrap();
-        let perft_res = perft(DepthPly::new(4), board, Parallel, Bulk);
+        let perft_res = perft(DepthPly::new(4), board, Parallel, Bulk, Some(1 << 10));
         assert_eq!(perft_res.nodes, 839_770);
 
         // DFRC
         let board =
             Board::from_fen("r1q1k1rn/1p1ppp1p/1npb2b1/p1N3p1/8/1BP4P/PP1PPPP1/1RQ1KRBN w BFag - 0 9", Strict).unwrap();
-        assert_eq!(perft(DepthPly::new(4), board, SingleThreaded, Bulk).nodes, 1_187_103);
+        assert_eq!(perft(DepthPly::new(4), board, SingleThreaded, Bulk, Some(1 << 10)).nodes, 1_187_103);
     }
 
     #[test]
@@ -1563,7 +1558,7 @@ mod tests {
         let fen = "q2k2q1/2nqn2b/1n1P1n1b/2rnr2Q/1NQ1QN1Q/3Q3B/2RQR2B/Q2K2Q1 w - - 0 1";
         let board = Board::from_fen(fen, Strict).unwrap();
         assert_eq!(board.active, White);
-        assert_eq!(perft(DepthPly::new(3), board, Parallel, Bulk).nodes, 568_299);
+        assert_eq!(perft(DepthPly::new(3), board, Parallel, Bulk, Some(1 << 10)).nodes, 568_299);
         // not a legal chess position, but the board should support this
         let fen = "RRRRRRRR/RRRRRRRR/BBBBBBBB/BBBBBBBB/QQQQQQQQ/QQQQQQQQ/QPPPPPPP/K6k b - - 0 1";
         assert!(Board::from_fen(fen, Strict).is_err());
@@ -1654,7 +1649,7 @@ mod tests {
         let new_pos = pos.make_move_from_str("c5").unwrap();
         assert_eq!(new_pos.ep_square, Some(Square::from_str("c6").unwrap()));
         _ = new_pos.debug_verify_invariants(Strict).unwrap();
-        let perft = perft(DepthPly::new(4), pos, Parallel, NoBulk);
+        let perft = perft(DepthPly::new(4), pos, Parallel, NoBulk, None);
         assert_eq!(perft.nodes, 5020);
     }
 

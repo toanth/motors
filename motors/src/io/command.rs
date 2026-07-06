@@ -15,32 +15,32 @@
  *  You should have received a copy of the GNU General Public License
  *  along with Motors. If not, see <https://www.gnu.org/licenses/>.
  */
-use crate::io::SearchType::{Auto, Bench, Normal, Perft, Ponder, SplitPerft};
 use crate::io::autocomplete::AutoCompleteState;
 use crate::io::command::Standard::*;
+use crate::io::SearchType::*;
 use crate::io::{AbstractEngineUgiState, EngineUGI, SearchType};
-use gears::GameResult;
-use gears::MatchStatus::{Ongoing, Over};
-use gears::ProgramStatus::Run;
-use gears::Quitting::{QuitMatch, QuitProgram};
 use gears::arrayvec::ArrayVec;
 use gears::cli::Game;
 use gears::colored::Colorize;
-use gears::games::CharType::{Ascii, Unicode};
 #[cfg(feature = "fairy")]
 use gears::games::fairy::Board;
+use gears::games::CharType::{Ascii, Unicode};
 use gears::games::{AbstractPieceType, ColorTrait, ColoredPieceTrait, SizeTrait};
 use gears::general::board::{BoardHelpers, BoardTrait, ColPieceTypeOf, Strictness};
 use gears::general::common::anyhow::{anyhow, bail};
 use gears::general::common::{
-    Name, NamedEntity, Res, Tokens, parse_duration_ms, parse_int, parse_int_from_str, tokens,
+    parse_duration_ms, parse_int, parse_int_from_str, tokens, Name, NamedEntity, Res, Tokens,
 };
 use gears::general::moves::{ExtendedFormat, MoveTrait};
 use gears::itertools::Itertools;
 use gears::output::Message::Warning;
 use gears::output::OutputOpts;
-use gears::search::{DepthPly, MAX_DEPTH, NodesLimit, SearchLimit};
-use gears::ugi::{EngineOption, EngineOptionType, only_load_ugi_position};
+use gears::search::{DepthPly, NodesLimit, SearchLimit, MAX_DEPTH};
+use gears::ugi::{only_load_ugi_position, EngineOption, EngineOptionType};
+use gears::GameResult;
+use gears::MatchStatus::{Ongoing, Over};
+use gears::ProgramStatus::Run;
+use gears::Quitting::{QuitMatch, QuitProgram};
 use std::fmt;
 use std::fmt::{Debug, Display, Formatter};
 use std::time::{Duration, Instant};
@@ -201,7 +201,7 @@ pub fn ugi_commands() -> CommandList {
             --> |state: &mut dyn AutoCompleteState| state.go_subcmds(Normal),
             recurse = true
         ),
-        command!(stop, All, "Stop the current search. No effect if not searching", |ugi, _, _| ugi.handle_stop(false)),
+        command!(stop, All, "Stop the current search. No effect if not searching", |ugi, _, _| ugi.handle_stop()),
         command!(
             position | pos | p,
             All,
@@ -446,6 +446,14 @@ pub fn ugi_commands() -> CommandList {
             recurse = true
         ),
         command!(
+            simplebench | simple_bench | sb,
+            Custom,
+            "Like bench, but only one search per position, no additional nodes-based search",
+            |ugi, words, _| ugi.handle_go(SimpleBench, words),
+            --> |state| state.go_subcmds(SimpleBench),
+            recurse = true
+        ),
+        command!(
             bench,
             Custom,
             "Internal search test on current / bench positions. Same arguments as `go`",
@@ -549,7 +557,7 @@ impl<B: BoardTrait> AbstractGoState for GoState<B> {
 
     fn set_search_type(&mut self, search_type: SearchType, depth_words: Option<&mut Tokens>) -> Res<()> {
         self.generic.search_type = search_type;
-        if search_type == Bench {
+        if search_type == Bench || search_type == SimpleBench {
             self.generic.limit.depth = self.generic.default_bench_depth;
         } else if search_type == Perft || search_type == SplitPerft {
             self.generic.limit.depth = self.generic.default_perft_depth;
@@ -589,7 +597,6 @@ pub struct GenericGoState {
     pub threads: Option<usize>,
     pub search_type: SearchType,
     pub upto: bool,
-    pub complete: bool,
     pub unique: bool,
     pub compare: bool,
     pub no_bulk: bool,
@@ -604,7 +611,7 @@ pub struct GenericGoState {
 impl<B: BoardTrait> GoState<B> {
     pub fn default_depth_limit(ugi: &EngineUGI<B>, search_type: SearchType) -> DepthPly {
         match search_type {
-            Bench => ugi.state.engine.get_engine_info().default_bench_depth(),
+            Bench | SimpleBench => ugi.state.engine.get_engine_info().default_bench_depth(),
             Perft | SplitPerft => ugi.state.pos().default_perft_depth(),
             // "infinite" is the identity element of the bounded semilattice of `go` options
             _ => SearchLimit::infinite().depth,
@@ -643,7 +650,6 @@ impl<B: BoardTrait> GoState<B> {
                 threads: None,
                 search_type,
                 upto: false,
-                complete: false,
                 unique: false,
                 compare: false,
                 no_bulk: false,
@@ -717,6 +723,12 @@ pub(super) fn go_options_impl(
                 state.go_state_mut().get_mut().threads = Some(parse_int(words, "threads")?);
                 Ok(())
             }
+        ));
+        res.push(command!(
+            hash | h | tt | cache,
+            Custom,
+            "Use a TT of n MiB for perft. Can in theory cause incorrect results",
+            |state, words, _| state.go_state_mut().override_hash(words)
         ));
     } else {
         let mut additional: CommandList = vec![
@@ -894,6 +906,12 @@ pub(super) fn go_options_impl(
                 |state, words, _| state.go_state_mut().set_search_type(SplitPerft, Some(words))
             ),
             command!(
+                simplebench | simple_bench | sb,
+                Custom,
+                "Like bench, but only one search per position, no additional nodes-based search",
+                |state, words, _| state.go_state_mut().set_search_type(SimpleBench, Some(words))
+            ),
+            command!(
                 bench | b,
                 Custom,
                 "Search test: Print info about nodes, nps, and hash of search",
@@ -916,15 +934,6 @@ pub(super) fn go_options_impl(
     }
     // this checks only the mode that `go_options` is called for, but it can be changed through args (eg `go perft`),
     // which is why there's another check when actually handling it. Still, the first check prevents it from showing up in completion suggestion.
-    if mode.is_none_or(|m| [Bench, Perft].iter().contains(&m)) {
-        res.push(command!(complete | all, Custom, "Run bench / perft on all bench positions", |state, _, _| {
-            if ![Bench, Perft].contains(&state.go_state_mut().get_mut().search_type) {
-                bail!("The 'all' option can only be used with 'bench' or 'perft' searches")
-            }
-            state.go_state_mut().get_mut().complete = true;
-            Ok(())
-        }));
-    }
     if mode.is_none_or(|m| m == Perft) {
         res.push(command!(unique, Custom, "Only count unique positions in perft", |state, _, _| {
             if state.go_state_mut().get_mut().search_type != Perft {

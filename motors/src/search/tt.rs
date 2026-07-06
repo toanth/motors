@@ -1,23 +1,23 @@
 use crate::spsa_params;
 use derive_more::Index;
-use gears::games::PosHash;
 #[cfg(feature = "chess")]
 use gears::games::chess::Board;
+use gears::games::PosHash;
 use gears::general::board::BoardTrait;
 use gears::general::moves::{MoveTrait, UntrustedMove};
 use gears::itertools::Itertools;
-use gears::score::{CompactScoreT, SCORE_WON, Score, ScoreT};
+use gears::score::{CompactScoreT, Score, ScoreT, SCORE_WON};
 use gears::search::NodeType;
 use rayon::prelude::*;
 #[cfg(all(feature = "unsafe", target_arch = "x86_64", target_feature = "sse"))]
-use std::arch::x86_64::{_MM_HINT_T1, _mm_prefetch};
-use std::fmt::{Display, Formatter};
+use std::arch::x86_64::{_mm_prefetch, _MM_HINT_T1};
+use std::fmt::{Debug, Display, Formatter};
 use std::hash::{Hash, Hasher};
 use std::marker::PhantomData;
 use std::mem::size_of;
-use std::sync::Arc;
 use std::sync::atomic::AtomicU32;
 use std::sync::atomic::Ordering::Relaxed;
+use std::sync::Arc;
 
 #[derive(Debug, Default, Copy, Clone, Eq, PartialEq, derive_more::Display)]
 pub struct Age(u8);
@@ -211,7 +211,7 @@ age_diff_mult: isize = 4; 0..=128; step=4;
 ];
 
 /// Resizing the TT during search will wait until the search is finished (all threads will receive a new arc)
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct TT {
     tt: Arc<[TTBucket]>,
     pub age: Age,
@@ -220,6 +220,12 @@ pub struct TT {
 impl Default for TT {
     fn default() -> Self {
         if cfg!(miri) { Self::minimal() } else { Self::new_with_mib(DEFAULT_HASH_SIZE_MIB) }
+    }
+}
+
+impl Debug for TT {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "[TT of {0} entries with age {1}]", self.tt.len(), self.age)
     }
 }
 
@@ -329,7 +335,8 @@ impl TT {
 
     // The lowest score is getting replaced
     fn entry_replacement_score<B: BoardTrait>(candidate: &TTEntry<B>, to_insert: &TTEntry<B>) -> isize {
-        if to_insert.hash_part() == candidate.hash_part() || candidate.is_empty() {
+        // a depth of u16::MAX is used for irreplaceable entries
+        if (to_insert.hash_part() == candidate.hash_part() && candidate.depth() != u16::MAX) || candidate.is_empty() {
             isize::MIN
         } else {
             let age_diff = (to_insert.age().0.wrapping_sub(candidate.age().0).wrapping_add(1 << 6)) & 0b11_1111;
@@ -448,12 +455,11 @@ pub enum EndTTPvMove<B: BoardTrait> {
 mod test {
     use super::*;
     use crate::search::chess::caps::Caps;
-    use crate::search::multithreading::AtomicSearchState;
     use crate::search::{AbstractSearchState, Engine, NormalEngine, SearchParams};
-    use gears::games::ZobristHistory;
     use gears::games::chess::moves::Move;
+    use gears::games::ZobristHistory;
     use gears::rand::distr::Uniform;
-    use gears::rand::{Rng, RngExt, rng};
+    use gears::rand::{rng, Rng, RngExt};
     use gears::score::{MAX_NORMAL_SCORE, MIN_NORMAL_SCORE};
     use gears::search::NodeType::{Exact, FailHigh, FailLow};
     use gears::search::{DepthPly, SearchLimit};
@@ -616,14 +622,15 @@ mod test {
         let mut tt = TT::new_with_bytes(32_000_000);
         let pos = Board::default();
         let mut engine = Caps::default();
+        let atomic = engine.thread_data().shared.clone();
         let bad_move = Move::from_compact_text("a2a3", &pos).unwrap();
         let age = Age(42);
         let hash = pos.hash_pos();
-        let entry: TTEntry<Board> = TTEntry::new(hash, MAX_NORMAL_SCORE, MIN_NORMAL_SCORE, bad_move, 123, Exact, age);
+        let entry: TTEntry<Board> = TTEntry::new(hash, MAX_NORMAL_SCORE, MAX_NORMAL_SCORE, bad_move, 123, Exact, age);
         tt.store(entry, hash, 0);
         let next_pos = pos.make_move(bad_move).unwrap();
         let next_entry: TTEntry<Board> =
-            TTEntry::new(next_pos.hash_pos(), MIN_NORMAL_SCORE, MAX_NORMAL_SCORE, Move::NULL, 122, Exact, age);
+            TTEntry::new(next_pos.hash_pos(), MIN_NORMAL_SCORE, MIN_NORMAL_SCORE, Move::NULL, 122, Exact, age);
         tt.store(next_entry, next_pos.hash_pos(), 1);
         let mov = engine.search_with_tt(pos, SearchLimit::depth(DepthPly::new(1)), tt.clone()).chosen_move;
         assert_eq!(mov, bad_move);
@@ -642,19 +649,12 @@ mod test {
         assert!(new_nodes <= nodes);
         tt.forget();
         tt.age.increment();
-        let atomic = Arc::new(AtomicSearchState::default());
-        let params = SearchParams::with_atomic_state(
-            pos,
-            SearchLimit::infinite(),
-            ZobristHistory::default(),
-            tt.clone(),
-            atomic.clone(),
-        )
-        .set_tt(tt.clone());
+        let params = SearchParams::new_unshared(pos, SearchLimit::infinite(), ZobristHistory::default(), tt.clone())
+            .set_tt(tt.clone());
         assert_eq!(params.tt.tt.as_ptr(), tt.tt.as_ptr());
         assert_eq!(tt.estimate_hashfull::<Board>(Age(0)), 0);
-        let atomic2 = Arc::new(AtomicSearchState::default());
-        let mut params2 = params.auxiliary(atomic2.clone());
+        let atomic2 = engine2.thread_data().shared.clone();
+        let mut params2 = params.clone();
         let pos2 = Board::from_name("kiwipete").unwrap();
         params2.pos = pos2;
         let mut age = engine.age();
@@ -665,8 +665,8 @@ mod test {
         let handle2 =
             spawn(move || engine2.search(params2) /*SearchResult::<Chessboard>::move_only(ChessMove::NULL)*/);
         sleep(Duration::from_millis(1000));
-        atomic.set_stop(true);
-        atomic2.set_stop(true);
+        atomic.set_stop();
+        atomic2.set_stop();
         let res1 = handle.join().unwrap();
         let res2 = handle2.join().unwrap();
         assert_ne!(

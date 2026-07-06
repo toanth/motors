@@ -15,12 +15,12 @@
  *  You should have received a copy of the GNU General Public License
  *  along with Gears. If not, see <https://www.gnu.org/licenses/>.
  */
-use crate::games::chess::Color::{Black, White};
 use crate::games::chess::castling::{CastleRight, CastlingFlags};
 use crate::games::chess::pieces::ColoredPieceType::{BlackKing, WhiteKing};
 use crate::games::chess::pieces::PieceType::{Empty, King, Pawn, Rook};
 use crate::games::chess::pieces::{ColoredPieceType, Piece, PieceType};
 use crate::games::chess::squares::{ChessboardSize, Square};
+use crate::games::chess::Color::{Black, White};
 use crate::games::chess::{Board, Color, Settings};
 use crate::games::{ColorTrait, ColoredPieceTrait, ColoredPieceTypeTrait, CoordinatesTrait, DimT, PosHash};
 use crate::general::attacks::ChessSliderGenerator;
@@ -31,7 +31,7 @@ use crate::general::board::Strictness::Strict;
 use crate::general::board::{
     BitboardBoard, BoardHelpers, BoardTrait, SelfChecks, Strictness, Symmetry, UnverifiedBoardTrait,
 };
-use crate::general::common::{Res, ith_one_u64};
+use crate::general::common::{ith_one_u64, Res};
 use crate::general::squares::RectangularCoordinates;
 use anyhow::{bail, ensure};
 use rand::{Rng, RngExt};
@@ -50,7 +50,7 @@ impl From<Board> for UnverifiedBoard {
 
 fn fen_selfchecks(this: &Board, checks: SelfChecks, strictness: Strictness) -> Res<()> {
     for color in Color::iter() {
-        ensure!(this.col_piece_bb(color, King).is_single_piece(), "The {color} player does not have exactly one king");
+        ensure!(this.col_piece_bb(color, King).is_single_square(), "The {color} player does not have exactly one king");
         if this.col_piece_bb(color, Pawn).intersects(Bitboard::backranks()) {
             bail!("The {color} player has a pawn on the first or eight rank")
         }
@@ -256,22 +256,22 @@ impl Board {
         }
         let active = self.active_player();
         // Not handling this here would cause us to not emit ep moves even though we think that the ep square is set
-        match self.checkers.num_ones() {
-            0 => {}
-            1 => {
-                let blockers_before = (self.occupied_bb() & !remove_pawn_sq.bb()) | pawn_origin_sq.bb();
-                let sliders = ChessSliderGenerator::new(blockers_before);
-                let attacks_before = self.all_attacking(self.king_sq(active), sliders);
-                if !(attacks_before & self.player_bb(inactive) & !remove_pawn_sq.bb()).is_zero() {
-                    bail!(
-                        "The en passant square is set, but the {active} king was in check before the double pawn push"
-                    )
-                }
+        let blockers_before = (self.occupied_bb() & !remove_pawn_sq.bb()) | pawn_origin_sq.bb();
+        let sliders = ChessSliderGenerator::new(blockers_before);
+        let attacks_before = self.all_attacking(self.king_sq(active), sliders);
+        if !(attacks_before & self.player_bb(inactive) & !remove_pawn_sq.bb()).is_zero() {
+            bail!("The en passant square is set, but the {active} king was in check before the double pawn push")
+        }
+        if self.checkers.more_than_one_bit_set() {
+            if strictness == Strict {
+                bail!(
+                    "The en passant square is set, but there is more than one checker.\
+                This means the {active} king has been in check before the double pawn push. \
+                In relaxed mode, the e.p. square is silently removed and the FEN is accepted."
+                )
+            } else {
+                self.ep_square = None;
             }
-            _ => bail!(
-                "The en passant square is set, but there is more than one checker.\
-                This means the {active} king has been in check before the double pawn push."
-            ),
         }
 
         // In the current version of the FEN standard, the ep square should only be set if a pawn can legally capture.
@@ -413,8 +413,8 @@ mod tests {
     use super::*;
     use crate::general::board::Strictness::Relaxed;
     use proptest::proptest;
-    use rand::SeedableRng;
     use rand::prelude::SmallRng;
+    use rand::SeedableRng;
 
     proptest! {
         #[test]

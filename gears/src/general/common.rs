@@ -1,3 +1,4 @@
+use crate::games::PosHash;
 use crate::general::common::Description::WithDescription;
 use crate::score::Score;
 pub use anyhow;
@@ -481,6 +482,28 @@ pub fn nonzero_u64(val: u64, name: &str) -> Res<NonZeroU64> {
     NonZeroU64::new(val).ok_or_else(|| anyhow::anyhow!("{name} can't be zero"))
 }
 
+/// A simple `const` random number generator adapted from my C++ algebra implementation,
+/// originally from here: <https://www.pcg-random.org/> (I hate that website)
+pub struct PcgXslRr128_64Oneseq(u128);
+
+const MUTLIPLIER: u128 = (2_549_297_995_355_413_924 << 64) + 4_865_540_595_714_422_341;
+const INCREMENT: u128 = (6_364_136_223_846_793_005 << 64) + 1_442_695_040_888_963_407;
+
+// the pcg xsl rr 128 64 oneseq generator, aka pcg64_oneseq (most other pcg generators have additional problems)
+impl PcgXslRr128_64Oneseq {
+    pub const fn new(seed: u128) -> Self {
+        Self(seed.wrapping_add(INCREMENT).wrapping_mul(MUTLIPLIER).wrapping_add(INCREMENT))
+    }
+
+    pub const fn generate(&mut self) -> PosHash {
+        self.0 = self.0.wrapping_mul(MUTLIPLIER);
+        self.0 = self.0.wrapping_add(INCREMENT);
+        let upper = (self.0 >> 64) as u64;
+        let xored = upper ^ (self.0 as u64);
+        PosHash(xored.rotate_right((upper >> (122 - 64)) as u32))
+    }
+}
+
 pub struct Entry {
     sum: AtomicI64,
     calls: AtomicU64,
@@ -495,22 +518,33 @@ impl Entry {
         _ = self.sum.fetch_add(val, Relaxed);
         _ = self.calls.fetch_add(1, Relaxed);
     }
+    pub fn record_sum(&self, val: i64) {
+        _ = self.sum.fetch_add(val, Relaxed);
+    }
     pub fn reset(&self) {
         self.sum.store(0, Relaxed);
         self.calls.store(0, Relaxed);
     }
 
-    pub fn print(&self) {
+    pub fn print(&self, percent: bool) {
         let sum = self.sum.load(Relaxed);
         let calls = self.calls.load(Relaxed);
         let avg = sum as f64 / calls as f64;
         let name = self.name;
-        println!("{name}: Sum {sum} of {calls} calls (average {avg:3})");
+        if percent {
+            let percent = avg * 100.;
+            println!("{name}: {sum} of {calls} nodes ({percent:.2}%)");
+        } else {
+            println!("{name}: Sum {sum} of {calls} calls (average {avg:.3})");
+        }
     }
 }
 
 #[distributed_slice]
 pub static TRACKED_VALUES: [Entry];
+
+#[distributed_slice]
+pub static TRACKED_NODE_RELATIVE: [Entry];
 
 #[macro_export]
 macro_rules! track {
@@ -524,9 +558,24 @@ macro_rules! track {
     ($val: expr) => {{ track!(stringify!($val), $val) }};
 }
 
+#[macro_export]
+macro_rules! track_rel {
+    ($name: expr, $val: expr) => {{
+        #[linkme::distributed_slice($crate::general::common::TRACKED_NODE_RELATIVE)]
+        static ENTRY: $crate::general::common::Entry = $crate::general::common::Entry::new(const { $name });
+        let value = $val;
+        ENTRY.record_sum(value as i64);
+        value
+    }};
+    ($name: expr) => {{ track_rel!($name, 1) }};
+}
+
 pub fn dbg_print() {
     for e in TRACKED_VALUES {
-        e.print();
+        e.print(false);
+    }
+    for e in TRACKED_NODE_RELATIVE {
+        e.print(true);
     }
 }
 
@@ -534,13 +583,23 @@ pub fn dbg_reset() {
     for e in TRACKED_VALUES {
         e.reset();
     }
+    for e in TRACKED_NODE_RELATIVE {
+        e.reset();
+    }
+}
+
+pub fn dbg_end_search(nodes: u64) {
+    for e in TRACKED_NODE_RELATIVE {
+        _ = e.calls.fetch_add(nodes, Relaxed);
+    }
 }
 
 #[cfg(test)]
 mod tests {
-    use rand::{RngExt, rng};
+    use super::*;
+    use rand::{rng, RngExt};
 
-    use crate::general::common::{ith_one_u64, ith_one_u128};
+    use crate::general::common::{ith_one_u128, ith_one_u64};
     // TODO: Test this on bitboards instead
     // #[test]
     // fn pop_lsb64_test() {
@@ -611,5 +670,18 @@ mod tests {
         let val = (0b1_0010_1101_1010_1010 << 80) + 0b1_1101;
         assert_eq!(ith_one_u128(3, val), 4);
         assert_eq!(ith_one_u128(4, val), 81);
+    }
+
+    #[test]
+    fn pcg_test() {
+        let mut generator = PcgXslRr128_64Oneseq::new(42);
+        assert_eq!(generator.0 >> 64, 1_610_214_578_838_163_691);
+        assert_eq!(generator.0 & ((1 << 64) - 1), 13_841_303_961_814_150_380);
+        let rand = generator.generate();
+        assert_eq!(rand.0, 2_915_081_201_720_324_186);
+        let rand = generator.generate();
+        assert_eq!(rand.0, 13_533_757_442_135_995_717);
+        let rand = generator.generate();
+        assert_eq!(rand.0, 13_172_715_927_431_628_928);
     }
 }

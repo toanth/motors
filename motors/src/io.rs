@@ -23,67 +23,68 @@ mod input;
 pub mod ugi_output;
 
 use crate::eval::Eval;
-use crate::io::SearchType::*;
 use crate::io::ascii_art::print_as_ascii_art;
 use crate::io::cli::EngineOpts;
 use crate::io::command::Standard::Custom;
 use crate::io::command::{
-    AbstractGoState, CommandList, GoState, accept_depth, go_options, query_options, ugi_commands,
+    accept_depth, go_options, query_options, ugi_commands, AbstractGoState, CommandList, GoState,
 };
 use crate::io::input::Input;
 use crate::io::ugi_output::{
-    AbstractUgiOutput, UgiOutput, color_for_score, pretty_score, pretty_variation_simple, score_gradient, suffix_for,
+    color_for_score, pretty_score, pretty_variation_simple, score_gradient, suffix_for, AbstractUgiOutput, UgiOutput,
 };
+use crate::io::SearchType::*;
 use crate::search::multithreading::EngineWrapper;
-use crate::search::tt::{DEFAULT_HASH_SIZE_MIB, EndTTPvMove, TT, TTEntry};
-use crate::search::{EvalList, SearchParams, SearcherList, run_bench_with};
-use crate::{create_engine_box_from_str, create_engine_from_str, create_eval_from_str, create_match};
-use gears::MatchStatus::*;
-use gears::ProgramStatus::{Quit, Run};
-use gears::Quitting::QuitProgram;
+use crate::search::tt::{EndTTPvMove, TTEntry, DEFAULT_HASH_SIZE_MIB, TT};
+use crate::search::{run_bench_with, EvalList, SearchParams, SearcherList};
+use crate::{create_engine_box_from_str, create_engine_from_str, create_eval_from_str, run_match};
 use gears::cli::select_game;
 use gears::colored::Color::Red;
 use gears::colored::Colorize;
-use gears::games::CharType::Ascii;
 use gears::games::chess::UCI_CHESS960;
+use gears::games::CharType::Ascii;
 use gears::games::{
     AbstractPieceType, BoardHistDyn, ColorTrait, ColoredPieceTrait, ColoredPieceTypeTrait, OutputList, SizeTrait,
 };
 use gears::general::bitboards::RawBitboardTrait;
 use gears::general::board::Strictness::{Relaxed, Strict};
 use gears::general::board::{BoardHelpers, BoardTrait, ColPieceTypeOf, Strictness, Symmetry, UnverifiedBoardTrait};
-use gears::general::common::Description::{NoDescription, WithDescription};
 use gears::general::common::anyhow::{anyhow, bail, ensure};
+use gears::general::common::Description::{NoDescription, WithDescription};
 use gears::general::common::{
-    NamedEntity, parse_bool_from_str, parse_duration_ms, parse_int_from_str, select_name_static, tokens,
-    tokens_to_string,
+    parse_bool_from_str, parse_duration_ms, parse_int_from_str, select_name_static, tokens, tokens_to_string,
+    NamedEntity,
 };
 use gears::general::common::{Res, Tokens};
 use gears::general::moves::ExtendedFormat::{Alternative, Standard};
 use gears::general::moves::MoveTrait;
 use gears::general::perft::Bulkness::{Bulk, NoBulk};
 use gears::general::perft::Parallelize::{Parallel, SingleThreaded};
-use gears::general::perft::{SplitPerftRes, num_unique_positions_up_to, perft_for, split_perft};
+use gears::general::perft::{num_unique_positions_up_to, perft_for, split_perft, SplitPerftRes};
 use gears::itertools::Itertools;
 use gears::num::{Num, Zero};
-use gears::output::Message::*;
 use gears::output::logger::LoggerBuilder;
 use gears::output::pgn::parse_pgn;
-use gears::output::text_output::{AdaptFormatter, display_color};
+use gears::output::text_output::{display_color, AdaptFormatter};
+use gears::output::Message::*;
 use gears::output::{Message, OutputBox, OutputBuilder, OutputOpts};
 use gears::rand::rng;
-use gears::score::{Score, ScoreT};
+use gears::score::{Score, ScoreT, MAX_NORMAL_SCORE, MIN_NORMAL_SCORE};
+use gears::search::NodeType::Exact;
 use gears::search::{DepthPly, SearchLimit, TimeControl};
 use gears::ugi::EngineOptionName::*;
 use gears::ugi::EngineOptionType::*;
 use gears::ugi::Protocol::{Interactive, UGI};
 use gears::ugi::{
-    EngineOption, EngineOptionName, EngineOptionNameForProtocol, Protocol, UgiCheck, UgiCombo, UgiSpin, UgiString,
-    load_ugi_pos_simple,
+    load_ugi_pos_simple, parse_ugi_position_part, EngineOption, EngineOptionName, EngineOptionNameForProtocol, Protocol, UgiCheck, UgiCombo,
+    UgiSpin, UgiString,
 };
+use gears::MatchStatus::*;
+use gears::ProgramStatus::{Quit, Run};
+use gears::Quitting::QuitProgram;
 use gears::{
-    AbstractRun, AbstractUgiPosState, GameState, MatchState, MatchStatus, PlayerResult, ProgramStatus, Quitting,
-    UgiPosState, output_builder_from_str,
+    output_builder_from_str, AbstractRun, AbstractUgiPosState, GameState, MatchState, MatchStatus, PlayerResult, ProgramStatus,
+    Quitting, UgiPosState,
 };
 use std::cell::RefCell;
 use std::collections::HashSet;
@@ -111,6 +112,8 @@ enum SearchType {
     Normal,
     Ponder,
     Bench,
+    // Only a single search per position, without an additional nodes limit
+    SimpleBench,
     Perft,
     SplitPerft,
     Auto, // Like `Normal`, but done in this thread (i.e., blocks) and plays the chosen move instantly
@@ -126,6 +129,7 @@ impl Display for SearchType {
                 SearchType::Ponder => "ponder",
                 Perft => "perft",
                 SplitPerft => "split perft",
+                SimpleBench => "simple bench",
                 Bench => "bench",
                 Auto => "auto",
             }
@@ -154,8 +158,8 @@ struct EngineGameState<B: BoardTrait> {
 
 impl<B: BoardTrait> EngineGameState<B> {
     fn is_currently_searching(&self) -> bool {
-        self.engine.main_atomic_search_data().currently_searching()
-            || self.temp_engine.as_ref().is_some_and(|e| e.main_atomic_search_data().currently_searching())
+        self.engine.shared_state.currently_searching()
+            || self.temp_engine.as_ref().is_some_and(|e| e.shared_state.currently_searching())
     }
 }
 
@@ -303,7 +307,10 @@ impl<B: BoardTrait> AbstractRun for EngineUGI<B> {
     }
 
     fn handle_input(&mut self, input: &str) -> Res<()> {
-        handle_ugi_input(self, tokens(input), &B::game_name())
+        for cmd in input.split(';') {
+            handle_ugi_input(self, tokens(cmd), &B::game_name())?
+        }
+        Ok(())
     }
 
     fn quit(&mut self) -> Res<()> {
@@ -425,12 +432,10 @@ impl<B: BoardTrait> EngineUGI<B> {
             failed_cmd: None,
         };
         if res.debug_mode() {
-            res.handle_debug_impl(&mut tokens(""), false)?;
+            res.handle_debug_impl(true, false)?;
         }
-        if let Some(cmd) = opts.cmd {
-            for line in cmd.split(';') {
-                res.handle_input(line)?;
-            }
+        for line in opts.cmds {
+            res.handle_input(&line)?;
         }
         Ok(res)
     }
@@ -602,6 +607,9 @@ impl<B: BoardTrait> EngineUGI<B> {
                     }
                 }
             }
+            UCISetPositionValue => {
+                self.set_position_value(&value)?;
+            }
             UCIShowRefutations => self.output().show_refutation = parse_bool_from_str(&value, "show refutations")?,
             UCIShowCurrLine => {
                 self.output().show_currline = parse_bool_from_str(&value, "show current line")?;
@@ -630,6 +638,10 @@ impl<B: BoardTrait> EngineUGI<B> {
                     .engine
                     .set_option(name.clone(), value.clone())
                     .or_else(|err| if name.name == Threads && value == "1" { Ok(()) } else { Err(err) })?;
+            }
+            DebugOutput => {
+                let value = parse_bool_from_str(&value, "debug option")?;
+                self.handle_debug_impl(value, true)?;
             }
         }
         Ok(())
@@ -689,22 +701,10 @@ impl<B: BoardTrait> EngineUGI<B> {
 
         if cfg!(feature = "fuzzing") {
             limit.fixed_time = limit.fixed_time.max(Duration::from_secs(1));
-            if opts.generic.complete {
-                limit.fixed_time = Duration::from_millis(10);
-            }
             if matches!(opts.generic.search_type, Perft | SplitPerft) {
-                let depth = if opts.generic.complete { 2 } else { 3 };
+                let depth = 3;
                 limit.depth = limit.depth.min(DepthPly::new(depth));
             }
-        }
-
-        if opts.generic.complete && !matches!(opts.generic.search_type, Bench | Perft) {
-            bail!(
-                "The '{0}' options can only be used for '{1}' and '{2}' searches",
-                "complete".bold(),
-                "bench".bold(),
-                "perft".bold()
-            )
         }
 
         let opts = &self.state.go_state.generic;
@@ -712,26 +712,25 @@ impl<B: BoardTrait> EngineUGI<B> {
         let board = self.state.go_state.pos.clone();
         match opts.search_type {
             Auto => {
-                let params = SearchParams::with_output(
+                let params = SearchParams::new_unshared(
                     board.clone(),
                     limit,
                     self.state.board_hist.clone(),
                     self.state.engine.next_tt(),
-                    self.state.go_state.search_moves.take(),
-                    opts.multi_pv.saturating_sub(1),
-                    self.output.clone(),
-                    self.state.engine.get_engine_info_arc(),
                 );
                 return self.play_engine_move(Some(params));
             }
+            SimpleBench => {
+                let bench_positions: Vec<B> = B::bench_positions().into_iter().collect();
+                return self.bench(limit, &bench_positions, None);
+            }
             Bench => {
-                let bench_positions: Vec<B> =
-                    if opts.complete { B::bench_positions().into_iter().collect() } else { vec![board] };
-                return self.bench(limit, &bench_positions);
+                let bench_positions: Vec<B> = B::bench_positions().into_iter().collect();
+                let second_limit = SearchLimit::nodes(self.state.engine.get_engine_info().default_bench_nodes());
+                return self.bench(limit, &bench_positions, Some(second_limit));
             }
             Perft => {
-                let positions =
-                    if opts.complete { B::bench_positions().into_iter().collect() } else { vec![board.clone()] };
+                let positions = vec![board.clone()];
                 let threads = opts.threads.unwrap_or(0);
                 if threads > 1 {
                     bail!("For 'perft' runs, the 'Threads' options can only be used to set threads to 1")
@@ -747,7 +746,8 @@ impl<B: BoardTrait> EngineUGI<B> {
                         self.output().write_ugi(&format_args!("# unique positions at depth {i}: {num_unique}",))
                     } else {
                         let parallelize = if threads == 1 { SingleThreaded } else { Parallel };
-                        let perft_res = perft_for(DepthPly::new(i), &positions, parallelize, pseudo_bulk);
+                        let hash = opts.override_hash_size.map(|n| n * (1 << 20));
+                        let perft_res = perft_for(DepthPly::new(i), &positions, parallelize, pseudo_bulk, hash);
                         self.output().write_ugi(&format_args!(
                             "{}{perft_res}",
                             if i == limit.depth.get() { String::new() } else { format!("depth {i}: ") }
@@ -768,7 +768,8 @@ impl<B: BoardTrait> EngineUGI<B> {
                 }
                 let pseudo_bulk = if opts.no_bulk { NoBulk } else { Bulk };
                 let parallelize = if threads == 1 { SingleThreaded } else { Parallel };
-                let res = split_perft(limit.depth, board, parallelize, pseudo_bulk);
+                let hash = opts.override_hash_size.map(|n| n * (1 << 20));
+                let res = split_perft(limit.depth, board, parallelize, pseudo_bulk, hash);
                 self.write_ugi(&format_args!("{res}"));
                 if self.go_state_mut().get_mut().compare {
                     compare_splitperft(self, res)?;
@@ -776,6 +777,41 @@ impl<B: BoardTrait> EngineUGI<B> {
             }
             _ => return self.start_search(),
         }
+        Ok(())
+    }
+
+    fn set_position_value(&self, value: &str) -> Res<()> {
+        let mut value = tokens(value);
+        let Some(score) = value.next() else {
+            bail!("Missing a score, '{0}' or '{1}' after 'SetPositionValue", "clear".bold(), "clearall".bold());
+        };
+        let mut tt = self.state.engine.next_tt();
+        let score = match score.to_ascii_lowercase().as_str() {
+            "clearall" => {
+                tt.forget();
+                return Ok(());
+            }
+            "clear" => None,
+            score => Some(Score(parse_int_from_str(score, "score in cp")?)),
+        };
+        let pos = parse_ugi_position_part(
+            value.next().unwrap_or_default(),
+            &mut value,
+            false,
+            self.state.pos(),
+            None,
+            self.strictness,
+        )?;
+        let entry = if let Some(mut score) = score {
+            if !pos.active_player().is_first() {
+                score = -score;
+            }
+            score = score.clamp(MIN_NORMAL_SCORE, MAX_NORMAL_SCORE);
+            TTEntry::<B>::new(pos.hash_pos(), score, score, B::Move::default(), isize::MAX, Exact, tt.age)
+        } else {
+            TTEntry::default()
+        };
+        tt.store(entry, pos.hash_pos(), 0);
         Ok(())
     }
 
@@ -851,25 +887,17 @@ impl<B: BoardTrait> EngineUGI<B> {
                     self.contempt,
                 )?;
             }
-            _ => unreachable!("Bench and (Split)Perft should have already been handled"),
+            _ => unreachable!("(Simple) Bench and (Split)Perft should have already been handled"),
         };
         Ok(())
     }
 
-    fn bench(&mut self, limit: SearchLimit, positions: &[B]) -> Res<()> {
+    fn bench(&mut self, limit: SearchLimit, positions: &[B], second_limit: Option<SearchLimit>) -> Res<()> {
         let mut engine = create_engine_box_from_str(
             &self.state.engine.get_engine_info().short_name(),
             &self.searcher_factories,
             &self.eval_factories,
         )?;
-        let second_limit = if positions.len() == 1 {
-            None
-        } else {
-            let mut limit = limit;
-            limit.depth = DepthPly::MAX;
-            limit.nodes = self.state.engine.get_engine_info().default_bench_nodes();
-            Some(limit)
-        };
         let tt = self.state.go_state.generic.override_hash_size.map(TT::new_with_mib);
         let res = run_bench_with(engine.as_mut(), limit, second_limit, positions, tt);
         self.output().write_ugi(&format_args!("{res}"));
@@ -1060,39 +1088,34 @@ impl<B: BoardTrait> EngineUGI<B> {
     }
 
     #[cold]
-    fn handle_debug_impl(&mut self, words: &mut Tokens, show: bool) -> Res<()> {
-        match words.next().unwrap_or("on") {
-            "on" => {
-                self.state.debug_mode = true;
-                // make sure to print all the messages that can be sent (adding an existing output is a no-op)
-                self.handle_output_impl(&mut tokens("error"), false)?;
-                self.handle_output_impl(&mut tokens("debug"), false)?;
-                self.handle_output_impl(&mut tokens("info"), false)?;
-                self.output().set_debug(true);
-                if show {
-                    self.print_board(OutputOpts::default());
-                }
-                self.write_message(Debug, &format_args!("Debug mode enabled"));
-                // don't change the log stream if it's already set
-                if self.output().additional_outputs.iter().any(|o| o.is_logger()) {
-                    Ok(())
-                } else {
-                    // In case of an error here, still keep the debug mode set.
-                    self.handle_log(&mut tokens(""))
-                        .map_err(|err| anyhow!("Couldn't set the debug log file: '{err}'"))?;
-                    Ok(())
-                }
+    fn handle_debug_impl(&mut self, value: bool, show: bool) -> Res<()> {
+        if value {
+            self.state.debug_mode = true;
+            // make sure to print all the messages that can be sent (adding an existing output is a no-op)
+            self.handle_output_impl(&mut tokens("error"), false)?;
+            self.handle_output_impl(&mut tokens("debug"), false)?;
+            self.handle_output_impl(&mut tokens("info"), false)?;
+            self.output().set_debug(true);
+            if show {
+                self.print_board(OutputOpts::default());
             }
-            "off" => {
-                self.state.debug_mode = false;
-                _ = self.handle_output(&mut tokens("remove debug"));
-                _ = self.handle_output(&mut tokens("remove info"));
-                self.write_message(Debug, &format_args!("Debug mode disabled"));
-                self.output().set_debug(false);
-                // don't remove the error output, as there is basically no reason to do so
-                self.handle_log(&mut tokens("none"))
+            self.write_message(Debug, &format_args!("Debug mode enabled"));
+            // don't change the log stream if it's already set
+            if self.output().additional_outputs.iter().any(|o| o.is_logger()) {
+                Ok(())
+            } else {
+                // In case of an error here, still keep the debug mode set.
+                self.handle_log(&mut tokens("")).map_err(|err| anyhow!("Couldn't set the debug log file: '{err}'"))?;
+                Ok(())
             }
-            x => bail!("Invalid debug option '{x}'"),
+        } else {
+            self.state.debug_mode = false;
+            _ = self.handle_output(&mut tokens("remove debug"));
+            _ = self.handle_output(&mut tokens("remove info"));
+            self.write_message(Debug, &format_args!("Debug mode disabled"));
+            self.output().set_debug(false);
+            // don't remove the error output, as there is basically no reason to do so
+            self.handle_log(&mut tokens("none"))
         }
     }
 
@@ -1234,6 +1257,7 @@ impl<B: BoardTrait> EngineUGI<B> {
                         self.state.game_name()
                     )),
                 }),
+                UCISetPositionValue => UString(UgiString { val: String::new(), default: None }),
                 UCIShowRefutations => Check(UgiCheck { val: self.output().show_refutation, default: Some(false) }),
                 UCIShowCurrLine => Check(UgiCheck { val: self.output().show_currline, default: Some(false) }),
                 CurrlineNullmove => Check(UgiCheck { val: self.output().show_currline, default: Some(true) }),
@@ -1266,6 +1290,7 @@ impl<B: BoardTrait> EngineUGI<B> {
                     default: Some(eval_name.clone()),
                     options: self.eval_factories.iter().map(|e| e.short_name()).collect_vec(),
                 }),
+                DebugOutput => Check(UgiCheck { val: self.debug_mode(), default: Some(false) }),
                 Other(_) => continue,
             };
             let name = EngineOptionNameForProtocol { name: opt, proto: self.protocol() };
@@ -1313,7 +1338,7 @@ trait AbstractEngineUgiState: Debug {
 
     fn handle_go(&mut self, initial_search_type: SearchType, words: &mut Tokens) -> Res<()>;
 
-    fn handle_stop(&mut self, suppress_best_move: bool) -> Res<()>;
+    fn handle_stop(&mut self) -> Res<()>;
 
     fn handle_ponderhit(&mut self) -> Res<()>;
 
@@ -1450,10 +1475,10 @@ impl<B: BoardTrait> AbstractEngineUgiState for EngineUGI<B> {
         self.handle_go_impl(initial_search_type, words)
     }
 
-    fn handle_stop(&mut self, suppress_best_move: bool) -> Res<()> {
-        self.state.engine.send_stop(suppress_best_move);
+    fn handle_stop(&mut self) -> Res<()> {
+        self.state.engine.send_stop(false);
         if let Some(tmp) = &mut self.state.temp_engine {
-            tmp.send_stop(suppress_best_move);
+            tmp.send_stop(false);
         }
         Ok(())
     }
@@ -1481,7 +1506,8 @@ impl<B: BoardTrait> AbstractEngineUgiState for EngineUGI<B> {
     }
 
     fn handle_debug(&mut self, words: &mut Tokens) -> Res<()> {
-        self.handle_debug_impl(words, true)
+        let value = parse_bool_from_str(words.next().unwrap_or("on"), "debug option")?;
+        self.handle_debug_impl(value, true)
     }
 
     fn handle_log(&mut self, words: &mut Tokens) -> Res<()> {
@@ -2079,12 +2105,12 @@ fn handle_play_impl(ugi: &mut dyn AbstractEngineUgi, words: &mut Tokens) -> Res<
     if words.peek().is_some() {
         opts.pos_name = Some(words.join(" "));
     }
-    let mut nested_match = create_match(opts)?;
-    if nested_match.run() == QuitProgram {
-        ugi.handle_quit(QuitProgram)?;
-    } else {
-        // print the current board again, now that the match is over
-        ugi.print_board(OutputOpts::default());
+    match run_match(opts)? {
+        QuitProgram => ugi.handle_quit(QuitProgram)?,
+        Quitting::QuitMatch => {
+            // print the current board again, now that the match is over
+            ugi.print_board(OutputOpts::default());
+        }
     }
     Ok(())
 }
@@ -2218,6 +2244,8 @@ mod tests {
     use gears::rand::prelude::SliceRandom;
     use gears::rand::rngs::SmallRng;
     use gears::rand::{RngExt, SeedableRng};
+    use gears::search::NodeType;
+    use std::thread::yield_now;
 
     fn create_chess_game() -> Box<EngineUGI<chess::Board>> {
         let outputs = list_chess_outputs();
@@ -2303,6 +2331,30 @@ mod tests {
         sleep(Duration::from_millis(500));
         ugi.quit().unwrap(); // can't use handle_input("quit") because that gets ignored in fuzzing mode
         assert_eq!(ugi.state.status, Quit(QuitProgram));
+    }
+
+    #[test]
+    #[cfg(feature = "chess")]
+    fn chess_multithreading_test() {
+        let mut ugi = create_chess_game();
+        ugi.handle_input("p name lasker-reichhelm").unwrap();
+        ugi.handle_input("so threads 4").unwrap();
+        ugi.handle_input("go nodes 54321").unwrap();
+
+        let res = loop {
+            if let Some(r) = ugi.output().previous_search_res {
+                break r;
+            }
+            yield_now();
+        };
+        assert_eq!(res.pos, chess::Board::from_name("lasker-reichhelm").unwrap());
+        assert!(res.score > Score(0));
+        assert_eq!(res.chosen_move, chess::moves::Move::from_text("Kb1", &res.pos).unwrap());
+        let info = ugi.output().previous_exact_info().unwrap();
+        assert_eq!(info.pv_num, 0);
+        assert_eq!(info.score, res.score);
+        assert_eq!(info.num_threads, 4);
+        assert_eq!(info.bound, Some(NodeType::Exact));
     }
 
     #[test]

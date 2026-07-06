@@ -1,12 +1,12 @@
 use crate::search::chess::histories::{
-    CaptHist, ContHist, CorrHist, HIST_DIVISOR, HistoryHeuristic, write_single_hist_table,
+    write_single_hist_table, CaptHist, ContHist, CorrHist, HistoryHeuristic, HIST_DIVISOR,
 };
 use crate::search::{CustomInfo, MoveScore, Pv, SearchStackEntry, SearchState};
 use gears::arrayvec::ArrayVec;
-use gears::games::PosHash;
 use gears::games::chess::moves::Move;
 use gears::games::chess::squares::NUM_SQUARES;
 use gears::games::chess::{Board, Color, MAX_CHESS_MOVES_IN_POS};
+use gears::games::PosHash;
 use gears::general::board::BoardTrait;
 use gears::score::Score;
 use gears::search::DepthPly;
@@ -169,18 +169,16 @@ mod tests {
     use crate::search::chess::caps::Caps;
     use crate::search::generic::gaps::Gaps;
     use crate::search::generic::random_mover::RandomMover;
-    use crate::search::multithreading::AtomicSearchState;
     use crate::search::tt::TT;
     use crate::search::{AbstractSearchState, Engine, SearchParams};
     use crate::{list_chess_evals, list_chess_searchers};
-    use gears::PlayerResult::{Draw, Win};
-    use gears::games::chess::Board;
     use gears::games::chess::moves::{Move, MoveFlags};
     use gears::games::chess::pieces::ColoredPieceType::BlackKnight;
     use gears::games::chess::pieces::Piece;
     use gears::games::chess::pieces::PieceType::{Bishop, Knight};
     use gears::games::chess::squares::Square;
-    use gears::games::{BoardHistDyn, ZobristHistory, n_fold_repetition};
+    use gears::games::chess::Board;
+    use gears::games::{n_fold_repetition, BoardHistDyn, ZobristHistory};
     use gears::general::board::Strictness::{Relaxed, Strict};
     use gears::general::board::{BoardHelpers, BoardTrait, UnverifiedBoardTrait};
     use gears::general::common::NamedEntity;
@@ -188,13 +186,13 @@ mod tests {
     use gears::output::pgn::parse_pgn;
     use gears::parse_ugi_pos_and_hist;
     use gears::rand::prelude::SmallRng;
-    use gears::score::{NO_SCORE_YET, SCORE_LOST, SCORE_WON, Score, game_result_to_score};
+    use gears::score::{game_result_to_score, Score, NO_SCORE_YET, SCORE_LOST, SCORE_WON};
     use gears::search::{DepthPly, NodesLimit, SearchLimit};
     use gears::ugi::load_ugi_pos_simple;
+    use gears::PlayerResult::{Draw, Win};
     use std::str::FromStr;
-    use std::sync::Arc;
-    use std::sync::atomic::Ordering::SeqCst;
     use std::sync::atomic::fence;
+    use std::sync::atomic::Ordering::SeqCst;
     use std::thread::{sleep, spawn};
     use std::time::Duration;
 
@@ -340,35 +338,23 @@ mod tests {
         let mut engine = E::for_eval::<LiTEval>();
         let mut engine2 = E::for_eval::<LiTEval>();
         let tt = TT::default();
-        let atomic = Arc::new(AtomicSearchState::default());
-        let atomic2 = Arc::new(AtomicSearchState::default());
-        let params = SearchParams::with_atomic_state(
-            board,
-            SearchLimit::infinite(),
-            ZobristHistory::default(),
-            tt.clone(),
-            atomic.clone(),
-        );
-        let params2 = SearchParams::with_atomic_state(
-            board,
-            SearchLimit::infinite(),
-            ZobristHistory::default(),
-            tt.clone(),
-            atomic2.clone(),
-        );
+        let atomic = engine.search_state_dyn().thread_data().shared.clone();
+        let atomic2 = engine2.search_state_dyn().thread_data().shared.clone();
+        let params = SearchParams::new_unshared(board, SearchLimit::infinite(), ZobristHistory::default(), tt.clone());
+        let params2 = SearchParams::new_unshared(board, SearchLimit::infinite(), ZobristHistory::default(), tt.clone());
         // The bound of 500 is rather large because gaps does not produce very stable evals
         let max_diff = if engine.short_name() == "CAPS" { 50 } else { 500 };
         let handle = spawn(move || engine.search(params));
         let handle2 = spawn(move || engine2.search(params2));
         sleep(Duration::from_millis(300));
-        atomic.set_stop(true);
+        atomic.set_stop();
         assert!(atomic.stop_flag());
         assert!(!atomic2.stop_flag());
         let res = handle.join().unwrap();
         assert!(!atomic.currently_searching());
         assert!(atomic2.currently_searching());
         fence(SeqCst);
-        atomic2.set_stop(true);
+        atomic2.set_stop();
         let res2 = handle2.join().unwrap();
         assert!(res.score.0.abs_diff(res2.score.0) <= max_diff, "{0} {1}", res.score, res2.score);
         assert_eq!(res.chosen_move.piece_type(&board), Bishop);
@@ -563,7 +549,7 @@ mod tests {
                 {
                     continue;
                 }
-                let mut engine = searcher.build(eval.as_ref());
+                let mut engine = searcher.build_in_this_thread(eval.as_ref());
                 println!("searching with {}", engine.engine_info().long_name());
                 let eval = engine.static_eval(&pos, 0);
                 assert!(eval > Score(1000), "{eval}");
@@ -574,6 +560,7 @@ mod tests {
                 let fen = "qqqqqqqq/qqqqqqqq/qqqqqqqq/qqqqqqqq/qqqqrbnq/qqqqbKQn/qqqqrb1b/qqqqqrbk b - - 0 1";
                 let pos = Board::from_fen(fen, Relaxed).unwrap();
                 let res = engine.search_with_tt(pos, SearchLimit::nodes_(500), tt.clone());
+                assert_eq!(engine.search_state_dyn().uci_nodes(), 500);
                 assert_eq!(res.score.plies_until_game_won(), Some(1));
                 let pos = pos.make_nullmove().unwrap();
                 let res = engine.search_with_tt(pos, SearchLimit::nodes_(500), tt.clone());
@@ -614,7 +601,7 @@ mod tests {
     fn depth_one_startpos() {
         let mut engine = Caps::for_eval::<LiTEval>();
         let res = engine.search(SearchParams::for_pos(Board::default(), SearchLimit::depth_(1)));
-        assert_eq!(engine.iterations().get(), 1);
+        assert_eq!(engine.atomic().iterations().get(), 1);
         assert!(Board::default().is_move_legal(res.chosen_move));
         assert!(!res.score.is_won_lost_or_draw_score());
         assert_eq!(res.pos, Board::default());

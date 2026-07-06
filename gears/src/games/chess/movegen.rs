@@ -1,15 +1,15 @@
-use crate::games::chess::CastleRight::*;
-use crate::games::chess::Color::*;
 use crate::games::chess::castling::CastleRight;
 use crate::games::chess::moves::MoveFlags::*;
 use crate::games::chess::moves::{Move, MoveFlags};
 use crate::games::chess::pieces::PieceType::*;
 use crate::games::chess::pieces::{ColoredPieceType, PieceType};
 use crate::games::chess::squares::{ChessboardSize, Square};
+use crate::games::chess::CastleRight::*;
+use crate::games::chess::Color::*;
 use crate::games::chess::{Board, ChessBitboardTrait, Color, MoveList, PAWN_CAPTURES};
 use crate::games::{BoardTrait, ColorTrait, ColoredPieceTypeTrait};
-use crate::general::attacks::{ChessSliderGenerator, all_knight_and_slider_attacks};
-use crate::general::bitboards::chessboard::{BISHOPS, Bitboard, INFINITE_RAYS, KINGS, KNIGHTS, RAYS_INCLUSIVE, ROOKS};
+use crate::general::attacks::{all_knight_and_slider_attacks, ChessSliderGenerator};
+use crate::general::bitboards::chessboard::{Bitboard, BISHOPS, INFINITE_RAYS, KINGS, KNIGHTS, RAYS_INCLUSIVE, ROOKS};
 use crate::general::bitboards::{BitboardTrait, KnownSizeBitboard, RawBitboardTrait};
 use crate::general::board::BitboardBoard;
 use crate::general::moves::MoveTrait;
@@ -58,13 +58,16 @@ impl Board {
         ChessSliderGenerator::new(self.occupied_bb())
     }
 
-    pub(super) fn pawn_advance_dests(&self) -> Bitboard {
-        let us = self.active;
+    pub fn pawn_push_dests(&self, us: Color) -> Bitboard {
         let pawns = self.col_piece_bb(us, Pawn);
         let empty = self.empty_bb();
-        let res = pawns.pawn_advance(us);
-        let res = res | (res & Bitboard::pawn_ranks() & empty).pawn_advance(us);
-        res & empty
+        if us == White {
+            let single = pawns << 8;
+            (single | (single & Bitboard::from_raw(0xff_0000) & empty) << 8) & empty
+        } else {
+            let single = pawns >> 8;
+            (single | (single & Bitboard::from_raw(0x0000_ff00_0000_0000) & empty) >> 8) & empty
+        }
     }
 
     fn single_pawn_moves(color: Color, square: Square, capture_filter: Bitboard, push_filter: Bitboard) -> Bitboard {
@@ -483,6 +486,7 @@ impl Board {
 
     /// Calculate a bitboard of all squares that are attacked by the given player.
     /// This only counts hypothetical captures, so no pawn pushes or castling moves.
+    /// In other words, the squares on which the other king would be in check.
     pub(super) fn calc_threats_of(&self, player: Color) -> Bitboard {
         let us = self.player_bb(player);
         let knights = self.col_piece_bb(player, Knight);
@@ -516,18 +520,18 @@ impl Board {
             & their_bb;
         self.pinned = Bitboard::default();
         for slider in their_bb & ((rook_sliders & ROOKS[our_king]) | (bishop_sliders & BISHOPS[our_king])) {
-            let ray = Bitboard::ray_exclusive(slider, our_king, ChessboardSize::default());
+            let ray = Bitboard::ray_exclusive(our_king, slider, ChessboardSize::default());
             if !ray.intersects(occupied) {
                 self.checkers |= slider.bb();
-            } else if !ray.intersects(their_bb) && (ray & our_bb).is_single_piece() {
+            } else if !ray.intersects(their_bb) && (ray & our_bb).is_single_square() {
                 self.pinned |= ray & our_bb;
             }
         }
         let their_king = self.king_sq(!us);
         for slider in our_bb & ((rook_sliders & ROOKS[their_king]) | (bishop_sliders & BISHOPS[their_king])) {
-            let ray = Bitboard::ray_exclusive(slider, their_king, ChessboardSize::default());
+            let ray = Bitboard::ray_exclusive(their_king, slider, ChessboardSize::default());
             debug_assert!(ray.intersects(occupied));
-            if !ray.intersects(our_bb) && (ray & their_bb).is_single_piece() {
+            if !ray.intersects(our_bb) && (ray & their_bb).is_single_square() {
                 self.pinned |= ray & their_bb;
             }
         }

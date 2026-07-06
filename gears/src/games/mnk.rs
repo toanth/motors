@@ -8,30 +8,30 @@ use std::hash::{DefaultHasher, Hash, Hasher};
 use std::mem::size_of;
 use strum_macros::EnumIter;
 
-use crate::PlayerResult;
-use crate::PlayerResult::{Draw, Lose};
 use crate::games::mnk::PieceType::{Empty, O, X};
 use crate::games::*;
 use crate::general::attacks::BitReverseSliderGenerator;
 use crate::general::bitboards::{
-    BitboardTrait, DynamicallySizedBitboard, ExtendedRawBitboard, MAX_WIDTH, RawBitboardTrait,
+    BitboardTrait, DynamicallySizedBitboard, ExtendedRawBitboard, RawBitboardTrait, MAX_WIDTH,
 };
 use crate::general::board::SelfChecks::CheckFen;
 use crate::general::board::Strictness::{Relaxed, Strict};
 use crate::general::board::{
-    BBSelect, BitboardBoard, BoardHelpers, NameToPos, PieceTypeOf, RectangularBoard, SelfChecks, Strictness, Symmetry,
-    UnverifiedBoardTrait, board_from_name, default_bitboards_from_name, read_common_fen_part, read_single_move_number,
-    simple_fen,
+    board_from_name, default_bitboards_from_name, read_common_fen_part, read_single_move_number, simple_fen, BBSelect, BitboardBoard, BoardHelpers, NameToPos,
+    PieceTypeOf, RectangularBoard, SelfChecks, Strictness, Symmetry,
+    UnverifiedBoardTrait,
 };
 use crate::general::common::*;
 use crate::general::move_list::InplaceMoveList;
 use crate::general::moves::Legality::Legal;
 use crate::general::moves::{Legality, MoveTrait, UntrustedMove};
 use crate::general::squares::{GridCoordinates, GridSize, RectangularCoordinates, SquareColor};
+use crate::output::text_output::{board_to_string, display_board_pretty, BoardFormatter, DefaultBoardFormatter};
 use crate::output::OutputOpts;
-use crate::output::text_output::{BoardFormatter, DefaultBoardFormatter, board_to_string, display_board_pretty};
 use crate::search::DepthPly;
 use crate::ugi::Protocol;
+use crate::PlayerResult;
+use crate::PlayerResult::{Draw, Lose};
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Default)]
 #[must_use]
@@ -1068,10 +1068,10 @@ mod test {
             assert_eq!(k == 1, board.last_move_won_game());
             assert_ne!(board.x_bb().raw(), 0);
             assert_eq!(board.o_bb().raw(), 0);
-            assert!(board.x_bb().is_single_piece());
+            assert!(board.x_bb().is_single_square());
             if k == 1 {
                 assert!(board.last_move_won_game());
-                assert_eq!(perft(DepthPly::new(1), board, SingleThreaded, Bulk).nodes, 0);
+                assert_eq!(perft(DepthPly::new(1), board, SingleThreaded, Bulk, None).nodes, 0);
             } else {
                 assert_eq!(board.pseudolegal_moves().len() + 1, board.num_squares());
             }
@@ -1080,7 +1080,7 @@ mod test {
 
     #[test]
     fn perft_startpos_test() {
-        let r = perft(DepthPly::new(1), Board::default(), Parallel, NoBulk);
+        let r = perft(DepthPly::new(1), Board::default(), Parallel, NoBulk, None);
         assert_eq!(r.depth.get(), 1);
         assert_eq!(r.nodes, 9);
         assert!(r.time.as_millis() <= 1); // 1 ms should be far more than enough even on a very slow device
@@ -1089,6 +1089,7 @@ mod test {
             Board::empty_for_settings(Settings::new(Height(8), Width(12), 2)),
             Parallel,
             Bulk,
+            None,
         );
         assert_eq!(r.perft_res.depth.get(), 2);
         assert_eq!(r.perft_res.nodes, 96 * 95);
@@ -1098,6 +1099,7 @@ mod test {
             Board::empty_for_settings(Settings::new(Height(4), Width(3), 3)),
             Parallel,
             Bulk,
+            None,
         );
         assert_eq!(r.perft_res.depth.get(), 3);
         assert_eq!(r.perft_res.nodes, 12 * 11 * 10);
@@ -1107,13 +1109,20 @@ mod test {
             Board::empty_for_settings(Settings::new(Height(5), Width(5), 5)),
             SingleThreaded,
             Bulk,
+            None,
         );
         assert_eq!(r.perft_res.depth.get(), 5);
         assert_eq!(r.perft_res.nodes, 25 * 24 * 23 * 22 * 21);
         assert!(r.children.iter().all(|x| x.1 == r.children[0].1));
         assert!(r.perft_res.time.as_millis() <= 10_000);
 
-        let r = split_perft(DepthPly::new(9), Board::startpos_for_settings(Settings::titactoe()), Parallel, Bulk);
+        let r = split_perft(
+            DepthPly::new(9),
+            Board::startpos_for_settings(Settings::titactoe()),
+            Parallel,
+            Bulk,
+            Some(1 << 10),
+        );
         assert_eq!(r.perft_res.depth.get(), 9);
         assert!(r.perft_res.nodes >= 100_000);
         assert!(r.perft_res.nodes <= 9 * 8 * 7 * 6 * 5 * 4 * 3 * 2);
@@ -1124,19 +1133,19 @@ mod test {
         assert!(r.perft_res.time.as_millis() <= 4000);
 
         let board = Board::empty_for_settings(Settings::new(Height(2), Width(2), 2));
-        let r = split_perft(DepthPly::new(3), board, SingleThreaded, Bulk);
+        let r = split_perft(DepthPly::new(3), board, SingleThreaded, Bulk, None);
         assert_eq!(r.perft_res.depth.get(), 3);
         assert_eq!(r.perft_res.nodes, 2 * 3 * 4);
         assert!(r.children.iter().all(|x| x.1 == 2 * 3));
         assert!(r.perft_res.time.as_millis() <= 100);
-        let r = perft(DepthPly::new(4), board, Parallel, NoBulk);
+        let r = perft(DepthPly::new(4), board, Parallel, NoBulk, None);
         assert_eq!(r.depth.get(), 4);
         assert_eq!(r.nodes, 0);
 
         let board = Board::empty_for_settings(Settings::new(Height(6), Width(7), 4));
         let expected = [1, 42, 42 * 41, 42 * 41 * 40];
         for (i, e) in expected.into_iter().enumerate() {
-            let r = perft(DepthPly::new(i), board, SingleThreaded, Bulk);
+            let r = perft(DepthPly::new(i), board, SingleThreaded, Bulk, None);
             assert_eq!(r.nodes, e);
             assert_eq!(r.depth, DepthPly::new(i));
         }

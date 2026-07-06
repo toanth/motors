@@ -24,33 +24,33 @@ use gears::colorgrad::{BasisGradient, Gradient, LinearGradient};
 use gears::games::CharType::Unicode;
 use gears::games::ColorTrait;
 use gears::general::board::{BoardHelpers, BoardTrait};
-use gears::general::common::{Tokens, sigmoid};
+use gears::general::common::{sigmoid, Tokens};
 use gears::general::moves::ExtendedFormat::Standard;
 use gears::general::moves::MoveTrait;
 use gears::itertools::Itertools;
 use gears::output::{Message, OutputBox, OutputOpts};
-use gears::score::{SCORE_LOST, SCORE_WON, Score};
+use gears::score::{Score, SCORE_LOST, SCORE_WON};
 use gears::search::MpvType::{MainOfMultiple, OnlyLine, SecondaryLine};
 use gears::search::NodeType::*;
 use gears::search::{Budget, DepthPly, MpvType, NodeType, NodesLimit, SearchInfo, SearchResult};
-use gears::{GameState, colored, colorgrad};
+use gears::{colored, colorgrad, GameState};
 use indicatif::{ProgressBar, ProgressStyle};
 use std::fmt::Write;
 use std::time::Duration;
 use std::{fmt, mem};
 
-#[derive(Debug)]
-struct TypeErasedSearchInfo {
-    budget: Budget,
-    iterations: DepthPly,
-    seldepth: DepthPly,
-    time: Duration,
-    nodes: NodesLimit,
-    pv_num: usize,
-    score: Score,
-    hashfull: usize,
-    num_threads: f64,
-    bound: Option<NodeType>,
+#[derive(Debug, Copy, Clone)]
+pub struct TypeErasedSearchInfo {
+    pub budget: Budget,
+    pub iterations: DepthPly,
+    pub seldepth: DepthPly,
+    pub time: Duration,
+    pub nodes: NodesLimit,
+    pub pv_num: usize,
+    pub score: Score,
+    pub hashfull: usize,
+    pub num_threads: usize,
+    pub bound: Option<NodeType>,
 }
 
 impl TypeErasedSearchInfo {
@@ -64,7 +64,7 @@ impl TypeErasedSearchInfo {
             pv_num: info.pv_num,
             score: info.score,
             hashfull: info.hashfull,
-            num_threads: info.num_threads as f64,
+            num_threads: info.num_threads,
             bound: info.bound,
         }
     }
@@ -77,7 +77,7 @@ impl TypeErasedSearchInfo {
             return 0.0; // I hate NaNs.
         }
         // subtract the depth to not count the root node, which means the branching factor for depth 1 is the number of legal moves
-        ((self.nodes.get() - iters) as f64 / self.num_threads).powf(1.0 / iters as f64)
+        ((self.nodes.get() - iters) as f64 / self.num_threads as f64).powf(1.0 / iters as f64)
     }
 }
 
@@ -199,7 +199,7 @@ impl TypeErasedUgiOutput {
             " ".repeat(8)
         };
         let nps = nodes as f64 / 1_000_000.0 / time;
-        let nps_color = self.alt_grad.at((nps / (4.0 * info.num_threads)) as f32);
+        let nps_color = self.alt_grad.at((nps / (4.0 * info.num_threads as f64)) as f32);
         let [r, g, b, _] = nps_color.to_rgba8();
         let nps = format!("{nps:5.2}").color(TrueColor { r, g, b }).dimmed();
         let time_badness = 1.0 - (time + 1.0).log2() / 10.0;
@@ -335,6 +335,10 @@ impl<B: BoardTrait> UgiOutput<B> {
 
     pub fn set_debug(&mut self, debug: bool) {
         self.show_debug_output = debug;
+    }
+
+    pub fn previous_exact_info(&self) -> Option<TypeErasedSearchInfo> {
+        self.type_erased.previous_exact_info
     }
 
     pub fn write_search_res(&mut self, res: &SearchResult<B>) {

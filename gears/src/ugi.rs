@@ -1,5 +1,5 @@
 use crate::general::board::{BoardHelpers, BoardTrait, Strictness};
-use crate::general::common::{NamedEntity, Res, Tokens, TokensToString, tokens, tokens_to_string};
+use crate::general::common::{tokens, tokens_to_string, NamedEntity, Res, Tokens, TokensToString};
 use crate::general::moves::MoveTrait;
 use crate::output::pgn::parse_pgn_moves_format;
 use crate::ugi::Protocol::Interactive;
@@ -137,6 +137,7 @@ pub enum EngineOptionName {
     UciElo,
     UCIOpponent,
     UCIEngineAbout,
+    UCISetPositionValue,
     UCIShowRefutations,
     UCIShowCurrLine,
     CurrlineNullmove,
@@ -147,6 +148,7 @@ pub enum EngineOptionName {
     Contempt,
     SetEngine,
     SetEval,
+    DebugOutput,
     Other(String),
 }
 
@@ -178,6 +180,9 @@ impl NamedEntity for EngineOptionNameForProtocol {
             EngineOptionName::UciElo => "Limit strength to this elo. Currently not supported",
             EngineOptionName::UCIOpponent => "The opponent. Currently only used to output the name in PGNs",
             EngineOptionName::UCIEngineAbout => "Information about the engine. Can't be changed, only queried",
+            EngineOptionName::UCISetPositionValue => {
+                "Hardcode a position value in centipawns from White's POV for a given position"
+            }
             EngineOptionName::UCIShowRefutations => "Print the top alternative moves using the UCI Refutation command",
             EngineOptionName::UCIShowCurrLine => "Every now and then, print the line currently being searched",
             EngineOptionName::CurrlineNullmove => {
@@ -201,6 +206,9 @@ impl NamedEntity for EngineOptionNameForProtocol {
             }
             EngineOptionName::SetEval => {
                 "Change the current evaluation function without resetting the engine state, such as clearing the TT"
+            }
+            EngineOptionName::DebugOutput => {
+                "Make the engine print *a lot* of debug information to stderr. Same as passing `--debug` on the command line."
             }
             EngineOptionName::Other(name) => return Some(format!("Custom option named '{name}'")),
         };
@@ -227,6 +235,7 @@ impl EngineOptionName {
             EngineOptionName::UciElo => Self::with_proto(proto, "Elo"),
             EngineOptionName::UCIOpponent => Self::with_proto(proto, "Opponent"),
             EngineOptionName::UCIEngineAbout => Self::with_proto(proto, "EngineAbout"),
+            EngineOptionName::UCISetPositionValue => Self::with_proto(proto, "SetPositionValue"),
             EngineOptionName::UCIShowRefutations => Self::with_proto(proto, "ShowRefutations"),
             EngineOptionName::UCIShowCurrLine => Self::with_proto(proto, "ShowCurrLine"),
             EngineOptionName::CurrlineNullmove => "CurrlineNullmove".to_string(),
@@ -237,6 +246,7 @@ impl EngineOptionName {
             EngineOptionName::Contempt => "Contempt".to_string(),
             EngineOptionName::SetEngine => "Engine".to_string(),
             EngineOptionName::SetEval => "SetEval".to_string(),
+            EngineOptionName::DebugOutput => "Debug".to_string(),
             EngineOptionName::Other(x) => x.clone(),
         }
     }

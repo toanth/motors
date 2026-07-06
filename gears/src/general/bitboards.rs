@@ -17,7 +17,7 @@ use std::str::FromStr;
 use strum_macros::EnumIter;
 
 use crate::games::{DimT, KnownSize, SizeTrait};
-use crate::general::attacks::{U64AndRev, U128AndRev, WithRev};
+use crate::general::attacks::{U128AndRev, U64AndRev, WithRev};
 use crate::general::bitboards::chessboard::{Bitboard, RAYS_EXCLUSIVE, RAYS_INCLUSIVE};
 use crate::general::squares::{RectangularCoordinates, RectangularSize, SmallGridSize, SmallGridSquare};
 
@@ -216,7 +216,7 @@ pub trait RawBitboardTrait:
     }
 
     // apparently, the num crate doesn't provide a is_power_of_two() method
-    fn is_single_piece(self) -> bool;
+    fn is_single_square(self) -> bool;
 
     #[inline]
     fn more_than_one_bit_set(self) -> bool {
@@ -301,7 +301,7 @@ impl RawBitboardTrait for RawStandardBitboard {
         remove_ones_above!(self, idx, u64, 64)
     }
 
-    fn is_single_piece(self) -> bool {
+    fn is_single_square(self) -> bool {
         self.is_power_of_two()
     }
 }
@@ -335,7 +335,7 @@ impl RawBitboardTrait for ExtendedRawBitboard {
         remove_ones_above!(self, idx, u128, 128)
     }
 
-    fn is_single_piece(self) -> bool {
+    fn is_single_square(self) -> bool {
         self.is_power_of_two()
     }
 }
@@ -485,13 +485,13 @@ pub trait BitboardTrait<R: RawBitboardTrait, C: RectangularCoordinates>:
 
     #[inline]
     fn get_piece_file(self) -> usize {
-        debug_assert!(self.is_single_piece());
+        debug_assert!(self.is_single_square());
         self.num_trailing_zeros() % self.internal_width()
     }
 
     #[inline]
     fn get_piece_rank(self) -> usize {
-        debug_assert!(self.is_single_piece());
+        debug_assert!(self.is_single_square());
         self.num_trailing_zeros() / self.internal_width()
     }
 
@@ -619,7 +619,7 @@ pub trait BitboardTrait<R: RawBitboardTrait, C: RectangularCoordinates>:
 
     #[inline]
     fn to_square(self) -> Option<C> {
-        if self.is_single_piece() {
+        if self.is_single_square() {
             self.size().check_coordinates(self.size().to_coordinates_unchecked(self.num_trailing_zeros())).ok()
         } else {
             None
@@ -1327,11 +1327,11 @@ pub mod chessboard {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::games::{Height, Width, mnk};
-    use crate::general::bitboards::chessboard::{ATAXX_LEAPERS, Bitboard, KINGS};
+    use crate::games::{mnk, Height, Width};
+    use crate::general::bitboards::chessboard::{Bitboard, ATAXX_LEAPERS, KINGS};
     use crate::general::squares::{GridCoordinates, GridSize};
     use rand::prelude::SmallRng;
-    use rand::{RngExt, SeedableRng, random};
+    use rand::{random, RngExt, SeedableRng};
 
     #[test]
     fn precomputed_test() {

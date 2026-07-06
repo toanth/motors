@@ -9,13 +9,13 @@ mod bitboards {
 
         #[test]
         fn is_single_piece_test() {
-            assert!(!Bitboard::from_raw(0x0).is_single_piece());
-            assert!(Bitboard::from_raw(0x1).is_single_piece());
-            assert!(Bitboard::from_raw(0x2).is_single_piece());
-            assert!(!Bitboard::from_raw(0x3).is_single_piece());
-            assert!(Bitboard::from_raw(0x4).is_single_piece());
-            assert!(Bitboard::from_raw(0x400).is_single_piece());
-            assert!(!Bitboard::from_raw(0x4001).is_single_piece());
+            assert!(!Bitboard::from_raw(0x0).is_single_square());
+            assert!(Bitboard::from_raw(0x1).is_single_square());
+            assert!(Bitboard::from_raw(0x2).is_single_square());
+            assert!(!Bitboard::from_raw(0x3).is_single_square());
+            assert!(Bitboard::from_raw(0x4).is_single_square());
+            assert!(Bitboard::from_raw(0x400).is_single_square());
+            assert!(!Bitboard::from_raw(0x4001).is_single_square());
         }
 
         #[test]
@@ -124,16 +124,16 @@ mod bitboards {
 
         #[test]
         fn is_single_piece_test() {
-            assert!(!(0x0 as ExtendedRawBitboard).is_single_piece());
-            assert!((0x1 as ExtendedRawBitboard).is_single_piece());
-            assert!((0x2 as ExtendedRawBitboard).is_single_piece());
-            assert!(!(0x3 as ExtendedRawBitboard).is_single_piece());
-            assert!((0x4 as ExtendedRawBitboard).is_single_piece());
-            assert!((0x400 as ExtendedRawBitboard).is_single_piece());
-            assert!(!(0x4001 as ExtendedRawBitboard).is_single_piece());
-            assert!((LARGER_THAN_64_BIT as ExtendedRawBitboard).is_single_piece());
-            assert!((0x200_0000_0000_0000_0000_0000_0000_0000 as ExtendedRawBitboard).is_single_piece());
-            assert!(!(!(0x0 as ExtendedRawBitboard)).is_single_piece());
+            assert!(!(0x0 as ExtendedRawBitboard).is_single_square());
+            assert!((0x1 as ExtendedRawBitboard).is_single_square());
+            assert!((0x2 as ExtendedRawBitboard).is_single_square());
+            assert!(!(0x3 as ExtendedRawBitboard).is_single_square());
+            assert!((0x4 as ExtendedRawBitboard).is_single_square());
+            assert!((0x400 as ExtendedRawBitboard).is_single_square());
+            assert!(!(0x4001 as ExtendedRawBitboard).is_single_square());
+            assert!((LARGER_THAN_64_BIT as ExtendedRawBitboard).is_single_square());
+            assert!((0x200_0000_0000_0000_0000_0000_0000_0000 as ExtendedRawBitboard).is_single_square());
+            assert!(!(!(0x0 as ExtendedRawBitboard)).is_single_square());
         }
 
         #[test]
