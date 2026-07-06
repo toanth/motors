@@ -679,14 +679,14 @@ impl Caps {
             // TT cutoffs. If we've already seen this position, and the TT entry has more valuable information (higher depth),
             // and we're not a PV node, and the saved score is either exact or at least known to be outside (alpha, beta),
             // simply return it.
-            let depth_diff = 0.max(depth - tt_depth);
-            // idea from david: Do TT cutoffs even if the tt depth is lower than the current depth, as long as the tt bound
-            // is far away from our current alpha / beta bounds
-            let fail_high_cutoff_threshold =
-                beta + Score((depth_diff * depth_diff * cc::tt_beta_cutoff_margin() / (128 * 128)) as ScoreT);
-            let fail_low_cutoff_threshold =
-                alpha - Score((depth_diff * depth_diff * cc::tt_alpha_cutoff_margin() / (128 * 128)) as ScoreT);
             if !pv_node {
+                let depth_diff = 0.max(depth - tt_depth);
+                // idea from david: Do TT cutoffs even if the tt depth is lower than the current depth, as long as the tt bound
+                // is far away from our current alpha / beta bounds
+                let fail_high_cutoff_threshold =
+                    beta + Score((depth_diff * depth_diff * cc::tt_beta_cutoff_margin() / (128 * 128)) as ScoreT);
+                let fail_low_cutoff_threshold =
+                    alpha - Score((depth_diff * depth_diff * cc::tt_alpha_cutoff_margin() / (128 * 128)) as ScoreT);
                 if (tt_bound != FailLow && tt_score >= fail_high_cutoff_threshold)
                     || (tt_bound != FailHigh && tt_score <= fail_low_cutoff_threshold)
                 {

@@ -40,7 +40,7 @@ spsa_params![
     aw_widening_factor: ScoreT = 3; 1..=10; step=1;
     check_extension: isize = 128; 0..=256; step=16;
     tt_beta_cutoff_margin: isize = 32; 0..=512; step=4;
-    tt_alpha_cutoff_margin: isize = 32; 0..=512; step=4;
+    tt_alpha_cutoff_margin: isize = 64; 0..=512; step=4;
     low_depth_tt_extension_depth: isize = 6*128; 128..=10*128; step=32;
     tt_extension: isize = 128; 0..=256; step=16;
     they_blundered_threshold: ScoreT = 58; 0..=200; step=5;
