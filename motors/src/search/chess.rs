@@ -1,5 +1,5 @@
 use crate::search::chess::histories::{
-    write_single_hist_table, CaptHist, ContHist, CorrHist, HistoryHeuristic, HIST_DIVISOR,
+    write_single_hist_table, CaptHist, ContHist, CorrHist, HistoryHeuristic, TemperatureCorrHist, HIST_DIVISOR,
 };
 use crate::search::{CustomInfo, MoveScore, Pv, SearchStackEntry, SearchState};
 use gears::arrayvec::ArrayVec;
@@ -90,6 +90,7 @@ pub struct CapsCustomInfo {
     follow_up_move_hist: ContHist,
     capt_hist: CaptHist,
     corr_hist: CorrHist,
+    temperature_corrhist: TemperatureCorrHist,
     repeated_before_root: Vec<PosHash>,
     nmp_disabled: [bool; 2],
     ply_hard_limit: usize,
@@ -122,6 +123,7 @@ impl CustomInfo<Board> for CapsCustomInfo {
             *value = 0;
         }
         self.corr_hist.reset();
+        self.temperature_corrhist.reset();
         self.root_move_nodes.clear();
     }
 

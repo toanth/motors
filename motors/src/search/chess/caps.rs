@@ -649,6 +649,10 @@ impl Caps {
             }
         }
 
+        if !in_singular_search {
+            temperature = self.temperature_corrhist.correct(pos, temperature);
+        }
+
         // ************************
         // ***** Probe the TT *****
         // ************************
@@ -1296,6 +1300,9 @@ impl Caps {
             || (best_score >= eval && bound_so_far == NodeType::upper_bound()))
         {
             self.state.custom.corr_hist.update(pos, continued, depth, eval, best_score);
+        }
+        if !in_singular_search {
+            self.state.custom.temperature_corrhist.update(pos, depth, temperature, bound_so_far);
         }
         if ply > 0 && bound_so_far == FailLow {
             // give a smaller bonus to the parent's move if we fail low. This rewards PVS researches that don't cause a fail high in the parent.

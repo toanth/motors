@@ -1161,14 +1161,16 @@ fn single_bench<B: BoardTrait>(
 /// Large negative values mean we predict this node to be an all node.
 // Idea from <https://github.com/all-c-a-p-s/Panda/pull/53>
 #[derive(Default, Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Neg)]
-pub struct Temperature(pub i32);
+pub struct Temperature(pub TemperatureT);
 
-pub const MAX_TEMP: i32 = 1 << 16;
+pub type TemperatureT = i32;
+
+pub const MAX_TEMP: TemperatureT = 1 << 16;
 
 impl Temperature {
     // Same gravity formula as histories. This maybe isn't ideal because it means the order in which bonuses get applied can affect
     // the result, but it ensures values are clamped
-    pub fn update(&mut self, bonus: i32) {
+    pub fn update(&mut self, bonus: TemperatureT) {
         let bonus = bonus.clamp(-MAX_TEMP, MAX_TEMP);
         let bonus = bonus - self.0 * bonus.abs() / MAX_TEMP;
         self.0 += bonus;

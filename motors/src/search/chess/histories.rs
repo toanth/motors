@@ -16,15 +16,15 @@
  *  along with Motors. If not, see <https://www.gnu.org/licenses/>.
  */
 use crate::io::ugi_output::{color_for_score, score_gradient};
-use crate::search::MoveScore;
 use crate::search::chess::caps_values::cc;
 use crate::search::chess::caps_values::cc::corrhist_max;
+use crate::search::{MoveScore, Temperature, TemperatureT, MAX_TEMP};
 use derive_more::{Deref, DerefMut, Index, IndexMut};
 use gears::colored::Colorize;
 use gears::games::chess::moves::Move;
 use gears::games::chess::moves::MoveFlags::NormalQuiet;
-use gears::games::chess::pieces::{NUM_CHESS_PIECES, PieceType};
-use gears::games::chess::squares::{NUM_SQUARES, Square};
+use gears::games::chess::pieces::{PieceType, NUM_CHESS_PIECES};
+use gears::games::chess::squares::{Square, NUM_SQUARES};
 use gears::games::chess::{Board, Color};
 use gears::games::{ColorTrait, NUM_COLORS};
 use gears::general::bitboards::chessboard::Bitboard;
@@ -32,9 +32,11 @@ use gears::general::bitboards::{BitboardTrait, RawBitboardTrait};
 use gears::general::board::BoardTrait;
 use gears::general::moves::MoveTrait;
 use gears::itertools::Itertools;
-use gears::output::OutputOpts;
 use gears::output::text_output::AdaptFormatter;
-use gears::score::{MAX_NORMAL_SCORE, MIN_NORMAL_SCORE, Score, ScoreT};
+use gears::output::OutputOpts;
+use gears::score::{Score, ScoreT, MAX_NORMAL_SCORE, MIN_NORMAL_SCORE};
+use gears::search::NodeType;
+use gears::search::NodeType::{Exact, FailLow};
 
 pub(super) type HistScoreT = i16;
 
@@ -246,6 +248,58 @@ impl CorrHist {
         debug_assert!(correction.abs() / CORRHIST_SCALE < MAX_NORMAL_SCORE.0 as isize / 2);
         let score = raw.0 as isize + correction / CORRHIST_SCALE;
         Score(score.clamp(MIN_NORMAL_SCORE.0 as isize, MAX_NORMAL_SCORE.0 as isize) as ScoreT)
+    }
+}
+
+const TEMP_CORRHIST_SCALE: isize = 256;
+
+#[derive(Debug, Clone)]
+pub(super) struct TemperatureCorrHist {
+    pawns: Box<[[TemperatureT; CORRHIST_SIZE]; NUM_COLORS]>,
+}
+
+impl Default for TemperatureCorrHist {
+    fn default() -> Self {
+        Self { pawns: Box::new([[0; CORRHIST_SIZE]; NUM_COLORS]) }
+    }
+}
+
+impl TemperatureCorrHist {
+    fn update_entry(entry: &mut ScoreT, weight: isize, bonus: isize) {
+        let val = *entry as isize;
+        // Idea of clamping the max update from Simbelmyne
+        let corrhist_update_clamp = MAX_CORRHIST_VAL * cc::temp_corrhist_update_clamp() / 1024;
+        let new_val = ((val * (TEMP_CORRHIST_SCALE - weight) + bonus * weight) / TEMP_CORRHIST_SCALE)
+            .clamp(val - corrhist_update_clamp, val + corrhist_update_clamp)
+            .clamp(-MAX_CORRHIST_VAL, MAX_CORRHIST_VAL);
+        *entry = new_val as TemperatureT;
+    }
+
+    pub(super) fn reset(&mut self) {
+        for value in self.pawns.iter_mut().flatten() {
+            *value = 0;
+        }
+    }
+
+    pub(super) fn update(&mut self, pos: &Board, depth: isize, temperature: Temperature, node_type: NodeType) {
+        assert_eq!(depth % 128, 0); // TODO: Remove
+        if node_type == Exact {
+            return;
+        }
+        let color = pos.active_player();
+        let weight = (cc::corrhist_offset() + depth).min(corrhist_max()) / 128;
+        let actual_temp = if node_type == FailLow { -MAX_TEMP } else { MAX_TEMP };
+        let bonus = (actual_temp - temperature.0) as isize;
+        let pawn_idx = pos.pawn_key().0 as usize % CORRHIST_SIZE;
+        Self::update_entry(&mut self.pawns[color][pawn_idx], weight, bonus);
+    }
+
+    pub(super) fn correct(&mut self, pos: &Board, mut temperature: Temperature) -> Temperature {
+        let color = pos.active_player();
+        let pawn_idx = pos.pawn_key().0 as usize % CORRHIST_SIZE;
+        let correction = self.pawns[color][pawn_idx];
+        temperature.update(correction / TEMP_CORRHIST_SCALE as TemperatureT);
+        temperature
     }
 }
 
