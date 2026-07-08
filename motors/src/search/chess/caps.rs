@@ -641,16 +641,6 @@ impl Caps {
 
         let mut bound_so_far = FailLow;
 
-        let mut continued = None;
-        if ply >= 2 {
-            let entry = &self.state.search_stack[ply - 2];
-            let mov = entry.last_tried_move();
-            if !mov.is_null() {
-                let piece = mov.piece_type(&entry.pos);
-                continued = Some((mov, piece));
-            }
-        }
-
         // ************************
         // ***** Probe the TT *****
         // ************************
@@ -714,7 +704,7 @@ impl Caps {
                 }
             }
             raw_eval = tt_entry.raw_eval();
-            eval = self.state.custom.corr_hist.correct(pos, continued, raw_eval);
+            eval = self.state.custom.corr_hist.correct(pos, ply, &self.state.search_stack, raw_eval);
             // The TT score is backed by a search, so it should be more trustworthy than a simple call to static eval.
             // Note that the TT score may be a mate score, so `eval` can also be a mate score. This doesn't currently
             // create any problems, but should be kept in mind.
@@ -733,7 +723,7 @@ impl Caps {
             };
         } else {
             raw_eval = self.eval(pos, ply);
-            eval = self.state.custom.corr_hist.correct(pos, continued, raw_eval);
+            eval = self.state.custom.corr_hist.correct(pos, ply, &self.state.search_stack, raw_eval);
         };
 
         self.record_pos(pos, eval, ply);
@@ -1256,7 +1246,7 @@ impl Caps {
             || (best_score <= eval && bound_so_far == NodeType::lower_bound())
             || (best_score >= eval && bound_so_far == NodeType::upper_bound()))
         {
-            self.state.custom.corr_hist.update(pos, continued, depth, eval, best_score);
+            self.state.custom.corr_hist.update(pos, ply, &self.state.search_stack, depth, eval, best_score);
         }
         if ply > 0 && bound_so_far == FailLow {
             // give a smaller bonus to the parent's move if we fail low. This rewards PVS researches that don't cause a fail high in the parent.
@@ -1289,16 +1279,6 @@ impl Caps {
         // see main search, store an invalid null move in the TT entry if all moves failed low.
         let mut best_move = Move::default();
 
-        let mut continued = None;
-        if ply >= 2 {
-            let entry = &self.state.search_stack[ply - 2];
-            let mov = entry.last_tried_move();
-            if !mov.is_null() {
-                let piece = mov.piece_type(&entry.pos);
-                continued = Some((mov, piece));
-            }
-        }
-
         if pv_node {
             self.search_stack[ply].pv.clear();
         }
@@ -1323,7 +1303,7 @@ impl Caps {
                 }
             }
             raw_eval = tt_entry.raw_eval();
-            eval = self.state.custom.corr_hist.correct(pos, continued, raw_eval);
+            eval = self.state.custom.corr_hist.correct(pos, ply, &self.state.search_stack, raw_eval);
 
             // even though qsearch never checks for game over conditions, it's still possible for it to load a checkmate score
             // and propagate that up to a qsearch parent node, where it gets saved with a depth of 0, so game over scores
@@ -1347,7 +1327,7 @@ impl Caps {
             eval = SCORE_LOST + ply as ScoreT;
         } else {
             raw_eval = self.eval(pos, ply);
-            eval = self.state.custom.corr_hist.correct(pos, continued, raw_eval);
+            eval = self.state.custom.corr_hist.correct(pos, ply, &self.state.search_stack, raw_eval);
         }
         let mut best_score = eval;
         // Saving to the TT is probably unnecessary since the score is either from the TT or just the static eval,
