@@ -255,12 +255,12 @@ const TEMP_CORRHIST_SCALE: isize = 256;
 
 #[derive(Debug, Clone)]
 pub(super) struct TemperatureCorrHist {
-    pawns: Box<[[TemperatureT; CORRHIST_SIZE]; NUM_COLORS]>,
+    continuation: Box<[[[TemperatureT; NUM_CHESS_PIECES]; NUM_SQUARES]; NUM_COLORS]>,
 }
 
 impl Default for TemperatureCorrHist {
     fn default() -> Self {
-        Self { pawns: Box::new([[0; CORRHIST_SIZE]; NUM_COLORS]) }
+        Self { continuation: Box::new([[[0; NUM_CHESS_PIECES]; NUM_SQUARES]; NUM_COLORS]) }
     }
 }
 
@@ -276,12 +276,19 @@ impl TemperatureCorrHist {
     }
 
     pub(super) fn reset(&mut self) {
-        for value in self.pawns.iter_mut().flatten() {
+        for value in self.continuation.iter_mut().flatten().flatten() {
             *value = 0;
         }
     }
 
-    pub(super) fn update(&mut self, pos: &Board, depth: isize, temperature: Temperature, node_type: NodeType) {
+    pub(super) fn update(
+        &mut self,
+        pos: &Board,
+        continued: Option<(Move, PieceType)>,
+        depth: isize,
+        temperature: Temperature,
+        node_type: NodeType,
+    ) {
         assert_eq!(depth % 128, 0); // TODO: Remove
         if node_type == Exact {
             return;
@@ -290,14 +297,23 @@ impl TemperatureCorrHist {
         let weight = (cc::corrhist_offset() + depth).min(corrhist_max()) / 128;
         let actual_temp = if node_type == FailLow { -MAX_TEMP } else { MAX_TEMP };
         let bonus = (actual_temp - temperature.0) as isize;
-        let pawn_idx = pos.pawn_key().0 as usize % CORRHIST_SIZE;
-        Self::update_entry(&mut self.pawns[color][pawn_idx], weight, bonus);
+        if let Some((mov, piece)) = continued {
+            let entry = &mut self.continuation[color][mov.dest_square().bb_idx()][piece];
+            Self::update_entry(entry, weight, bonus);
+        }
     }
 
-    pub(super) fn correct(&mut self, pos: &Board, mut temperature: Temperature) -> Temperature {
+    pub(super) fn correct(
+        &mut self,
+        pos: &Board,
+        continued: Option<(Move, PieceType)>,
+        mut temperature: Temperature,
+    ) -> Temperature {
         let color = pos.active_player();
-        let pawn_idx = pos.pawn_key().0 as usize % CORRHIST_SIZE;
-        let correction = self.pawns[color][pawn_idx];
+        let mut correction = 0;
+        if let Some((mov, piece)) = continued {
+            correction += self.continuation[color][mov.dest_square().bb_idx()][piece];
+        }
         temperature.update(correction / TEMP_CORRHIST_SCALE as TemperatureT);
         temperature
     }

@@ -650,7 +650,7 @@ impl Caps {
         }
 
         if !in_singular_search {
-            temperature = self.temperature_corrhist.correct(pos, temperature);
+            temperature = self.temperature_corrhist.correct(pos, continued, temperature);
         }
 
         // ************************
@@ -696,6 +696,9 @@ impl Caps {
                     {
                         self.search_stack[ply].killer = best_move;
                         self.update_histories(best_move, depth, ply, tt_score - beta);
+                    }
+                    if !in_singular_search {
+                        self.state.custom.temperature_corrhist.update(pos, continued, depth, temperature, tt_bound);
                     }
                     return Some(tt_score);
                 } else if depth <= cc::low_depth_tt_extension_depth() && tt_depth >= depth {
@@ -795,6 +798,10 @@ impl Caps {
             if depth <= cc::rfp_max_depth() && eval >= beta + Score(margin) {
                 // Fail firm: Static eval isn't super trustworthy, and we can assume that scores are close to (alpha, beta).
                 // So interpolate between eval and beta, which should lead to more stable scores.
+
+                if !in_singular_search {
+                    self.state.custom.temperature_corrhist.update(pos, continued, depth, temperature, FailHigh);
+                }
                 let s = (eval * cc::rf_fail_firm_factor() + beta * (1024 - cc::rf_fail_firm_factor())) / 1024;
                 return Some(if s.is_won_or_lost() { eval } else { s });
             }
@@ -808,6 +815,9 @@ impl Caps {
             {
                 let qsearch_score = self.qsearch(pos, alpha, beta, ply, false)?;
                 if qsearch_score <= alpha {
+                    if !in_singular_search {
+                        self.state.custom.temperature_corrhist.update(pos, continued, depth, temperature, FailLow);
+                    }
                     return Some(qsearch_score);
                 }
                 self.search_stack[ply].tried_moves.clear();
@@ -864,6 +874,9 @@ impl Caps {
                     // It's possible to beat beta with a score of getting mated, so use `is_won_or_lost`
                     // instead of `is_game_won_score`
                     if depth < cc::nmp_verif_depth() && !score.is_won_or_lost() {
+                        if !in_singular_search {
+                            self.state.custom.temperature_corrhist.update(pos, continued, depth, temperature, FailHigh);
+                        }
                         return Some(score);
                     }
                     *self.nmp_disabled_for(us) = true;
@@ -881,6 +894,15 @@ impl Caps {
                     *self.nmp_disabled_for(us) = false;
                     // The verification score is more trustworthy than the nmp score.
                     if nmp_verif_score.is_none_or(|score| score >= beta) {
+                        if !in_singular_search {
+                            self.state.custom.temperature_corrhist.update(
+                                pos,
+                                continued,
+                                depth - reduction,
+                                temperature,
+                                FailHigh,
+                            );
+                        }
                         return nmp_verif_score;
                     }
                 }
@@ -1058,6 +1080,15 @@ impl Caps {
                     if singular_score < singular_beta {
                         first_child_depth += cc::se_extension();
                     } else if singular_score >= beta && !PV {
+                        if !in_singular_search {
+                            self.state.custom.temperature_corrhist.update(
+                                pos,
+                                continued,
+                                reduced_depth,
+                                temperature,
+                                FailHigh,
+                            );
+                        }
                         // Multi-Cut Pruning: If we fail high at low depth even without the TT move (which also failed high previously),
                         // chances are we'll fail high in a proper search. So don't bother searching and just fail high now.
                         return Some(singular_score);
@@ -1302,7 +1333,7 @@ impl Caps {
             self.state.custom.corr_hist.update(pos, continued, depth, eval, best_score);
         }
         if !in_singular_search {
-            self.state.custom.temperature_corrhist.update(pos, depth, temperature, bound_so_far);
+            self.state.custom.temperature_corrhist.update(pos, continued, depth, temperature, bound_so_far);
         }
         if ply > 0 && bound_so_far == FailLow {
             // give a smaller bonus to the parent's move if we fail low. This rewards PVS researches that don't cause a fail high in the parent.
