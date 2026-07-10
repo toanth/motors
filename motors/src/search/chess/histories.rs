@@ -223,15 +223,19 @@ impl CorrHist {
             Self::update_entry(&mut self.nonpawns[color][nonpawn_idx][c], weight, bonus);
         }
 
-        if ply >= 2
-            && let entry = &stack[ply - 2]
-            && let mov = entry.last_tried_move()
-            && !mov.is_null()
-        {
-            let piece = mov.piece_type(&entry.pos);
-            let entry = &mut self.continuation[color][mov.dest_square().bb_idx()][piece];
-            Self::update_entry(entry, weight, bonus);
-        }
+        let mut cont_update = |plies_back: usize| {
+            if ply >= plies_back
+                && let entry = &stack[ply - plies_back]
+                && let mov = entry.last_tried_move()
+                && !mov.is_null()
+            {
+                let piece = mov.piece_type(&entry.pos);
+                let entry = &mut self.continuation[color][mov.dest_square().bb_idx()][piece];
+                Self::update_entry(entry, weight, bonus);
+            }
+        };
+        cont_update(2);
+        cont_update(4);
     }
 
     pub(super) fn correct(&mut self, pos: &Board, ply: usize, stack: &[CapsSearchStackEntry], raw: Score) -> Score {
@@ -247,15 +251,23 @@ impl CorrHist {
             let nonpawn_idx = pos.nonpawn_key(c).0 as usize % CORRHIST_SIZE;
             correction += self.nonpawns[color][nonpawn_idx][c] as isize * cc::nonpawn_corrhist_weight() / 1024;
         }
-        if ply >= 2
-            && let entry = &stack[ply - 2]
-            && let mov = entry.last_tried_move()
-            && !mov.is_null()
-        {
-            let piece = mov.piece_type(&entry.pos);
-            correction +=
-                self.continuation[color][mov.dest_square().bb_idx()][piece] as isize * cc::contcorrhist_weight() / 1024;
-        }
+        let mut cont_correction = |plies_back: usize| {
+            if ply >= plies_back
+                && let entry = &stack[ply - plies_back]
+                && let mov = entry.last_tried_move()
+                && !mov.is_null()
+            {
+                let piece = mov.piece_type(&entry.pos);
+                let weight = match plies_back {
+                    2 => cc::contcorrhist2_weight(),
+                    4 => cc::contcorrhist4_weight(),
+                    _ => unreachable!(),
+                };
+                correction += self.continuation[color][mov.dest_square().bb_idx()][piece] as isize * weight / 1024;
+            }
+        };
+        cont_correction(2);
+        cont_correction(4);
         debug_assert!(correction.abs() / CORRHIST_SCALE < MAX_NORMAL_SCORE.0 as isize / 2);
         let score = raw.0 as isize + correction / CORRHIST_SCALE;
         Score(score.clamp(MIN_NORMAL_SCORE.0 as isize, MAX_NORMAL_SCORE.0 as isize) as ScoreT)
