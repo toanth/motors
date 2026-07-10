@@ -11,7 +11,7 @@ use crate::eval::Eval;
 use crate::io::ugi_output::{color_for_score, score_gradient};
 use crate::search::chess::caps_values::cc;
 use crate::search::chess::histories::{ContHist, HistScoreT, HIST_DIVISOR};
-use crate::search::chess::move_picker::{MovePicker, MovePickerStage, BAD_SEE_OFFSET};
+use crate::search::chess::move_picker::{MovePicker, MovePickerStage, MoveScorer, BAD_SEE_OFFSET};
 use crate::search::chess::*;
 use crate::search::multithreading::ThreadData;
 use crate::search::tt::{ttc, TTEntry};
@@ -50,6 +50,10 @@ use gears::PlayerResult;
 use gears::PlayerResult::{Lose, Win};
 
 type DefaultEval = LiTEval;
+
+pub fn score_quiet_move(mov: Move, pos: &Board, ply: usize, state: &CapsState) -> MoveScore {
+    MoveScorer::new(pos, ply).score_quiet_nonkiller(mov, state)
+}
 
 #[derive(Debug)]
 struct Precomputed {
@@ -704,7 +708,7 @@ impl Caps {
                 }
             }
             raw_eval = tt_entry.raw_eval();
-            eval = self.state.custom.corr_hist.correct(pos, ply, &self.state.search_stack, raw_eval);
+            eval = self.state.custom.corr_hist.correct(pos, ply, &self.state, raw_eval);
             // The TT score is backed by a search, so it should be more trustworthy than a simple call to static eval.
             // Note that the TT score may be a mate score, so `eval` can also be a mate score. This doesn't currently
             // create any problems, but should be kept in mind.
@@ -723,7 +727,7 @@ impl Caps {
             };
         } else {
             raw_eval = self.eval(pos, ply);
-            eval = self.state.custom.corr_hist.correct(pos, ply, &self.state.search_stack, raw_eval);
+            eval = self.state.custom.corr_hist.correct(pos, ply, &self.state, raw_eval);
         };
 
         self.record_pos(pos, eval, ply);
@@ -1303,7 +1307,7 @@ impl Caps {
                 }
             }
             raw_eval = tt_entry.raw_eval();
-            eval = self.state.custom.corr_hist.correct(pos, ply, &self.state.search_stack, raw_eval);
+            eval = self.state.custom.corr_hist.correct(pos, ply, &self.state, raw_eval);
 
             // even though qsearch never checks for game over conditions, it's still possible for it to load a checkmate score
             // and propagate that up to a qsearch parent node, where it gets saved with a depth of 0, so game over scores
@@ -1327,7 +1331,7 @@ impl Caps {
             eval = SCORE_LOST + ply as ScoreT;
         } else {
             raw_eval = self.eval(pos, ply);
-            eval = self.state.custom.corr_hist.correct(pos, ply, &self.state.search_stack, raw_eval);
+            eval = self.state.custom.corr_hist.correct(pos, ply, &self.state, raw_eval);
         }
         let mut best_score = eval;
         // Saving to the TT is probably unnecessary since the score is either from the TT or just the static eval,

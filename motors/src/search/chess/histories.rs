@@ -16,9 +16,10 @@
  *  along with Motors. If not, see <https://www.gnu.org/licenses/>.
  */
 use crate::io::ugi_output::{color_for_score, score_gradient};
+use crate::search::chess::caps::score_quiet_move;
 use crate::search::chess::caps_values::cc;
 use crate::search::chess::caps_values::cc::corrhist_max;
-use crate::search::chess::CapsSearchStackEntry;
+use crate::search::chess::{CapsSearchStackEntry, CapsState};
 use crate::search::MoveScore;
 use derive_more::{Deref, DerefMut, Index, IndexMut};
 use gears::colored::Colorize;
@@ -234,7 +235,7 @@ impl CorrHist {
         }
     }
 
-    pub(super) fn correct(&mut self, pos: &Board, ply: usize, stack: &[CapsSearchStackEntry], raw: Score) -> Score {
+    pub(super) fn correct(&self, pos: &Board, ply: usize, state: &CapsState, raw: Score) -> Score {
         if raw.is_won_or_lost() {
             return raw;
         }
@@ -248,13 +249,22 @@ impl CorrHist {
             correction += self.nonpawns[color][nonpawn_idx][c] as isize * cc::nonpawn_corrhist_weight() / 1024;
         }
         if ply >= 2
-            && let entry = &stack[ply - 2]
+            && let entry = &state.search_stack[ply - 2]
             && let mov = entry.last_tried_move()
             && !mov.is_null()
         {
             let piece = mov.piece_type(&entry.pos);
             correction +=
                 self.continuation[color][mov.dest_square().bb_idx()][piece] as isize * cc::contcorrhist_weight() / 1024;
+        }
+        if ply >= 1
+            && let entry = &state.search_stack[ply - 1]
+            && let mov = entry.last_tried_move()
+            && !mov.is_null()
+            && !mov.is_tactical(&entry.pos)
+        {
+            let move_score = score_quiet_move(mov, &entry.pos, ply - 1, state);
+            correction += move_score.0 as isize * cc::quiet_hist_weight() / 128;
         }
         debug_assert!(correction.abs() / CORRHIST_SCALE < MAX_NORMAL_SCORE.0 as isize / 2);
         let score = raw.0 as isize + correction / CORRHIST_SCALE;
