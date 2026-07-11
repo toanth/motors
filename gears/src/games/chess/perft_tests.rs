@@ -505,6 +505,8 @@ mod tests {
         "RNBQKBNR/PPPPPPPP/8/8/8/8/pppppppp/rnbqkbnr w - - 0 1 ;D1 4 ;D2 16 ;D3 176 ;D4 1936 ;D5 22428 ;D6 255135 ;D7 3830854",
         // Triggered a bug in SF once which didn't appear in the usual perft test suite
         "r7/4p3/5p1q/3P4/4pQ2/4pP2/6pp/R3K1kr w Q - 1 3 ;D1 29 ;D2 681 ;D3 18511 ;D4 430036 ;D5 11609488 ;D6 274691896",
+        // a reachable position where white is in check and has 42 legal moves
+        "2RqR3/2P1P3/2Q1Q3/2Q1Q3/1NQ1QN1k/2B1Q3/8/1n1K1B2 w - - 0 1 ;D1 42 ;D2 358 ;D3 28889 ;D4 296249 ;D5 26901141",
     ];
 
     /// This perft test suite is also taken from Ethereal: <https://github.com/AndyGrant/Ethereal/blob/master/src/perft/fischer.epd>.
