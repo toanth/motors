@@ -162,6 +162,7 @@ pub(super) struct CorrHist {
     nonpawns: Box<[[[ScoreT; NUM_COLORS]; CORRHIST_SIZE]; NUM_COLORS]>,
     minor: Box<[[ScoreT; CORRHIST_SIZE]; NUM_COLORS]>,
     continuation: Box<[[[ScoreT; NUM_CHESS_PIECES]; NUM_SQUARES]; NUM_COLORS]>,
+    follow_up: Box<[[[ScoreT; NUM_CHESS_PIECES]; NUM_SQUARES]; NUM_COLORS]>,
 }
 
 impl Default for CorrHist {
@@ -171,6 +172,7 @@ impl Default for CorrHist {
             nonpawns: Box::new([[[0; NUM_COLORS]; CORRHIST_SIZE]; NUM_COLORS]),
             minor: Box::new([[0; CORRHIST_SIZE]; NUM_COLORS]),
             continuation: Box::new([[[0; NUM_CHESS_PIECES]; NUM_SQUARES]; NUM_COLORS]),
+            follow_up: Box::new([[[0; NUM_CHESS_PIECES]; NUM_SQUARES]; NUM_COLORS]),
         }
     }
 }
@@ -193,10 +195,13 @@ impl CorrHist {
         for value in self.nonpawns.iter_mut().flatten().flatten() {
             *value = 0;
         }
+        for value in self.minor.iter_mut().flatten() {
+            *value = 0;
+        }
         for value in self.continuation.iter_mut().flatten().flatten() {
             *value = 0;
         }
-        for value in self.minor.iter_mut().flatten() {
+        for value in self.follow_up.iter_mut().flatten().flatten() {
             *value = 0;
         }
     }
@@ -223,6 +228,15 @@ impl CorrHist {
             Self::update_entry(&mut self.nonpawns[color][nonpawn_idx][c], weight, bonus);
         }
 
+        if ply >= 1
+            && let entry = &stack[ply - 1]
+            && let mov = entry.last_tried_move()
+            && !mov.is_null()
+        {
+            let piece = mov.piece_type(&entry.pos);
+            let entry = &mut self.continuation[color][mov.dest_square().bb_idx()][piece];
+            Self::update_entry(entry, weight, bonus);
+        }
         if ply >= 2
             && let entry = &stack[ply - 2]
             && let mov = entry.last_tried_move()
@@ -247,6 +261,15 @@ impl CorrHist {
             let nonpawn_idx = pos.nonpawn_key(c).0 as usize % CORRHIST_SIZE;
             correction += self.nonpawns[color][nonpawn_idx][c] as isize * cc::nonpawn_corrhist_weight() / 1024;
         }
+        if ply >= 1
+            && let entry = &stack[ply - 1]
+            && let mov = entry.last_tried_move()
+            && !mov.is_null()
+        {
+            let piece = mov.piece_type(&entry.pos);
+            correction +=
+                self.continuation[color][mov.dest_square().bb_idx()][piece] as isize * cc::contcorrhist_weight() / 1024;
+        }
         if ply >= 2
             && let entry = &stack[ply - 2]
             && let mov = entry.last_tried_move()
@@ -254,7 +277,7 @@ impl CorrHist {
         {
             let piece = mov.piece_type(&entry.pos);
             correction +=
-                self.continuation[color][mov.dest_square().bb_idx()][piece] as isize * cc::contcorrhist_weight() / 1024;
+                self.continuation[color][mov.dest_square().bb_idx()][piece] as isize * cc::fucorrhist_weight() / 1024;
         }
         debug_assert!(correction.abs() / CORRHIST_SCALE < MAX_NORMAL_SCORE.0 as isize / 2);
         let score = raw.0 as isize + correction / CORRHIST_SCALE;
