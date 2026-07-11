@@ -264,7 +264,8 @@ impl CorrHist {
             && !mov.is_tactical(&entry.pos)
         {
             let move_score = score_quiet_move(mov, &entry.pos, ply - 1, state);
-            correction += move_score.0 as isize * cc::quiet_hist_weight() / 128;
+            correction +=
+                move_score.0 as isize * cc::corrhist_quiet_hist_weight() / 128 + cc::corrhist_quiet_hist_add();
         }
         debug_assert!(correction.abs() / CORRHIST_SCALE < MAX_NORMAL_SCORE.0 as isize / 2);
         let score = raw.0 as isize + correction / CORRHIST_SCALE;
