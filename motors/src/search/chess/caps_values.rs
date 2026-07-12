@@ -135,6 +135,7 @@ spsa_params![
     corrhist_offset: isize = 128; 0..=512; step=32;
     corrhist_max: isize = 2048; 512..=65_536; step=256;
     nonpawn_corrhist_weight: isize = 512; 0..=2048; step=16;
+    threat_corrhist_weight: isize = 1024; 0..=2048; step=16;
     contcorrhist_weight: isize = 1024; 0..=2048; step=16;
     fucorrhist_weight: isize = 1024; 0..=2048; step=16;
     corrhist_update_clamp: isize = 256; 8..=2048; step=32;

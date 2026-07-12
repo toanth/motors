@@ -151,6 +151,9 @@ impl Default for ContHist {
 // Code adapted from Sirius
 const CORRHIST_SIZE: usize = 1 << 14;
 
+// use a prime number so that threats() % size is a somewhat decent hash (instead of just taking the low bits)
+const THREAT_CORRHIST_SIZE: usize = 16381;
+
 const MAX_CORRHIST_VAL: isize = i16::MAX as isize;
 
 const CORRHIST_SCALE: isize = 256;
@@ -161,6 +164,7 @@ pub(super) struct CorrHist {
     // the outer color index is the active player, the inner color is the color we're looking at
     nonpawns: Box<[[[ScoreT; NUM_COLORS]; CORRHIST_SIZE]; NUM_COLORS]>,
     minor: Box<[[ScoreT; CORRHIST_SIZE]; NUM_COLORS]>,
+    threats: Box<[[ScoreT; THREAT_CORRHIST_SIZE]; NUM_COLORS]>,
     continuation: Box<[[[ScoreT; NUM_CHESS_PIECES]; NUM_SQUARES]; NUM_COLORS]>,
     follow_up: Box<[[[ScoreT; NUM_CHESS_PIECES]; NUM_SQUARES]; NUM_COLORS]>,
 }
@@ -171,6 +175,7 @@ impl Default for CorrHist {
             pawns: Box::new([[0; CORRHIST_SIZE]; NUM_COLORS]),
             nonpawns: Box::new([[[0; NUM_COLORS]; CORRHIST_SIZE]; NUM_COLORS]),
             minor: Box::new([[0; CORRHIST_SIZE]; NUM_COLORS]),
+            threats: Box::new([[0; THREAT_CORRHIST_SIZE]; NUM_COLORS]),
             continuation: Box::new([[[0; NUM_CHESS_PIECES]; NUM_SQUARES]; NUM_COLORS]),
             follow_up: Box::new([[[0; NUM_CHESS_PIECES]; NUM_SQUARES]; NUM_COLORS]),
         }
@@ -196,6 +201,9 @@ impl CorrHist {
             *value = 0;
         }
         for value in self.minor.iter_mut().flatten() {
+            *value = 0;
+        }
+        for value in self.threats.iter_mut().flatten() {
             *value = 0;
         }
         for value in self.continuation.iter_mut().flatten().flatten() {
@@ -227,7 +235,8 @@ impl CorrHist {
             let nonpawn_idx = pos.nonpawn_key(c).0 as usize % CORRHIST_SIZE;
             Self::update_entry(&mut self.nonpawns[color][nonpawn_idx][c], weight, bonus);
         }
-
+        let thread_idx = pos.threats().0 as usize % THREAT_CORRHIST_SIZE;
+        Self::update_entry(&mut self.threats[color][thread_idx], weight, bonus);
         if ply >= 1
             && let entry = &stack[ply - 1]
             && let mov = entry.last_tried_move()
@@ -261,6 +270,8 @@ impl CorrHist {
             let nonpawn_idx = pos.nonpawn_key(c).0 as usize % CORRHIST_SIZE;
             correction += self.nonpawns[color][nonpawn_idx][c] as isize * cc::nonpawn_corrhist_weight() / 1024;
         }
+        let threat_idx = pos.threats().0 as usize % THREAT_CORRHIST_SIZE;
+        correction += self.threats[color][threat_idx] as isize * cc::threat_corrhist_weight() / 1024;
         if ply >= 1
             && let entry = &stack[ply - 1]
             && let mov = entry.last_tried_move()
