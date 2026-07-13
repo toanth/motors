@@ -119,6 +119,7 @@ static STARTPOS: Board = {
             pawns: PosHash(2269071747976134835),
             nonpawns: [PosHash(14501238155361420356), PosHash(16424626985112491456)],
             knb: PosHash(10966777955972345920),
+            krq: PosHash(15210614877976928594),
             total: PosHash(15430246029285706692),
         },
     }
@@ -237,6 +238,8 @@ struct Hashes {
     nonpawns: [PosHash; NUM_COLORS],
     // hash of king, knight and bishop bitboards
     knb: PosHash,
+    // hash of king, queen and rook bitboards
+    krq: PosHash,
     // hash of the entire position
     total: PosHash,
 }
@@ -897,6 +900,10 @@ impl Board {
 
     pub fn minor_key(&self) -> PosHash {
         self.hashes.knb
+    }
+
+    pub fn major_key(&self) -> PosHash {
+        self.hashes.krq
     }
 
     pub fn nonpawn_key(&self, color: Color) -> PosHash {

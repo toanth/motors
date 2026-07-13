@@ -485,8 +485,10 @@ impl Board {
                 self.hashes.pawns ^= removed_key;
             } else {
                 self.hashes.nonpawns[them] ^= removed_key;
-                if [Knight, Bishop].contains(&captured) {
-                    self.hashes.knb ^= removed_key;
+                match captured {
+                    Knight | Bishop => self.hashes.knb ^= removed_key,
+                    Rook | Queen => self.hashes.krq ^= removed_key,
+                    _ => unreachable!(),
                 }
             }
             self.ply_100_ctr = 0;
@@ -516,8 +518,10 @@ impl Board {
                     self.hashes.pawns ^= ZOBRIST_KEYS.piece_key(Pawn, us, to);
                     let new = ZOBRIST_KEYS.piece_key(piece, us, to);
                     self.hashes.nonpawns[us] ^= new;
-                    if [Knight, Bishop].contains(&piece) {
-                        self.hashes.knb ^= new;
+                    match piece {
+                        Knight | Bishop => self.hashes.knb ^= new,
+                        Rook | Queen => self.hashes.krq ^= new,
+                        _ => unreachable!(),
                     }
                 } else if mov.is_double_pawn_push() {
                     self.ep_square = self.calc_ep_sq(to, &mut special_hash, them);
@@ -525,6 +529,7 @@ impl Board {
             }
             King => {
                 self.hashes.knb ^= hash_delta;
+                self.hashes.krq ^= hash_delta;
                 if mov.is_castle() {
                     self.do_castle(mov, from, to);
                 }
@@ -533,14 +538,16 @@ impl Board {
             Knight | Bishop => {
                 self.hashes.knb ^= hash_delta;
             }
-            Rook if from.rank() == Self::backrank(us) => {
-                if from.file() == self.rook_start_file(us, Queenside) {
-                    self.castling.unset_castle_right(us, Queenside);
-                } else if from.file() == self.rook_start_file(us, Kingside) {
-                    self.castling.unset_castle_right(us, Kingside);
+            _ => {
+                self.hashes.krq ^= hash_delta;
+                if piece == Rook && from.rank() == Self::backrank(us) {
+                    if from.file() == self.rook_start_file(us, Queenside) {
+                        self.castling.unset_castle_right(us, Queenside);
+                    } else if from.file() == self.rook_start_file(us, Kingside) {
+                        self.castling.unset_castle_right(us, Kingside);
+                    }
                 }
             }
-            _ => {}
         }
         if us == White {
             special_hash ^= ZOBRIST_KEYS.side_to_move_key;
@@ -641,6 +648,8 @@ impl Board {
         let king_delta = Self::zobrist_delta(color, King, to, king_to);
         self.hashes.nonpawns[color] ^= delta ^ king_delta;
         self.hashes.knb ^= king_delta;
+        self.hashes.krq ^= king_delta;
+        self.hashes.krq ^= delta;
         debug_assert!(!self.is_in_check_on_square(self.active, Square::from_rank_file(from.rank(), to_file)));
     }
 }

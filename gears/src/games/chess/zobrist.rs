@@ -1,4 +1,4 @@
-use crate::games::chess::pieces::PieceType::{Bishop, King, Knight, Pawn};
+use crate::games::chess::pieces::PieceType::{Bishop, King, Knight, Pawn, Queen, Rook};
 use crate::games::chess::pieces::{PieceType, NUM_CHESS_PIECES};
 use crate::games::chess::squares::{Square, NUM_COLUMNS, NUM_SQUARES};
 use crate::games::chess::Color::Black;
@@ -65,6 +65,7 @@ impl Board {
         let mut nonpawns = [PosHash(0); NUM_COLORS];
         let mut special = PosHash(0);
         let mut knb = PosHash(0);
+        let mut krq = PosHash(0);
         for color in Color::iter() {
             for piece in PieceType::non_pawn_pieces() {
                 let pieces_bb = self.col_piece_bb(color, piece);
@@ -73,6 +74,9 @@ impl Board {
                     nonpawns[color] ^= key;
                     if [Knight, Bishop, King].contains(&piece) {
                         knb ^= key;
+                    }
+                    if [Rook, Queen, King].contains(&piece) {
+                        krq ^= key;
                     }
                 }
             }
@@ -85,7 +89,7 @@ impl Board {
         if self.active == Black {
             special ^= ZOBRIST_KEYS.side_to_move_key;
         }
-        Hashes { pawns, nonpawns, knb, total: pawns ^ nonpawns[0] ^ nonpawns[1] ^ special }
+        Hashes { pawns, nonpawns, knb, krq, total: pawns ^ nonpawns[0] ^ nonpawns[1] ^ special }
     }
 
     pub fn zobrist_delta(color: Color, piece: PieceType, from: Square, to: Square) -> PosHash {
