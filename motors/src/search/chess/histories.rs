@@ -30,7 +30,7 @@ use gears::games::chess::{Board, Color};
 use gears::games::{ColorTrait, NUM_COLORS};
 use gears::general::bitboards::chessboard::Bitboard;
 use gears::general::bitboards::{BitboardTrait, RawBitboardTrait};
-use gears::general::board::BoardTrait;
+use gears::general::board::{BitboardBoard, BoardTrait};
 use gears::general::moves::MoveTrait;
 use gears::itertools::Itertools;
 use gears::output::text_output::AdaptFormatter;
@@ -235,7 +235,7 @@ impl CorrHist {
             let nonpawn_idx = pos.nonpawn_key(c).0 as usize % CORRHIST_SIZE;
             Self::update_entry(&mut self.nonpawns[color][nonpawn_idx][c], weight, bonus);
         }
-        let thread_idx = pos.threats().0 as usize % THREAT_CORRHIST_SIZE;
+        let thread_idx = (pos.threats() & pos.occupied_bb()).0 as usize % THREAT_CORRHIST_SIZE;
         Self::update_entry(&mut self.threats[color][thread_idx], weight, bonus);
         if ply >= 1
             && let entry = &stack[ply - 1]
@@ -270,7 +270,7 @@ impl CorrHist {
             let nonpawn_idx = pos.nonpawn_key(c).0 as usize % CORRHIST_SIZE;
             correction += self.nonpawns[color][nonpawn_idx][c] as isize * cc::nonpawn_corrhist_weight() / 1024;
         }
-        let threat_idx = pos.threats().0 as usize % THREAT_CORRHIST_SIZE;
+        let threat_idx = (pos.threats() & pos.occupied_bb()).0 as usize % THREAT_CORRHIST_SIZE;
         correction += self.threats[color][threat_idx] as isize * cc::threat_corrhist_weight() / 1024;
         if ply >= 1
             && let entry = &stack[ply - 1]
