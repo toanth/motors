@@ -134,6 +134,8 @@ spsa_params![
     follow_up_weight: isize = 512; 256..=2048; step=16;
     corrhist_offset: isize = 128; 0..=512; step=32;
     corrhist_max: isize = 2048; 512..=65_536; step=256;
+    minor_corrhist_weight: isize = 1024; 0..=2048; step=16;
+    major_corrhist_weight: isize = 512; 0..=2048; step=16;
     nonpawn_corrhist_weight: isize = 512; 0..=2048; step=16;
     contcorrhist_weight: isize = 1024; 0..=2048; step=16;
     fucorrhist_weight: isize = 1024; 0..=2048; step=16;

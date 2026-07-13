@@ -161,6 +161,7 @@ pub(super) struct CorrHist {
     // the outer color index is the active player, the inner color is the color we're looking at
     nonpawns: Box<[[[ScoreT; NUM_COLORS]; CORRHIST_SIZE]; NUM_COLORS]>,
     minor: Box<[[ScoreT; CORRHIST_SIZE]; NUM_COLORS]>,
+    major: Box<[[ScoreT; CORRHIST_SIZE]; NUM_COLORS]>,
     continuation: Box<[[[ScoreT; NUM_CHESS_PIECES]; NUM_SQUARES]; NUM_COLORS]>,
     follow_up: Box<[[[ScoreT; NUM_CHESS_PIECES]; NUM_SQUARES]; NUM_COLORS]>,
 }
@@ -171,6 +172,7 @@ impl Default for CorrHist {
             pawns: Box::new([[0; CORRHIST_SIZE]; NUM_COLORS]),
             nonpawns: Box::new([[[0; NUM_COLORS]; CORRHIST_SIZE]; NUM_COLORS]),
             minor: Box::new([[0; CORRHIST_SIZE]; NUM_COLORS]),
+            major: Box::new([[0; CORRHIST_SIZE]; NUM_COLORS]),
             continuation: Box::new([[[0; NUM_CHESS_PIECES]; NUM_SQUARES]; NUM_COLORS]),
             follow_up: Box::new([[[0; NUM_CHESS_PIECES]; NUM_SQUARES]; NUM_COLORS]),
         }
@@ -198,6 +200,9 @@ impl CorrHist {
         for value in self.minor.iter_mut().flatten() {
             *value = 0;
         }
+        for value in self.major.iter_mut().flatten() {
+            *value = 0;
+        }
         for value in self.continuation.iter_mut().flatten().flatten() {
             *value = 0;
         }
@@ -223,6 +228,8 @@ impl CorrHist {
         Self::update_entry(&mut self.pawns[color][pawn_idx], weight, bonus);
         let minor_idx = pos.minor_key().0 as usize % CORRHIST_SIZE;
         Self::update_entry(&mut self.minor[color][minor_idx], weight, bonus);
+        let major_idx = pos.major_key().0 as usize % CORRHIST_SIZE;
+        Self::update_entry(&mut self.major[color][major_idx], weight, bonus);
         for c in Color::iter() {
             let nonpawn_idx = pos.nonpawn_key(c).0 as usize % CORRHIST_SIZE;
             Self::update_entry(&mut self.nonpawns[color][nonpawn_idx][c], weight, bonus);
@@ -256,7 +263,9 @@ impl CorrHist {
         let pawn_idx = pos.pawn_key().0 as usize % CORRHIST_SIZE;
         let mut correction = self.pawns[color][pawn_idx] as isize;
         let minor_idx = pos.minor_key().0 as usize % CORRHIST_SIZE;
-        correction += self.minor[color][minor_idx] as isize;
+        correction += self.minor[color][minor_idx] as isize * cc::minor_corrhist_weight() / 1024;
+        let major_idx = pos.major_key().0 as usize % CORRHIST_SIZE;
+        correction += self.major[color][major_idx] as isize & cc::major_corrhist_weight() / 1024;
         for c in Color::iter() {
             let nonpawn_idx = pos.nonpawn_key(c).0 as usize % CORRHIST_SIZE;
             correction += self.nonpawns[color][nonpawn_idx][c] as isize * cc::nonpawn_corrhist_weight() / 1024;
