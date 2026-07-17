@@ -20,28 +20,38 @@ use crate::eval::chess::FileOpenness;
 use gears::games::chess::pieces::PieceType;
 use gears::games::chess::pieces::PieceType::King;
 use gears::games::chess::squares::Square;
-use gears::games::chess::Color;
-use gears::games::chess::Color::White;
+use gears::games::chess::Color::{Black, White};
+use gears::games::chess::{Board, Color};
 use gears::games::DimT;
+use gears::general::board::BoardTrait;
 use gears::general::common::StaticallyNamedEntity;
-use gears::score::{p, PhasedScore};
+use gears::general::squares::manhattan_distance;
+use gears::score::{p, PhasedScore, Score, ScoreT};
 use std::fmt::Display;
 
 #[rustfmt::skip]
 const KING_GAMBOT_VALUES: [PhasedScore; 64] =   [
-    p(650, 300),    p(650, 300),    p(650, 300),    p(650, 300),    p(650, 300),    p(650, 300),    p(650, 300),    p(650, 300),
-    p(500, 200),    p(500, 200),    p(500, 200),    p(500, 200),    p(500, 200),    p(500, 200),    p(500, 200),    p(500, 200),
-    p(400, 100),    p(400, 100),    p(400, 100),    p(400, 100),    p(400, 100),    p(400, 100),    p(400, 100),    p(400, 100),
-    p(250, 0),      p(250, 0),      p(250, 0),      p(250, 0),      p(250, 0),      p(250, 0),      p(250, 0),      p(250, 0),
-    p(100, -100),   p(100, -100),   p(100, -100),   p(100, -100),   p(100, -100),   p(100, -100),   p(100, -100),   p(100, -100),
-    p(-100, -200),  p(-100, -200),  p(-100, -200),  p(-100, -200),  p(-100, -200),  p(-100, -200),  p(-100, -200),  p(-100, -200),
-    p(-300, -300),  p(-300, -300),  p(-300, -300),  p(-300, -300),  p(-300, -300),  p(-300, -300),  p(-300, -300),  p(-300, -300),
-    p(-500, -500),  p(-500, -500),  p(-500, -500),  p(-500, -500),  p(-500, -500),  p(-500, -500),  p(-500, -500),  p(-500, -500),
+    p(850, 200),    p(850, 200),    p(870, 200),    p(900, 200),    p(900, 200),    p(870, 200),    p(850, 200),    p(850, 200),
+    p(700, 250),    p(700, 250),    p(720, 250),    p(750, 250),    p(750, 250),    p(720, 250),    p(700, 250),    p(700, 250),
+    p(600, 200),    p(600, 200),    p(620, 200),    p(650, 200),    p(650, 200),    p(620, 200),    p(600, 200),    p(600, 200),
+    p(450, 100),    p(450, 100),    p(470, 100),    p(500, 100),    p(500, 100),    p(470, 100),    p(450, 100),    p(450, 100),
+    p(300, 0),      p(300, 0),      p(320, 0),      p(350, 0),      p(350, 0),      p(320, 0),      p(300, 0),      p(300, 0),
+    p(100, -100),   p(100, -100),   p(120, -100),   p(150, -100),   p(150, -100),   p(120, -100),   p(100, -100),   p(100, -100),
+    p(-100, -200),  p(-100, -200),  p(-80, -200),   p(-50, -200),   p(-50, -200),   p(-80, -200),   p(-100, -200),  p(-100, -200),
+    p(-300, -400),  p(-300, -400),  p(-280, -400),  p(-250, -400),  p(-250, -400),  p(-280, -400),  p(-300, -400),  p(-300, -400),
 ];
 
 #[derive(Debug, Default, Copy, Clone)]
 pub struct KingGambotValues {
     pub us: Color,
+}
+
+impl KingGambotValues {
+    pub fn king_closeness(&self, pos: &Board) -> Score {
+        let dist = manhattan_distance(pos.king_sq(White), pos.king_sq(Black));
+        let score = Score(256 - (dist as ScoreT) * 16);
+        if pos.active_player() == self.us { score } else { -score }
+    }
 }
 
 impl StaticallyNamedEntity for KingGambotValues {
@@ -198,7 +208,7 @@ impl LiteValues for KingGambotValues {
     }
 
     fn double_kingzone_attack() -> PhasedScore {
-        Lite::double_kingzone_attack()
+        Lite::double_kingzone_attack() / 2
     }
 
     fn king_zone_attack(attacking: PieceType) -> PhasedScore {
@@ -218,18 +228,18 @@ impl LiteValues for KingGambotValues {
     }
 
     fn discovered_check(piece: PieceType) -> PhasedScore {
-        Lite::discovered_check(piece)
+        Lite::discovered_check(piece) / 2
     }
 
     fn discovered_check_stm() -> PhasedScore {
-        Lite::discovered_check_stm()
+        Lite::discovered_check_stm() / 2
     }
 
     fn check_stm() -> PhasedScore {
-        Lite::check_stm()
+        Lite::check_stm() / 2
     }
 
     fn safe_check_stm() -> PhasedScore {
-        Lite::safe_check_stm()
+        Lite::safe_check_stm() / 2
     }
 }

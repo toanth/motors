@@ -644,14 +644,15 @@ impl Eval<Board> for LiTEval {
 impl Eval<Board> for KingGambot {
     fn eval(&mut self, pos: &Board, ply: usize, engine: Color) -> Score {
         self.tuned.us = engine;
-        eval_lite(self, pos, ply)
+        let king_closeness = self.tuned.king_closeness(pos);
+        eval_lite(self, pos, ply) + king_closeness
     }
 
     fn eval_incremental(&mut self, old_pos: &Board, mov: Move, new_pos: &Board, ply: usize, engine: Color) -> Score {
         if engine != self.tuned.us {
             self.eval(new_pos, ply, engine)
         } else {
-            eval_lite_incremental(self, old_pos, mov, new_pos, ply)
+            eval_lite_incremental(self, old_pos, mov, new_pos, ply) + self.tuned.king_closeness(new_pos)
         }
     }
 

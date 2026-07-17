@@ -641,16 +641,6 @@ impl Caps {
 
         let mut bound_so_far = FailLow;
 
-        let mut continued = None;
-        if ply >= 2 {
-            let entry = &self.state.search_stack[ply - 2];
-            let mov = entry.last_tried_move();
-            if !mov.is_null() {
-                let piece = mov.piece_type(&entry.pos);
-                continued = Some((mov, piece));
-            }
-        }
-
         // ************************
         // ***** Probe the TT *****
         // ************************
@@ -714,7 +704,7 @@ impl Caps {
                 }
             }
             raw_eval = tt_entry.raw_eval();
-            eval = self.state.custom.corr_hist.correct(pos, continued, raw_eval);
+            eval = self.state.custom.corr_hist.correct(pos, ply, &self.state.search_stack, raw_eval);
             // The TT score is backed by a search, so it should be more trustworthy than a simple call to static eval.
             // Note that the TT score may be a mate score, so `eval` can also be a mate score. This doesn't currently
             // create any problems, but should be kept in mind.
@@ -733,7 +723,7 @@ impl Caps {
             };
         } else {
             raw_eval = self.eval(pos, ply);
-            eval = self.state.custom.corr_hist.correct(pos, continued, raw_eval);
+            eval = self.state.custom.corr_hist.correct(pos, ply, &self.state.search_stack, raw_eval);
         };
 
         self.record_pos(pos, eval, ply);
@@ -742,7 +732,7 @@ impl Caps {
         // However, captures and promos are generally good moves, so if our eval is the static eval instead of adjusted from the TT,
         // a noisy condition would mean we're doing even better than expected. // TODO: Apply noisy for RFP etc only if eval is TT eval?
         // If it's from the TT, however, and the first move didn't produce a beta cutoff, we're probably worse than expected
-        let pos_noisy = in_check || (best_move != Move::default() && best_move.is_tactical(pos));
+        let pos_noisy = in_check || best_move.is_tactical(pos);
 
         // Like the commonly used `improving` and `regressing`, these variables compare the current static eval with
         // the static eval 2 plies ago to recognize blunders. Conceptually, `improving` and `regressing` can be seen as
@@ -1051,9 +1041,8 @@ impl Caps {
                 // LMR (Late Move Reductions): Trust the move ordering (quiet history, continuation history and capture history heuristics)
                 // and assume that moves ordered later are worse. Therefore, we can do a reduced-depth search with a null window
                 // to verify our belief.
-                // I think it's common to have a minimum depth for doing LMR, but not having that gained elo.
                 let mut reduction = 0;
-                if num_uninteresting_visited >= cc::lmr_min_uninteresting() {
+                if num_uninteresting_visited >= cc::lmr_min_uninteresting() && depth >= cc::min_lmr_depth() {
                     // TODO: Constants (changes bench)
                     reduction = (depth / 128) / cc::lmr_depth_div() * 128
                         + (num_uninteresting_visited + 1).ilog2() as isize * cc::lmr_moves_mult()
@@ -1257,7 +1246,7 @@ impl Caps {
             || (best_score <= eval && bound_so_far == NodeType::lower_bound())
             || (best_score >= eval && bound_so_far == NodeType::upper_bound()))
         {
-            self.state.custom.corr_hist.update(pos, continued, depth, eval, best_score);
+            self.state.custom.corr_hist.update(pos, ply, &self.state.search_stack, depth, eval, best_score);
         }
         if ply > 0 && bound_so_far == FailLow {
             // give a smaller bonus to the parent's move if we fail low. This rewards PVS researches that don't cause a fail high in the parent.
@@ -1290,16 +1279,6 @@ impl Caps {
         // see main search, store an invalid null move in the TT entry if all moves failed low.
         let mut best_move = Move::default();
 
-        let mut continued = None;
-        if ply >= 2 {
-            let entry = &self.state.search_stack[ply - 2];
-            let mov = entry.last_tried_move();
-            if !mov.is_null() {
-                let piece = mov.piece_type(&entry.pos);
-                continued = Some((mov, piece));
-            }
-        }
-
         if pv_node {
             self.search_stack[ply].pv.clear();
         }
@@ -1324,7 +1303,7 @@ impl Caps {
                 }
             }
             raw_eval = tt_entry.raw_eval();
-            eval = self.state.custom.corr_hist.correct(pos, continued, raw_eval);
+            eval = self.state.custom.corr_hist.correct(pos, ply, &self.state.search_stack, raw_eval);
 
             // even though qsearch never checks for game over conditions, it's still possible for it to load a checkmate score
             // and propagate that up to a qsearch parent node, where it gets saved with a depth of 0, so game over scores
@@ -1348,7 +1327,7 @@ impl Caps {
             eval = SCORE_LOST + ply as ScoreT;
         } else {
             raw_eval = self.eval(pos, ply);
-            eval = self.state.custom.corr_hist.correct(pos, continued, raw_eval);
+            eval = self.state.custom.corr_hist.correct(pos, ply, &self.state.search_stack, raw_eval);
         }
         let mut best_score = eval;
         // Saving to the TT is probably unnecessary since the score is either from the TT or just the static eval,
@@ -1374,15 +1353,17 @@ impl Caps {
             let move_score = sm.score();
             debug_assert!(mov.is_tactical(pos) || pos.is_in_check(), "{mov:?} {pos}");
             self.tt().prefetch(pos.approx_hash_after(mov));
-            if !eval.is_game_lost_score() && move_score < MoveScore(0) || children_visited >= 3 {
-                // qsearch see pruning and qsearch late move  pruning (lmp):
-                // If the move has a negative SEE score or if we've already looked at enough moves, don't even bother playing it in qsearch.
-                break;
-            }
-            let hist_score = self.capt_hist.get(mov, pos);
-            // qsearch history pruning
-            if hist_score < MoveScore(-500) {
-                break;
+            if !best_score.is_game_lost_score() {
+                if move_score < MoveScore(0) || children_visited >= cc::qsearch_lmp() {
+                    // qsearch see pruning and qsearch late move  pruning (lmp):
+                    // If the move has a negative SEE score or if we've already looked at enough moves, don't even bother playing it in qsearch.
+                    break;
+                }
+                let hist_score = self.capt_hist.get(mov, pos);
+                // qsearch history pruning
+                if hist_score < MoveScore(-500) {
+                    break;
+                }
             }
             let new_pos = pos.play(mov);
             // check nodes in qsearch to allow `go nodes n` to go exactly `n` nodes. Do this check here to avoid counting

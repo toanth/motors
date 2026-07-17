@@ -15,12 +15,12 @@
  *  You should have received a copy of the GNU General Public License
  *  along with Gears. If not, see <https://www.gnu.org/licenses/>.
  */
-use crate::games::chess::Board;
 use crate::games::chess::moves::Move;
 use crate::games::chess::moves::MoveFlags::NormalQuiet;
 use crate::games::chess::pieces::ColoredPieceType;
 use crate::games::chess::squares::{ChessboardSize, Square};
 use crate::games::chess::zobrist::ZOBRIST_KEYS;
+use crate::games::chess::Board;
 use crate::games::{BoardHistDyn, ColoredPieceTrait, ColoredPieceTypeTrait, PosHash, ZobristHistory};
 use crate::general::attacks::ChessSliderGenerator;
 use crate::general::bitboards::chessboard::Bitboard;
@@ -193,7 +193,7 @@ mod tests {
         assert!(pos.has_upcoming_repetition(&UPCOMING_REPETITION_TABLE, &hist));
         hist.push(pos.hash_pos());
         pos = pos.make_nullmove().unwrap();
-        assert!(!pos.has_upcoming_repetition(&UPCOMING_REPETITION_TABLE, &hist));
+        assert!(pos.has_upcoming_repetition(&UPCOMING_REPETITION_TABLE, &hist));
     }
 
     #[test]

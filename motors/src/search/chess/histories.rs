@@ -16,15 +16,16 @@
  *  along with Motors. If not, see <https://www.gnu.org/licenses/>.
  */
 use crate::io::ugi_output::{color_for_score, score_gradient};
-use crate::search::MoveScore;
 use crate::search::chess::caps_values::cc;
 use crate::search::chess::caps_values::cc::corrhist_max;
+use crate::search::chess::CapsSearchStackEntry;
+use crate::search::MoveScore;
 use derive_more::{Deref, DerefMut, Index, IndexMut};
 use gears::colored::Colorize;
 use gears::games::chess::moves::Move;
 use gears::games::chess::moves::MoveFlags::NormalQuiet;
-use gears::games::chess::pieces::{NUM_CHESS_PIECES, PieceType};
-use gears::games::chess::squares::{NUM_SQUARES, Square};
+use gears::games::chess::pieces::NUM_CHESS_PIECES;
+use gears::games::chess::squares::{Square, NUM_SQUARES};
 use gears::games::chess::{Board, Color};
 use gears::games::{ColorTrait, NUM_COLORS};
 use gears::general::bitboards::chessboard::Bitboard;
@@ -32,9 +33,9 @@ use gears::general::bitboards::{BitboardTrait, RawBitboardTrait};
 use gears::general::board::BoardTrait;
 use gears::general::moves::MoveTrait;
 use gears::itertools::Itertools;
-use gears::output::OutputOpts;
 use gears::output::text_output::AdaptFormatter;
-use gears::score::{MAX_NORMAL_SCORE, MIN_NORMAL_SCORE, Score, ScoreT};
+use gears::output::OutputOpts;
+use gears::score::{Score, ScoreT, MAX_NORMAL_SCORE, MIN_NORMAL_SCORE};
 
 pub(super) type HistScoreT = i16;
 
@@ -161,6 +162,7 @@ pub(super) struct CorrHist {
     nonpawns: Box<[[[ScoreT; NUM_COLORS]; CORRHIST_SIZE]; NUM_COLORS]>,
     minor: Box<[[ScoreT; CORRHIST_SIZE]; NUM_COLORS]>,
     continuation: Box<[[[ScoreT; NUM_CHESS_PIECES]; NUM_SQUARES]; NUM_COLORS]>,
+    follow_up: Box<[[[ScoreT; NUM_CHESS_PIECES]; NUM_SQUARES]; NUM_COLORS]>,
 }
 
 impl Default for CorrHist {
@@ -170,6 +172,7 @@ impl Default for CorrHist {
             nonpawns: Box::new([[[0; NUM_COLORS]; CORRHIST_SIZE]; NUM_COLORS]),
             minor: Box::new([[0; CORRHIST_SIZE]; NUM_COLORS]),
             continuation: Box::new([[[0; NUM_CHESS_PIECES]; NUM_SQUARES]; NUM_COLORS]),
+            follow_up: Box::new([[[0; NUM_CHESS_PIECES]; NUM_SQUARES]; NUM_COLORS]),
         }
     }
 }
@@ -192,10 +195,13 @@ impl CorrHist {
         for value in self.nonpawns.iter_mut().flatten().flatten() {
             *value = 0;
         }
+        for value in self.minor.iter_mut().flatten() {
+            *value = 0;
+        }
         for value in self.continuation.iter_mut().flatten().flatten() {
             *value = 0;
         }
-        for value in self.minor.iter_mut().flatten() {
+        for value in self.follow_up.iter_mut().flatten().flatten() {
             *value = 0;
         }
     }
@@ -203,7 +209,8 @@ impl CorrHist {
     pub(super) fn update(
         &mut self,
         pos: &Board,
-        continued: Option<(Move, PieceType)>,
+        ply: usize,
+        stack: &[CapsSearchStackEntry],
         depth: isize,
         eval: Score,
         score: Score,
@@ -220,13 +227,28 @@ impl CorrHist {
             let nonpawn_idx = pos.nonpawn_key(c).0 as usize % CORRHIST_SIZE;
             Self::update_entry(&mut self.nonpawns[color][nonpawn_idx][c], weight, bonus);
         }
-        if let Some((mov, piece)) = continued {
+
+        if ply >= 1
+            && let entry = &stack[ply - 1]
+            && let mov = entry.last_tried_move()
+            && !mov.is_null()
+        {
+            let piece = mov.piece_type(&entry.pos);
+            let entry = &mut self.continuation[color][mov.dest_square().bb_idx()][piece];
+            Self::update_entry(entry, weight, bonus);
+        }
+        if ply >= 2
+            && let entry = &stack[ply - 2]
+            && let mov = entry.last_tried_move()
+            && !mov.is_null()
+        {
+            let piece = mov.piece_type(&entry.pos);
             let entry = &mut self.continuation[color][mov.dest_square().bb_idx()][piece];
             Self::update_entry(entry, weight, bonus);
         }
     }
 
-    pub(super) fn correct(&mut self, pos: &Board, continued: Option<(Move, PieceType)>, raw: Score) -> Score {
+    pub(super) fn correct(&mut self, pos: &Board, ply: usize, stack: &[CapsSearchStackEntry], raw: Score) -> Score {
         if raw.is_won_or_lost() {
             return raw;
         }
@@ -239,9 +261,23 @@ impl CorrHist {
             let nonpawn_idx = pos.nonpawn_key(c).0 as usize % CORRHIST_SIZE;
             correction += self.nonpawns[color][nonpawn_idx][c] as isize * cc::nonpawn_corrhist_weight() / 1024;
         }
-        if let Some((mov, piece)) = continued {
+        if ply >= 1
+            && let entry = &stack[ply - 1]
+            && let mov = entry.last_tried_move()
+            && !mov.is_null()
+        {
+            let piece = mov.piece_type(&entry.pos);
             correction +=
                 self.continuation[color][mov.dest_square().bb_idx()][piece] as isize * cc::contcorrhist_weight() / 1024;
+        }
+        if ply >= 2
+            && let entry = &stack[ply - 2]
+            && let mov = entry.last_tried_move()
+            && !mov.is_null()
+        {
+            let piece = mov.piece_type(&entry.pos);
+            correction +=
+                self.continuation[color][mov.dest_square().bb_idx()][piece] as isize * cc::fucorrhist_weight() / 1024;
         }
         debug_assert!(correction.abs() / CORRHIST_SCALE < MAX_NORMAL_SCORE.0 as isize / 2);
         let score = raw.0 as isize + correction / CORRHIST_SCALE;
