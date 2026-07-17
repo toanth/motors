@@ -894,7 +894,7 @@ impl Caps {
             let mov = sm.mov();
             let move_score = sm.score();
             self.tt().prefetch(pos.approx_hash_after(mov));
-            if best_score > MAX_SCORE_LOST && !in_check && !root {
+            if best_score > MAX_SCORE_LOST && !root {
                 // LMP (Late Move Pruning): Trust the move ordering and assume that moves ordered late aren't very interesting,
                 // so don't even bother looking at them in the last few layers.
                 // TODO: Use a quadratic formula and get rid of the max depth parameter
