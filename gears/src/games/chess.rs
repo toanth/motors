@@ -1264,6 +1264,7 @@ mod tests {
             "kQQQQQDDw-W0w",
             "2rr2k1/1p4bp/p1q1pqp1/4Pp1n/2PB4/1PN3P1/P3Q2P/2Rr2K1 w - f6 0 20",
             "7r/8/8/8/8/1k4P1/1K6/8 w - - 3 3",
+            "5b1k/8/8/2pP4/8/K7/8/8 w - c6 0 1",
             // from <https://chess.resistant.tech/>
             "4kb1r/p2rqppp/5n2B2p1B1/4P3/1Q6/PPP2PPP/2K4R w - -",
             "4kb1r/B2pqBpp/3P1n2/Q7/PP2PPP1/1K4RP/8/8 w - - 0 1",
