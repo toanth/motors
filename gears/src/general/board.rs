@@ -1441,8 +1441,13 @@ pub(crate) fn read_two_move_numbers<B: RectangularBoard>(
             bail!("The FEN contains a valid halfmove clock ('{halfmove_clock}') but no fullmove counter",)
         };
         let fullmove_number = fullmove_number
-            .parse::<NonZeroUsize>()
+            .parse::<usize>()
             .map_err(|err| anyhow!("Couldn't parse fullmove counter '{}': {err}", fullmove_number.red()))?;
+        let fullmove_number = if fullmove_number == 0 && strictness == Strict {
+            bail!("Fullmove counter can't be zero. In relaxed mode, this gets corrected to 1.")
+        } else {
+            NonZeroUsize::new(fullmove_number.max(1)).unwrap()
+        };
         _ = words.next();
         board.set_ply_since_start(ply_counter_from_fullmove_nr(fullmove_number, board.active_player().is_first()))?;
     } else if strictness == Strict {

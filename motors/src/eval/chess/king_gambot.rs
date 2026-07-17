@@ -20,16 +20,18 @@ use crate::eval::chess::FileOpenness;
 use gears::games::chess::pieces::PieceType;
 use gears::games::chess::pieces::PieceType::King;
 use gears::games::chess::squares::Square;
-use gears::games::chess::Color;
-use gears::games::chess::Color::White;
+use gears::games::chess::Color::{Black, White};
+use gears::games::chess::{Board, Color};
 use gears::games::DimT;
+use gears::general::board::BoardTrait;
 use gears::general::common::StaticallyNamedEntity;
-use gears::score::{p, PhasedScore};
+use gears::general::squares::manhattan_distance;
+use gears::score::{p, PhasedScore, Score, ScoreT};
 use std::fmt::Display;
 
 #[rustfmt::skip]
 const KING_GAMBOT_VALUES: [PhasedScore; 64] =   [
-    p(850, 250),    p(850, 250),    p(870, 250),    p(900, 250),    p(900, 250),    p(870, 250),    p(850, 250),    p(850, 250),
+    p(850, 200),    p(850, 200),    p(870, 200),    p(900, 200),    p(900, 200),    p(870, 200),    p(850, 200),    p(850, 200),
     p(700, 250),    p(700, 250),    p(720, 250),    p(750, 250),    p(750, 250),    p(720, 250),    p(700, 250),    p(700, 250),
     p(600, 200),    p(600, 200),    p(620, 200),    p(650, 200),    p(650, 200),    p(620, 200),    p(600, 200),    p(600, 200),
     p(450, 100),    p(450, 100),    p(470, 100),    p(500, 100),    p(500, 100),    p(470, 100),    p(450, 100),    p(450, 100),
@@ -42,6 +44,14 @@ const KING_GAMBOT_VALUES: [PhasedScore; 64] =   [
 #[derive(Debug, Default, Copy, Clone)]
 pub struct KingGambotValues {
     pub us: Color,
+}
+
+impl KingGambotValues {
+    pub fn king_closeness(&self, pos: &Board) -> Score {
+        let dist = manhattan_distance(pos.king_sq(White), pos.king_sq(Black));
+        let score = Score(256 - (dist as ScoreT) * 16);
+        if pos.active_player() == self.us { score } else { -score }
+    }
 }
 
 impl StaticallyNamedEntity for KingGambotValues {

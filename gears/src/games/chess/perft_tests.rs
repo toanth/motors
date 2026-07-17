@@ -1,18 +1,18 @@
 #[cfg(test)]
 mod tests {
-    use crate::games::BoardTrait;
-    use crate::games::chess::Board;
     use crate::games::chess::moves::Move;
+    use crate::games::chess::Board;
+    use crate::games::BoardTrait;
     use crate::general::board::Strictness::{Relaxed, Strict};
     use crate::general::board::{BoardHelpers, Strictness};
     use crate::general::common::parse_int_from_str;
     use crate::general::moves::MoveTrait;
+    use crate::general::perft::perft;
     use crate::general::perft::Bulkness::{Bulk, NoBulk};
     use crate::general::perft::Parallelize::*;
-    use crate::general::perft::perft;
     use crate::search::DepthPly;
     use rayon::prelude::*;
-    use std::io::{Write, stdout};
+    use std::io::{stdout, Write};
     use std::sync::atomic::{AtomicU64, Ordering};
     use std::time::Instant;
 
@@ -159,7 +159,7 @@ mod tests {
             "4k3/8/K6q/3pP3/8/8/8/8 w - d6 0 1",
         ];
         for fen in fens {
-            let parsed = Board::from_fen(fen, Relaxed);
+            let parsed = Board::from_fen(fen, Strict);
             assert!(parsed.is_err());
         }
     }
@@ -505,6 +505,8 @@ mod tests {
         "RNBQKBNR/PPPPPPPP/8/8/8/8/pppppppp/rnbqkbnr w - - 0 1 ;D1 4 ;D2 16 ;D3 176 ;D4 1936 ;D5 22428 ;D6 255135 ;D7 3830854",
         // Triggered a bug in SF once which didn't appear in the usual perft test suite
         "r7/4p3/5p1q/3P4/4pQ2/4pP2/6pp/R3K1kr w Q - 1 3 ;D1 29 ;D2 681 ;D3 18511 ;D4 430036 ;D5 11609488 ;D6 274691896",
+        // a reachable position where white is in check and has 42 legal moves
+        "2RqR3/2P1P3/2Q1Q3/2Q1Q3/1NQ1QN1k/2B1Q3/8/1n1K1B2 w - - 0 1 ;D1 42 ;D2 358 ;D3 28889 ;D4 296249 ;D5 26901141",
     ];
 
     /// This perft test suite is also taken from Ethereal: <https://github.com/AndyGrant/Ethereal/blob/master/src/perft/fischer.epd>.

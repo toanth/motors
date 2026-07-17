@@ -24,13 +24,29 @@ pub struct PerftRes {
 
 impl Display for PerftRes {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        let time = self.time.as_millis();
+        let time = if time < 10_000 {
+            format!("{}ms", time)
+        } else if time < 60_000 {
+            format!("{:.1}s", time as f64 / 1000.)
+        } else {
+            format!("{:.1}min", time as f64 / 60_000.)
+        };
+        let mut nps = self.nodes as f64 / self.time.as_secs_f64();
+        let suffix = ["", "K", "M", "B", "T", "Q"];
+        let mut nps_string = format!("{nps:.0}");
+        for suffix in suffix {
+            if nps < 10_000. {
+                nps_string = format!("{nps:.1}{suffix}");
+                break;
+            }
+            nps /= 1_000.;
+        }
         write!(
             f,
-            "Finished perft depth {depth} in {time}ms ({nps} nps)\nNodes searched: {nodes}",
+            "Finished perft depth {depth} in {time} ({nps_string}nps)\nNodes searched: {nodes}",
             depth = self.depth.get(),
             nodes = self.nodes.to_string().bold(),
-            time = self.time.as_millis(),
-            nps = self.nodes * 1_000_000 / self.time.as_micros().max(1) as u64
         )
     }
 }
