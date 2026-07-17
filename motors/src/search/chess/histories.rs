@@ -249,7 +249,7 @@ impl CorrHist {
     }
 
     pub(super) fn correct(&mut self, pos: &Board, ply: usize, stack: &[CapsSearchStackEntry], raw: Score) -> Score {
-        if raw.is_normal_score() {
+        if !raw.is_normal_score() {
             return raw;
         }
         let color = pos.active_player();
