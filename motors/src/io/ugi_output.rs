@@ -599,7 +599,7 @@ pub fn pretty_score(
         let [r, g, b, _] = color.to_rgba8();
         let diff = score - previous;
         let delta = if score.is_won_or_lost() {
-            if score.is_proven_win() { ":)" } else { ":(" }
+            if score.is_game_won_score() { ":)" } else { ":(" }
         } else if score.0 == 0 {
             ":|"
         } else if diff >= Score(10) {
