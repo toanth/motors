@@ -403,17 +403,9 @@ impl TT {
         // Mate score adjustments, see `store`
         if let Some(tt_plies) = entry.score().plies_until_game_won() {
             if tt_plies <= 0 {
-                if -tt_plies > pos.plies_until_draw() {
-                    entry.score = UNPROVEN_LOSS.compact();
-                } else {
-                    entry.score += ply as CompactScoreT;
-                }
+                entry.score += ply as CompactScoreT;
             } else {
-                if tt_plies > pos.plies_until_draw() {
-                    entry.score = UNPROVEN_WIN.compact();
-                } else {
-                    entry.score -= ply as CompactScoreT;
-                }
+                entry.score -= ply as CompactScoreT;
             }
         }
         debug_assert!(entry.score().0.abs() <= SCORE_WON.0, "{} {ply} {entry:?}", entry.score().0);
