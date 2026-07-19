@@ -1221,19 +1221,24 @@ impl Caps {
             && !best_move.is_null()
             && depth > 5 * 128
             && !in_singular_search
+            && self.search_stack[ply].tried_moves.len() > 5
         {
             debug_assert!(!self.search_stack[ply].tried_moves.is_empty());
             let new_pos = pos.play(best_move);
             self.search_stack[ply].tried_moves.clear();
             self.record_move(best_move, pos, ply, MoveScore::MAX);
-            let score = -self.negamax(&new_pos, ply + 1, depth - 2 * 128, -beta, -alpha, FailHigh, None)?;
-            self.undo_move();
-            best_score = best_score.max(score);
+            let new_depth = depth - 4 * 128;
+            let score = -self.negamax(&new_pos, ply + 1, new_depth, -beta, -alpha, FailHigh, None)?;
             if score > alpha {
                 debug_assert!(score >= beta);
-                bound_so_far = FailHigh;
-                alpha = score;
+                let score = -self.negamax(&new_pos, ply + 1, depth - 128, -beta, -alpha, FailLow, None)?;
+                best_score = best_score.max(score);
+                if score > alpha {
+                    bound_so_far = FailHigh;
+                    alpha = score;
+                }
             }
+            self.undo_move();
         }
 
         // ******************************************************
