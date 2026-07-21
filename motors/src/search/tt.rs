@@ -389,10 +389,6 @@ impl TT {
         entry.pack_into(&bucket[idx_in_bucket]);
     }
 
-    /// If the score is a win or loss in more than `plies_to_horizon` plies, it gets converted to an [`UNPROVEN_WIN`] or [`UNPROVEN_LOSS`]
-    /// score. In chess, `plies_to_horizon` is `100 - ply counter`. While this is a somewhat hacky kludge for path-dependent TT scores,
-    /// it does mean that most score-related invariants are being upheld; we can miss mates but not invent mate scores that are far too long.
-    /// This mitigation still allows returning incorrect mate scores that aren't too large, so PV nodes still need to be extra careful.
     pub fn load<B: BoardTrait>(&self, pos: &B, ply: usize) -> Option<TTEntry<B>> {
         let hash = pos.hash_pos();
         let bucket = &self.tt[self.bucket_index_of(hash)];
@@ -400,7 +396,10 @@ impl TT {
         if entry.is_empty() {
             return None;
         }
-        // Mate score adjustments, see `store`
+        // Mate score adjustments, see `store`.
+        // If the score is a win or loss in more than `plies_to_horizon` plies, it gets converted to an [`UNPROVEN_WIN`] or [`UNPROVEN_LOSS`]
+        // score. In chess, `plies_to_horizon` is `100 - ply counter`. This means that most score-related invariants are being upheld;
+        // we can miss mates but not invent mate scores that ignore the 50 move rule.
         if let Some(tt_plies) = entry.score().plies_until_game_won() {
             if tt_plies <= 0 {
                 if -tt_plies > pos.plies_until_draw() {
