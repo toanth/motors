@@ -113,6 +113,11 @@ spsa_params![
     third_search_reduction: isize = 0; -64..=128; step=8;
     alpha_raise_reduction_min_depth: isize = 256; 128..=1024; step=16;
     alpha_raise_reduction: isize = 128; 32..=512; step=8;
+    fail_low_retry_depth: isize = 768; 64..=2048; step=32;
+    fail_low_retry_move_count: usize = 6; 0..=16; step=1;
+    fail_low_retry_diff: ScoreT = 5; 0..=64; step=1;
+    fail_low_retry_reduction: isize = 512; 128..=2048; step=32;
+    fail_low_retry_research_reduction: isize = 128; -128..=512; step=32;
     qsearch_lmp: isize = 3; 1..=8; step=1;
     noisy_hist_depth_bonus: isize = 128; 4..=512; step=32;
     noisy_hist_bonus_offset: isize = 0; -256..=256; step=8;

@@ -1215,23 +1215,24 @@ impl Caps {
             break;
         }
 
-        // If we expected to fail high, but failed low instead, retry the TT move with reduced depth.
+        // If we expected to fail high, but just barely failed low instead, retry the TT move with reduced depth.
         if bound_so_far == FailLow
             && expected_node_type == FailHigh
             && !best_move.is_null()
-            && depth > 5 * 128
+            && depth >= cc::fail_low_retry_depth()
             && !in_singular_search
-            && self.search_stack[ply].tried_moves.len() > 5
+            && self.search_stack[ply].tried_moves.len() >= cc::fail_low_retry_move_count()
+            && alpha - best_score <= Score(cc::fail_low_retry_diff())
         {
-            debug_assert!(!self.search_stack[ply].tried_moves.is_empty());
             let new_pos = pos.play(best_move);
             self.search_stack[ply].tried_moves.clear();
             self.record_move(best_move, pos, ply, MoveScore::MAX);
-            let new_depth = depth - 4 * 128;
+            let new_depth = depth - cc::fail_low_retry_reduction();
             let score = -self.negamax(&new_pos, ply + 1, new_depth, -beta, -alpha, FailHigh, None)?;
             if score > alpha {
                 debug_assert!(score >= beta);
-                let score = -self.negamax(&new_pos, ply + 1, depth - 128, -beta, -alpha, FailLow, None)?;
+                let new_depth = depth - cc::fail_low_retry_research_reduction();
+                let score = -self.negamax(&new_pos, ply + 1, new_depth, -beta, -alpha, FailLow, None)?;
                 best_score = best_score.max(score);
                 if score > alpha {
                     bound_so_far = FailHigh;
